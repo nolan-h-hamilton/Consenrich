@@ -85,6 +85,7 @@ from .constants import (
     OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
+    OUTPUT_DEFAULT_SAVE_GAINS,
     PROCESS_DEFAULT_DELTA_F,
     PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH,
     PROCESS_DEFAULT_Q_TREND_LEVEL_RATIO_PRIOR,
@@ -203,55 +204,91 @@ def _makeECMProgressBar(
     )
 
 
-_LOG_BLOCK_WIDTH = 72
-_LOG_KEY_WIDTH = 24
-_LOG_INDENT_WIDTH = 6
+def _logFieldName(value: Any) -> str:
+    text = str(value).strip().lower()
+    chars: list[str] = []
+    lastUnderscore = False
+    for char in text:
+        if char.isalnum():
+            chars.append(char)
+            lastUnderscore = False
+        elif not lastUnderscore:
+            chars.append("_")
+            lastUnderscore = True
+    return "".join(chars).strip("_") or "value"
+
+
+def _logEventName(value: Any) -> str:
+    text = str(value).strip().lower()
+    parts: list[str] = []
+    token: list[str] = []
+    for char in text:
+        if char.isalnum():
+            token.append(char)
+        elif token:
+            parts.append("".join(token))
+            token = []
+    if token:
+        parts.append("".join(token))
+    return ".".join(parts) or "event"
+
+
+def _quoteLogString(value: str) -> str:
+    if value == "":
+        return '""'
+    if all(char.isalnum() or char in "._:/@%+-" for char in value):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _formatLogValue(value: Any) -> str:
     if isinstance(value, np.generic):
         value = value.item()
+    if value is None:
+        return "NA"
     if isinstance(value, bool):
-        return "yes" if value else "no"
-    if isinstance(value, float):
-        return f"{value:.6g}" if np.isfinite(value) else str(value)
-    return str(value)
+        return "true" if value else "false"
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        return f"{float(value):.6g}" if np.isfinite(float(value)) else "NA"
+    if isinstance(value, np.ndarray):
+        flat = value.reshape(-1)
+        if flat.size > 12:
+            shape = "x".join(str(int(dim)) for dim in value.shape)
+            return f"array[{shape}]"
+        return _quoteLogString(",".join(_formatLogValue(item) for item in flat))
+    if isinstance(value, (list, tuple)):
+        if len(value) > 12:
+            return f"list[{len(value)}]"
+        return _quoteLogString(",".join(_formatLogValue(item) for item in value))
+    if isinstance(value, Mapping):
+        return f"mapping[{len(value)}]"
+    text = str(value)
+    if "\n" in text:
+        text = " ".join(text.split())
+    return _quoteLogString(text)
 
 
-def _formatAsciiLogBlock(
-    title: str,
-    rows: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
-    *,
-    indentLevel: int = 0,
+def _formatLogEvent(
+    event: str,
+    fields: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
 ) -> str:
-    width = _LOG_BLOCK_WIDTH
-    titleWidth = width - 4
-    keyWidth = _LOG_KEY_WIDTH
-    valueWidth = width - keyWidth - 7
-    indent = " " * (max(0, int(indentLevel)) * _LOG_INDENT_WIDTH)
-    titleLine = f"PHASE: {str(title).upper()}"
-    if len(titleLine) > titleWidth:
-        titleLine = titleLine[: titleWidth - 1] + "~"
-    outerBorder = "+" + ("=" * (width - 2)) + "+"
-    lines = [outerBorder, f"| {titleLine:<{titleWidth}} |"]
-    if rows:
-        rowBorder = "+" + ("-" * (keyWidth + 2)) + "+" + ("-" * (valueWidth + 2)) + "+"
-        lines.append(rowBorder)
-        for key, value in rows:
-            keyText = str(key)
-            valueText = _formatLogValue(value)
-            if (
-                "\n" in keyText
-                or "\n" in valueText
-                or len(keyText) > keyWidth
-                or len(valueText) > valueWidth
-            ):
-                continue
-            lines.append(f"| {keyText:<{keyWidth}} | {valueText:<{valueWidth}} |")
-            lines.append(rowBorder)
-    if indent:
-        return "\n".join(f"{indent}{line}" for line in lines)
-    return "\n".join(lines)
+    parts = [f"event={_logEventName(event)}"]
+    for key, value in fields:
+        parts.append(f"{_logFieldName(key)}={_formatLogValue(value)}")
+    return " ".join(parts)
+
+
+def _logEvent(
+    event: str,
+    fields: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
+    *,
+    logger_: logging.Logger = logger,
+    level: int = logging.INFO,
+    stacklevel: int = 2,
+) -> None:
+    logger_.log(level, _formatLogEvent(event, fields), stacklevel=stacklevel)
 
 
 def _logAsciiBlock(
@@ -262,12 +299,7 @@ def _logAsciiBlock(
     level: int = logging.INFO,
     indentLevel: int = 0,
 ) -> None:
-    logger_.log(
-        level,
-        "\n%s\n",
-        _formatAsciiLogBlock(title, rows, indentLevel=indentLevel),
-        stacklevel=2,
-    )
+    _logEvent(title, rows, logger_=logger_, level=level, stacklevel=3)
 
 
 class processParams(NamedTuple):
@@ -961,6 +993,9 @@ class outputParams(NamedTuple):
     :param saveBackgroundTracks: If True, write the fitted shared background
         track :math:`g_{[i]}` to bedGraph and optional bigWig output.
     :type saveBackgroundTracks: bool
+    :param saveGains: If True, write a genome-wide per-replicate final
+        forward-pass gain summary TSV.
+    :type saveGains: bool
     :param plotOptimizationPath: If True, write and optionally plot the objective
         trace for outer/background passes and fixed-background ECM iterations.
     :type plotOptimizationPath: bool
@@ -978,6 +1013,7 @@ class outputParams(NamedTuple):
     saveBackgroundTracks: bool = OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
     plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
+    saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
 
 
 class fitParams(NamedTuple):
@@ -2732,6 +2768,109 @@ def _processNoiseCalibrationSupport(
     }
 
 
+def _hasFiniteTransitionVariation(
+    matrixData: np.ndarray,
+    *,
+    replicateBias: np.ndarray | None = None,
+) -> bool:
+    data = np.asarray(matrixData, dtype=np.float64)
+    if data.ndim != 2 or data.shape[1] <= 1:
+        return False
+    if replicateBias is not None:
+        bias = np.asarray(replicateBias, dtype=np.float64).reshape(-1)
+        if bias.shape == (data.shape[0],):
+            data = data - bias[:, None]
+    finite = data[np.isfinite(data)]
+    if finite.size == 0:
+        return False
+    diffs = np.diff(data, axis=1)
+    finiteDiffs = diffs[np.isfinite(diffs)]
+    if finiteDiffs.size == 0:
+        return False
+    tolerance = 1.0e-8 * max(1.0, float(np.max(np.abs(finite))))
+    return bool(np.max(np.abs(finiteDiffs)) > tolerance)
+
+
+def _processQBalancedWindowDiagnostics(
+    *,
+    enabled: bool,
+    fallbackReason: str | None,
+    stratumCounts: list[int] | None = None,
+    windowCounts: list[int] | None = None,
+    windowLengths: list[int] | None = None,
+    activeCoverage: float = 0.0,
+) -> dict[str, Any]:
+    lengths = [int(value) for value in (windowLengths or []) if int(value) > 0]
+    return {
+        "enabled": bool(enabled),
+        "fallbackReason": None if fallbackReason is None else str(fallbackReason),
+        "stratumCounts": [int(value) for value in (stratumCounts or [])],
+        "windowCounts": [int(value) for value in (windowCounts or [])],
+        "windowLengthMin": int(min(lengths)) if lengths else None,
+        "windowLengthMedian": float(np.median(lengths)) if lengths else None,
+        "windowLengthMax": int(max(lengths)) if lengths else None,
+        "activeCoverage": float(activeCoverage),
+    }
+
+
+def _buildProcessQBalancedMovingBlockPlan(
+    *,
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    pad: float,
+    blockLenIntervals: int,
+    warmupPassIndex: int,
+    lambdaExp: np.ndarray | None,
+    replicateBias: np.ndarray | None,
+    useObservationPrecision: bool,
+    observationPrecisionMultiplierMin: float,
+    observationPrecisionMultiplierMax: float,
+) -> tuple[list[list[tuple[int, int, int]]], np.ndarray, dict[str, Any]]:
+    return cconsenrich.cBuildProcessQBalancedMovingBlockPlan(
+        matrixData,
+        matrixMunc,
+        float(pad),
+        int(blockLenIntervals),
+        int(warmupPassIndex),
+        lambdaExp=lambdaExp,
+        replicateBias=replicateBias,
+        useObservationPrecision=bool(useObservationPrecision),
+        observationPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+        observationPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+        maskedObservationVariance=float(
+            UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE
+        ),
+    )
+
+
+def _scoreProcessQBalancedMovingBlockNLL(
+    intervalNLL: np.ndarray,
+    *,
+    windowGroups: list[list[tuple[int, int, int]]],
+    activeIntervals: np.ndarray,
+    flattenedWindowPlan: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None = None,
+) -> float:
+    nll = np.asarray(intervalNLL, dtype=np.float64).reshape(-1)
+    active = np.asarray(activeIntervals, dtype=np.uint8).reshape(-1)
+    if nll.shape[0] != active.shape[0] or nll.size == 0:
+        return float("nan")
+    if flattenedWindowPlan is None:
+        flattenedWindowPlan = cconsenrich.cFlattenProcessQBalancedWindowGroups(
+            windowGroups
+        )
+    starts, ends, activeInside, groupOffsets = flattenedWindowPlan
+    return float(
+        cconsenrich.cScoreProcessQBalancedMovingBlockNLL(
+            np.ascontiguousarray(nll, dtype=np.float64),
+            np.ascontiguousarray(active, dtype=np.uint8),
+            np.ascontiguousarray(starts, dtype=np.int64),
+            np.ascontiguousarray(ends, dtype=np.int64),
+            np.ascontiguousarray(activeInside, dtype=np.int64),
+            np.ascontiguousarray(groupOffsets, dtype=np.int64),
+        )
+    )
+
+
 def _processNoiseQBoundaryDiagnostics(
     matrixQ0: np.ndarray,
     stateModel: str,
@@ -2849,6 +2988,10 @@ def _staticProcessNoiseCalibrationDiagnostics(
         "optimizerParameterCount": int(dim),
         "usedInitialProcessQFallback": bool(
             mapStatus != "optimized" and float(warmStartProcessNoise) <= 0.0
+        ),
+        "balancedWindow": _processQBalancedWindowDiagnostics(
+            enabled=False,
+            fallbackReason=str(mapReason),
         ),
         "matrixQ0Final": matrixQ0Final.astype(float).tolist(),
         "warmStartProcessNoise": float(warmStartProcessNoise),
@@ -3310,295 +3453,25 @@ def _estimateMarginalMAPProcessNoise(
     This helper optimizes only the log process variance parameters: one scalar
     for ``stateModel='level'`` and ``(q_level, q_trend)`` for ``levelTrend``.
     """
-
     stateModelMode = _normalizeStateModel(stateModel)
-    qFloor = _resolveProcessNoiseFloor(minQ)
-    qCap = _resolveProcessNoiseCap(maxQ, minQ=qFloor)
-    initialQ = np.asarray(initialMatrixQ, dtype=np.float64)
-    if initialQ.ndim != 2 or initialQ.shape[0] < 1 or initialQ.shape[1] < 1:
-        raise ValueError("initialMatrixQ must be a process-noise matrix")
-    priorQ = (
-        initialQ
-        if priorMatrixQ is None
-        else np.asarray(priorMatrixQ, dtype=np.float64)
-    )
-    if priorQ.ndim != 2 or priorQ.shape[0] < 1 or priorQ.shape[1] < 1:
-        raise ValueError("priorMatrixQ must be a process-noise matrix")
-
-    qLevelStart = _clampProcessNoise(
-        float(initialQ[0, 0]),
-        qFloor=qFloor,
-        qCap=qCap,
-    )
-    qLevelPrior = _clampProcessNoise(
-        float(priorQ[0, 0]),
-        qFloor=qFloor,
-        qCap=qCap,
-    )
-    qTrendLevelRatioPrior = _checkFinitePositive(
-        "processQTrendLevelRatioPrior",
-        qTrendLevelRatioPrior,
-    )
-    qLevelLogPriorStrength = _checkFiniteNonnegative(
-        "processQLevelLogPriorStrength",
-        (
-            PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH
-            if mapRoughnessPenalty is None
-            else mapRoughnessPenalty
+    matrixQ, diagnostics = cconsenrich.cEstimateMarginalMAPProcessNoise(
+        scoreForwardNLL,
+        np.ascontiguousarray(initialMatrixQ, dtype=np.float64),
+        priorMatrixQ=(
+            None
+            if priorMatrixQ is None
+            else np.ascontiguousarray(priorMatrixQ, dtype=np.float64)
         ),
+        stateModel=stateModelMode,
+        maxQ=float(maxQ),
+        minQ=float(minQ),
+        qTrendRatioPriorStrength=float(qTrendRatioPriorStrength),
+        qTrendLevelRatioPrior=float(qTrendLevelRatioPrior),
+        mapRoughnessPenalty=mapRoughnessPenalty,
+        optimizerMaxIter=int(optimizerMaxIter),
+        defaultQLevelPriorStrength=float(PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH),
     )
-    qTrendRatioLogPriorStrength = _checkFiniteNonnegative(
-        "processQTrendRatioLogPriorStrength",
-        qTrendRatioPriorStrength,
-    )
-    dim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
-    if dim == 2:
-        qTrendStartInitial = (
-            float(initialQ[1, 1])
-            if initialQ.shape[0] > 1 and initialQ.shape[1] > 1
-            else qLevelStart * qTrendLevelRatioPrior
-        )
-        qTrendStart = _clampProcessNoise(
-            qTrendStartInitial,
-            qFloor=qFloor,
-            qCap=qCap,
-        )
-        qTrendPriorInitial = (
-            float(priorQ[1, 1])
-            if priorQ.shape[0] > 1 and priorQ.shape[1] > 1
-            else qLevelPrior * qTrendLevelRatioPrior
-        )
-        qTrendPrior = _clampProcessNoise(
-            qTrendPriorInitial,
-            qFloor=qFloor,
-            qCap=qCap,
-        )
-    else:
-        qTrendStart = 0.0
-        qTrendPrior = 0.0
-
-    finitePriorMax = max(qLevelStart, qTrendStart, qLevelPrior, qTrendPrior, qFloor)
-    if np.isfinite(qCap):
-        logUpper = float(np.log(qCap))
-    else:
-        logUpper = float(np.log(max(1.0, finitePriorMax * 1.0e6)))
-    logLower = float(np.log(qFloor))
-    if logUpper <= logLower:
-        logUpper = logLower + 1.0
-    bounds = [(logLower, logUpper)] * dim
-
-    theta0 = [float(np.log(qLevelStart))]
-    if dim == 2:
-        theta0.append(float(np.log(qTrendStart)))
-    theta0Arr = np.asarray(theta0, dtype=np.float64)
-    theta0Arr = np.clip(theta0Arr, logLower, logUpper)
-
-    def _matrixFromTheta(theta: np.ndarray) -> np.ndarray:
-        thetaArr = np.asarray(theta, dtype=np.float64)
-        qLevel = _clampProcessNoise(
-            float(np.exp(thetaArr[0])),
-            qFloor=qFloor,
-            qCap=qCap,
-        )
-        qTrend = (
-            qLevel
-            if dim == 1
-            else _clampProcessNoise(
-                float(np.exp(thetaArr[1])),
-                qFloor=qFloor,
-                qCap=qCap,
-            )
-        )
-        return constructMatrixQ(
-            minDiagQ=qFloor,
-            Q00=qLevel,
-            Q01=0.0,
-            Q10=0.0,
-            Q11=qTrend,
-        ).astype(np.float32, copy=False)
-
-    logLevelPrior = float(np.log(qLevelPrior))
-    logRatioPrior = float(np.log(qTrendLevelRatioPrior))
-
-    def _priorPenalty(theta: np.ndarray) -> float:
-        thetaArr = np.asarray(theta, dtype=np.float64)
-        penalty = 0.0
-        if qLevelLogPriorStrength > 0.0:
-            levelDelta = float(thetaArr[0] - logLevelPrior)
-            penalty += 0.5 * float(qLevelLogPriorStrength) * levelDelta * levelDelta
-        if dim == 2 and qTrendRatioLogPriorStrength > 0.0:
-            ratioDelta = float(thetaArr[1] - thetaArr[0] - logRatioPrior)
-            penalty += (
-                0.5 * float(qTrendRatioLogPriorStrength) * ratioDelta * ratioDelta
-            )
-        return float(penalty)
-
-    evalCount = 0
-    bestTheta = theta0Arr.copy()
-    bestForwardNLL = float("inf")
-    bestPriorPenalty = float("inf")
-    bestObjective = float("inf")
-    lastObjectiveFailure = "none"
-
-    def _objective(theta: np.ndarray) -> float:
-        nonlocal evalCount, bestTheta, bestForwardNLL, bestPriorPenalty, bestObjective
-        nonlocal lastObjectiveFailure
-        thetaArr = np.asarray(theta, dtype=np.float64)
-        if thetaArr.shape != (dim,) or not np.all(np.isfinite(thetaArr)):
-            lastObjectiveFailure = "nonfinite_or_wrong_shape_theta"
-            return float("inf")
-        try:
-            matrixQ = _matrixFromTheta(thetaArr)
-            forwardNLL = float(scoreForwardNLL(matrixQ))
-        except Exception as exc:
-            lastObjectiveFailure = f"{type(exc).__name__}: {exc}"
-            return float("inf")
-        if not np.isfinite(forwardNLL):
-            lastObjectiveFailure = "nonfinite_forward_nll"
-            return float("inf")
-        priorPenalty = _priorPenalty(thetaArr)
-        objective = float(forwardNLL + priorPenalty)
-        if not np.isfinite(objective):
-            lastObjectiveFailure = "nonfinite_map_objective"
-            return float("inf")
-        evalCount += 1
-        if objective < bestObjective:
-            bestTheta = thetaArr.copy()
-            bestForwardNLL = float(forwardNLL)
-            bestPriorPenalty = float(priorPenalty)
-            bestObjective = float(objective)
-        return objective
-
-    starts = [theta0Arr]
-    if dim == 2:
-        ratioSeed = np.asarray(
-            [theta0Arr[0], theta0Arr[0] + logRatioPrior],
-            dtype=np.float64,
-        )
-        starts.append(np.clip(ratioSeed, logLower, logUpper))
-
-    optimizerSuccess = False
-    optimizerMessage = "not_run"
-    _objective(theta0Arr)
-    for startTheta in starts:
-        try:
-            result = optimize.minimize(
-                _objective,
-                np.asarray(startTheta, dtype=np.float64),
-                method="L-BFGS-B",
-                bounds=bounds,
-                options={
-                    "maxiter": int(optimizerMaxIter),
-                    "ftol": 1.0e-8,
-                    "eps": 1.0e-4,
-                },
-            )
-        except Exception as exc:
-            optimizerMessage = str(exc)
-            continue
-        if bool(getattr(result, "success", False)):
-            optimizerSuccess = True
-        optimizerMessage = str(getattr(result, "message", optimizerMessage))
-        if np.isfinite(float(getattr(result, "fun", float("inf")))):
-            _objective(np.asarray(result.x, dtype=np.float64))
-
-    usedInitialProcessQFallback = False
-    fallbackForwardNLLFinite = False
-    if not np.isfinite(bestObjective):
-        usedInitialProcessQFallback = True
-        bestTheta = theta0Arr.copy()
-        bestMatrixQ = _matrixFromTheta(bestTheta)
-        try:
-            bestForwardNLL = float(scoreForwardNLL(bestMatrixQ))
-        except Exception as exc:
-            bestForwardNLL = float("nan")
-            optimizerMessage = (
-                "fallback_to_initial_process_q_after_all_objectives_failed; "
-                f"forward_nll_failed={type(exc).__name__}: {exc}"
-            )
-        else:
-            fallbackForwardNLLFinite = bool(np.isfinite(bestForwardNLL))
-            optimizerMessage = (
-                "fallback_to_initial_process_q_after_all_objectives_failed"
-                if fallbackForwardNLLFinite
-                else (
-                    "fallback_to_initial_process_q_after_all_objectives_failed; "
-                    "forward_nll_nonfinite"
-                )
-            )
-        bestPriorPenalty = _priorPenalty(bestTheta)
-        bestObjective = (
-            float(bestForwardNLL + bestPriorPenalty)
-            if np.isfinite(bestForwardNLL)
-            else float("nan")
-        )
-        optimizerSuccess = False
-    else:
-        bestMatrixQ = _matrixFromTheta(bestTheta)
-
-    boundary = _processNoiseQBoundaryDiagnostics(
-        bestMatrixQ,
-        stateModelMode,
-        minQ=qFloor,
-        maxQ=maxQ,
-    )
-    qLevel = float(boundary["qLevel"])
-    qTrend = float(boundary["qTrend"])
-    rawRatio = 0.0 if dim == 1 else qTrendPrior / max(qLevelPrior, qFloor)
-    finalRatio = 0.0 if dim == 1 else qTrend / max(qLevel, qFloor)
-    if usedInitialProcessQFallback:
-        mapStatus = "all_objectives_failed_fallback"
-        mapReason = optimizerMessage
-    elif optimizerSuccess:
-        mapStatus = "optimized"
-        mapReason = "optimizer_success"
-    else:
-        mapStatus = "optimizer_failed_best_finite"
-        mapReason = optimizerMessage or lastObjectiveFailure
-    diagnostics = {
-        "processNoisePolicy": "marginal_likelihood_map",
-        "processNoiseMAPStatus": mapStatus,
-        "processNoiseMAPReason": mapReason,
-        "stateModel": stateModelMode,
-        "qLevel": float(qLevel),
-        "qTrend": float(qTrend),
-        "initialQLevel": float(qLevelStart),
-        "initialQTrend": float(qTrendStart),
-        "priorQLevel": float(qLevelPrior),
-        "priorQTrend": float(qTrendPrior),
-        "rawQLevel": float(qLevelPrior),
-        "rawQTrend": float(qTrendPrior),
-        "rawTrendLevelRatio": float(rawRatio),
-        "effectiveTrendLevelRatio": float(finalRatio),
-        "marginalForwardNLL": float(bestForwardNLL),
-        "mapObjective": float(bestObjective),
-        "mapPriorPenalty": float(bestPriorPenalty),
-        "logQLevel": float(bestTheta[0]),
-        "logQTrend": float(0.0 if dim == 1 else bestTheta[1]),
-        "levelLogPriorCenter": float(logLevelPrior),
-        "levelLogPriorStrength": float(qLevelLogPriorStrength),
-        "trendLogRatioPriorCenter": float(logRatioPrior if dim == 2 else 0.0),
-        "trendLogRatioPriorStrength": float(
-            qTrendRatioLogPriorStrength if dim == 2 else 0.0
-        ),
-        "processQTrendLevelRatioPrior": float(qTrendLevelRatioPrior),
-        "processQTrendRatioLogPriorStrength": float(qTrendRatioLogPriorStrength),
-        "processQLevelLogPriorStrength": float(qLevelLogPriorStrength),
-        "qTrendLevelRatioPrior": float(qTrendLevelRatioPrior),
-        "qTrendRatioPriorStrength": float(qTrendRatioLogPriorStrength),
-        "mapRoughnessPenalty": float(qLevelLogPriorStrength),
-        "optimizerSuccess": bool(optimizerSuccess),
-        "optimizerMessage": optimizerMessage,
-        "optimizerEvaluations": int(evalCount),
-        "optimizerParameterCount": int(dim),
-        "lastObjectiveFailure": lastObjectiveFailure,
-        "usedInitialProcessQFallback": bool(usedInitialProcessQFallback),
-        "fallbackForwardNLLFinite": bool(fallbackForwardNLLFinite),
-        "matrixQ0Final": bestMatrixQ.astype(float).tolist(),
-        "warmStartProcessNoise": 0.0,
-    }
-    diagnostics.update(boundary)
-    return bestMatrixQ, diagnostics
+    return np.asarray(matrixQ, dtype=np.float32), dict(diagnostics)
 
 
 def constructMatrixQ(
@@ -4206,7 +4079,8 @@ def runConsenrich(
         replicateBias: np.ndarray | None,
         useProcPrecReweightLocal: bool,
         useAPNLocal: bool,
-    ) -> float:
+        storeNLLInD: bool = False,
+    ) -> float | tuple[float, np.ndarray]:
         if stateModelMode == STATE_MODEL_LEVEL:
             _phiHat, _unused, _vectorD, sumNLL = cconsenrich.cforwardPassLevel(
                 matrixData=matrixDataLocal,
@@ -4225,7 +4099,7 @@ def runConsenrich(
                 progressBar=None,
                 progressIter=0,
                 returnNLL=True,
-                storeNLLInD=False,
+                storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
                 replicateBias=replicateBias,
@@ -4261,7 +4135,7 @@ def runConsenrich(
                 progressBar=None,
                 progressIter=0,
                 returnNLL=True,
-                storeNLLInD=False,
+                storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
                 replicateBias=replicateBias,
@@ -4275,6 +4149,8 @@ def runConsenrich(
                 APN_minQ=float(minQ),
                 APN_maxQ=float(maxQForAPN),
             )
+        if storeNLLInD:
+            return float(sumNLL), np.asarray(_vectorD, dtype=np.float64).copy()
         return float(sumNLL)
 
     def _scorePenalizedObjective(
@@ -5631,15 +5507,24 @@ def runConsenrich(
                 "warmupOuterPasses": 0.0,
             }
         )
-        logger.warning(
-            "processNoiseCalibration=marginal_likelihood_map skipped: "
-            "reason=%s finiteData=%d positiveObsVar=%d activeObs=%d "
-            "activeAdjacentTransitions=%d; using initial data process Q",
-            str(qMapSkipReason),
-            int(qCalibrationSupport["finiteDataCount"]),
-            int(qCalibrationSupport["positiveObservationVarianceCount"]),
-            int(qCalibrationSupport["activeObservationCount"]),
-            int(qCalibrationSupport["activeAdjacentTransitionCount"]),
+        _logEvent(
+            "process_noise.calibration.skipped",
+            (
+                ("mode", "marginal_likelihood_map"),
+                ("reason", qMapSkipReason),
+                ("finite_data", int(qCalibrationSupport["finiteDataCount"])),
+                (
+                    "positive_obs_var",
+                    int(qCalibrationSupport["positiveObservationVarianceCount"]),
+                ),
+                ("active_obs", int(qCalibrationSupport["activeObservationCount"])),
+                (
+                    "active_adjacent_transitions",
+                    int(qCalibrationSupport["activeAdjacentTransitionCount"]),
+                ),
+                ("fallback", "initial_data_process_q"),
+            ),
+            level=logging.WARNING,
         )
     else:
         warmupIters = int(processNoiseWarmupECMIters)
@@ -5744,11 +5629,55 @@ def runConsenrich(
                 matrixData - warmupBackground[None, :],
                 dtype=np.float32,
             )
+            flatWarmupSignal = not _hasFiniteTransitionVariation(
+                warmupAdjustedData,
+                replicateBias=warmupReplicateBias,
+            )
+            (
+                balancedWindowGroups,
+                balancedWindowActiveIntervals,
+                balancedWindowDiagnostics,
+            ) = _buildProcessQBalancedMovingBlockPlan(
+                matrixData=warmupAdjustedData,
+                matrixMunc=warmupMunc,
+                pad=float(pad),
+                blockLenIntervals=int(blockLenIntervals),
+                warmupPassIndex=int(warmupPassIndex),
+                lambdaExp=warmupLambda,
+                replicateBias=warmupReplicateBias,
+                useObservationPrecision=bool(ECM_useObsPrecisionReweighting),
+                observationPrecisionMultiplierMin=float(
+                    observationPrecisionMultiplierMin
+                ),
+                observationPrecisionMultiplierMax=float(
+                    observationPrecisionMultiplierMax
+                ),
+            )
 
-            def _warmupFixedNuisanceForwardNLL(
+            def _warmupFixedNuisanceForwardNLLFull(
                 matrixQCandidate: np.ndarray,
             ) -> float:
-                return _scoreForwardNLL(
+                return float(
+                    _scoreForwardNLL(
+                        matrixDataLocal=warmupAdjustedData,
+                        matrixMuncLocal=warmupMunc,
+                        matrixFLocal=matrixF,
+                        matrixQ0Local=np.ascontiguousarray(
+                            matrixQCandidate,
+                            dtype=np.float32,
+                        ),
+                        lambdaExp=warmupLambda,
+                        processPrecExp=None,
+                        replicateBias=warmupReplicateBias,
+                        useProcPrecReweightLocal=False,
+                        useAPNLocal=False,
+                    )
+                )
+
+            def _warmupFixedNuisanceForwardNLLWithIntervals(
+                matrixQCandidate: np.ndarray,
+            ) -> tuple[float, np.ndarray]:
+                sumNLL, intervalNLL = _scoreForwardNLL(
                     matrixDataLocal=warmupAdjustedData,
                     matrixMuncLocal=warmupMunc,
                     matrixFLocal=matrixF,
@@ -5761,19 +5690,109 @@ def runConsenrich(
                     replicateBias=warmupReplicateBias,
                     useProcPrecReweightLocal=False,
                     useAPNLocal=False,
+                    storeNLLInD=True,
                 )
+                return float(sumNLL), np.asarray(intervalNLL, dtype=np.float64)
 
-            matrixQ0, processNoiseCalibrationInfo = _estimateMarginalMAPProcessNoise(
-                scoreForwardNLL=_warmupFixedNuisanceForwardNLL,
-                initialMatrixQ=matrixQBeforePass,
-                priorMatrixQ=warmupQPrior,
-                stateModel=stateModelMode,
-                maxQ=float(maxQ),
-                minQ=float(minQ),
-                qTrendRatioPriorStrength=float(qTrendRatioPriorStrength),
-                qTrendLevelRatioPrior=float(qTrendLevelRatioPrior),
-                mapRoughnessPenalty=qLevelPriorStrengthLocal,
-            )
+            scoreProcessNoiseForwardNLL = _warmupFixedNuisanceForwardNLLFull
+            if flatWarmupSignal:
+                balancedWindowDiagnostics = _processQBalancedWindowDiagnostics(
+                    enabled=False,
+                    fallbackReason="flat_warmup_signal",
+                    activeCoverage=float(
+                        balancedWindowDiagnostics.get("activeCoverage", 0.0)
+                    ),
+                )
+            if bool(balancedWindowDiagnostics["enabled"]):
+                balancedFlattenedWindowPlan = (
+                    cconsenrich.cFlattenProcessQBalancedWindowGroups(
+                        balancedWindowGroups
+                    )
+                )
+                initialFullNLL, initialIntervalNLL = (
+                    _warmupFixedNuisanceForwardNLLWithIntervals(matrixQBeforePass)
+                )
+                initialBalancedNLL = _scoreProcessQBalancedMovingBlockNLL(
+                    initialIntervalNLL,
+                    windowGroups=balancedWindowGroups,
+                    activeIntervals=balancedWindowActiveIntervals,
+                    flattenedWindowPlan=balancedFlattenedWindowPlan,
+                )
+                if np.isfinite(initialBalancedNLL):
+
+                    def _warmupFixedNuisanceForwardNLLBalanced(
+                        matrixQCandidate: np.ndarray,
+                    ) -> float:
+                        _fullNLL, intervalNLL = (
+                            _warmupFixedNuisanceForwardNLLWithIntervals(
+                                matrixQCandidate
+                            )
+                        )
+                        balancedNLL = _scoreProcessQBalancedMovingBlockNLL(
+                            intervalNLL,
+                            windowGroups=balancedWindowGroups,
+                            activeIntervals=balancedWindowActiveIntervals,
+                            flattenedWindowPlan=balancedFlattenedWindowPlan,
+                        )
+                        return float(balancedNLL)
+
+                    scoreProcessNoiseForwardNLL = (
+                        _warmupFixedNuisanceForwardNLLBalanced
+                    )
+                else:
+                    balancedWindowDiagnostics = _processQBalancedWindowDiagnostics(
+                        enabled=False,
+                        fallbackReason=(
+                            "nonfinite_initial_balanced_window_score"
+                            if np.isfinite(initialFullNLL)
+                            else "nonfinite_initial_forward_nll"
+                        ),
+                        stratumCounts=balancedWindowDiagnostics.get(
+                            "stratumCounts",
+                            [],
+                        ),
+                        windowCounts=balancedWindowDiagnostics.get(
+                            "windowCounts",
+                            [],
+                        ),
+                        activeCoverage=float(
+                            balancedWindowDiagnostics.get("activeCoverage", 0.0)
+                        ),
+                    )
+
+            if flatWarmupSignal:
+                matrixQ0 = np.ascontiguousarray(
+                    matrixQBeforePass,
+                    dtype=np.float32,
+                ).copy()
+                processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
+                    processNoisePolicy="marginal_likelihood_map",
+                    mapStatus="skipped",
+                    mapReason="flat_warmup_signal",
+                    matrixQ0=matrixQ0,
+                    stateModel=stateModelMode,
+                    minQ=float(minQ),
+                    maxQ=float(maxQ),
+                    qTrendRatioPriorStrength=float(qTrendRatioPriorStrength),
+                    qTrendLevelRatioPrior=float(qTrendLevelRatioPrior),
+                    mapRoughnessPenalty=float(qLevelPriorStrengthLocal),
+                    support=qCalibrationSupport,
+                    warmStartProcessNoise=0.0,
+                    optimizerMessage="skipped:flat_warmup_signal",
+                )
+            else:
+                matrixQ0, processNoiseCalibrationInfo = _estimateMarginalMAPProcessNoise(
+                    scoreForwardNLL=scoreProcessNoiseForwardNLL,
+                    initialMatrixQ=matrixQBeforePass,
+                    priorMatrixQ=warmupQPrior,
+                    stateModel=stateModelMode,
+                    maxQ=float(maxQ),
+                    minQ=float(minQ),
+                    qTrendRatioPriorStrength=float(qTrendRatioPriorStrength),
+                    qTrendLevelRatioPrior=float(qTrendLevelRatioPrior),
+                    mapRoughnessPenalty=qLevelPriorStrengthLocal,
+                )
+            processNoiseCalibrationInfo["balancedWindow"] = balancedWindowDiagnostics
             qLogChange = _processNoiseDiagLogMaxAbsChange(
                 matrixQBeforePass,
                 matrixQ0,
@@ -5838,21 +5857,23 @@ def runConsenrich(
                     ),
                 }
             )
-            logger.info(
-                "runConsenrich.processNoiseWarmup.pass.done pass=%d/%d "
-                "outerIters=%d qLevel=%.6g qTrend=%.6g qLogMaxAbsChange=%.6g "
-                "forwardNLL=%.6g mapObjective=%.6g optimizerSuccess=%s "
-                "optimizerEvaluations=%d",
-                int(warmupPassIndex),
-                int(len(warmupOuterSchedule)),
-                int(warmupOuterPassesThis),
-                processNoiseCalibrationInfo["qLevel"],
-                processNoiseCalibrationInfo["qTrend"],
-                float(qLogChange),
-                processNoiseCalibrationInfo["marginalForwardNLL"],
-                processNoiseCalibrationInfo["mapObjective"],
-                str(processNoiseCalibrationInfo["optimizerSuccess"]).lower(),
-                int(processNoiseCalibrationInfo["optimizerEvaluations"]),
+            _logEvent(
+                "process_noise.warmup.pass.done",
+                (
+                    ("pass", int(warmupPassIndex)),
+                    ("passes", int(len(warmupOuterSchedule))),
+                    ("outer_iters", int(warmupOuterPassesThis)),
+                    ("q_level", processNoiseCalibrationInfo["qLevel"]),
+                    ("q_trend", processNoiseCalibrationInfo["qTrend"]),
+                    ("q_log_max_abs_change", float(qLogChange)),
+                    ("forward_nll", processNoiseCalibrationInfo["marginalForwardNLL"]),
+                    ("map_objective", processNoiseCalibrationInfo["mapObjective"]),
+                    ("optimizer_success", processNoiseCalibrationInfo["optimizerSuccess"]),
+                    (
+                        "optimizer_evaluations",
+                        int(processNoiseCalibrationInfo["optimizerEvaluations"]),
+                    ),
+                ),
             )
             if (
                 warmupPassIndex < len(warmupOuterSchedule)
@@ -5894,58 +5915,54 @@ def runConsenrich(
         processNoiseCalibrationInfo["warmupQAlternatingTrace"] = (
             warmupAlternationTrace
         )
-        logger.info(
-            "processNoiseCalibration=marginal_likelihood_map: "
-            "qLevel=%.6g qTrend=%.6g rawLevel=%.6g rawTrend=%.6g "
-            "forwardNLL=%.6g mapObjective=%.6g priorPenalty=%.6g "
-            "levelLogPriorCenter=%.6g levelLogPriorStrength=%.6g "
-            "trendLogRatioPriorCenter=%.6g trendLogRatioPriorStrength=%.6g "
-            "effectiveRatio=%.6g optimizerSuccess=%s optimizerEvaluations=%d "
-            "mapStatus=%s mapReason=%s qBoundary=%s hitFloor=%s hitCap=%s "
-            "warmupOuterPasses=%d warmupOuterPassesUsed=%d warmupECMIters=%d "
-            "warmupQAlternatingPasses=%d warmupQAlternatingStopReason=%s",
-            processNoiseCalibrationInfo["qLevel"],
-            processNoiseCalibrationInfo["qTrend"],
-            processNoiseCalibrationInfo["rawQLevel"],
-            processNoiseCalibrationInfo["rawQTrend"],
-            processNoiseCalibrationInfo["marginalForwardNLL"],
-            processNoiseCalibrationInfo["mapObjective"],
-            processNoiseCalibrationInfo["mapPriorPenalty"],
-            processNoiseCalibrationInfo["levelLogPriorCenter"],
-            processNoiseCalibrationInfo["levelLogPriorStrength"],
-            processNoiseCalibrationInfo["trendLogRatioPriorCenter"],
-            processNoiseCalibrationInfo["trendLogRatioPriorStrength"],
-            processNoiseCalibrationInfo["effectiveTrendLevelRatio"],
-            str(processNoiseCalibrationInfo["optimizerSuccess"]).lower(),
-            int(processNoiseCalibrationInfo["optimizerEvaluations"]),
-            str(processNoiseCalibrationInfo.get("processNoiseMAPStatus", "unknown")),
-            str(processNoiseCalibrationInfo.get("processNoiseMAPReason", "unknown")),
-            str(processNoiseCalibrationInfo.get("qBoundaryStatus", "unknown")),
-            str(bool(processNoiseCalibrationInfo.get("hitQFloor", False))).lower(),
-            str(bool(processNoiseCalibrationInfo.get("hitQCap", False))).lower(),
-            int(warmupOuterIters),
-            int(processNoiseCalibrationInfo["warmupOuterPassesUsed"]),
-            int(warmupIters),
-            int(processNoiseCalibrationInfo["warmupQAlternatingPasses"]),
-            str(processNoiseCalibrationInfo["warmupQAlternatingStopReason"]),
+        _logEvent(
+            "process_noise.calibration",
+            (
+                ("mode", "marginal_likelihood_map"),
+                ("q_level", processNoiseCalibrationInfo["qLevel"]),
+                ("q_trend", processNoiseCalibrationInfo["qTrend"]),
+                ("raw_level", processNoiseCalibrationInfo["rawQLevel"]),
+                ("raw_trend", processNoiseCalibrationInfo["rawQTrend"]),
+                ("forward_nll", processNoiseCalibrationInfo["marginalForwardNLL"]),
+                ("map_objective", processNoiseCalibrationInfo["mapObjective"]),
+                ("prior_penalty", processNoiseCalibrationInfo["mapPriorPenalty"]),
+                ("level_log_prior_center", processNoiseCalibrationInfo["levelLogPriorCenter"]),
+                ("level_log_prior_strength", processNoiseCalibrationInfo["levelLogPriorStrength"]),
+                ("trend_log_ratio_prior_center", processNoiseCalibrationInfo["trendLogRatioPriorCenter"]),
+                ("trend_log_ratio_prior_strength", processNoiseCalibrationInfo["trendLogRatioPriorStrength"]),
+                ("effective_ratio", processNoiseCalibrationInfo["effectiveTrendLevelRatio"]),
+                ("optimizer_success", processNoiseCalibrationInfo["optimizerSuccess"]),
+                ("optimizer_evaluations", int(processNoiseCalibrationInfo["optimizerEvaluations"])),
+                ("map_status", processNoiseCalibrationInfo.get("processNoiseMAPStatus", "unknown")),
+                ("map_reason", processNoiseCalibrationInfo.get("processNoiseMAPReason", "unknown")),
+                ("q_boundary", processNoiseCalibrationInfo.get("qBoundaryStatus", "unknown")),
+                ("hit_floor", bool(processNoiseCalibrationInfo.get("hitQFloor", False))),
+                ("hit_cap", bool(processNoiseCalibrationInfo.get("hitQCap", False))),
+                ("warmup_outer_passes", int(warmupOuterIters)),
+                ("warmup_outer_passes_used", int(processNoiseCalibrationInfo["warmupOuterPassesUsed"])),
+                ("warmup_ecm_iters", int(warmupIters)),
+                ("warmup_q_alternating_passes", int(processNoiseCalibrationInfo["warmupQAlternatingPasses"])),
+                ("warmup_q_alternating_stop_reason", processNoiseCalibrationInfo["warmupQAlternatingStopReason"]),
+            ),
         )
         if (
             processNoiseCalibrationInfo.get("processNoiseMAPStatus") != "optimized"
             or bool(processNoiseCalibrationInfo.get("hitQFloor", False))
             or bool(processNoiseCalibrationInfo.get("hitQCap", False))
         ):
-            logger.warning(
-                "processNoiseCalibration=marginal_likelihood_map diagnostic: "
-                "status=%s reason=%s qBoundary=%s hitFloor=%s hitCap=%s "
-                "qLevel=%.6g qTrend=%.6g optimizerMessage=%s",
-                str(processNoiseCalibrationInfo.get("processNoiseMAPStatus", "unknown")),
-                str(processNoiseCalibrationInfo.get("processNoiseMAPReason", "unknown")),
-                str(processNoiseCalibrationInfo.get("qBoundaryStatus", "unknown")),
-                str(bool(processNoiseCalibrationInfo.get("hitQFloor", False))).lower(),
-                str(bool(processNoiseCalibrationInfo.get("hitQCap", False))).lower(),
-                float(processNoiseCalibrationInfo["qLevel"]),
-                float(processNoiseCalibrationInfo["qTrend"]),
-                str(processNoiseCalibrationInfo.get("optimizerMessage", "")),
+            _logEvent(
+                "process_noise.calibration.warning",
+                (
+                    ("status", processNoiseCalibrationInfo.get("processNoiseMAPStatus", "unknown")),
+                    ("reason", processNoiseCalibrationInfo.get("processNoiseMAPReason", "unknown")),
+                    ("q_boundary", processNoiseCalibrationInfo.get("qBoundaryStatus", "unknown")),
+                    ("hit_floor", bool(processNoiseCalibrationInfo.get("hitQFloor", False))),
+                    ("hit_cap", bool(processNoiseCalibrationInfo.get("hitQCap", False))),
+                    ("q_level", float(processNoiseCalibrationInfo["qLevel"])),
+                    ("q_trend", float(processNoiseCalibrationInfo["qTrend"])),
+                    ("optimizer_message", processNoiseCalibrationInfo.get("optimizerMessage", "")),
+                ),
+                level=logging.WARNING,
             )
     baseFitPhaseLabel = "post-process-noise fit"
     fitPhaseLabel = (
@@ -6116,6 +6133,10 @@ def runConsenrich(
             "iqr": [
                 metadataFloat(float(value))
                 for value in finalForwardGainContigSummary["iqr"]
+            ],
+            "count": [
+                int(value)
+                for value in finalForwardGainContigSummary["count"]
             ],
         },
         "precision_reweighting_boundary_hits": summarizePrecisionBoundaryHits(
@@ -8217,6 +8238,7 @@ def _finalForwardReplicateGainContigSummary(
         "median": gainMedians,
         "sd": gainSds,
         "iqr": gainIqrs,
+        "count": gainCounts,
     }
 
 

@@ -466,6 +466,11 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.saveBackgroundTracks",
         _cfgDefault(configData, "outputParams.saveBackgroundTracks"),
     )
+    saveGains_ = _cfgGet(
+        configData,
+        "outputParams.saveGains",
+        _cfgDefault(configData, "outputParams.saveGains"),
+    )
     plotOptimizationPath_ = _cfgGet(
         configData,
         "outputParams.plotOptimizationPath",
@@ -486,6 +491,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
         saveBackgroundTracks=saveBackgroundTracks_,
+        saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
         diagnosticTracks=diagnosticTracks_,
     )

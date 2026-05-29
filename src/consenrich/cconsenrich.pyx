@@ -10,9 +10,9 @@ cimport cython
 import os
 import numpy as np
 from . import misc_util
-from scipy import ndimage
+from scipy import ndimage, optimize
 cimport numpy as cnp
-from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
+from libc.stdint cimport int8_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, erf, isnan, NAN, INFINITY
 from libc.stdlib cimport malloc, free
@@ -77,6 +77,7 @@ cnp.import_array()
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
 cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
+cdef const double __MASKED_OBSERVATION_VARIANCE_CUTOFF = <double>5.0e29
 cdef const int __TRANSFORM_MODE_LOG = 0
 cdef const int __TRANSFORM_MODE_SQRT = 1
 cdef const int __TRANSFORM_MODE_ASINH = 2
@@ -92,12 +93,536 @@ ctypedef fused real_t:
 # inline/helpers
 # ===============
 
+cdef inline double _clampProcessNoiseValue(double value, double qFloor, double qCap) noexcept nogil:
+    if not isfinite(value):
+        value = qFloor
+    if value < qFloor:
+        value = qFloor
+    if isfinite(qCap) and value > qCap:
+        value = qCap
+    return value
+
+
+cdef double _checkFinitePositiveDouble(str name, object value) except *:
+    cdef double out = float(value)
+    if not isfinite(out) or out <= 0.0:
+        raise ValueError(f"`{name}` must be positive and finite")
+    return out
+
+
+cdef double _checkFiniteNonnegativeDouble(str name, object value) except *:
+    cdef double out = float(value)
+    if not isfinite(out) or out < 0.0:
+        raise ValueError(f"`{name}` must be finite and nonnegative")
+    return out
+
+
+cdef inline double _resolveProcessNoiseCapValue(double maxQ, double qFloor) noexcept nogil:
+    if maxQ < 0.0:
+        return INFINITY
+    if isfinite(maxQ):
+        if maxQ > qFloor:
+            return maxQ
+        return qFloor
+    return INFINITY
+
+
+cdef int _processNoiseStateDim(object stateModel) except -1:
+    cdef str mode
+    if stateModel is None:
+        return 2
+    mode = str(stateModel).strip()
+    if mode == "level":
+        return 1
+    if mode == "levelTrend":
+        return 2
+    raise ValueError("`stateModel` must be one of 'level', 'levelTrend'")
+
+
+cdef inline str _processNoiseStateModelName(int dim):
+    if dim == 1:
+        return "level"
+    return "levelTrend"
+
+
+cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] _processNoiseMatrixQ(
+    double qLevel,
+    double qTrend,
+) except *:
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ = np.empty((2, 2), dtype=np.float32)
+    matrixQ[0, 0] = <cnp.float32_t>qLevel
+    matrixQ[0, 1] = <cnp.float32_t>0.0
+    matrixQ[1, 0] = <cnp.float32_t>0.0
+    matrixQ[1, 1] = <cnp.float32_t>qTrend
+    return matrixQ
+
+
+cdef dict _processNoiseBoundaryDiagnostics(
+    object matrixQ,
+    int dim,
+    double qFloor,
+    double maxQ,
+) except *:
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] q0 = np.asarray(matrixQ, dtype=np.float64)
+    cdef double qCap = _resolveProcessNoiseCapValue(maxQ, qFloor)
+    cdef double qLevel = _clampProcessNoiseValue(<double>q0[0, 0], qFloor, qCap)
+    cdef double qTrend = 0.0
+    cdef bint hitLevelFloor
+    cdef bint hitTrendFloor
+    cdef bint hitLevelCap
+    cdef bint hitTrendCap
+    cdef bint hitFloor
+    cdef bint hitCap
+    cdef str boundaryStatus
+
+    if dim == 2:
+        qTrend = _clampProcessNoiseValue(<double>q0[1, 1], qFloor, qCap)
+
+    hitLevelFloor = qLevel <= 1.0001 * qFloor
+    hitTrendFloor = dim == 2 and qTrend <= 1.0001 * qFloor
+    hitLevelCap = isfinite(qCap) and qLevel >= 0.9999 * qCap
+    hitTrendCap = dim == 2 and isfinite(qCap) and qTrend >= 0.9999 * qCap
+    hitFloor = hitLevelFloor or hitTrendFloor
+    hitCap = hitLevelCap or hitTrendCap
+    if hitFloor and hitCap:
+        boundaryStatus = "floor_and_cap"
+    elif hitFloor:
+        boundaryStatus = "floor"
+    elif hitCap:
+        boundaryStatus = "cap"
+    else:
+        boundaryStatus = "interior"
+    return {
+        "qLevel": float(qLevel),
+        "qTrend": float(qTrend),
+        "qFloor": float(qFloor),
+        "qCap": float(qCap),
+        "hitQLevelFloor": bool(hitLevelFloor),
+        "hitQTrendFloor": bool(hitTrendFloor),
+        "hitQLevelCap": bool(hitLevelCap),
+        "hitQTrendCap": bool(hitTrendCap),
+        "hitQFloor": bool(hitFloor),
+        "hitQCap": bool(hitCap),
+        "qBoundaryStatus": boundaryStatus,
+    }
+
+
+cdef class _ProcessNoiseMAPObjective:
+    cdef object scoreForwardNLL
+    cdef int dim
+    cdef double qFloor
+    cdef double qCap
+    cdef double logLevelPrior
+    cdef double logRatioPrior
+    cdef double qLevelLogPriorStrength
+    cdef double qTrendRatioLogPriorStrength
+    cdef int evalCount
+    cdef object bestTheta
+    cdef double bestForwardNLL
+    cdef double bestPriorPenalty
+    cdef double bestObjective
+    cdef str lastObjectiveFailure
+
+    def __init__(
+        self,
+        object scoreForwardNLL,
+        int dim,
+        double qFloor,
+        double qCap,
+        double logLevelPrior,
+        double logRatioPrior,
+        double qLevelLogPriorStrength,
+        double qTrendRatioLogPriorStrength,
+        object theta0,
+    ):
+        self.scoreForwardNLL = scoreForwardNLL
+        self.dim = dim
+        self.qFloor = qFloor
+        self.qCap = qCap
+        self.logLevelPrior = logLevelPrior
+        self.logRatioPrior = logRatioPrior
+        self.qLevelLogPriorStrength = qLevelLogPriorStrength
+        self.qTrendRatioLogPriorStrength = qTrendRatioLogPriorStrength
+        self.evalCount = 0
+        self.bestTheta = np.asarray(theta0, dtype=np.float64).copy()
+        self.bestForwardNLL = INFINITY
+        self.bestPriorPenalty = INFINITY
+        self.bestObjective = INFINITY
+        self.lastObjectiveFailure = "none"
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrix_from_theta(
+        self,
+        double[::1] theta,
+    ) except *:
+        cdef double qLevel = _clampProcessNoiseValue(exp(theta[0]), self.qFloor, self.qCap)
+        cdef double qTrend = qLevel
+        if self.dim == 2:
+            qTrend = _clampProcessNoiseValue(exp(theta[1]), self.qFloor, self.qCap)
+        return _processNoiseMatrixQ(qLevel, qTrend)
+
+    cdef double prior_penalty(self, double[::1] theta) except *:
+        cdef double penalty = 0.0
+        cdef double levelDelta
+        cdef double ratioDelta
+        if self.qLevelLogPriorStrength > 0.0:
+            levelDelta = theta[0] - self.logLevelPrior
+            penalty += 0.5 * self.qLevelLogPriorStrength * levelDelta * levelDelta
+        if self.dim == 2 and self.qTrendRatioLogPriorStrength > 0.0:
+            ratioDelta = theta[1] - theta[0] - self.logRatioPrior
+            penalty += 0.5 * self.qTrendRatioLogPriorStrength * ratioDelta * ratioDelta
+        return penalty
+
+    def __call__(self, object theta):
+        cdef object thetaObj
+        cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] thetaArr
+        cdef double[::1] thetaView
+        cdef Py_ssize_t i
+        cdef object matrixQ
+        cdef double forwardNLL
+        cdef double priorPenalty
+        cdef double objective
+        cdef object exc
+
+        try:
+            thetaObj = np.ascontiguousarray(theta, dtype=np.float64).reshape(-1)
+            thetaArr = <cnp.ndarray[cnp.float64_t, ndim=1, mode="c"]>thetaObj
+        except Exception:
+            self.lastObjectiveFailure = "nonfinite_or_wrong_shape_theta"
+            return float("inf")
+        if thetaArr.shape[0] != self.dim:
+            self.lastObjectiveFailure = "nonfinite_or_wrong_shape_theta"
+            return float("inf")
+        thetaView = thetaArr
+        for i in range(self.dim):
+            if not isfinite(thetaView[i]):
+                self.lastObjectiveFailure = "nonfinite_or_wrong_shape_theta"
+                return float("inf")
+        try:
+            matrixQ = self.matrix_from_theta(thetaView)
+            forwardNLL = float(self.scoreForwardNLL(matrixQ))
+        except Exception as exc:
+            self.lastObjectiveFailure = f"{type(exc).__name__}: {exc}"
+            return float("inf")
+        if not isfinite(forwardNLL):
+            self.lastObjectiveFailure = "nonfinite_forward_nll"
+            return float("inf")
+        priorPenalty = self.prior_penalty(thetaView)
+        objective = forwardNLL + priorPenalty
+        if not isfinite(objective):
+            self.lastObjectiveFailure = "nonfinite_map_objective"
+            return float("inf")
+        self.evalCount += 1
+        if objective < self.bestObjective:
+            self.bestTheta = thetaArr.copy()
+            self.bestForwardNLL = forwardNLL
+            self.bestPriorPenalty = priorPenalty
+            self.bestObjective = objective
+        return float(objective)
+
+
+cpdef tuple cEstimateMarginalMAPProcessNoise(
+    object scoreForwardNLL,
+    object initialMatrixQ,
+    object priorMatrixQ=None,
+    object stateModel="levelTrend",
+    double maxQ=1000.0,
+    double minQ=1.0e-6,
+    double qTrendRatioPriorStrength=1.0,
+    double qTrendLevelRatioPrior=0.1,
+    object mapRoughnessPenalty=None,
+    int optimizerMaxIter=80,
+    double defaultQLevelPriorStrength=10.0,
+):
+    cdef int dim = _processNoiseStateDim(stateModel)
+    cdef str stateModelMode = _processNoiseStateModelName(dim)
+    cdef double qFloor = _checkFinitePositiveDouble("minQ", minQ)
+    cdef double qCap = _resolveProcessNoiseCapValue(maxQ, qFloor)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] initialQ = np.asarray(initialMatrixQ, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] priorQ
+    cdef double qLevelStart
+    cdef double qLevelPrior
+    cdef double qTrendStartInitial
+    cdef double qTrendPriorInitial
+    cdef double qTrendStart
+    cdef double qTrendPrior
+    cdef double finitePriorMax
+    cdef double logUpper
+    cdef double logLower
+    cdef double logLevelPrior
+    cdef double logRatioPrior
+    cdef double qLevelLogPriorStrength
+    cdef double qTrendRatioLogPriorStrength
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] theta0Arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] ratioSeed
+    cdef double[::1] theta0View
+    cdef double[::1] ratioSeedView
+    cdef list starts
+    cdef list bounds
+    cdef object startTheta
+    cdef object result
+    cdef bint optimizerSuccess = False
+    cdef str optimizerMessage = "not_run"
+    cdef _ProcessNoiseMAPObjective objective
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bestThetaArr
+    cdef double[::1] bestThetaView
+    cdef object bestMatrixQ
+    cdef bint usedInitialProcessQFallback = False
+    cdef bint fallbackForwardNLLFinite = False
+    cdef double bestForwardNLL
+    cdef double bestPriorPenalty
+    cdef double bestObjective
+    cdef object exc
+    cdef dict boundary
+    cdef double qLevel
+    cdef double qTrend
+    cdef double rawRatio
+    cdef double finalRatio
+    cdef str mapStatus
+    cdef str mapReason
+    cdef dict diagnostics
+    cdef Py_ssize_t i
+
+    if initialQ.ndim != 2 or initialQ.shape[0] < 1 or initialQ.shape[1] < 1:
+        raise ValueError("initialMatrixQ must be a process-noise matrix")
+    if priorMatrixQ is None:
+        priorQ = initialQ
+    else:
+        priorQ = np.asarray(priorMatrixQ, dtype=np.float64)
+    if priorQ.ndim != 2 or priorQ.shape[0] < 1 or priorQ.shape[1] < 1:
+        raise ValueError("priorMatrixQ must be a process-noise matrix")
+
+    qLevelStart = _clampProcessNoiseValue(<double>initialQ[0, 0], qFloor, qCap)
+    qLevelPrior = _clampProcessNoiseValue(<double>priorQ[0, 0], qFloor, qCap)
+    qTrendLevelRatioPrior = _checkFinitePositiveDouble(
+        "processQTrendLevelRatioPrior",
+        qTrendLevelRatioPrior,
+    )
+    if mapRoughnessPenalty is None:
+        qLevelLogPriorStrength = _checkFiniteNonnegativeDouble(
+            "processQLevelLogPriorStrength",
+            defaultQLevelPriorStrength,
+        )
+    else:
+        qLevelLogPriorStrength = _checkFiniteNonnegativeDouble(
+            "processQLevelLogPriorStrength",
+            mapRoughnessPenalty,
+        )
+    qTrendRatioLogPriorStrength = _checkFiniteNonnegativeDouble(
+        "processQTrendRatioLogPriorStrength",
+        qTrendRatioPriorStrength,
+    )
+
+    if dim == 2:
+        qTrendStartInitial = (
+            <double>initialQ[1, 1]
+            if initialQ.shape[0] > 1 and initialQ.shape[1] > 1
+            else qLevelStart * qTrendLevelRatioPrior
+        )
+        qTrendStart = _clampProcessNoiseValue(qTrendStartInitial, qFloor, qCap)
+        qTrendPriorInitial = (
+            <double>priorQ[1, 1]
+            if priorQ.shape[0] > 1 and priorQ.shape[1] > 1
+            else qLevelPrior * qTrendLevelRatioPrior
+        )
+        qTrendPrior = _clampProcessNoiseValue(qTrendPriorInitial, qFloor, qCap)
+    else:
+        qTrendStart = 0.0
+        qTrendPrior = 0.0
+
+    finitePriorMax = fmax(fmax(qLevelStart, qTrendStart), fmax(qLevelPrior, fmax(qTrendPrior, qFloor)))
+    if isfinite(qCap):
+        logUpper = log(qCap)
+    else:
+        logUpper = log(fmax(1.0, finitePriorMax * 1.0e6))
+    logLower = log(qFloor)
+    if logUpper <= logLower:
+        logUpper = logLower + 1.0
+    bounds = [(float(logLower), float(logUpper))] * dim
+
+    theta0Arr = np.empty(dim, dtype=np.float64)
+    theta0View = theta0Arr
+    theta0View[0] = log(qLevelStart)
+    if dim == 2:
+        theta0View[1] = log(qTrendStart)
+    for i in range(dim):
+        if theta0View[i] < logLower:
+            theta0View[i] = logLower
+        elif theta0View[i] > logUpper:
+            theta0View[i] = logUpper
+
+    logLevelPrior = log(qLevelPrior)
+    logRatioPrior = log(qTrendLevelRatioPrior)
+    objective = _ProcessNoiseMAPObjective(
+        scoreForwardNLL,
+        dim,
+        qFloor,
+        qCap,
+        logLevelPrior,
+        logRatioPrior,
+        qLevelLogPriorStrength,
+        qTrendRatioLogPriorStrength,
+        theta0Arr,
+    )
+
+    starts = [theta0Arr]
+    if dim == 2:
+        ratioSeed = np.empty(2, dtype=np.float64)
+        ratioSeedView = ratioSeed
+        ratioSeedView[0] = theta0View[0]
+        ratioSeedView[1] = theta0View[0] + logRatioPrior
+        for i in range(2):
+            if ratioSeedView[i] < logLower:
+                ratioSeedView[i] = logLower
+            elif ratioSeedView[i] > logUpper:
+                ratioSeedView[i] = logUpper
+        starts.append(ratioSeed)
+
+    objective(theta0Arr)
+    for startTheta in starts:
+        try:
+            result = optimize.minimize(
+                objective,
+                np.asarray(startTheta, dtype=np.float64),
+                method="L-BFGS-B",
+                bounds=bounds,
+                options={
+                    "maxiter": int(optimizerMaxIter),
+                    "ftol": 1.0e-8,
+                    "eps": 1.0e-4,
+                },
+            )
+        except Exception as exc:
+            optimizerMessage = str(exc)
+            continue
+        if bool(getattr(result, "success", False)):
+            optimizerSuccess = True
+        optimizerMessage = str(getattr(result, "message", optimizerMessage))
+        if isfinite(float(getattr(result, "fun", float("inf")))):
+            objective(np.asarray(result.x, dtype=np.float64))
+
+    bestThetaArr = np.ascontiguousarray(objective.bestTheta, dtype=np.float64)
+    bestThetaView = bestThetaArr
+    bestForwardNLL = objective.bestForwardNLL
+    bestPriorPenalty = objective.bestPriorPenalty
+    bestObjective = objective.bestObjective
+
+    if not isfinite(bestObjective):
+        usedInitialProcessQFallback = True
+        bestThetaArr = theta0Arr.copy()
+        bestThetaView = bestThetaArr
+        bestMatrixQ = objective.matrix_from_theta(bestThetaView)
+        try:
+            bestForwardNLL = float(scoreForwardNLL(bestMatrixQ))
+        except Exception as exc:
+            bestForwardNLL = NAN
+            optimizerMessage = (
+                "fallback_to_initial_process_q_after_all_objectives_failed; "
+                f"forward_nll_failed={type(exc).__name__}: {exc}"
+            )
+        else:
+            fallbackForwardNLLFinite = isfinite(bestForwardNLL)
+            optimizerMessage = (
+                "fallback_to_initial_process_q_after_all_objectives_failed"
+                if fallbackForwardNLLFinite
+                else (
+                    "fallback_to_initial_process_q_after_all_objectives_failed; "
+                    "forward_nll_nonfinite"
+                )
+            )
+        bestPriorPenalty = objective.prior_penalty(bestThetaView)
+        bestObjective = (
+            bestForwardNLL + bestPriorPenalty
+            if isfinite(bestForwardNLL)
+            else NAN
+        )
+        optimizerSuccess = False
+    else:
+        bestMatrixQ = objective.matrix_from_theta(bestThetaView)
+
+    boundary = _processNoiseBoundaryDiagnostics(
+        bestMatrixQ,
+        dim,
+        qFloor,
+        maxQ,
+    )
+    qLevel = float(boundary["qLevel"])
+    qTrend = float(boundary["qTrend"])
+    rawRatio = 0.0 if dim == 1 else qTrendPrior / fmax(qLevelPrior, qFloor)
+    finalRatio = 0.0 if dim == 1 else qTrend / fmax(qLevel, qFloor)
+    if usedInitialProcessQFallback:
+        mapStatus = "all_objectives_failed_fallback"
+        mapReason = optimizerMessage
+    elif optimizerSuccess:
+        mapStatus = "optimized"
+        mapReason = "optimizer_success"
+    else:
+        mapStatus = "optimizer_failed_best_finite"
+        mapReason = optimizerMessage or objective.lastObjectiveFailure
+
+    diagnostics = {
+        "processNoisePolicy": "marginal_likelihood_map",
+        "processNoiseMAPStatus": mapStatus,
+        "processNoiseMAPReason": mapReason,
+        "stateModel": stateModelMode,
+        "qLevel": float(qLevel),
+        "qTrend": float(qTrend),
+        "initialQLevel": float(qLevelStart),
+        "initialQTrend": float(qTrendStart),
+        "priorQLevel": float(qLevelPrior),
+        "priorQTrend": float(qTrendPrior),
+        "rawQLevel": float(qLevelPrior),
+        "rawQTrend": float(qTrendPrior),
+        "rawTrendLevelRatio": float(rawRatio),
+        "effectiveTrendLevelRatio": float(finalRatio),
+        "marginalForwardNLL": float(bestForwardNLL),
+        "mapObjective": float(bestObjective),
+        "mapPriorPenalty": float(bestPriorPenalty),
+        "logQLevel": float(bestThetaView[0]),
+        "logQTrend": float(0.0 if dim == 1 else bestThetaView[1]),
+        "levelLogPriorCenter": float(logLevelPrior),
+        "levelLogPriorStrength": float(qLevelLogPriorStrength),
+        "trendLogRatioPriorCenter": float(logRatioPrior if dim == 2 else 0.0),
+        "trendLogRatioPriorStrength": float(
+            qTrendRatioLogPriorStrength if dim == 2 else 0.0
+        ),
+        "processQTrendLevelRatioPrior": float(qTrendLevelRatioPrior),
+        "processQTrendRatioLogPriorStrength": float(qTrendRatioLogPriorStrength),
+        "processQLevelLogPriorStrength": float(qLevelLogPriorStrength),
+        "qTrendLevelRatioPrior": float(qTrendLevelRatioPrior),
+        "qTrendRatioPriorStrength": float(qTrendRatioLogPriorStrength),
+        "mapRoughnessPenalty": float(qLevelLogPriorStrength),
+        "optimizerSuccess": bool(optimizerSuccess),
+        "optimizerMessage": optimizerMessage,
+        "optimizerEvaluations": int(objective.evalCount),
+        "optimizerParameterCount": int(dim),
+        "lastObjectiveFailure": objective.lastObjectiveFailure,
+        "usedInitialProcessQFallback": bool(usedInitialProcessQFallback),
+        "fallbackForwardNLLFinite": bool(fallbackForwardNLLFinite),
+        "matrixQ0Final": np.asarray(bestMatrixQ, dtype=float).tolist(),
+        "warmStartProcessNoise": 0.0,
+    }
+    diagnostics.update(boundary)
+    return bestMatrixQ, diagnostics
+
 cdef inline double _clampMultiplierValue(double value, double lower, double upper) noexcept nogil:
     if value < lower:
         return lower
     if value > upper:
         return upper
     return value
+
+
+cdef inline int64_t _roundHalfToEven(double value) noexcept nogil:
+    cdef double base = floor(value)
+    cdef double frac = value - base
+    cdef int64_t lower = <int64_t>base
+    if frac < 0.5:
+        return lower
+    if frac > 0.5:
+        return lower + 1
+    if (lower & 1) == 0:
+        return lower
+    return lower + 1
 
 
 cdef inline void _validateMultiplierBounds(
@@ -241,6 +766,957 @@ cdef inline void _accumulateObservationValue(
     sumInvRInnov2[0] += invMeasVar * (innov * innov)
     sumInvRInnov[0] += invMeasVar * innov
     sumInvR[0] += invMeasVar
+
+
+cdef inline uint64_t _process_q_stable_seed_update(uint64_t seed, int64_t value) noexcept nogil:
+    seed ^= (<uint64_t>value) + <uint64_t>0x9E3779B97F4A7C15 + (seed << 6) + (seed >> 2)
+    seed ^= seed >> 30
+    seed *= <uint64_t>0xBF58476D1CE4E5B9
+    seed ^= seed >> 27
+    seed *= <uint64_t>0x94D049BB133111EB
+    seed ^= seed >> 31
+    return seed
+
+
+cdef inline uint64_t _process_q_stable_seed(
+    int64_t trackCount,
+    int64_t intervalCount,
+    int64_t baseLength,
+    int64_t warmupPassIndex,
+    int64_t activeCount,
+    int64_t activeIndexSum,
+    int64_t activeCoverageBucket,
+    int64_t stratumCount0,
+    int64_t stratumCount1,
+    int64_t stratumCount2,
+) noexcept nogil:
+    cdef uint64_t seed = <uint64_t>0x6A09E667F3BCC909
+    seed = _process_q_stable_seed_update(seed, trackCount)
+    seed = _process_q_stable_seed_update(seed, intervalCount)
+    seed = _process_q_stable_seed_update(seed, baseLength)
+    seed = _process_q_stable_seed_update(seed, warmupPassIndex)
+    seed = _process_q_stable_seed_update(seed, activeCount)
+    seed = _process_q_stable_seed_update(seed, activeIndexSum)
+    seed = _process_q_stable_seed_update(seed, activeCoverageBucket)
+    seed = _process_q_stable_seed_update(seed, stratumCount0)
+    seed = _process_q_stable_seed_update(seed, stratumCount1)
+    seed = _process_q_stable_seed_update(seed, stratumCount2)
+    return seed
+
+
+cdef inline Py_ssize_t _process_q_odd_window_length(
+    double value,
+    Py_ssize_t lower,
+    Py_ssize_t upper,
+) noexcept nogil:
+    cdef Py_ssize_t upperLocal = upper
+    cdef Py_ssize_t lowerLocal = lower
+    cdef Py_ssize_t length
+
+    if upperLocal < 1:
+        upperLocal = 1
+    if lowerLocal < 1:
+        lowerLocal = 1
+    if lowerLocal > upperLocal:
+        lowerLocal = upperLocal
+    if not isfinite(value):
+        length = lowerLocal
+    else:
+        length = <Py_ssize_t>_roundHalfToEven(value)
+    if length < lowerLocal:
+        length = lowerLocal
+    elif length > upperLocal:
+        length = upperLocal
+    if (length & 1) == 0:
+        if length + 1 <= upperLocal:
+            length += 1
+        elif length - 1 >= lowerLocal:
+            length -= 1
+    if length < lowerLocal:
+        return lowerLocal
+    if length > upperLocal:
+        return upperLocal
+    return length
+
+
+cdef int _process_q_active_intervals_float32(
+    cnp.float32_t[:, ::1] data,
+    cnp.float32_t[:, ::1] munc,
+    double pad,
+    double maskedCutoff,
+    cnp.uint8_t[::1] activeIntervals,
+    cnp.int64_t[::1] activePrefix,
+    Py_ssize_t* activeCount,
+    int64_t* activeIndexSum,
+) noexcept nogil:
+    cdef Py_ssize_t trackCount = data.shape[0]
+    cdef Py_ssize_t intervalCount = data.shape[1]
+    cdef Py_ssize_t j, k
+    cdef double observed
+    cdef double muncValue
+    cdef double obsVariance
+    cdef uint8_t isActive
+
+    activePrefix[0] = 0
+    activeCount[0] = 0
+    activeIndexSum[0] = 0
+    for k in range(intervalCount):
+        isActive = <uint8_t>0
+        for j in range(trackCount):
+            observed = <double>data[j, k]
+            muncValue = <double>munc[j, k]
+            obsVariance = muncValue + pad
+            if (
+                isfinite(observed)
+                and isfinite(muncValue)
+                and muncValue < maskedCutoff
+                and isfinite(obsVariance)
+                and obsVariance > 0.0
+            ):
+                isActive = <uint8_t>1
+                break
+        activeIntervals[k] = isActive
+        activePrefix[k + 1] = activePrefix[k] + <int64_t>isActive
+        if isActive != 0:
+            activeCount[0] += 1
+            activeIndexSum[0] += <int64_t>k
+    return 0
+
+
+cdef int _process_q_abundance_float32(
+    cnp.float32_t[:, ::1] data,
+    cnp.float32_t[:, ::1] munc,
+    cnp.float32_t[::1] lambdaExp,
+    cnp.float32_t[::1] replicateBias,
+    double pad,
+    double maskedCutoff,
+    bint useLambda,
+    bint useReplicateBias,
+    double observationPrecisionMultiplierMin,
+    double observationPrecisionMultiplierMax,
+    cnp.uint8_t[::1] activeIntervals,
+    cnp.int64_t[::1] activePrefix,
+    cnp.float64_t[::1] abundance,
+    Py_ssize_t* activeCount,
+    int64_t* activeIndexSum,
+) noexcept nogil:
+    cdef Py_ssize_t trackCount = data.shape[0]
+    cdef Py_ssize_t intervalCount = data.shape[1]
+    cdef Py_ssize_t j, k
+    cdef double observed
+    cdef double muncValue
+    cdef double obsVariance
+    cdef double weight
+    cdef double weightSum
+    cdef double weightedSum
+    cdef double lambdaValue
+    cdef double biasValue
+    cdef uint8_t isActive
+
+    activePrefix[0] = 0
+    activeCount[0] = 0
+    activeIndexSum[0] = 0
+    for k in range(intervalCount):
+        weightSum = 0.0
+        weightedSum = 0.0
+        isActive = <uint8_t>0
+        if useLambda:
+            lambdaValue = <double>lambdaExp[k]
+            if isfinite(lambdaValue) and lambdaValue > 0.0:
+                if lambdaValue < observationPrecisionMultiplierMin:
+                    lambdaValue = observationPrecisionMultiplierMin
+                elif lambdaValue > observationPrecisionMultiplierMax:
+                    lambdaValue = observationPrecisionMultiplierMax
+            else:
+                lambdaValue = 0.0
+        else:
+            lambdaValue = 1.0
+        for j in range(trackCount):
+            observed = <double>data[j, k]
+            muncValue = <double>munc[j, k]
+            obsVariance = muncValue + pad
+            if (
+                isfinite(observed)
+                and isfinite(muncValue)
+                and muncValue < maskedCutoff
+                and isfinite(obsVariance)
+                and obsVariance > 0.0
+            ):
+                if obsVariance < 1.0e-12:
+                    obsVariance = 1.0e-12
+                weight = 1.0 / obsVariance
+                if useLambda:
+                    weight *= lambdaValue
+                if useReplicateBias:
+                    biasValue = <double>replicateBias[j]
+                else:
+                    biasValue = 0.0
+                weightedSum += (observed - biasValue) * weight
+                weightSum += weight
+                isActive = <uint8_t>1
+        activeIntervals[k] = isActive
+        activePrefix[k + 1] = activePrefix[k] + <int64_t>isActive
+        if isActive != 0:
+            activeCount[0] += 1
+            activeIndexSum[0] += <int64_t>k
+        if weightSum > 0.0:
+            abundance[k] = weightedSum / weightSum
+        else:
+            abundance[k] = NAN
+    return 0
+
+
+cdef int _process_q_assign_strata(
+    cnp.uint8_t[::1] activeIntervals,
+    cnp.float64_t[::1] abundance,
+    double q50,
+    double q90,
+    cnp.int8_t[::1] stratumId,
+    int64_t* stratumCounts,
+) noexcept nogil:
+    cdef Py_ssize_t intervalCount = abundance.shape[0]
+    cdef Py_ssize_t k
+    cdef double value
+
+    stratumCounts[0] = 0
+    stratumCounts[1] = 0
+    stratumCounts[2] = 0
+    for k in range(intervalCount):
+        stratumId[k] = <int8_t>-1
+        if activeIntervals[k] == 0:
+            continue
+        value = abundance[k]
+        if not isfinite(value):
+            continue
+        if value <= q50:
+            stratumId[k] = <int8_t>0
+            stratumCounts[0] += 1
+        elif value <= q90:
+            stratumId[k] = <int8_t>1
+            stratumCounts[1] += 1
+        else:
+            stratumId[k] = <int8_t>2
+            stratumCounts[2] += 1
+    return 0
+
+
+cdef int _process_q_active_nll_prefix(
+    cnp.float64_t[::1] intervalNLL,
+    cnp.uint8_t[::1] activeIntervals,
+    cnp.float64_t[::1] nllPrefix,
+    Py_ssize_t* activeCount,
+) noexcept nogil:
+    cdef Py_ssize_t intervalCount = intervalNLL.shape[0]
+    cdef Py_ssize_t k
+    cdef double value
+
+    activeCount[0] = 0
+    nllPrefix[0] = 0.0
+    for k in range(intervalCount):
+        if activeIntervals[k] != 0:
+            value = intervalNLL[k]
+            if not isfinite(value):
+                return -1
+            nllPrefix[k + 1] = nllPrefix[k] + value
+            activeCount[0] += 1
+        else:
+            nllPrefix[k + 1] = nllPrefix[k]
+    return 0
+
+
+cdef double _score_process_q_balanced_nll_from_windows(
+    cnp.float64_t[::1] nllPrefix,
+    cnp.int64_t[::1] groupOffsets,
+    cnp.int64_t[::1] starts,
+    cnp.int64_t[::1] ends,
+    cnp.int64_t[::1] activeInside,
+    Py_ssize_t activeCount,
+    Py_ssize_t intervalCount,
+) noexcept nogil:
+    cdef Py_ssize_t groupCount = groupOffsets.shape[0] - 1
+    cdef Py_ssize_t groupIndex
+    cdef Py_ssize_t idx
+    cdef Py_ssize_t startIdx
+    cdef Py_ssize_t endIdx
+    cdef int64_t start
+    cdef int64_t end
+    cdef int64_t activeWindow
+    cdef Py_ssize_t windowCount
+    cdef Py_ssize_t stratumCount = 0
+    cdef double windowNLL
+    cdef double density
+    cdef double windowScoreSum
+    cdef double stratumScoreSum = 0.0
+
+    for groupIndex in range(groupCount):
+        startIdx = <Py_ssize_t>groupOffsets[groupIndex]
+        endIdx = <Py_ssize_t>groupOffsets[groupIndex + 1]
+        windowScoreSum = 0.0
+        windowCount = 0
+        for idx in range(startIdx, endIdx):
+            start = starts[idx]
+            end = ends[idx]
+            activeWindow = activeInside[idx]
+            if activeWindow <= 0 or end <= start:
+                continue
+            if start < 0 or end > intervalCount:
+                continue
+            windowNLL = nllPrefix[<Py_ssize_t>end] - nllPrefix[<Py_ssize_t>start]
+            density = windowNLL / <double>activeWindow
+            if isfinite(density):
+                windowScoreSum += density
+                windowCount += 1
+        if windowCount > 0:
+            stratumScoreSum += windowScoreSum / <double>windowCount
+            stratumCount += 1
+    if stratumCount < 2:
+        return NAN
+    return <double>activeCount * (stratumScoreSum / <double>stratumCount)
+
+
+def _process_q_balanced_window_diagnostics(
+    bint enabled,
+    object fallbackReason,
+    object stratumCounts=None,
+    object windowCounts=None,
+    object windowLengths=None,
+    double activeCoverage=0.0,
+):
+    cdef list lengths = []
+    cdef object value
+
+    if stratumCounts is None:
+        stratumCounts = []
+    if windowCounts is None:
+        windowCounts = []
+    if windowLengths is None:
+        windowLengths = []
+    for value in windowLengths:
+        if int(value) > 0:
+            lengths.append(int(value))
+    return {
+        "enabled": bool(enabled),
+        "fallbackReason": None if fallbackReason is None else str(fallbackReason),
+        "stratumCounts": [int(value) for value in stratumCounts],
+        "windowCounts": [int(value) for value in windowCounts],
+        "windowLengthMin": int(min(lengths)) if lengths else None,
+        "windowLengthMedian": float(np.median(lengths)) if lengths else None,
+        "windowLengthMax": int(max(lengths)) if lengths else None,
+        "activeCoverage": float(activeCoverage),
+    }
+
+
+cpdef int cProcessQOddWindowLength(double value, Py_ssize_t lower, Py_ssize_t upper):
+    r"""Resolve a process-Q moving-window length with Cython's odd-length rule."""
+    return <int>_process_q_odd_window_length(value, lower, upper)
+
+
+cpdef object cProcessQStableSeed(object values):
+    r"""Stable 64-bit seed mixer used by stratified process-noise MAP windows."""
+    cdef uint64_t seed = <uint64_t>0x6A09E667F3BCC909
+    cdef object value
+    for value in values:
+        seed = _process_q_stable_seed_update(seed, <int64_t>int(value))
+    return int(seed)
+
+
+cpdef tuple cBuildProcessQBalancedMovingBlockPlan(
+    object matrixData,
+    object matrixMunc,
+    double pad,
+    Py_ssize_t blockLenIntervals,
+    Py_ssize_t warmupPassIndex,
+    object lambdaExp=None,
+    object replicateBias=None,
+    bint useObservationPrecision=True,
+    double observationPrecisionMultiplierMin=0.25,
+    double observationPrecisionMultiplierMax=4.0,
+    double maskedObservationVariance=1.0e30,
+):
+    r"""Build abundance-stratified moving windows for process-noise MAP scoring."""
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] dataArr = np.ascontiguousarray(matrixData, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] muncArr = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+    cdef cnp.float32_t[:, ::1] dataView
+    cdef cnp.float32_t[:, ::1] muncView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] activePrefixArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] abundanceArr
+    cdef cnp.ndarray[cnp.int8_t, ndim=1, mode="c"] stratumIdArr
+    cdef cnp.uint8_t[::1] activeView
+    cdef cnp.int64_t[::1] activePrefixView
+    cdef cnp.float64_t[::1] abundanceView
+    cdef cnp.int8_t[::1] stratumIdView
+    cdef cnp.float32_t[::1] lambdaView
+    cdef cnp.float32_t[::1] replicateBiasView
+    cdef Py_ssize_t trackCount
+    cdef Py_ssize_t intervalCount
+    cdef Py_ssize_t activeCount = 0
+    cdef int64_t activeIndexSum = 0
+    cdef double activeCoverage
+    cdef double maskedCutoff
+    cdef bint useLambda = False
+    cdef bint useReplicateBias = False
+    cdef object activeBool
+    cdef object validMask
+    cdef object values
+    cdef double q50
+    cdef double q90
+    cdef int64_t stratumCountsC[3]
+    cdef list stratumCounts
+    cdef Py_ssize_t nonEmptyStrata
+    cdef Py_ssize_t baseLength
+    cdef Py_ssize_t lowerBound
+    cdef Py_ssize_t upperBound
+    cdef Py_ssize_t minLength
+    cdef Py_ssize_t maxLength
+    cdef uint64_t seedValue
+    cdef object rng
+    cdef list windowGroups = []
+    cdef list windowCounts = []
+    cdef list windowLengths = []
+    cdef Py_ssize_t stratumIndex
+    cdef object candidates
+    cdef Py_ssize_t candidateSize
+    cdef Py_ssize_t targetWindows
+    cdef object centerPool
+    cdef list windows
+    cdef set seen
+    cdef Py_ssize_t attempts
+    cdef Py_ssize_t centerCursor
+    cdef Py_ssize_t maxAttempts
+    cdef Py_ssize_t center
+    cdef Py_ssize_t length
+    cdef Py_ssize_t start
+    cdef Py_ssize_t end
+    cdef Py_ssize_t activeInside
+    cdef Py_ssize_t requiredActive
+    cdef Py_ssize_t usableGroupCount
+    cdef Py_ssize_t totalWindowCount
+    cdef double sampled
+    cdef double logMinLength
+    cdef double logMaxLength
+    cdef tuple window
+
+    if dataArr.ndim != 2 or muncArr.ndim != 2 or muncArr.shape[0] != dataArr.shape[0] or muncArr.shape[1] != dataArr.shape[1]:
+        return [], np.zeros(0, dtype=np.bool_), _process_q_balanced_window_diagnostics(
+            False,
+            "invalid_matrix_shape",
+        )
+
+    trackCount = dataArr.shape[0]
+    intervalCount = dataArr.shape[1]
+    dataView = dataArr
+    muncView = muncArr
+    if intervalCount < 2 or trackCount < 1:
+        return (
+            [],
+            np.zeros(intervalCount, dtype=np.bool_),
+            _process_q_balanced_window_diagnostics(False, "too_few_intervals"),
+        )
+
+    activeArr = np.empty(intervalCount, dtype=np.uint8)
+    activePrefixArr = np.empty(intervalCount + 1, dtype=np.int64)
+    activeView = activeArr
+    activePrefixView = activePrefixArr
+    maskedCutoff = 0.5 * maskedObservationVariance
+    if not isfinite(maskedCutoff) or maskedCutoff <= 0.0:
+        maskedCutoff = __MASKED_OBSERVATION_VARIANCE_CUTOFF
+    with nogil:
+        _process_q_active_intervals_float32(
+            dataView,
+            muncView,
+            pad,
+            maskedCutoff,
+            activeView,
+            activePrefixView,
+            &activeCount,
+            &activeIndexSum,
+        )
+    activeCoverage = (<double>activeCount / <double>intervalCount) if intervalCount else 0.0
+    activeBool = activeArr.astype(np.bool_)
+    if activeCount < 2:
+        return [], activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "too_few_active_intervals",
+            activeCoverage=activeCoverage,
+        )
+
+    if bool(useObservationPrecision) and lambdaExp is not None:
+        lambdaArr = np.ascontiguousarray(lambdaExp, dtype=np.float32).reshape(-1)
+        if lambdaArr.shape[0] != intervalCount:
+            return [], activeBool, _process_q_balanced_window_diagnostics(
+                False,
+                "invalid_lambda_shape",
+                activeCoverage=activeCoverage,
+            )
+        lambdaView = lambdaArr
+        useLambda = True
+    else:
+        lambdaArr = np.empty(0, dtype=np.float32)
+        lambdaView = lambdaArr
+        useLambda = False
+
+    if replicateBias is not None:
+        replicateBiasArr = np.ascontiguousarray(replicateBias, dtype=np.float32).reshape(-1)
+        if replicateBiasArr.shape[0] != trackCount:
+            return [], activeBool, _process_q_balanced_window_diagnostics(
+                False,
+                "invalid_replicate_bias_shape",
+                activeCoverage=activeCoverage,
+            )
+        replicateBiasView = replicateBiasArr
+        useReplicateBias = True
+    else:
+        replicateBiasArr = np.empty(0, dtype=np.float32)
+        replicateBiasView = replicateBiasArr
+        useReplicateBias = False
+
+    abundanceArr = np.empty(intervalCount, dtype=np.float64)
+    abundanceView = abundanceArr
+    with nogil:
+        _process_q_abundance_float32(
+            dataView,
+            muncView,
+            lambdaView,
+            replicateBiasView,
+            pad,
+            maskedCutoff,
+            useLambda,
+            useReplicateBias,
+            observationPrecisionMultiplierMin,
+            observationPrecisionMultiplierMax,
+            activeView,
+            activePrefixView,
+            abundanceView,
+            &activeCount,
+            &activeIndexSum,
+        )
+
+    validMask = activeArr.astype(np.bool_) & np.isfinite(abundanceArr)
+    values = abundanceArr[validMask]
+    if values.size < 2:
+        return [], activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "too_few_finite_abundance_intervals",
+            activeCoverage=activeCoverage,
+        )
+
+    q50, q90 = np.quantile(values, [0.5, 0.9])
+    if not isfinite(q50) or not isfinite(q90):
+        return [], activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "nonfinite_abundance_quantiles",
+            activeCoverage=activeCoverage,
+        )
+
+    stratumIdArr = np.empty(intervalCount, dtype=np.int8)
+    stratumIdView = stratumIdArr
+    with nogil:
+        _process_q_assign_strata(
+            activeView,
+            abundanceView,
+            q50,
+            q90,
+            stratumIdView,
+            &stratumCountsC[0],
+        )
+    stratumCounts = [
+        int(stratumCountsC[0]),
+        int(stratumCountsC[1]),
+        int(stratumCountsC[2]),
+    ]
+    nonEmptyStrata = 0
+    for stratumIndex in range(3):
+        if stratumCounts[stratumIndex] > 0:
+            nonEmptyStrata += 1
+    if nonEmptyStrata < 2:
+        return [], activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "too_few_abundance_strata",
+            stratumCounts=stratumCounts,
+            windowCounts=[0, 0, 0],
+            activeCoverage=activeCoverage,
+        )
+
+    baseLength = blockLenIntervals if blockLenIntervals > 1 else 1
+    lowerBound = baseLength // 2
+    if lowerBound < 7:
+        lowerBound = 7
+    if lowerBound < 1:
+        lowerBound = 1
+    if lowerBound > intervalCount:
+        lowerBound = intervalCount
+    upperBound = 2 * baseLength
+    if upperBound < lowerBound:
+        upperBound = lowerBound
+    if upperBound > intervalCount:
+        upperBound = intervalCount
+    minLength = _process_q_odd_window_length(<double>lowerBound, 1, intervalCount)
+    maxLength = _process_q_odd_window_length(<double>upperBound, minLength, intervalCount)
+    logMinLength = log(<double>minLength)
+    logMaxLength = log(<double>maxLength)
+
+    seedValue = _process_q_stable_seed(
+        <int64_t>trackCount,
+        <int64_t>intervalCount,
+        <int64_t>baseLength,
+        <int64_t>warmupPassIndex,
+        <int64_t>activeCount,
+        activeIndexSum,
+        _roundHalfToEven(1000.0 * activeCoverage),
+        stratumCountsC[0],
+        stratumCountsC[1],
+        stratumCountsC[2],
+    )
+    rng = default_rng(seedValue)
+
+    for stratumIndex in range(3):
+        candidates = np.flatnonzero(stratumIdArr == stratumIndex)
+        candidateSize = int(candidates.size)
+        if candidateSize <= 0:
+            windowGroups.append([])
+            windowCounts.append(0)
+            continue
+
+        targetWindows = candidateSize if candidateSize < 128 else 128
+        if candidateSize <= targetWindows:
+            centerPool = rng.permutation(candidates)
+        else:
+            centerPool = rng.choice(candidates, size=targetWindows, replace=False)
+        windows = []
+        seen = set()
+        attempts = 0
+        centerCursor = 0
+        maxAttempts = 8 * targetWindows
+        if maxAttempts < 16:
+            maxAttempts = 16
+        while len(windows) < targetWindows and attempts < maxAttempts:
+            if centerCursor < centerPool.size:
+                center = int(centerPool[centerCursor])
+                centerCursor += 1
+            else:
+                center = int(rng.choice(candidates))
+            if minLength >= maxLength:
+                length = minLength
+            else:
+                sampled = exp(float(rng.uniform(logMinLength, logMaxLength)))
+                length = _process_q_odd_window_length(sampled, minLength, maxLength)
+            start = center - (length // 2)
+            if start < 0:
+                start = 0
+            elif start > intervalCount - length:
+                start = intervalCount - length
+            if start < 0:
+                start = 0
+            end = start + length
+            if end > intervalCount:
+                end = intervalCount
+            start = end - length
+            if start < 0:
+                start = 0
+            activeInside = int(activePrefixArr[end] - activePrefixArr[start])
+            requiredActive = <Py_ssize_t>ceil(0.25 * <double>(end - start if end > start else 1))
+            if requiredActive < 2:
+                requiredActive = 2
+            if requiredActive > activeCount:
+                requiredActive = activeCount
+            attempts += 1
+            if activeInside < requiredActive:
+                continue
+            if (<double>activeInside / <double>(end - start if end > start else 1)) < 0.25:
+                continue
+            window = (int(start), int(end), int(activeInside))
+            if window in seen:
+                continue
+            seen.add(window)
+            windows.append(window)
+            windowLengths.append(int(end - start))
+        windowGroups.append(windows)
+        windowCounts.append(int(len(windows)))
+
+    usableGroupCount = 0
+    totalWindowCount = 0
+    for windows in windowGroups:
+        if windows:
+            usableGroupCount += 1
+            totalWindowCount += len(windows)
+    if usableGroupCount < 2:
+        return windowGroups, activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "too_few_valid_window_strata",
+            stratumCounts=stratumCounts,
+            windowCounts=windowCounts,
+            windowLengths=windowLengths,
+            activeCoverage=activeCoverage,
+        )
+    if totalWindowCount < (4 if 4 > 2 * usableGroupCount else 2 * usableGroupCount):
+        return windowGroups, activeBool, _process_q_balanced_window_diagnostics(
+            False,
+            "too_few_valid_windows",
+            stratumCounts=stratumCounts,
+            windowCounts=windowCounts,
+            windowLengths=windowLengths,
+            activeCoverage=activeCoverage,
+        )
+
+    return windowGroups, activeBool, _process_q_balanced_window_diagnostics(
+        True,
+        None,
+        stratumCounts=stratumCounts,
+        windowCounts=windowCounts,
+        windowLengths=windowLengths,
+        activeCoverage=activeCoverage,
+    )
+
+
+cdef cnp.ndarray[cnp.int64_t, ndim=2, mode="c"] _coerceProcessQWindowSpec(
+    object windowGroups,
+) except *:
+    cdef object raw
+    cdef cnp.ndarray[cnp.int64_t, ndim=2, mode="c"] windowsArr
+    cdef Py_ssize_t count = 0
+    cdef Py_ssize_t row = 0
+    cdef Py_ssize_t stratumIndex
+    cdef object windows
+    cdef object window
+
+    if isinstance(windowGroups, np.ndarray):
+        raw = np.ascontiguousarray(windowGroups, dtype=np.int64)
+        windowsArr = <cnp.ndarray[cnp.int64_t, ndim=2, mode="c"]>raw
+        if windowsArr.ndim != 2 or windowsArr.shape[1] != 4:
+            raise ValueError("windowGroups array must have shape (n, 4)")
+        return windowsArr
+
+    for stratumIndex, windows in enumerate(windowGroups):
+        for window in windows:
+            count += 1
+
+    windowsArr = np.empty((count, 4), dtype=np.int64)
+    for stratumIndex, windows in enumerate(windowGroups):
+        for window in windows:
+            windowsArr[row, 0] = <int64_t>stratumIndex
+            windowsArr[row, 1] = <int64_t>int(window[0])
+            windowsArr[row, 2] = <int64_t>int(window[1])
+            windowsArr[row, 3] = <int64_t>int(window[2])
+            row += 1
+    return windowsArr
+
+
+cdef double _scoreProcessQBalancedMovingBlockNLLViews(
+    double[::1] nll,
+    cnp.uint8_t[::1] active,
+    int64_t[:, ::1] windows,
+    double[::1] nllPrefix,
+) noexcept nogil:
+    cdef Py_ssize_t n = nll.shape[0]
+    cdef Py_ssize_t i
+    cdef Py_ssize_t w
+    cdef int64_t activeCount = 0
+    cdef int64_t start
+    cdef int64_t end
+    cdef int64_t activeInside
+    cdef int stratum
+    cdef int stratumCount = 0
+    cdef double density
+    cdef double stratumScoreSum = 0.0
+    cdef double stratumSums[16]
+    cdef int64_t stratumWindowCounts[16]
+
+    if n == 0 or active.shape[0] != n:
+        return NAN
+
+    for i in range(16):
+        stratumSums[i] = 0.0
+        stratumWindowCounts[i] = 0
+
+    nllPrefix[0] = 0.0
+    for i in range(n):
+        if active[i] != 0:
+            if not isfinite(nll[i]):
+                return NAN
+            activeCount += 1
+            nllPrefix[i + 1] = nllPrefix[i] + nll[i]
+        else:
+            nllPrefix[i + 1] = nllPrefix[i]
+    if activeCount <= 0:
+        return NAN
+
+    for w in range(windows.shape[0]):
+        stratum = <int>windows[w, 0]
+        start = windows[w, 1]
+        end = windows[w, 2]
+        activeInside = windows[w, 3]
+        if stratum < 0 or stratum >= 16:
+            continue
+        if activeInside <= 0 or end <= start:
+            continue
+        if start < 0 or end > n:
+            continue
+        density = (nllPrefix[end] - nllPrefix[start]) / <double>activeInside
+        if isfinite(density):
+            stratumSums[stratum] += density
+            stratumWindowCounts[stratum] += 1
+
+    for i in range(16):
+        if stratumWindowCounts[i] > 0:
+            stratumScoreSum += stratumSums[i] / <double>stratumWindowCounts[i]
+            stratumCount += 1
+    if stratumCount < 2:
+        return NAN
+    return <double>activeCount * (stratumScoreSum / <double>stratumCount)
+
+
+cpdef double cScoreProcessQBalancedMovingBlockNLLFlat(
+    object intervalNLL,
+    object windowGroups,
+    object activeIntervals,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nllArr = np.ascontiguousarray(
+        np.asarray(intervalNLL, dtype=np.float64).reshape(-1),
+        dtype=np.float64,
+    )
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr = np.ascontiguousarray(
+        np.asarray(activeIntervals, dtype=np.uint8).reshape(-1),
+        dtype=np.uint8,
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=2, mode="c"] windowsArr = _coerceProcessQWindowSpec(
+        windowGroups,
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nllPrefix = np.empty(
+        nllArr.shape[0] + 1,
+        dtype=np.float64,
+    )
+    cdef double[::1] nllView = nllArr
+    cdef cnp.uint8_t[::1] activeView = activeArr
+    cdef int64_t[:, ::1] windowsView = windowsArr
+    cdef double[::1] prefixView = nllPrefix
+    cdef double score
+    with nogil:
+        score = _scoreProcessQBalancedMovingBlockNLLViews(
+            nllView,
+            activeView,
+            windowsView,
+            prefixView,
+        )
+    return score
+
+
+cpdef tuple cFlattenProcessQBalancedWindowGroups(object windowGroups):
+    r"""Flatten process-Q balanced window groups into contiguous int64 arrays."""
+    cdef Py_ssize_t groupCount = len(windowGroups)
+    cdef Py_ssize_t totalWindows = 0
+    cdef Py_ssize_t groupIndex
+    cdef Py_ssize_t windowIndex
+    cdef Py_ssize_t cursor = 0
+    cdef object group
+    cdef object window
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] startsArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] endsArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] activeInsideArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] groupOffsetsArr
+    cdef cnp.int64_t[::1] startsView
+    cdef cnp.int64_t[::1] endsView
+    cdef cnp.int64_t[::1] activeInsideView
+    cdef cnp.int64_t[::1] groupOffsetsView
+
+    for group in windowGroups:
+        totalWindows += len(group)
+
+    startsArr = np.empty(totalWindows, dtype=np.int64)
+    endsArr = np.empty(totalWindows, dtype=np.int64)
+    activeInsideArr = np.empty(totalWindows, dtype=np.int64)
+    groupOffsetsArr = np.empty(groupCount + 1, dtype=np.int64)
+    startsView = startsArr
+    endsView = endsArr
+    activeInsideView = activeInsideArr
+    groupOffsetsView = groupOffsetsArr
+
+    groupOffsetsView[0] = 0
+    for groupIndex in range(groupCount):
+        group = windowGroups[groupIndex]
+        for windowIndex in range(len(group)):
+            window = group[windowIndex]
+            startsView[cursor] = <int64_t>int(window[0])
+            endsView[cursor] = <int64_t>int(window[1])
+            activeInsideView[cursor] = <int64_t>int(window[2])
+            cursor += 1
+        groupOffsetsView[groupIndex + 1] = <int64_t>cursor
+
+    return startsArr, endsArr, activeInsideArr, groupOffsetsArr
+
+
+cpdef double cScoreProcessQBalancedMovingBlockNLL(
+    cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] intervalNLL,
+    cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeIntervals,
+    cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] windowStarts,
+    cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] windowEnds,
+    cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] windowActiveInside,
+    cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] groupOffsets,
+):
+    r"""Score flattened process-Q balanced moving windows using a nogil kernel."""
+    cdef Py_ssize_t intervalCount = intervalNLL.shape[0]
+    cdef Py_ssize_t windowCount = windowStarts.shape[0]
+    cdef Py_ssize_t groupOffsetCount = groupOffsets.shape[0]
+    cdef Py_ssize_t activeCount = 0
+    cdef Py_ssize_t i
+    cdef int status
+    cdef double out
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nllPrefixArr
+    cdef cnp.float64_t[::1] intervalNLLView
+    cdef cnp.uint8_t[::1] activeIntervalsView
+    cdef cnp.int64_t[::1] windowStartsView
+    cdef cnp.int64_t[::1] windowEndsView
+    cdef cnp.int64_t[::1] windowActiveInsideView
+    cdef cnp.int64_t[::1] groupOffsetsView
+    cdef cnp.float64_t[::1] nllPrefixView
+
+    if intervalCount == 0 or activeIntervals.shape[0] != intervalCount:
+        return NAN
+    if windowEnds.shape[0] != windowCount or windowActiveInside.shape[0] != windowCount:
+        return NAN
+    if groupOffsetCount < 1:
+        return NAN
+    if groupOffsets[0] != 0:
+        return NAN
+    for i in range(groupOffsetCount):
+        if groupOffsets[i] < 0 or groupOffsets[i] > windowCount:
+            return NAN
+        if i > 0 and groupOffsets[i] < groupOffsets[i - 1]:
+            return NAN
+
+    nllPrefixArr = np.empty(intervalCount + 1, dtype=np.float64)
+    intervalNLLView = intervalNLL
+    activeIntervalsView = activeIntervals
+    windowStartsView = windowStarts
+    windowEndsView = windowEnds
+    windowActiveInsideView = windowActiveInside
+    groupOffsetsView = groupOffsets
+    nllPrefixView = nllPrefixArr
+
+    with nogil:
+        status = _process_q_active_nll_prefix(
+            intervalNLLView,
+            activeIntervalsView,
+            nllPrefixView,
+            &activeCount,
+        )
+    if status != 0 or activeCount <= 0:
+        return NAN
+
+    with nogil:
+        out = _score_process_q_balanced_nll_from_windows(
+            nllPrefixView,
+            groupOffsetsView,
+            windowStartsView,
+            windowEndsView,
+            windowActiveInsideView,
+            activeCount,
+            intervalCount,
+        )
+    return out
 
 
 cpdef tuple cExpectedTransitionResidualSums(
@@ -397,6 +1873,7 @@ cpdef tuple cExpectedTransitionResidualSumsLevel(
         sumLevel += levelMoment
 
     return sumLevel, 0.0, transitionCount
+
 
 cdef inline Py_ssize_t _getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
     # CALLERS: `_maskMembership`, `cbedMask`

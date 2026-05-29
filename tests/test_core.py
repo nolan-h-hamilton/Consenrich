@@ -245,8 +245,8 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
 
 
 @pytest.mark.correctness
-def _caseAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
-    block = core._formatAsciiLogBlock(
+def _caseEventLogFormattingIsCompactAndAttributed(caplog):
+    line = core._formatLogEvent(
         "MUNC track start",
         (
             ("chromosome", "chr11"),
@@ -258,25 +258,16 @@ def _caseAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
         ),
     )
 
-    assert max(len(line) for line in block.splitlines()) <= 72
-    assert "PHASE: MUNC TRACK START" in block
-    assert "| MUNC variance EB" in block
-    assert "| enabled" in block
-    assert "long value" not in block
-    indentedBlock = core._formatAsciiLogBlock(
-        "MUNC track child",
-        (("chromosome", "chr11"),),
-        indentLevel=1,
-    )
-    assert indentedBlock.startswith("      +")
-    assert "\n      | PHASE: MUNC TRACK CHILD" in indentedBlock
+    assert line.startswith("event=munc.track.start")
+    assert "chromosome=chr11" in line
+    assert "munc_variance_eb=enabled" in line
+    assert 'long_value="this value is too long for the table and should be omitted"' in line
 
     caplog.set_level(logging.INFO, logger=core.logger.name)
     core._logAsciiBlock("MUNC track start", (("MUNC variance EB", "enabled"),))
 
-    assert caplog.records[-1].funcName.endswith("AsciiPhaseLogFormattingIsCompactAndAttributed")
-    assert caplog.records[-1].message.startswith("\n+")
-    assert caplog.records[-1].message.endswith("\n")
+    assert caplog.records[-1].funcName.endswith("EventLogFormattingIsCompactAndAttributed")
+    assert caplog.records[-1].message == "event=munc.track.start munc_variance_eb=enabled"
 
 
 @pytest.mark.correctness
@@ -1115,6 +1106,7 @@ def _caseFinalForwardGainSummaryUsesReplicateContigRows():
 
     np.testing.assert_allclose(summary["mean"], expectedAverages)
     np.testing.assert_allclose(summary["median"], expectedMedians)
+    np.testing.assert_array_equal(summary["count"], np.full(matrixMunc.shape[0], matrixMunc.shape[1]))
 
 
 @pytest.mark.correctness
@@ -1907,6 +1899,153 @@ def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
     assert cappedInfo["hitQTrendCap"] is True
 
 
+def _caseProcessQSeedAndOddWindowLengthUseCythonHelpers():
+    def _seed_reference(*values):
+        mask = (1 << 64) - 1
+        seed = 0x6A09E667F3BCC909
+        for value in values:
+            seed ^= (
+                int(value)
+                + 0x9E3779B97F4A7C15
+                + ((seed << 6) & mask)
+                + (seed >> 2)
+            )
+            seed &= mask
+            seed ^= seed >> 30
+            seed = (seed * 0xBF58476D1CE4E5B9) & mask
+            seed ^= seed >> 27
+            seed = (seed * 0x94D049BB133111EB) & mask
+            seed ^= seed >> 31
+        return int(seed & mask)
+
+    values = (2, 73, 11, 4, 57, 2080, 781, 22, 31, 20, -3)
+    assert cconsenrich.cProcessQStableSeed(np.asarray(values, dtype=np.int64)) == (
+        _seed_reference(*values)
+    )
+
+    def _odd_reference(value, lower, upper):
+        upper_local = max(1, int(upper))
+        lower_local = min(max(1, int(lower)), upper_local)
+        if not np.isfinite(float(value)):
+            length = lower_local
+        else:
+            length = int(round(float(value)))
+        length = min(max(length, lower_local), upper_local)
+        if length % 2 == 0:
+            if length + 1 <= upper_local:
+                length += 1
+            elif length - 1 >= lower_local:
+                length -= 1
+        return int(min(max(length, lower_local), upper_local))
+
+    for value, lower, upper in (
+        (float("nan"), 2, 12),
+        (8.5, 1, 13),
+        (7.5, 1, 13),
+        (2.0, 3, 8),
+        (100.0, 1, 10),
+    ):
+        assert cconsenrich.cProcessQOddWindowLength(value, lower, upper) == (
+            _odd_reference(value, lower, upper)
+        )
+
+
+def _caseBalancedMovingBlockNLLUsesCythonScorer():
+    intervalNLL = np.asarray([1.0, 2.0, np.nan, 4.0, 5.0, 6.0], dtype=np.float64)
+    active = np.asarray([True, True, False, True, True, True])
+    windowGroups = [
+        [(0, 2, 2), (3, 5, 2)],
+        [(1, 6, 4)],
+        [],
+    ]
+
+    def _reference_score(nll, active_intervals, groups):
+        active_nll = np.where(active_intervals, nll, 0.0)
+        prefix = np.concatenate([[0.0], np.cumsum(active_nll, dtype=np.float64)])
+        strata = []
+        for windows in groups:
+            scores = []
+            for start, end, active_inside in windows:
+                if active_inside <= 0 or end <= start:
+                    continue
+                density = float(prefix[end] - prefix[start]) / float(active_inside)
+                if np.isfinite(density):
+                    scores.append(density)
+            if scores:
+                strata.append(float(np.mean(scores, dtype=np.float64)))
+        return float(np.count_nonzero(active_intervals) * np.mean(strata))
+
+    expected = _reference_score(intervalNLL, active, windowGroups)
+    direct_observed = cconsenrich.cScoreProcessQBalancedMovingBlockNLLFlat(
+        intervalNLL,
+        windowGroups,
+        active.astype(np.uint8),
+    )
+    observed = core._scoreProcessQBalancedMovingBlockNLL(
+        intervalNLL,
+        windowGroups=windowGroups,
+        activeIntervals=active,
+    )
+    assert direct_observed == pytest.approx(expected)
+    assert observed == pytest.approx(expected)
+
+    active_nonfinite = active.copy()
+    active_nonfinite[2] = True
+    assert np.isnan(
+        core._scoreProcessQBalancedMovingBlockNLL(
+            intervalNLL,
+            windowGroups=windowGroups,
+            activeIntervals=active_nonfinite,
+        )
+    )
+    assert np.isnan(
+        core._scoreProcessQBalancedMovingBlockNLL(
+            intervalNLL[:-1],
+            windowGroups=windowGroups,
+            activeIntervals=active,
+        )
+    )
+
+
+def _caseProcessQBalancedWindowPlanIsDeterministic():
+    interval_count = 72
+    signal = np.linspace(-2.0, 8.0, interval_count, dtype=np.float64)
+    matrix_data = np.vstack([signal, signal + 0.25]).astype(np.float32)
+    matrix_munc = np.full_like(matrix_data, 0.2, dtype=np.float32)
+    lambda_exp = np.linspace(0.75, 1.25, interval_count, dtype=np.float32)
+    replicate_bias = np.asarray([0.0, 0.25], dtype=np.float32)
+
+    first = core._buildProcessQBalancedMovingBlockPlan(
+        matrixData=matrix_data,
+        matrixMunc=matrix_munc,
+        pad=1.0e-4,
+        blockLenIntervals=9,
+        warmupPassIndex=3,
+        lambdaExp=lambda_exp,
+        replicateBias=replicate_bias,
+        useObservationPrecision=True,
+        observationPrecisionMultiplierMin=0.25,
+        observationPrecisionMultiplierMax=4.0,
+    )
+    second = core._buildProcessQBalancedMovingBlockPlan(
+        matrixData=matrix_data,
+        matrixMunc=matrix_munc,
+        pad=1.0e-4,
+        blockLenIntervals=9,
+        warmupPassIndex=3,
+        lambdaExp=lambda_exp,
+        replicateBias=replicate_bias,
+        useObservationPrecision=True,
+        observationPrecisionMultiplierMin=0.25,
+        observationPrecisionMultiplierMax=4.0,
+    )
+
+    assert first[2]["enabled"] is True
+    assert first[0] == second[0]
+    np.testing.assert_array_equal(first[1], second[1])
+    assert first[2] == second[2]
+
+
 @pytest.mark.correctness
 def _caseRunConsenrichOuterPassSmoke(caplog):
     rng = np.random.default_rng(0)
@@ -2011,25 +2150,27 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert len(gainSummary["median"]) == m
     assert len(gainSummary["sd"]) == m
     assert len(gainSummary["iqr"]) == m
+    assert len(gainSummary["count"]) == m
     assert all(value >= 0.0 for value in gainSummary["sd"])
     assert all(value >= 0.0 for value in gainSummary["iqr"])
+    assert all(value >= 0 for value in gainSummary["count"])
     assert "background_prior" not in diagnostics
-    assert "PHASE: CORE START" in caplog.text
-    assert "PHASE: POST-PROCESS-NOISE FIT" in caplog.text
-    assert "      | PHASE: POST-PROCESS-NOISE FIT" in caplog.text
-    assert "PHASE: INNER ECM FIT / FIXED-BACKGROUND" not in caplog.text
-    assert "proc precision weights" in caplog.text
+    assert "event=core.start" in caplog.text
+    assert "event=post.process.noise.fit" in caplog.text
+    assert "event=inner.ecm.fit.fixed.background" not in caplog.text
+    assert "proc_precision_weights=" in caplog.text
     assert "backgroundTarget[" not in caplog.text
     assert "backgroundSolve[" not in caplog.text
     assert "backgroundObjectivePerCell=" in caplog.text
     assert "backgroundObjectiveChangePerCell=" in caplog.text
     assert "backgroundObjectiveThresholdPerCell=" in caplog.text
-    assert "processNoiseCalibration=marginal_likelihood_map" in caplog.text
-    assert "forwardNLL=" in caplog.text
-    assert "mapObjective=" in caplog.text
-    assert "levelLogPriorCenter=" in caplog.text
-    assert "trendLogRatioPriorStrength=" in caplog.text
-    assert "optimizerEvaluations=" in caplog.text
+    assert "event=process.noise.calibration" in caplog.text
+    assert "mode=marginal_likelihood_map" in caplog.text
+    assert "forward_nll=" in caplog.text
+    assert "map_objective=" in caplog.text
+    assert "level_log_prior_center=" in caplog.text
+    assert "trend_log_ratio_prior_strength=" in caplog.text
+    assert "optimizer_evaluations=" in caplog.text
     assert "".join(("qLevel", "DataRaw=")) not in caplog.text
     assert "".join(("qTrend", "DataRaw=")) not in caplog.text
     assert "lambdaMean=" in caplog.text
@@ -5634,7 +5775,7 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
 
 def test_core_numeric_kernel_contracts(caplog, contract_case):
     caplog.clear()
-    contract_case("ASCII phase logging", _caseAsciiPhaseLogFormattingIsCompactAndAttributed, caplog)
+    contract_case("event logging", _caseEventLogFormattingIsCompactAndAttributed, caplog)
     for dtype in (np.float32, np.float64):
         contract_case(f"C EMA kernel {dtype}", _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64, dtype)
         contract_case(f"mono log kernel {dtype}", _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64, dtype)
@@ -5760,6 +5901,18 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         (
             "marginal MAP process noise",
             _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood,
+        ),
+        (
+            "process-Q seed and window helper cythonization",
+            _caseProcessQSeedAndOddWindowLengthUseCythonHelpers,
+        ),
+        (
+            "balanced moving-block NLL Cython scorer",
+            _caseBalancedMovingBlockNLLUsesCythonScorer,
+        ),
+        (
+            "balanced moving-block plan determinism",
+            _caseProcessQBalancedWindowPlanIsDeterministic,
         ),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),

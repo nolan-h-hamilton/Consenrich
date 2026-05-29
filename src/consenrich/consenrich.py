@@ -6,7 +6,6 @@ import inspect
 import logging
 import math
 from multiprocessing.pool import ThreadPool
-import pprint
 import os
 import tempfile
 import time
@@ -101,6 +100,17 @@ PRECISION_DIAGNOSTIC_COLUMNS = [
     "process_precision_reweighting_disabled_by_apn",
     "median_diag_R",
     "median_effective_diag_R",
+]
+
+GAIN_SUMMARY_COLUMNS = [
+    "replicate_index",
+    "sample_name",
+    "treatment_path",
+    "control_path",
+    "chromosome_count",
+    "finite_interval_count",
+    "gain_avg",
+    "gain_std",
 ]
 
 
@@ -262,7 +272,11 @@ def _flattenOptimizationPathDiagnostics(
 def _writeOptimizationPathLog(rows: Sequence[Mapping[str, Any]], path: str) -> None:
     frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
     frame.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
-    logger.info("optimizationPath.output wrote %s rows=%d", path, int(len(frame)))
+    core._logEvent(
+        "artifact.optimization_path",
+        (("path", path), ("rows", int(len(frame)))),
+        logger_=logger,
+    )
 
 
 def _safeOutputToken(value: Any, *, fallback: str) -> str:
@@ -833,92 +847,140 @@ def _writePrecisionDiagnostics(
     return True
 
 
-def _truncateMiddle(text: Any, width: int) -> str:
-    text_ = str(text)
-    width_ = max(0, int(width))
-    if len(text_) <= width_:
-        return text_
-    if width_ <= 3:
-        return text_[:width_]
-    head = (width_ - 3) // 2
-    tail = width_ - 3 - head
-    return f"{text_[:head]}...{text_[-tail:]}"
+def _replicateGainSummaryPath(experimentName: str) -> str:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return f"consenrichOutput_{experimentToken}_replicateGains.v{__version__}.tsv"
 
 
-def _formatReplicateGainFrame(
-    chromosome: str,
+def _newReplicateGainAccumulator(replicateCount: int) -> dict[str, np.ndarray]:
+    count = max(0, int(replicateCount))
+    return {
+        "chromosome_count": np.zeros(count, dtype=np.int64),
+        "finite_interval_count": np.zeros(count, dtype=np.int64),
+        "sum": np.zeros(count, dtype=np.float64),
+        "sum_sq": np.zeros(count, dtype=np.float64),
+    }
+
+
+def _coerceGainSummaryVector(
+    values: Any,
+    replicateCount: int,
+    *,
+    dtype: Any,
+) -> np.ndarray:
+    out = np.zeros(int(replicateCount), dtype=dtype)
+    if np.issubdtype(np.dtype(dtype), np.floating):
+        out.fill(np.nan)
+    if values is None:
+        return out
+    arr = np.asarray(list(values), dtype=dtype).reshape(-1)
+    limit = min(int(replicateCount), int(arr.size))
+    if limit > 0:
+        out[:limit] = arr[:limit]
+    return out
+
+
+def _updateReplicateGainAccumulator(
+    accumulator: dict[str, np.ndarray],
+    gainSummary: Mapping[str, Any],
+) -> int:
+    replicateCount = int(accumulator["finite_interval_count"].size)
+    means = _coerceGainSummaryVector(gainSummary.get("mean"), replicateCount, dtype=np.float64)
+    sds = _coerceGainSummaryVector(gainSummary.get("sd"), replicateCount, dtype=np.float64)
+    counts = _coerceGainSummaryVector(gainSummary.get("count"), replicateCount, dtype=np.int64)
+    valid = (counts > 0) & np.isfinite(means) & np.isfinite(sds)
+    if not np.any(valid):
+        return 0
+    validCounts = counts[valid].astype(np.float64, copy=False)
+    accumulator["chromosome_count"][valid] += 1
+    accumulator["finite_interval_count"][valid] += counts[valid]
+    accumulator["sum"][valid] += means[valid] * validCounts
+    accumulator["sum_sq"][valid] += ((sds[valid] ** 2) + (means[valid] ** 2)) * validCounts
+    return int(np.count_nonzero(valid))
+
+
+def _replicateGainSummaryRows(
     treatmentSources: Sequence[core.inputSource],
-    gainMeans: Sequence[Any],
-    gainMedians: Sequence[Any],
-    gainSds: Sequence[Any] = (),
-    gainIqrs: Sequence[Any] = (),
+    accumulator: Mapping[str, np.ndarray],
     *,
     controlSources: Sequence[core.inputSource] | None = None,
-    indentLevel: int = 0,
-) -> str:
-    columns = (
-        ("rep", 5),
-        ("id", 18),
-        ("file", 46),
-        ("mean", 12),
-        ("median", 12),
-        ("sd", 12),
-        ("IQR", 12),
-    )
-    border = "+" + "+".join("-" * (width + 2) for _name, width in columns) + "+"
-    titleWidth = len(border) - 4
-    title = _truncateMiddle(f"FINAL FORWARD-PASS GAINS [{chromosome}]", titleWidth)
-    header = "| " + " | ".join(f"{name:<{width}}" for name, width in columns) + " |"
-    lines = [border, f"| {title:<{titleWidth}} |", border, header, border]
+) -> list[dict[str, Any]]:
+    finiteCounts = np.asarray(accumulator["finite_interval_count"], dtype=np.int64)
+    sums = np.asarray(accumulator["sum"], dtype=np.float64)
+    sumSqs = np.asarray(accumulator["sum_sq"], dtype=np.float64)
+    chromosomeCounts = np.asarray(accumulator["chromosome_count"], dtype=np.int64)
     controlSources_ = list(controlSources or [])
-    rowCount = max(len(gainMeans), len(gainMedians), len(gainSds), len(gainIqrs))
-    for i in range(rowCount):
+    rows: list[dict[str, Any]] = []
+    for i in range(int(finiteCounts.size)):
         source = treatmentSources[i] if i < len(treatmentSources) else None
         if source is None:
             sourceId = f"replicate_{i + 1}"
-            fileLabel = "unknown"
+            treatmentPath = "unknown"
         else:
             sourceId = str(
                 source.sampleName
                 or os.path.basename(source.path)
                 or f"replicate_{i + 1}"
             )
-            fileLabel = str(source.path)
-        if i < len(controlSources_):
-            fileLabel = f"{fileLabel} | control={controlSources_[i].path}"
-        values = (
-            str(i + 1),
-            _truncateMiddle(sourceId, columns[1][1]),
-            _truncateMiddle(fileLabel, columns[2][1]),
-            _truncateMiddle(
-                _fmtDiagnosticFloat(gainMeans[i] if i < len(gainMeans) else None),
-                columns[3][1],
-            ),
-            _truncateMiddle(
-                _fmtDiagnosticFloat(gainMedians[i] if i < len(gainMedians) else None),
-                columns[4][1],
-            ),
-            _truncateMiddle(
-                _fmtDiagnosticFloat(gainSds[i] if i < len(gainSds) else None),
-                columns[5][1],
-            ),
-            _truncateMiddle(
-                _fmtDiagnosticFloat(gainIqrs[i] if i < len(gainIqrs) else None),
-                columns[6][1],
-            ),
+            treatmentPath = str(source.path)
+        controlPath = (
+            str(controlSources_[i].path)
+            if i < len(controlSources_)
+            else None
         )
-        lines.append(
-            "| "
-            + " | ".join(
-                f"{value:<{width}}" for value, (_name, width) in zip(values, columns)
-            )
-            + " |"
+        count = int(finiteCounts[i])
+        if count > 0:
+            avg = float(sums[i] / float(count))
+            variance = max(float(sumSqs[i] / float(count)) - (avg * avg), 0.0)
+            std = float(math.sqrt(variance))
+        else:
+            avg = float("nan")
+            std = float("nan")
+        rows.append(
+            {
+                "replicate_index": int(i + 1),
+                "sample_name": sourceId,
+                "treatment_path": treatmentPath,
+                "control_path": controlPath,
+                "chromosome_count": int(chromosomeCounts[i]),
+                "finite_interval_count": count,
+                "gain_avg": avg,
+                "gain_std": std,
+            }
         )
-    lines.append(border)
-    indent = " " * (max(0, int(indentLevel)) * getattr(core, "_LOG_INDENT_WIDTH", 6))
-    if indent:
-        return "\n".join(f"{indent}{line}" for line in lines)
-    return "\n".join(lines)
+    return rows
+
+
+def _writeReplicateGainSummary(rows: Sequence[Mapping[str, Any]], path: str) -> bool:
+    frame = pd.DataFrame(list(rows), columns=GAIN_SUMMARY_COLUMNS)
+    finiteIntervals = (
+        int(pd.to_numeric(frame["finite_interval_count"], errors="coerce").fillna(0).sum())
+        if not frame.empty
+        else 0
+    )
+    if frame.empty or finiteIntervals <= 0:
+        core._logEvent(
+            "artifact.replicate_gains.skipped",
+            (("path", path), ("reason", "no_finite_gains")),
+            logger_=logger,
+            level=logging.WARNING,
+        )
+        return False
+    frame.to_csv(
+        path,
+        sep="\t",
+        header=True,
+        index=False,
+        float_format="%.7g",
+        lineterminator="\n",
+        na_rep="NA",
+    )
+    core._logEvent(
+        "artifact.replicate_gains",
+        (("path", path), ("rows", int(len(frame))), ("finite_intervals", finiteIntervals)),
+        logger_=logger,
+    )
+    return True
 
 
 def _getProcessNoiseMapRoughnessPenalty(processArgs: Any) -> float:
@@ -1076,11 +1138,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
     )
-    logger.info(
-        "\n%s\n",
-        core._formatAsciiLogBlock("initial configuration", rows),
-        stacklevel=2,
-    )
+    core._logEvent("config.initial", rows, logger_=logger)
     if bool(countingArgs.subtractGlobalMedian) and controlsPresent:
         logger.info(
             "global median center disabled because control inputs are present; "
@@ -1331,6 +1389,20 @@ class _ConsoleFormatter(logging.Formatter):
         return message
 
 
+class _TqdmConsoleHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            stream = self.stream
+            if stream is sys.stderr and getattr(stream, "isatty", lambda: False)():
+                tqdm.write(message, file=stream, end=self.terminator)
+            else:
+                stream.write(message + self.terminator)
+                self.flush()
+        except Exception:
+            self.handleError(record)
+
+
 def _removeCliHandlers(packageLogger: logging.Logger) -> None:
     for handler in list(packageLogger.handlers):
         packageLogger.removeHandler(handler)
@@ -1373,7 +1445,7 @@ def _configureCliLogging(
     packageLogger.setLevel(logging.DEBUG if verbose2 else logging.INFO)
     packageLogger.propagate = False
 
-    consoleHandler = logging.StreamHandler(
+    consoleHandler = _TqdmConsoleHandler(
         sys.stderr if consoleStream is None else consoleStream
     )
     setattr(consoleHandler, _CLI_HANDLER_ATTR, True)
@@ -1723,17 +1795,6 @@ def main():
     if args.verbose:
         try:
             _logInitialConfigurationSummary(config)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "raw parsed config:\n%s",
-                    pprint.pformat(
-                        config,
-                        indent=2,
-                        width=120,
-                        sort_dicts=True,
-                        compact=False,
-                    ),
-                )
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
@@ -3821,6 +3882,12 @@ def main():
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
     genomeOptimizationPathRows: List[Mapping[str, Any]] = []
+    saveGains = bool(
+        getattr(outputArgs, "saveGains", constants.OUTPUT_DEFAULT_SAVE_GAINS)
+    )
+    replicateGainAccumulator = (
+        _newReplicateGainAccumulator(len(treatmentSources)) if saveGains else None
+    )
 
     for c_, chromPlan in enumerate(
         _progress(
@@ -4303,22 +4370,22 @@ def main():
             "final_forward_gain_contig_summary"
         )
         if isinstance(finalForwardGainSummary, Mapping):
-            gainMeans = finalForwardGainSummary.get("mean", [])
-            gainMedians = finalForwardGainSummary.get("median", [])
-            gainSds = finalForwardGainSummary.get("sd", [])
-            gainIqrs = finalForwardGainSummary.get("iqr", [])
-            logger.info(
-                "\n%s\n",
-                _formatReplicateGainFrame(
-                    chromosome,
-                    treatmentSources,
-                    list(gainMeans if gainMeans is not None else []),
-                    list(gainMedians if gainMedians is not None else []),
-                    list(gainSds if gainSds is not None else []),
-                    list(gainIqrs if gainIqrs is not None else []),
-                    controlSources=(controlSources if controlsPresent else None),
-                    indentLevel=1,
+            updatedReplicates = (
+                _updateReplicateGainAccumulator(
+                    replicateGainAccumulator,
+                    finalForwardGainSummary,
+                )
+                if replicateGainAccumulator is not None
+                else 0
+            )
+            core._logEvent(
+                "replicate.gain.contig",
+                (
+                    ("chromosome", chromosome),
+                    ("updated_replicates", int(updatedReplicates)),
                 ),
+                logger_=logger,
+                level=logging.DEBUG,
             )
         backgroundWarmStart = None
         if bool(fitArgs.fitBackground):
@@ -4611,6 +4678,17 @@ def main():
             chromosome,
             chromosomeElapsed,
             int(len(bedGraphTracks)),
+        )
+
+    if replicateGainAccumulator is not None:
+        gainRows = _replicateGainSummaryRows(
+            treatmentSources,
+            replicateGainAccumulator,
+            controlSources=(controlSources if controlsPresent else None),
+        )
+        _writeReplicateGainSummary(
+            gainRows,
+            _replicateGainSummaryPath(str(experimentName)),
         )
 
     if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:

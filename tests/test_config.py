@@ -155,18 +155,15 @@ def _caseInitialConfigurationSummaryStaysCompact(
     caplog.set_level(logging.INFO, logger=consenrich_cli.logger.name)
     consenrich_cli._logInitialConfigurationSummary(parsed)
 
-    assert "PHASE: INITIAL CONFIGURATION" in caplog.text
-    assert "treatment inputs" in caplog.text
-    assert "| treatment inputs" in caplog.text
-    assert "| 3" in caplog.text
-    assert "q-level prior strength" in caplog.text
-    assert "| 1.75" in caplog.text
+    assert "event=config.initial" in caplog.text
+    assert "treatment_inputs=3" in caplog.text
+    assert "q_level_prior_strength=1.75" in caplog.text
     assert "3 outer passes x 11 ECM iters" in caplog.text
     assert "inputSource(" not in caplog.text
     assert "'countingArgs':" not in caplog.text
 
 
-def _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr():
+def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     sources = [
         consenrich_core.inputSource(
             path="/tmp/sampleA.bam",
@@ -179,29 +176,52 @@ def _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr():
             sampleName="sampleB",
         ),
     ]
-    frame = consenrich_cli._formatReplicateGainFrame(
-        "chrTest",
+    controls = [
+        consenrich_core.inputSource(
+            path="/tmp/controlA.bam",
+            sourceKind="BAM",
+            sampleName="controlA",
+        ),
+    ]
+    accumulator = consenrich_cli._newReplicateGainAccumulator(2)
+    assert (
+        consenrich_cli._updateReplicateGainAccumulator(
+            accumulator,
+            {"mean": [0.125, 0.25], "sd": [0.0125, 0.025], "count": [4, 4]},
+        )
+        == 2
+    )
+    assert (
+        consenrich_cli._updateReplicateGainAccumulator(
+            accumulator,
+            {"mean": [0.25, 0.5], "sd": [0.025, 0.05], "count": [6, 6]},
+        )
+        == 2
+    )
+    rows = consenrich_cli._replicateGainSummaryRows(
         sources,
-        [0.125, 0.25],
-        [0.1, 0.2],
-        [0.0125, 0.025],
-        [0.05, 0.075],
-        indentLevel=1,
+        accumulator,
+        controlSources=controls,
     )
 
-    assert frame.startswith("      +")
-    assert "FINAL FORWARD-PASS GAINS [chrTest]" in frame
-    assert "| mean" in frame
-    assert "| median" in frame
-    assert "| sd" in frame
-    assert "| IQR" in frame
-    assert "sampleA" in frame
-    assert "/tmp/sampleA.bam" in frame
-    assert "0.125" in frame
-    assert "0.1" in frame
-    assert "0.0125" in frame
-    assert "0.075" in frame
-    assert all(line.startswith(("      +", "      |")) for line in frame.splitlines())
+    expectedAvg = ((0.125 * 4.0) + (0.25 * 6.0)) / 10.0
+    expectedSumSq = ((0.0125**2 + 0.125**2) * 4.0) + (
+        (0.025**2 + 0.25**2) * 6.0
+    )
+    expectedStd = np.sqrt((expectedSumSq / 10.0) - (expectedAvg**2))
+    assert rows[0]["sample_name"] == "sampleA"
+    assert rows[0]["control_path"] == "/tmp/controlA.bam"
+    assert rows[0]["chromosome_count"] == 2
+    assert rows[0]["finite_interval_count"] == 10
+    assert rows[0]["gain_avg"] == pytest.approx(expectedAvg)
+    assert rows[0]["gain_std"] == pytest.approx(expectedStd)
+
+    path = tmp_path / "gains.tsv"
+    assert consenrich_cli._writeReplicateGainSummary(rows, str(path)) is True
+    text = path.read_text(encoding="utf-8")
+    assert "gain_avg\tgain_std" in text
+    assert "gain_median" not in text
+    assert "gain_iqr" not in text
 
 
 def _case_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
@@ -858,6 +878,7 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["outputArgs"].saveBackgroundTracks == profile[
         "outputParams.saveBackgroundTracks"
     ]
+    assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
         parsed["outputArgs"].plotOptimizationPath
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
@@ -869,6 +890,14 @@ def _case_runtime_defaults_are_centralized(
             writeUncertainty=parsed["outputArgs"].writeUncertainty,
         ).saveBackgroundTracks
         == constants.OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
+    )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).saveGains
+        == constants.OUTPUT_DEFAULT_SAVE_GAINS
     )
     assert (
         consenrich_core.fitParams().useNonnegativeBackground
@@ -938,6 +967,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
+    outputParams.saveGains: false
     uncertaintyCalibrationParams.enabled: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.75
@@ -957,6 +987,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
+    assert parsed["outputArgs"].saveGains is False
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
     assert parsed["matchingArgs"].uncertaintyScoreMode == "lower_confidence"
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(1.75)
@@ -1838,8 +1869,9 @@ def test_config_runtime_logging_and_validation_contracts(
             caplog,
         )
     contract_case(
-        "replicate gain frame",
-        _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr,
+        "replicate gain summary",
+        _caseReplicateGainSummaryWritesPooledAverageAndStd,
+        tmp_path,
     )
     contract_case(
         "control log-ratio disables global median centering",
