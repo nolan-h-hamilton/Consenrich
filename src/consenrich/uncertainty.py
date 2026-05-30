@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from . import core
 from . import diagnostics
+from . import segshrink
 from . import cuncertainty as _cuncertainty
 from . import _logging as _logging_utils
 from ._normalization import weighted_quantile
@@ -26,6 +27,63 @@ logger = logging.getLogger(__name__)
 
 TARGET_CALIBRATION_BLOCK_SPLIT_SEED_OFFSET = 20_000
 TARGET_CALIBRATION_FRACTION = 0.5
+
+DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
+    "record_type",
+    "event",
+    "chromosome",
+    "fold",
+    "interval_index",
+    "block_index",
+    "blockIDX",
+    "chrom_start",
+    "uncertainty_decile",
+    "high_signal",
+    "stratum",
+    "target",
+    "alpha",
+    "delta",
+    "q",
+    "q_source",
+    "k",
+    "tail_probability",
+    "finite_bound",
+    "certified",
+    "reason",
+    "n",
+    "coverage_before",
+    "coverage_after",
+    "mean_width_before",
+    "mean_width_after",
+    "median_width_before",
+    "median_width_after",
+    "q90_width_before",
+    "q90_width_after",
+    "residual",
+    "deleted_state_delta",
+    "state_full",
+    "state_masked",
+    "P00_full",
+    "P00_masked",
+    "covariance_delta",
+    "total_information",
+    "kept_information",
+    "heldout_information",
+    "heldout_information_fraction",
+    "delta_variance",
+    "delta_variance_source",
+    "row_weight",
+    "sd_before",
+    "sd_after",
+    "a_state",
+    "factor_segment",
+    "segment_raw_factor",
+    "segment_bootstrap_variance",
+    "segment_shrinkage_weight",
+    "contig_shrinkage_weight",
+    "key",
+    "value",
+]
 
 
 class uncertaintyCalibrationResult(NamedTuple):
@@ -56,6 +114,56 @@ def _firstSet(params: core.uncertaintyCalibrationParams, *names: str, default: A
             if value is not None:
                 return value
     return default
+
+
+def _jsonSafe(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, np.ndarray):
+        return [_jsonSafe(item) for item in value.reshape(-1).tolist()]
+    if isinstance(value, dict):
+        return {str(key): _jsonSafe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonSafe(item) for item in value]
+    if isinstance(value, (float, np.floating)):
+        valueFloat = float(value)
+        return valueFloat if np.isfinite(valueFloat) else None
+    return value
+
+
+def _diagnosticValue(value: Any) -> Any:
+    safeValue = _jsonSafe(value)
+    if isinstance(safeValue, (dict, list, tuple)):
+        return json.dumps(safeValue, sort_keys=True)
+    return safeValue
+
+
+def _calibrationKeyValueRows(
+    *,
+    recordType: str,
+    event: str,
+    chromosome: str | None,
+    values: dict[str, Any],
+    fold: int | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "record_type": recordType,
+            "event": event,
+            "chromosome": chromosome,
+            "fold": None if fold is None else int(fold),
+            "key": str(key),
+            "value": _diagnosticValue(value),
+        }
+        for key, value in values.items()
+    ]
+
+
+def _ensureCalibrationLog(path: str | Path) -> Path:
+    logPath = Path(path)
+    if not logPath.exists():
+        _logging_utils.init_tsv_log(logPath, DELETE_BLOCK_CALIBRATION_LOG_COLUMNS)
+    return logPath
 
 
 def _factorBounds(params: core.uncertaintyCalibrationParams) -> tuple[float, float]:
@@ -538,24 +646,22 @@ def _diagnosticsTable(
     chromosome: str | None = None,
 ) -> pd.DataFrame:
     scoreRows = scores.copy()
-    scoreRows.insert(0, "record_type", "score")
+    scoreRows.insert(0, "event", "delete_block_calibration.score_sample")
+    scoreRows.insert(0, "record_type", "score_sample")
     summaryRows = summary.copy()
+    summaryRows.insert(0, "event", "delete_block_calibration.summary")
     summaryRows.insert(0, "record_type", "summary")
     modelRows = pd.DataFrame(
         {
             "record_type": "model",
+            "event": "delete_block_calibration.model",
             "key": list(model.keys()),
-            "value": [
-                json.dumps(value, sort_keys=True)
-                if isinstance(value, (dict, list, tuple))
-                else value
-                for value in model.values()
-            ],
+            "value": [_diagnosticValue(value) for value in model.values()],
         }
     )
     if chromosome is not None:
         for frame in (scoreRows, summaryRows, modelRows):
-            frame.insert(1, "chromosome", str(chromosome))
+            frame.insert(2, "chromosome", str(chromosome))
     columns = list(
         dict.fromkeys([*scoreRows.columns, *summaryRows.columns, *modelRows.columns])
     )
@@ -580,34 +686,6 @@ def _coverageLogPayload(rows: list[dict[str, Any]]) -> str:
             )
         )
     return " ".join(parts)
-
-
-def _writeModelJson(path: str, model: dict[str, Any], chromosome: str | None) -> None:
-    pathObj = Path(path)
-    if chromosome is None:
-        payload: dict[str, Any] = dict(model)
-    else:
-        payload = {"chromosomes": {str(chromosome): dict(model)}}
-        if pathObj.exists():
-            try:
-                with open(pathObj, "r", encoding="utf-8") as handle:
-                    existing = json.load(handle)
-                if isinstance(existing, dict):
-                    existingChroms = existing.get("chromosomes")
-                    if isinstance(existingChroms, dict):
-                        payload = existing
-                        payload["chromosomes"][str(chromosome)] = dict(model)
-            except Exception:
-                pass
-    with open(pathObj, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-    _logging_utils.log_file_written(
-        logger,
-        event="uncertainty.model_json_written",
-        path=str(pathObj),
-        fields=(("chromosome", chromosome),),
-        level=logging.INFO,
-    )
 
 
 def _normalizeUncertaintyCalibrationMode(value: str | None) -> str:
@@ -658,10 +736,11 @@ def _normalizeDeleteBlockTargetSignal(value: str | None) -> str:
 def _normalizeDeleteBlockFactorModel(value: str | None) -> str:
     if value is None:
         return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL
-    normalized = str(value).strip().lower().replace("-", "_")
+    normalized = str(value).strip()
     if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS:
         raise ValueError(
-            f"unsupported delete-block factor model: {value!r}; V1 supports 'global'"
+            f"unsupported delete-block factor model: {value!r}; supported values: "
+            f"{', '.join(core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS)}"
         )
     return normalized
 
@@ -960,6 +1039,7 @@ def calibrateChromosomeStateUncertainty(
     params: core.uncertaintyCalibrationParams,
     runKwargs: dict[str, Any],
     outPrefix: str | None = None,
+    diagnosticsLogPath: str | Path | None = None,
     chromosome: str | None = None,
 ) -> uncertaintyCalibrationResult:
     totalStart = time.perf_counter()
@@ -980,8 +1060,6 @@ def calibrateChromosomeStateUncertainty(
     varianceMode = _normalizeDeleteBlockVarianceMode(params.deleteBlockVarianceMode)
     targetSignal = _normalizeDeleteBlockTargetSignal(params.deleteBlockTargetSignal)
     factorModel = _normalizeDeleteBlockFactorModel(params.deleteBlockFactorModel)
-    if factorModel != "global":
-        raise ValueError("delete-block state calibration currently supports only global factors")
     weightMode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
     blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
     holdoutFractionRaw = _firstSet(
@@ -1096,16 +1174,25 @@ def calibrateChromosomeStateUncertainty(
     }
     rowsTotal = 0
     foldFailures = 0
+    foldDiagnosticRows: list[dict[str, Any]] = []
 
     fitKwargs = dict(runKwargs)
     fitKwargs.setdefault("logRunRole", "delete-block state calibration fold")
     foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
     fitKwargs["logIndentLevel"] = foldIndentLevel + 1
-    fitKwargs["ECM_fixedBackgroundIters"] = max(
-        int(params.calibrationECMIters),
-        core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
-    )
-    calibrationOuterIters = max(1, int(params.calibrationOuterIters))
+    if factorModel == segshrink.SEGSHRINK_MODEL:
+        calibrationFixedBackgroundIters = min(
+            max(int(params.calibrationECMIters), 2),
+            10,
+        )
+        calibrationOuterIters = min(max(int(params.calibrationOuterIters), 2), 4)
+    else:
+        calibrationFixedBackgroundIters = max(
+            int(params.calibrationECMIters),
+            core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
+        )
+        calibrationOuterIters = max(1, int(params.calibrationOuterIters))
+    fitKwargs["ECM_fixedBackgroundIters"] = calibrationFixedBackgroundIters
     fitKwargs["ECM_outerIters"] = calibrationOuterIters
     fitKwargs["ECM_minOuterIters"] = 1
     fitKwargs["processNoiseWarmupECMIters"] = (
@@ -1159,6 +1246,20 @@ def calibrateChromosomeStateUncertainty(
                 str(exc),
             )
             foldFailures += 1
+            foldDiagnosticRows.extend(
+                _calibrationKeyValueRows(
+                    recordType="fold",
+                    event="delete_block_calibration.fold.failed",
+                    chromosome=chromosome,
+                    fold=int(fold + 1),
+                    values={
+                        "status": "failed",
+                        "error": str(exc),
+                        "warmup_mode": warmupMode,
+                        "warmup_detail": warmupDetail,
+                    },
+                )
+            )
             continue
         foldRefitSeconds = time.perf_counter() - stageStart
         refitSeconds += foldRefitSeconds
@@ -1234,6 +1335,20 @@ def calibrateChromosomeStateUncertainty(
                 float(foldRefitSeconds),
                 float(foldExtractSeconds),
             )
+            foldDiagnosticRows.extend(
+                _calibrationKeyValueRows(
+                    recordType="fold",
+                    event="delete_block_calibration.fold.done",
+                    chromosome=chromosome,
+                    fold=int(fold + 1),
+                    values={
+                        "status": "no_valid_rows",
+                        "delete_block_rows": 0,
+                        "refit_seconds": float(foldRefitSeconds),
+                        "extract_seconds": float(foldExtractSeconds),
+                    },
+                )
+            )
             continue
         idx = np.flatnonzero(valid).astype(np.int64, copy=False)
         foldExtractSeconds = time.perf_counter() - stageStart
@@ -1270,6 +1385,22 @@ def calibrateChromosomeStateUncertainty(
             covValidFractionFold,
             float(foldRefitSeconds),
             float(foldExtractSeconds),
+        )
+        foldDiagnosticRows.extend(
+            _calibrationKeyValueRows(
+                recordType="fold",
+                event="delete_block_calibration.fold.done",
+                chromosome=chromosome,
+                fold=int(fold + 1),
+                values={
+                    "status": "ok",
+                    "delete_block_rows": int(idx.size),
+                    "variance_mode": varianceMode,
+                    "covariance_difference_fraction": covValidFractionFold,
+                    "refit_seconds": float(foldRefitSeconds),
+                    "extract_seconds": float(foldExtractSeconds),
+                },
+            )
         )
     timings["masked_refits_seconds"] = refitSeconds
     timings["extract_scores_seconds"] = extractSeconds
@@ -1331,21 +1462,55 @@ def calibrateChromosomeStateUncertainty(
         _maxScoreRows(params),
     )
     stageStart = time.perf_counter()
-    factorGlobal, modelMeta = _fitDeleteBlockGlobalFactor(
-        residual=residualFit,
-        pDelta=pDeltaFit,
-        rowWeight=rowWeight[fitRows],
-        params=params,
-    )
-    timings["fit_factor_seconds"] = time.perf_counter() - stageStart
-    stageStart = time.perf_counter()
-    factor = np.full(n, float(factorGlobal), dtype=np.float64)
-    calibrated = np.sqrt(
-        np.maximum(
-            factor * fullPArr,
-            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+    segShrinkFit: dict[str, Any] | None = None
+    if factorModel == segshrink.SEGSHRINK_MODEL:
+        targetForFactor = max(tuple(float(t) for t in params.targets))
+        factorMin, factorMax = _factorBounds(params)
+        segShrinkFit = segshrink.fit_single_contig(
+            residual=residualFit,
+            pDelta=pDeltaFit,
+            rowWeight=rowWeight[fitRows],
+            intervalIndex=intervalIndexFit,
+            foldIndex=foldIndexFit,
+            blockIDX=blockIndex[fitRows],
+            fullP=fullPArr,
+            target=targetForFactor,
+            targetZ=_normalZ(targetForFactor),
+            factorMin=factorMin,
+            factorMax=factorMax,
+            segmentCount=int(params.deleteBlockFactorSegmentCount),
+            bootstrapReplicates=int(params.deleteBlockFactorBootstrapReplicates),
+            seed=int(params.seed) + core.UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET,
+            positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
         )
-    ).astype(np.float32)
+        factor = np.asarray(segShrinkFit["factor"], dtype=np.float64)
+        calibrated = np.asarray(segShrinkFit["calibrated"], dtype=np.float32)
+        modelMeta = dict(segShrinkFit["modelMeta"])
+        factorGlobal = float(modelMeta.get("global_factor", np.nan))
+    else:
+        factorGlobal, modelMeta = _fitDeleteBlockGlobalFactor(
+            residual=residualFit,
+            pDelta=pDeltaFit,
+            rowWeight=rowWeight[fitRows],
+            params=params,
+        )
+        factor = np.full(n, float(factorGlobal), dtype=np.float64)
+        calibrated = np.sqrt(
+            np.maximum(
+                factor * fullPArr,
+                core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+            )
+        ).astype(np.float32)
+    timings["fit_factor_seconds"] = time.perf_counter() - stageStart
+    modelMeta["refitPolicy"] = {
+        "ECM_outerIters": int(calibrationOuterIters),
+        "ECM_minOuterIters": 1,
+        "ECM_fixedBackgroundIters": int(calibrationFixedBackgroundIters),
+        "processNoiseWarmupECMIters": int(
+            core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
+        ),
+    }
+    stageStart = time.perf_counter()
     timings["evaluate_factor_seconds"] = time.perf_counter() - stageStart
     heldFactor = factor[intervalIndexFit].astype(np.float64)
     sdBeforeAll = np.sqrt(
@@ -1516,6 +1681,47 @@ def calibrateChromosomeStateUncertainty(
             "a_state": heldFactor,
         }
     )
+    if segShrinkFit is not None:
+        segmentByInterval = np.asarray(segShrinkFit["segmentByInterval"], dtype=np.int32)
+        fitSegment = segmentByInterval[intervalIndexFit]
+        segmentRawLog = np.asarray(
+            segShrinkFit["segmentRawLogFactor"],
+            dtype=np.float64,
+        )
+        segmentRawFactor = np.full(fitSegment.shape[0], np.nan, dtype=np.float64)
+        validSegment = (fitSegment >= 0) & (fitSegment < segmentRawLog.shape[0])
+        segmentRawFactor[validSegment] = np.exp(segmentRawLog[fitSegment[validSegment]])
+        segmentVariance = np.asarray(
+            segShrinkFit["segmentBootstrapVariance"],
+            dtype=np.float64,
+        )
+        segmentBootstrapVariance = np.full(
+            fitSegment.shape[0],
+            np.nan,
+            dtype=np.float64,
+        )
+        validVarianceSegment = (fitSegment >= 0) & (fitSegment < segmentVariance.shape[0])
+        segmentBootstrapVariance[validVarianceSegment] = segmentVariance[
+            fitSegment[validVarianceSegment]
+        ]
+        segmentWeight = np.asarray(
+            segShrinkFit["segmentShrinkageWeight"],
+            dtype=np.float64,
+        )
+        segmentShrinkageWeight = np.full(fitSegment.shape[0], np.nan, dtype=np.float64)
+        validWeightSegment = (fitSegment >= 0) & (fitSegment < segmentWeight.shape[0])
+        segmentShrinkageWeight[validWeightSegment] = segmentWeight[
+            fitSegment[validWeightSegment]
+        ]
+        contigShrinkageWeight = float(
+            modelMeta.get("contigShrinkage", [{}])[0].get("shrinkageWeight", 0.0)
+        )
+        scores["factor_segment"] = fitSegment
+        scores["blockIDX"] = scores["block_index"].to_numpy(dtype=np.int64)
+        scores["segment_raw_factor"] = segmentRawFactor
+        scores["segment_bootstrap_variance"] = segmentBootstrapVariance
+        scores["segment_shrinkage_weight"] = segmentShrinkageWeight
+        scores["contig_shrinkage_weight"] = contigShrinkageWeight
     try:
         scores["uncertainty_decile"] = pd.qcut(
             scores["delta_variance"],
@@ -1621,11 +1827,24 @@ def calibrateChromosomeStateUncertainty(
             "holdout_fraction_config": (
                 None if holdoutFractionRaw is None else float(holdoutFractionRaw)
             ),
-            "calibration_ecm_iters": int(params.calibrationECMIters),
+            "calibration_ecm_iters": int(
+                calibrationFixedBackgroundIters
+                if factorModel == segshrink.SEGSHRINK_MODEL
+                else params.calibrationECMIters
+            ),
             "calibration_outer_iters": int(calibrationOuterIters),
             "refit_policy": {
                 "ECM_outerIters": int(calibrationOuterIters),
                 "ECM_minOuterIters": 1,
+                **(
+                    {
+                        "ECM_fixedBackgroundIters": int(
+                            calibrationFixedBackgroundIters
+                        )
+                    }
+                    if factorModel == segshrink.SEGSHRINK_MODEL
+                    else {}
+                ),
                 "returnBackground": True,
                 "returnScales": True,
             },
@@ -1676,37 +1895,62 @@ def calibrateChromosomeStateUncertainty(
         float(factorGlobal),
         timings["total_seconds"],
     )
-    if outPrefix is not None and bool(params.writeDiagnostics):
+    if (diagnosticsLogPath is not None or outPrefix is not None) and bool(
+        params.writeDiagnostics
+    ):
         diagnosticsStart = time.perf_counter()
-        prefix = Path(outPrefix)
-        diagnosticsPath = str(prefix) + ".diagnostics.tsv.gz"
-        modelPath = str(prefix) + ".model.json"
+        logPath = _ensureCalibrationLog(
+            diagnosticsLogPath
+            if diagnosticsLogPath is not None
+            else str(Path(str(outPrefix))) + ".delete_block_calibration.log"
+        )
         diagnosticsTable = _diagnosticsTable(
             scores=scoresDiagnostics,
             summary=summary,
             model=model,
             chromosome=chromosome,
         )
-        for path in _progress(
-            [diagnosticsPath],
-            params=params,
-            desc="Writing uncertainty diagnostics",
-            unit="file",
-        ):
-            pathObj = Path(path)
-            diagnosticsTable.to_csv(
-                path,
-                sep="\t",
-                index=False,
-                mode="a" if pathObj.exists() else "w",
-                header=not pathObj.exists(),
-                compression="gzip",
+        rowsWritten = _logging_utils.append_tsv_log(
+            logPath,
+            diagnosticsTable,
+            DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
+        )
+        extraRows: list[dict[str, Any]] = []
+        extraRows.extend(foldDiagnosticRows)
+        extraRows.extend(
+            _calibrationKeyValueRows(
+                recordType="invalid_reason",
+                event="delete_block_calibration.invalid_reason_counts",
+                chromosome=chromosome,
+                values={key: int(value) for key, value in invalidReasonCounts.items()},
             )
-            logger.info("uncertaintyCalibration.output wrote %s", path)
+        )
+        extraRows.extend(
+            {
+                "record_type": "target_bound",
+                "event": "delete_block_calibration.target_bound",
+                "chromosome": chromosome,
+                **{
+                    key: _diagnosticValue(value)
+                    for key, value in dict(bound).items()
+                },
+            }
+            for bound in targetCalibrationBounds
+        )
+        rowsWritten += _logging_utils.append_tsv_log(
+            logPath,
+            extraRows,
+            DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
+        )
         timings["diagnostics_seconds"] = time.perf_counter() - diagnosticsStart
         model["timings_seconds"] = {key: float(value) for key, value in timings.items()}
-        _writeModelJson(modelPath, model, chromosome)
-        logger.info("uncertaintyCalibration.output wrote %s", modelPath)
+        _logging_utils.log_file_written(
+            logger,
+            event="uncertainty.delete_block_calibration_log",
+            path=str(logPath),
+            fields=(("chromosome", chromosome), ("rows", int(rowsWritten))),
+            level=logging.INFO,
+        )
     return uncertaintyCalibrationResult(
         factor=factor.astype(np.float32),
         calibratedUncertainty=calibrated,

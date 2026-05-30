@@ -220,6 +220,23 @@ def _normalizeConfigEnum(
     )
 
 
+def _normalizeDeleteBlockFactorModelConfig(value: Any) -> str:
+    raw = (
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL
+        if value is None
+        else str(value).strip()
+    )
+    if raw not in constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS:
+        supportedText = ", ".join(
+            constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS
+        )
+        raise ValueError(
+            "Unsupported uncertaintyCalibrationParams.deleteBlockFactorModel "
+            f"{raw!r}. Supported values: {supportedText}."
+        )
+    return raw
+
+
 def _normalizeCountingTransformMethod(value: Any) -> str:
     return _sharedNormalizeCountingTransformMethod(value)
 
@@ -489,6 +506,11 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.cutoffReport",
         _cfgDefault(configData, "outputParams.cutoffReport"),
     )
+    writeRunSummary_ = _cfgGet(
+        configData,
+        "outputParams.writeRunSummary",
+        _cfgDefault(configData, "outputParams.writeRunSummary"),
+    )
     diagnosticTracksRaw = _cfgGet(configData, "outputParams.diagnosticTracks", None)
     if diagnosticTracksRaw is None:
         diagnosticTracksRaw = _cfgGet(configData, "outputParams.tracks", None)
@@ -508,6 +530,7 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         plotOptimizationPath=plotOptimizationPath_,
         diagnosticTracks=diagnosticTracks_,
         cutoffReport=bool(cutoffReport_),
+        writeRunSummary=bool(writeRunSummary_),
     )
 
 
@@ -988,7 +1011,7 @@ def getUncertaintyCalibrationArgs(
         supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS,
         configName="uncertaintyCalibrationParams.deleteBlockTargetSignal",
     )
-    deleteBlockFactorModel = _normalizeConfigEnum(
+    deleteBlockFactorModel = _normalizeDeleteBlockFactorModelConfig(
         _cfgGet(
             configData,
             "uncertaintyCalibrationParams.deleteBlockFactorModel",
@@ -996,10 +1019,7 @@ def getUncertaintyCalibrationArgs(
                 configData,
                 "uncertaintyCalibrationParams.deleteBlockFactorModel",
             ),
-        ),
-        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
-        supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS,
-        configName="uncertaintyCalibrationParams.deleteBlockFactorModel",
+        )
     )
     deleteBlockScoreWeightMode = _normalizeConfigEnum(
         _cfgGet(
@@ -1076,6 +1096,34 @@ def getUncertaintyCalibrationArgs(
             "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
         ),
     )
+    deleteBlockFactorSegmentCount = int(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount",
+            ),
+        )
+    )
+    if deleteBlockFactorSegmentCount < 1:
+        raise ValueError(
+            "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount must be >= 1"
+        )
+    deleteBlockFactorBootstrapReplicates = int(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates",
+            ),
+        )
+    )
+    if deleteBlockFactorBootstrapReplicates < 8:
+        raise ValueError(
+            "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates must be >= 8"
+        )
     return core.uncertaintyCalibrationParams(
         enabled=bool(enabledConfig),
         mode=mode,
@@ -1219,6 +1267,8 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
             )
         ),
+        deleteBlockFactorSegmentCount=deleteBlockFactorSegmentCount,
+        deleteBlockFactorBootstrapReplicates=deleteBlockFactorBootstrapReplicates,
     )
 
 
@@ -1326,6 +1376,16 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     )
     if float(tuncPriorRidge) < 0.0:
         raise ValueError("`processParams.tuncPriorRidge` must be non-negative.")
+    tuncLevelBufferZ = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncLevelBufferZ",
+            _cfgDefault(configData, "processParams.tuncLevelBufferZ"),
+        ),
+        name="processParams.tuncLevelBufferZ",
+    )
+    if float(tuncLevelBufferZ) < 0.0:
+        raise ValueError("`processParams.tuncLevelBufferZ` must be non-negative.")
     tuncProcessCovariatesEnabled = bool(
         _cfgGet(
             configData,
@@ -1426,6 +1486,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "tuncMaxScale": tuncMaxScale,
             "tuncMinWindowWeight": tuncMinWindowWeight,
             "tuncPriorRidge": tuncPriorRidge,
+            "tuncLevelBufferZ": tuncLevelBufferZ,
             "tuncProcessCovariatesEnabled": tuncProcessCovariatesEnabled,
             "tuncProcessCovariatesMode": tuncProcessCovariatesMode,
             "tuncProcessCovariatesFeatures": tuncProcessCovariatesFeatures,

@@ -6,9 +6,13 @@ import logging
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+
+
+_PROGRESS_ENABLED = False
 
 
 def log_field_name(value: Any) -> str:
@@ -107,9 +111,18 @@ def log_event(
     logger.log(level, format_log_event(event, fields), stacklevel=stacklevel)
 
 
+def set_progress_enabled(enabled: bool) -> None:
+    """Enable or disable progress bars for CLI-owned workflows."""
+
+    global _PROGRESS_ENABLED
+    _PROGRESS_ENABLED = bool(enabled)
+
+
 def progress_enabled(stderr: Any | None = None) -> bool:
     import sys
 
+    if not _PROGRESS_ENABLED:
+        return False
     stream = sys.stderr if stderr is None else stderr
     return bool(getattr(stream, "isatty", lambda: False)())
 
@@ -157,14 +170,60 @@ def log_file_written(
     log_event(logger, event, payload, level=level, stacklevel=3)
 
 
+def init_tsv_log(path: str | os.PathLike[str], columns: Sequence[str]) -> Path:
+    """Create or replace a tab-delimited diagnostic log with a stable header."""
+
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    header = "\t".join(str(column) for column in columns) + "\n"
+
+    def _write_header(temp_path: str) -> None:
+        Path(temp_path).write_text(header, encoding="utf-8")
+
+    atomic_write(str(target), _write_header)
+    return target
+
+
+def append_tsv_log(
+    path: str | os.PathLike[str],
+    rows: Sequence[Mapping[str, Any]] | Any,
+    columns: Sequence[str],
+) -> int:
+    """Append records to a tab-delimited diagnostic log using pandas' vectorized writer."""
+
+    import pandas as pd
+
+    if rows is None:
+        return 0
+    frame = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(list(rows))
+    if frame.empty:
+        return 0
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    frame = frame.reindex(columns=list(columns))
+    frame.to_csv(
+        target,
+        sep="\t",
+        mode="a",
+        header=False,
+        index=False,
+        lineterminator="\n",
+        na_rep="NA",
+    )
+    return int(len(frame))
+
+
 __all__ = [
+    "append_tsv_log",
     "atomic_write",
     "format_log_event",
     "format_log_value",
+    "init_tsv_log",
     "log_event",
     "log_event_name",
     "log_field_name",
     "log_file_written",
     "progress_enabled",
     "quote_log_string",
+    "set_progress_enabled",
 ]

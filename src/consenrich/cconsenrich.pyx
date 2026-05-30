@@ -2849,6 +2849,9 @@ cpdef tuple cSparseNearestMeanVarTrack(
     bint aggregateMeanAbs=True,
     double maxBeta=0.95,
     double pairsRegLambda=1.0,
+    object countNoiseBlockMean=None,
+    double varianceFloor=1.0e-6,
+    double varianceCap=0.0,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2865,10 +2868,14 @@ cpdef tuple cSparseNearestMeanVarTrack(
     cdef Py_ssize_t[::1] sparseCentersView = sparseCenters
     cdef Py_ssize_t[::1] blockStartsView = blockStarts
     cdef Py_ssize_t[::1] blockSizesView = blockSizes
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] countNoiseArray
+    cdef double[::1] countNoiseView
+    cdef bint useCountNoise = <bint>False
+    cdef bint useVarianceCap = <bint>False
     cdef Py_ssize_t i, left, right, chosenIdx, usedCount
     cdef Py_ssize_t nearestTarget
     cdef Py_ssize_t lo, hi, mid, insertPos
-    cdef double sumMean, sumVar
+    cdef double sumMean, sumVar, adjustedVar
     cdef double leftDist, rightDist
 
     intervalCount = <Py_ssize_t>values.shape[0]
@@ -2895,6 +2902,16 @@ cpdef tuple cSparseNearestMeanVarTrack(
     sparseVars = np.empty(sparseCount, dtype=np.float32)
     sparseMeansView = sparseMeans
     sparseVarsView = sparseVars
+    if countNoiseBlockMean is not None:
+        countNoiseArray = np.ascontiguousarray(countNoiseBlockMean, dtype=np.float64)
+        if countNoiseArray.shape[0] != sparseCount:
+            raise ValueError("countNoiseBlockMean must align with sparseCenters")
+        countNoiseView = countNoiseArray
+        useCountNoise = <bint>True
+    if varianceFloor < 1.0e-12:
+        varianceFloor = 1.0e-12
+    if isfinite(varianceCap) and varianceCap > varianceFloor:
+        useVarianceCap = <bint>True
 
     _regionMeanVar(
         valuesView,
@@ -2908,6 +2925,17 @@ cpdef tuple cSparseNearestMeanVarTrack(
         maxBeta,
         pairsRegLambda,
     )
+
+    if useCountNoise:
+        for i in range(sparseCount):
+            adjustedVar = <double>sparseVarsView[i]
+            if isfinite(adjustedVar) and isfinite(countNoiseView[i]):
+                adjustedVar = adjustedVar - countNoiseView[i]
+                if adjustedVar < varianceFloor:
+                    adjustedVar = varianceFloor
+                if useVarianceCap and adjustedVar > varianceCap:
+                    adjustedVar = varianceCap
+                sparseVarsView[i] = <cnp.float32_t>adjustedVar
 
     outMeansView = outMeans
     outVarsView = outVars
@@ -6226,19 +6254,12 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
         if selectedCount > 1:
             avgGap = (1.0*sumGaps) / <double>(selectedCount - 1)
 
-    printf(
-        b"\tcconsenrich.cSF: minRefDist=%zd, selected=%zd, AVG distance between reference cols=%.2f indices\n",
-        minRefDist, selectedCount, avgGap
-    )
-
     # ensure there are enough usable columns for the SF calculation
     if validCols < fmax(fmin(<double>(500.0), np.sqrt(<double>(n*0.5))), 10.0):
         raise ValueError(
             f"insufficient valid/dense columns for `countingParams.normMethod: SF`, (need >= 500, got {validCols})... "
             f"If this is expected, consider using `countingParams.normMethod: EGS` or RPKM instead."
         )
-
-    printf(b"\tcconsenrich.cSF: using %zd valid/dense columns for scale factor calculation.\n", validCols)
 
     with nogil:
         for s in range(m):
@@ -6272,10 +6293,8 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
             # note that inflated/deflated SFs should be fine after clipping here given later global/local corrections and UQ
             if scaleFactorsView[s] < minSF:
-                printf(b"\tWarning: sample scale factor %.4f below min %.4f, clipping to lower.\n", scaleFactorsView[s], minSF)
                 scaleFactorsView[s] = minSF
             elif scaleFactorsView[s] > maxSF:
-                printf(b"\tWarning: sample scale factor %.4f above max %.4f, clipping to upper.\n", scaleFactorsView[s], maxSF)
                 scaleFactorsView[s] = maxSF
 
         if centerMedian and m > 0:
@@ -6307,10 +6326,8 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
                 # make sure bounds still hold
                 if scaleFactorsView[s] < minSF:
-                    printf(b"\tWarning: sample scale factor %.4f below min %.4f after centering, clipping to lower.\n", scaleFactorsView[s], minSF)
                     scaleFactorsView[s] = minSF
                 elif scaleFactorsView[s] > maxSF:
-                    printf(b"\tWarning: sample scale factor %.4f above max %.4f after centering, clipping to upper.\n", scaleFactorsView[s], maxSF)
                     scaleFactorsView[s] = maxSF
 
     return 1 / scaleFactors

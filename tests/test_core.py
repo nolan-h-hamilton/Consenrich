@@ -626,6 +626,58 @@ def _caseCSFMedianSelectionHandlesEvenLengthDuplicates():
     np.testing.assert_allclose(out, _expectedCSF(chromMat), rtol=1.0e-7, atol=1.0e-7)
 
 
+def test_csf_default_c_stdout_stderr_silent(capfd):
+    base = (25.0 + (np.arange(601, dtype=np.float32) % 19)).astype(np.float32)
+    chromMat = np.array([0.8, 1.0, 1.3], dtype=np.float32)[:, None] * base[None, :]
+
+    cconsenrich.cSF(chromMat, centerMedian=True, minRefDist=1)
+
+    captured = capfd.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_run_consenrich_default_c_stdout_stderr_silent(capfd):
+    rng = np.random.default_rng(11)
+    n = 18
+    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    matrixData = np.vstack(
+        [
+            grid + 0.01 * rng.normal(size=n),
+            grid + 0.02 * rng.normal(size=n) + 0.05,
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full_like(matrixData, 0.1, dtype=np.float32)
+
+    core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-4,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=6,
+        pad=1.0e-4,
+        ECM_fixedBackgroundIters=1,
+        ECM_fixedBackgroundRtol=0.0,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        ECM_backgroundShiftRtol=0.0,
+        ECM_outerNLLRtol=0.0,
+        fitBackground=False,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED,
+        returnScales=True,
+    )
+
+    captured = capfd.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
 @pytest.mark.correctness
 def _caseCTransformWithInputReturnsFloat32LogRatio():
     treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
@@ -1751,6 +1803,7 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
         tuncMaxScale=10.0,
         tuncMinWindowWeight=0.0,
         tuncPriorRidge=1.0e-3,
+        tuncLevelBufferZ=0.0,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
@@ -1760,6 +1813,8 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
     assert info["priorDesignColumns"] == ("intercept", "stateLevelMidpoint")
     assert info["processCovariateCount"] == 0
     assert info["tuncPriorDfSource"] == "method_of_moments"
+    assert info["tuncLevelBufferZ"] == pytest.approx(0.0)
+    assert info["tuncLevelBufferEnabled"] is False
     assert np.isfinite(info["tuncPriorDf"])
     assert info["tuncPriorDf"] >= 4.0
     assert info["tuncPriorDfMomentWindowCount"] > 0
@@ -3201,12 +3256,21 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
     fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
     fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
+    countFloor = np.linspace(0.01, 0.08, intervals.size, dtype=np.float32)
     seen: dict[str, np.ndarray] = {}
 
     def _fakeSparseNearest(*args, **kwargs):
         seen["sparse_centers"] = np.asarray(args[1]).copy()
         seen["block_starts"] = np.asarray(args[2]).copy()
         seen["block_sizes"] = np.asarray(args[3]).copy()
+        seen["count_noise_block_mean"] = np.asarray(
+            kwargs.get("countNoiseBlockMean"),
+            dtype=np.float64,
+        ).copy()
+        seen["sparse_variance_floor"] = np.asarray(
+            [kwargs.get("varianceFloor")],
+            dtype=np.float64,
+        )
         seen["sparse_use_innovation_var"] = np.asarray(
             [bool(kwargs.get("useInnovationVar", True))],
             dtype=bool,
@@ -3281,6 +3345,7 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         sparseSupportPrior=1.0,
         EB_localQuantile=-1.0,
         EB_use=True,
+        countModelVarianceFloor=countFloor,
     )
 
     supportWeights = core._sparseSupportWeights(
@@ -3289,15 +3354,33 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         ellIntervals=2.0,
         supportPrior=1.0,
     )
+    countNoiseLocalTrack = core._rollingCenteredWindowMean(
+        countFloor,
+        6,
+        np.zeros(intervals.size, dtype=np.uint8),
+    )
+    rollingExcess = core._subtractMuncCountNoise(
+        fakeRollingVarTrack,
+        countNoiseLocalTrack,
+        varianceFloor=1.0e-6,
+        fillNaN=False,
+    )
     expectedLocalVars = supportWeights * fakeVarTrack.astype(np.float64) + (
         1.0 - supportWeights
-    ) * fakeRollingVarTrack.astype(np.float64)
+    ) * rollingExcess.astype(np.float64)
     sparseSet = set(sparseIntervalIndices.tolist())
     for blockStart, blockSize in zip(seen["block_starts"], seen["block_sizes"]):
         blockRange = range(int(blockStart), int(blockStart + blockSize))
         assert all(idx in sparseSet for idx in blockRange)
+    expectedBlockNoise = core._finiteIntervalMeans(
+        countFloor,
+        seen["block_starts"],
+        seen["block_starts"] + seen["block_sizes"],
+    )
 
     assert np.array_equal(seen["sparse_centers"], sparseIntervalIndices)
+    assert np.allclose(seen["count_noise_block_mean"], expectedBlockNoise)
+    assert seen["sparse_variance_floor"][0] == pytest.approx(1.0e-6)
     assert bool(seen["sparse_use_innovation_var"][0]) is False
     assert bool(seen["rolling_use_innovation_var"][0]) is False
     assert bool(seen["block_use_innovation_var"][0]) is False
@@ -3668,6 +3751,56 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         cappedMarginal[centeredOutputIdx]
         <= (maxInflation * rollingInnovation[centeredOutputIdx]) + 1.0e-5
     )
+
+
+@pytest.mark.correctness
+def test_core_sparse_nearest_subtracts_count_noise_before_aggregation():
+    values = np.linspace(0.0, 1.0, 18, dtype=np.float32)
+    sparseCenters = np.array([3, 8, 14], dtype=np.intp)
+    blockStarts = np.array([1, 6, 12], dtype=np.intp)
+    blockSizes = np.array([5, 5, 5], dtype=np.intp)
+    excludeMask = np.zeros(values.size, dtype=np.uint8)
+
+    _means0, vars0 = cconsenrich.cSparseNearestMeanVarTrack(
+        values,
+        sparseCenters,
+        blockStarts,
+        blockSizes,
+        1,
+        useInnovationVar=False,
+        aggregateMeanAbs=False,
+    )
+    countNoise = np.array([0.01, 0.02, 0.03], dtype=np.float64)
+    _means1, vars1 = cconsenrich.cSparseNearestMeanVarTrack(
+        values,
+        sparseCenters,
+        blockStarts,
+        blockSizes,
+        1,
+        useInnovationVar=False,
+        aggregateMeanAbs=False,
+        countNoiseBlockMean=countNoise,
+        varianceFloor=1.0e-6,
+    )
+
+    expectedAtCenters = np.maximum(
+        vars0[sparseCenters].astype(np.float64) - countNoise,
+        1.0e-6,
+    )
+    np.testing.assert_allclose(
+        vars1[sparseCenters],
+        expectedAtCenters.astype(np.float32),
+        rtol=1.0e-6,
+        atol=1.0e-7,
+    )
+
+    rolling = cconsenrich.crollingMuncVariance(
+        values,
+        5,
+        excludeMask,
+        useInnovationVar=False,
+    )
+    assert np.isfinite(rolling).all()
 
 
 @pytest.mark.correctness

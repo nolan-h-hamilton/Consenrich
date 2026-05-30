@@ -3,11 +3,13 @@
 import logging
 import numpy as np
 import json
+import pandas as pd
 import pytest
 
 import consenrich.cuncertainty as cuncertainty
 import consenrich.core as core
 import consenrich.diagnostics as diagnostic_utils
+import consenrich.segshrink as segshrink
 import consenrich.uncertainty as uncertainty
 
 
@@ -56,6 +58,15 @@ def _caseDeleteBlockGlobalFactorUsesWeightedQuantile():
     assert factor == pytest.approx(expected)
     assert meta["factor_model"] == "global"
     assert meta["global_factor"] == pytest.approx(factor)
+
+
+def _caseSegShrinkFactorModelStrictContract():
+    assert uncertainty._normalizeDeleteBlockFactorModel(None) == "global"
+    assert uncertainty._normalizeDeleteBlockFactorModel("global") == "global"
+    assert uncertainty._normalizeDeleteBlockFactorModel("segShrink") == "segShrink"
+    for value in ("seg-shrink", "seg_shrink", "segshrink", "SegShrink"):
+        with pytest.raises(ValueError, match="factor model"):
+            uncertainty._normalizeDeleteBlockFactorModel(value)
 
 
 
@@ -352,6 +363,90 @@ def _caseCythonSummaryContracts():
     assert summary["group"].tolist() == [-1, 0, 1, -1, 0, 1]
 
 
+def _caseSegShrinkCythonParityContract():
+    segment = cuncertainty.csegShrinkSegmentCodes(10, 5)
+    assert segment.tolist() == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+    assert cuncertainty.csegShrinkSegmentCodes(3, 5).tolist() == [0, 1, 2]
+
+    contigScope, segmentScope = cuncertainty.csegShrinkScopeCodes(
+        2,
+        segment,
+        np.array([0, 1, 8, 9, -1, 10], dtype=np.int64),
+    )
+    assert contigScope.tolist() == [2, 2, 2, 2, 2, 2]
+    assert segmentScope.tolist() == [10, 10, 14, 14, -1, -1]
+
+    blockIDX = np.array([2, 2, 3, 3], dtype=np.int64)
+    group = cuncertainty.csegShrinkGroupCodes(
+        1,
+        np.array([0, 1, 0, 1], dtype=np.int64),
+        blockIDX,
+    )
+    assert group.tolist() == [10, 14, 11, 15]
+
+    multipliers = segshrink.bootstrap_multipliers(
+        groupCount=3,
+        replicateCount=9,
+        seed=17,
+    )
+    assert multipliers.shape == (9, 3)
+    assert np.array_equal(
+        multipliers,
+        segshrink.bootstrap_multipliers(
+            groupCount=3,
+            replicateCount=9,
+            seed=17,
+        ),
+    )
+
+    baseLog, bootLog = cuncertainty.csegShrinkBootstrapLogFactors(
+        np.array([1.0, 2.0, 3.0, 2.0, 4.0, 8.0], dtype=np.float64),
+        np.ones(6, dtype=np.float64),
+        np.array([0, 0, 0, 1, 1, 1], dtype=np.int32),
+        np.array([0, 1, 2, 0, 1, 2], dtype=np.int64),
+        np.array(
+            [
+                [1.0, 1.0, 1.0],
+                [2.0, 0.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+            dtype=np.float64,
+        ),
+        2,
+        0.5,
+        1.0,
+        0.01,
+        100.0,
+    )
+    assert np.allclose(baseLog, np.log([4.0, 16.0]))
+    assert bootLog.shape == (2, 3)
+    assert np.allclose(bootLog[:, 0], baseLog)
+    assert np.allclose(bootLog[:, 1], np.log([1.0, 4.0]))
+    assert np.allclose(bootLog[:, 2], np.log([4.0, 16.0]))
+
+    empiricalBayes = cuncertainty.csegShrinkEmpiricalBayes(
+        0.0,
+        np.array([0.2, -0.1], dtype=np.float64),
+        np.array([0.02, 0.03], dtype=np.float64),
+        np.array([0.5, 0.1, -0.2], dtype=np.float64),
+        np.array([0.04, 0.05, 0.04], dtype=np.float64),
+        np.array([0, 0, 1], dtype=np.int32),
+    )
+    assert empiricalBayes["tauContigSq"] >= 0.0
+    assert empiricalBayes["tauSegmentSq"] >= 0.0
+    assert np.all(np.isfinite(empiricalBayes["segmentTheta"]))
+    assert np.all((empiricalBayes["segmentAlpha"] >= 0.0) & (empiricalBayes["segmentAlpha"] <= 1.0))
+
+    factor, calibrated = cuncertainty.csegShrinkApplyFactors(
+        np.array([0, 1, 2, 1], dtype=np.int32),
+        np.log(np.array([4.0, 1.0, 0.25], dtype=np.float64)),
+        np.array([1.0, 4.0, 9.0, 16.0], dtype=np.float64),
+        float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+    )
+    assert np.allclose(factor, [4.0, 1.0, 0.25, 1.0])
+    assert np.allclose(calibrated, [2.0, 2.0, 1.5, 4.0])
+
+
 def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
     caplog.clear()
@@ -403,21 +498,17 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert {"coverage_before", "coverage_after", "mean_width_after"} <= set(
         result.summary.columns
     )
-    diagnosticsPath = tmp_path / "cal.diagnostics.tsv.gz"
+    diagnosticsPath = tmp_path / "cal.delete_block_calibration.log"
     assert diagnosticsPath.exists()
-    diagnostics = np.genfromtxt(
-        diagnosticsPath,
-        delimiter="\t",
-        names=True,
-        dtype=None,
-        encoding="utf-8",
-    )
-    assert {"score", "summary", "model"} <= set(np.atleast_1d(diagnostics["record_type"]))
-    assert np.sum(np.atleast_1d(diagnostics["record_type"]) == "score") <= 5
+    diagnostics = pd.read_csv(diagnosticsPath, sep="\t")
+    recordTypes = set(diagnostics["record_type"])
+    assert {"score_sample", "summary", "model", "fold", "invalid_reason"} <= recordTypes
+    assert np.sum(diagnostics["record_type"] == "score_sample") <= 5
+    assert not (tmp_path / "cal.diagnostics.tsv.gz").exists()
+    assert not (tmp_path / "cal.model.json").exists()
     modelPath = tmp_path / "cal.model.json"
-    assert modelPath.exists()
-    with open(modelPath, "r", encoding="utf-8") as handle:
-        model = json.load(handle)
+    assert not modelPath.exists()
+    model = result.model
     assert model["mode"] == "delete_block_state"
     assert model["score_definition"] == "deleted_state_delta_over_deleted_state_delta_sd"
     assert model["factor_model"] == "global"
@@ -585,6 +676,176 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     assert np.all(combinedDeletedByInterval == holdoutCount)
 
 
+def _caseSegShrinkCalibrationContract(monkeypatch):
+    n = 40
+    m = 3
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    signal = np.sin(grid).astype(np.float32)
+    matrixData = np.vstack(
+        [
+            signal - 0.02,
+            signal + 0.01,
+            signal + 0.03,
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
+    fullState = np.column_stack(
+        [signal, np.gradient(signal).astype(np.float32)]
+    ).astype(np.float32)
+    fullCovar = np.zeros((n, 2, 2), dtype=np.float32)
+    fullCovar[:, 0, 0] = 0.05
+    fullCovar[:, 1, 1] = 0.01
+    capturedKwargs = []
+
+    def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **kwargs):
+        capturedKwargs.append(dict(kwargs))
+        deleted = np.mean(np.asarray(observationMask, dtype=np.float32) == 0, axis=0)
+        maskedState = fullState.copy()
+        maskedState[:, 0] = maskedState[:, 0] + 0.05 * deleted
+        maskedCovar = fullCovar.copy()
+        maskedCovar[:, 0, 0] = maskedCovar[:, 0, 0] + 0.04 + 0.01 * deleted
+        residual = np.asarray(matrixDataArg, dtype=np.float32) - maskedState[:, 0][None, :]
+        return (
+            maskedState,
+            maskedCovar,
+            residual.T,
+            np.zeros(n, dtype=np.float32),
+            np.zeros(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
+
+    params = core.uncertaintyCalibrationParams(
+        enabled=True,
+        folds=2,
+        blockSizeBP=100,
+        calibrationECMIters=1,
+        calibrationOuterIters=9,
+        minHeldoutCells=1,
+        maxHeldoutCells=40,
+        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        deleteBlockVarianceMode="covariance_difference",
+        deleteBlockFactorModel="segShrink",
+        deleteBlockFactorSegmentCount=4,
+        deleteBlockFactorBootstrapReplicates=8,
+        seed=41,
+    )
+
+    result = uncertainty.calibrateChromosomeStateUncertainty(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        fullState=fullState,
+        fullCovar=fullCovar,
+        intervals=np.arange(n, dtype=np.int64) * 25,
+        intervalSizeBP=25,
+        params=params,
+        runKwargs=_smallRunKwargs(),
+    )
+
+    model = result.model
+    assert result.factor.shape == (n,)
+    assert np.all(np.isfinite(result.factor))
+    assert np.all(result.factor > 0.0)
+    assert model["factor_model"] == "segShrink"
+    assert model["factorModel"] == "segShrink"
+    assert model["hierarchyScope"] == "singleProcessedContig"
+    assert model["processedContigCount"] == 1
+    assert model["segmentCount"] == 4
+    assert model["bootstrapReplicates"] == 8
+    assert model["blockIDXUnitCount"] >= 1
+    assert set(model["refitPolicy"]) >= {
+        "ECM_outerIters",
+        "ECM_minOuterIters",
+        "ECM_fixedBackgroundIters",
+        "processNoiseWarmupECMIters",
+    }
+    assert model["refitPolicy"]["ECM_outerIters"] == 4
+    assert model["refitPolicy"]["ECM_minOuterIters"] == 1
+    assert model["refitPolicy"]["ECM_fixedBackgroundIters"] == 2
+    assert len(model["segmentShrinkage"]) == 4
+    assert "blockIDX" in result.scores.columns
+    assert "factor_segment" in result.scores.columns
+    assert "segment_shrinkage_weight" in result.scores.columns
+    assert all(kwargs["ECM_outerIters"] == 4 for kwargs in capturedKwargs)
+    assert all(kwargs["ECM_fixedBackgroundIters"] == 2 for kwargs in capturedKwargs)
+    assert all(kwargs["ECM_minOuterIters"] == 1 for kwargs in capturedKwargs)
+    overall = [
+        row for row in model["state_uncertainty_coverage_fit"]
+        if row["stratum"] == "overall"
+    ]
+    assert overall and all("coverage_after" in row for row in overall)
+
+
+def _caseSegShrinkProcessedContigContract():
+    with pytest.raises(ValueError, match="no processed contigs"):
+        segshrink.combine_prepared_contigs(
+            [],
+            positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        )
+
+    prepared = []
+    for chromosome, rawFactor, variance in (
+        ("chrA", 1.0, 0.25),
+        ("chrC", 4.0, 0.5),
+    ):
+        prepared.append(
+            {
+                "chromosome": chromosome,
+                "fullP": np.ones(6, dtype=np.float64),
+                "model": {
+                    "global_factor": rawFactor,
+                    "contigShrinkage": [
+                        {
+                            "rawFactor": rawFactor,
+                            "bootstrapVariance": variance,
+                        }
+                    ],
+                    "segmentShrinkage": [
+                        {
+                            "segment": 0,
+                            "rows": 3,
+                            "rawFactor": rawFactor,
+                            "bootstrapVariance": variance,
+                            "shrinkageWeight": 1.0,
+                            "factor": rawFactor,
+                            "fallbackReason": "none",
+                        },
+                        {
+                            "segment": 1,
+                            "rows": 3,
+                            "rawFactor": rawFactor * 1.5,
+                            "bootstrapVariance": variance,
+                            "shrinkageWeight": 1.0,
+                            "factor": rawFactor * 1.5,
+                            "fallbackReason": "none",
+                        },
+                    ],
+                },
+            }
+        )
+
+    finalized = segshrink.combine_prepared_contigs(
+        prepared,
+        positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+    )
+    assert [item["chromosome"] for item in finalized] == ["chrA", "chrC"]
+    expectedGenomeLog = (
+        np.log(1.0) / 0.25 + np.log(4.0) / 0.5
+    ) / (1.0 / 0.25 + 1.0 / 0.5)
+    for item in finalized:
+        model = item["model"]
+        assert model["hierarchyScope"] == "processedGenome"
+        assert model["processedContigCount"] == 2
+        assert model["genomeFactor"] == pytest.approx(float(np.exp(expectedGenomeLog)))
+        assert {row["chromosome"] for row in model["contigShrinkage"]} == {
+            "chrA",
+            "chrC",
+        }
+        assert item["calibrated"].shape == (6,)
+        assert np.all(np.isfinite(item["calibrated"]))
+
+
 def _caseDeleteBlockCalibrationReportsRefitFailures(monkeypatch, caplog):
     caplog.set_level(logging.WARNING, logger=uncertainty.logger.name)
     caplog.clear()
@@ -667,14 +928,19 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
 
     assert result.calibratedUncertainty.shape == (n,)
     assert np.all(np.isfinite(result.calibratedUncertainty))
-    assert (tmp_path / "single.diagnostics.tsv.gz").exists()
-    assert (tmp_path / "single.model.json").exists()
+    assert (tmp_path / "single.delete_block_calibration.log").exists()
+    assert not (tmp_path / "single.diagnostics.tsv.gz").exists()
+    assert not (tmp_path / "single.model.json").exists()
 
 
 def test_uncertainty_factor_model_contract(contract_case):
     contract_case(
         "delete-block global factor uses weighted quantile",
         _caseDeleteBlockGlobalFactorUsesWeightedQuantile,
+    )
+    contract_case(
+        "segShrink factor model is strict camelCase",
+        _caseSegShrinkFactorModelStrictContract,
     )
     contract_case("PAC order index examples", _casePacOrderIndexExamples)
     contract_case(
@@ -701,6 +967,7 @@ def test_uncertainty_cython_contracts(contract_case):
         ("factor evaluation", _caseCythonFactorEvaluation),
         ("delete-state block scores", _caseCythonDeletedStateScoresAndDeleteBlockScores),
         ("summary contracts", _caseCythonSummaryContracts),
+        ("segShrink Cython parity", _caseSegShrinkCythonParityContract),
     ):
         contract_case(label, func)
 
@@ -716,6 +983,15 @@ def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, caplog, c
         "cheap Q warmup policy for calibration refits",
         _caseCalibrationRefitsUseCheapProcessNoiseWarmup,
         monkeypatch,
+    )
+    contract_case(
+        "segShrink calibration",
+        _caseSegShrinkCalibrationContract,
+        monkeypatch,
+    )
+    contract_case(
+        "segShrink processed contigs",
+        _caseSegShrinkProcessedContigContract,
     )
     contract_case(
         "delete-block refit failure handling",

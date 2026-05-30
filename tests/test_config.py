@@ -7,6 +7,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from consenrich.config import readConfig
@@ -527,6 +528,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     samParams.defaultCountMode: ffp-center
     outputParams.plotOptimizationPath: false
     outputParams.cutoffReport: true
+    outputParams.writeRunSummary: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     """
@@ -548,6 +550,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams:
       plotOptimizationPath: false
       cutoffReport: true
+      writeRunSummary: false
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
@@ -610,6 +613,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputNested.plotOptimizationPath is False
     assert outputDotted.cutoffReport is True
     assert outputNested.cutoffReport is True
+    assert outputDotted.writeRunSummary is False
+    assert outputNested.writeRunSummary is False
     assert outputDotted == outputNested
 
     samDotted = configDotted["samArgs"]
@@ -706,6 +711,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
       tuncMaxScale: 3.0
       tuncMinWindowWeight: 2.0
       tuncPriorRidge: 0.002
+      tuncLevelBufferZ: 1.25
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
       precisionMultiplierMin: 0.5
@@ -731,6 +737,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.tuncMaxScale == pytest.approx(3.0)
     assert processArgs.tuncMinWindowWeight == pytest.approx(2.0)
     assert processArgs.tuncPriorRidge == pytest.approx(0.002)
+    assert processArgs.tuncLevelBufferZ == pytest.approx(1.25)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
@@ -936,6 +943,8 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
         "uncertaintyCalibrationParams.deleteBlockTargetSignal",
         "uncertaintyCalibrationParams.deleteBlockFactorModel",
+        "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount",
+        "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates",
         "uncertaintyCalibrationParams.deleteBlockMinInformationFraction",
         "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction",
         "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
@@ -947,6 +956,10 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         assert key in defaults
     assert constants.UNCERTAINTY_CALIBRATION_MODES == (
         constants.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
+    )
+    assert constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS == (
+        constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_GLOBAL,
+        constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_SEG_SHRINK,
     )
     assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
@@ -1098,6 +1111,10 @@ def _case_runtime_defaults_are_centralized(
     )
     assert parsed["outputArgs"].cutoffReport is constants.OUTPUT_DEFAULT_CUTOFF_REPORT
     assert (
+        parsed["outputArgs"].writeRunSummary
+        is constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
+    )
+    assert (
         parsed["outputArgs"].plotOptimizationPath
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     )
@@ -1124,6 +1141,14 @@ def _case_runtime_defaults_are_centralized(
             writeUncertainty=parsed["outputArgs"].writeUncertainty,
         ).cutoffReport
         == constants.OUTPUT_DEFAULT_CUTOFF_REPORT
+    )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).writeRunSummary
+        == constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
     )
     assert (
         consenrich_core.fitParams().useNonnegativeBackground
@@ -1247,6 +1272,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
       tuncMaxScale: 2.5
       tuncMinWindowWeight: 4.0
       tuncPriorRidge: 0.02
+      tuncLevelBufferZ: 0.75
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
       precisionMultiplierMin: 0.25
@@ -1266,6 +1292,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
         "tuncMaxScale",
         "tuncMinWindowWeight",
         "tuncPriorRidge",
+        "tuncLevelBufferZ",
     }
     monkeypatch.setattr(
         consenrich_cli,
@@ -1282,6 +1309,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     assert kwargs["tuncMaxScale"] == pytest.approx(2.5)
     assert kwargs["tuncMinWindowWeight"] == pytest.approx(4.0)
     assert kwargs["tuncPriorRidge"] == pytest.approx(0.02)
+    assert kwargs["tuncLevelBufferZ"] == pytest.approx(0.75)
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
@@ -1514,6 +1542,14 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
         defaultArgs.calibrationOuterIters
         == constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS
     )
+    assert (
+        defaultArgs.deleteBlockFactorSegmentCount
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT
+    )
+    assert (
+        defaultArgs.deleteBlockFactorBootstrapReplicates
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES
+    )
     assert defaultArgs.deleteBlockApplyTargetCalibration is None
 
     configExplicitYaml = """
@@ -1532,7 +1568,9 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance-difference
     uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation: true
     uncertaintyCalibrationParams.deleteBlockTargetSignal: state-plus-background
-    uncertaintyCalibrationParams.deleteBlockFactorModel: global
+    uncertaintyCalibrationParams.deleteBlockFactorModel: segShrink
+    uncertaintyCalibrationParams.deleteBlockFactorSegmentCount: 7
+    uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates: 9
     uncertaintyCalibrationParams.deleteBlockMinInformationFraction: 0.01
     uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8
     uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 1.0e-7
@@ -1562,7 +1600,9 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.deleteBlockVarianceMode == "covariance_difference"
     assert explicitArgs.deleteBlockUseLambdaInInformation is True
     assert explicitArgs.deleteBlockTargetSignal == "state_plus_background"
-    assert explicitArgs.deleteBlockFactorModel == "global"
+    assert explicitArgs.deleteBlockFactorModel == "segShrink"
+    assert explicitArgs.deleteBlockFactorSegmentCount == 7
+    assert explicitArgs.deleteBlockFactorBootstrapReplicates == 9
     assert explicitArgs.deleteBlockMinInformationFraction == pytest.approx(0.01)
     assert explicitArgs.deleteBlockMaxInformationFraction == pytest.approx(0.8)
     assert explicitArgs.deleteBlockMinDeltaVariance == pytest.approx(1.0e-7)
@@ -1583,6 +1623,39 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     )
     with pytest.raises(ValueError, match="uncertaintyCalibrationParams.mode"):
         readConfig(str(configPredictivePath))
+
+    for value in ("seg-shrink", "seg_shrink", "segshrink", "SegShrink"):
+        configAliasYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        uncertaintyCalibrationParams.deleteBlockFactorModel: {value}
+        """
+        configAliasPath = writeConfigFile(
+            tmp_path,
+            f"config_uncertainty_calibration_alias_{value}.yaml",
+            configAliasYaml,
+        )
+        with pytest.raises(ValueError, match="deleteBlockFactorModel"):
+            readConfig(str(configAliasPath))
+
+    for key, value in (
+        ("deleteBlockFactorSegmentCount", 0),
+        ("deleteBlockFactorBootstrapReplicates", 7),
+    ):
+        configInvalidYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        uncertaintyCalibrationParams.{key}: {value}
+        """
+        configInvalidPath = writeConfigFile(
+            tmp_path,
+            f"config_uncertainty_calibration_invalid_{key}.yaml",
+            configInvalidYaml,
+        )
+        with pytest.raises(ValueError, match=key):
+            readConfig(str(configInvalidPath))
 
 
 def _case_readConfigNumNearestRequiresExplicitSparseBed(
@@ -2345,10 +2418,18 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     assert rows[1]["change"] is None
     assert rows[-1]["final_solution"] is True
 
-    logPath = tmp_path / "optimization.log"
-    consenrich_cli._writeOptimizationPathLog(rows, str(logPath))
-    lines = logPath.read_text(encoding="utf-8").splitlines()
-    assert lines[0].split("\t") == consenrich_cli.OPTIMIZATION_PATH_COLUMNS
+    convergencePath = tmp_path / "convergence.log"
+    consenrich_cli._initializeDiagnosticLogs(
+        consenrich_cli.DiagnosticLogPaths(
+            munc_lambda=tmp_path / "munc.log",
+            tunc_kappa=tmp_path / "tunc.log",
+            convergence=convergencePath,
+            delete_block_calibration=tmp_path / "delete.log",
+        )
+    )
+    consenrich_cli._appendConvergenceDiagnostics(rows, convergencePath)
+    lines = convergencePath.read_text(encoding="utf-8").splitlines()
+    assert lines[0].split("\t") == consenrich_cli.CONVERGENCE_LOG_COLUMNS
     assert len(lines) == 4
 
     with monkeypatch.context() as mp:
@@ -2462,13 +2543,153 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         )
     assert saveCalls[-1] == (str(tmp_path / "genome_optimization.png"), 400)
     assert (
-        consenrich_cli._optimizationPathPrefix("exp name", "chr1/random")
-        == f"consenrichOutput_exp_name_chr1_random_optimizationPath.v{consenrich_cli.__version__}"
-    )
-    assert (
         consenrich_cli._genomeOptimizationPathPrefix("exp name")
         == f"consenrichOutput_exp_name_genome_optimizationPath.v{consenrich_cli.__version__}"
     )
+
+
+def test_run_summary_output_helpers(tmp_path):
+    paths = consenrich_cli.DiagnosticLogPaths(
+        munc_lambda=tmp_path / "munc.log",
+        tunc_kappa=tmp_path / "tunc.log",
+        convergence=tmp_path / "convergence.log",
+        delete_block_calibration=tmp_path / "delete.log",
+    )
+    row = consenrich_cli._runSummaryRow(
+        chromosome="chr1",
+        intervals=12,
+        samples=3,
+        elapsedSeconds=1.25,
+        outputTrackCount=2,
+        runDiagnostics={
+            "final_nll": 42.0,
+            "final_forward_nis": 0.75,
+            "process_q_policy": "tunc",
+            "precision_reweighting_boundary_hits": {
+                "observation": {"lower": 1, "upper": 2},
+                "process": {"lower": 3, "upper": 4},
+            },
+            "process_noise_calibration": {
+                "processNoiseCalibrationStatus": "ok",
+                "processNoiseCalibrationReason": "fit",
+            },
+        },
+        stateRoughness={
+            "overall_mean_abs_diff": 0.1,
+            "block_mean_abs_diff_median": 0.2,
+            "block_mean_abs_diff_q90": 0.3,
+        },
+        calibrationModel={
+            "global_factor": 1.5,
+            "rows_valid": 10,
+            "rows_fit": 5,
+            "target_calibration": {
+                "uncertainty_track_scale": 1.1,
+                "uncertainty_track_scale_reason": "target",
+            },
+        },
+        diagnosticLogPaths=paths,
+    )
+    genome = consenrich_cli._genomeRunSummaryRow(
+        [row],
+        elapsedSeconds=2.5,
+        diagnosticLogPaths=paths,
+    )
+    summaryPath = tmp_path / "summary.tsv"
+
+    consenrich_cli._writeRunSummary([row, genome], summaryPath)
+
+    raw = summaryPath.read_text(encoding="utf-8")
+    frame = pd.read_csv(summaryPath, sep="\t")
+    assert list(frame.columns) == consenrich_cli.RUN_SUMMARY_COLUMNS
+    assert frame["record_type"].tolist() == ["chromosome", "genome"]
+    assert frame.loc[0, "lambda_lower_bound_hits"] == 1
+    assert frame.loc[0, "kappa_upper_bound_hits"] == 4
+    assert frame.loc[1, "chromosome"] == "genome"
+    assert frame.loc[1, "intervals"] == 12
+    assert "\tNA\t" in raw
+
+
+def test_diagnostic_category_log_helpers(tmp_path):
+    paths = consenrich_cli.DiagnosticLogPaths(
+        munc_lambda=tmp_path / "munc_lambda.log",
+        tunc_kappa=tmp_path / "tunc_kappa.log",
+        convergence=tmp_path / "convergence.log",
+        delete_block_calibration=tmp_path / "delete_block.log",
+    )
+    consenrich_cli._initializeDiagnosticLogs(paths)
+    intervals = np.array([0, 50, 100], dtype=np.int64)
+    precisionDiagnostics = {
+        "precision_track_diagnostics": True,
+        "lambdaExp": np.array([0.9, 1.0, 1.1], dtype=np.float32),
+        "processPrecExp": np.array([1.1, 1.0, 0.9], dtype=np.float32),
+        "matrixQ0": np.eye(2, dtype=np.float32),
+        "process_q_policy": "student_t_kappa",
+        "outputTracks": {
+            "muncTrace": np.array([1.0, 2.0, 3.0], dtype=np.float32),
+            "sumGain0": np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            "sumGain1": np.array([0.01, 0.02, 0.03], dtype=np.float32),
+            "preKappaQLevel": np.array([1.0, 1.1, 1.2], dtype=np.float32),
+            "preKappaQTrend": np.array([2.0, 2.1, 2.2], dtype=np.float32),
+            "effectiveQLevel": np.array([0.9, 1.0, 1.1], dtype=np.float32),
+            "effectiveQTrend": np.array([1.9, 2.0, 2.1], dtype=np.float32),
+            "tuncQScale": np.array([1.0, 1.1, 1.2], dtype=np.float32),
+        },
+    }
+    frame = consenrich_cli._precisionDiagnosticsFrame(
+        chromosome="chr1",
+        intervals=intervals,
+        intervalSizeBP=50,
+        matrixMunc=np.full((2, 3), 0.2, dtype=np.float32),
+        pad=1.0e-4,
+        precisionDiagnostics=precisionDiagnostics,
+    )
+
+    consenrich_cli._appendMuncLambdaDiagnostics(
+        frame,
+        paths.munc_lambda,
+        chromosome="chr1",
+        precisionDiagnostics=precisionDiagnostics,
+    )
+    consenrich_cli._appendTuncKappaDiagnostics(
+        frame,
+        paths.tunc_kappa,
+        chromosome="chr1",
+        precisionDiagnostics=precisionDiagnostics,
+        runDiagnostics={
+            "process_noise_calibration": {
+                "processNoiseCalibrationStatus": "ok",
+                "preKappaQLevel": 1.2,
+            }
+        },
+    )
+    consenrich_cli._appendConvergenceDiagnostics(
+        [
+            {
+                "chromosome": "chr1",
+                "phase": "fit",
+                "path_level": "outer",
+                "record_order": 0,
+                "objective_name": "nll",
+                "objective_value": 1.0,
+            }
+        ],
+        paths.convergence,
+    )
+
+    muncLog = pd.read_csv(paths.munc_lambda, sep="\t")
+    tuncLog = pd.read_csv(paths.tunc_kappa, sep="\t")
+    convergenceLog = pd.read_csv(paths.convergence, sep="\t")
+    deleteLog = pd.read_csv(paths.delete_block_calibration, sep="\t")
+    assert list(muncLog.columns) == consenrich_cli.MUNC_LAMBDA_LOG_COLUMNS
+    assert list(tuncLog.columns) == consenrich_cli.TUNC_KAPPA_LOG_COLUMNS
+    assert list(convergenceLog.columns) == consenrich_cli.CONVERGENCE_LOG_COLUMNS
+    assert list(deleteLog.columns) == consenrich_cli.DELETE_BLOCK_CALIBRATION_LOG_COLUMNS
+    assert set(muncLog["record_type"]) == {"interval", "summary"}
+    assert set(tuncLog["record_type"]) == {"interval", "summary"}
+    assert convergenceLog["record_type"].tolist() == ["trace"]
+    assert not list(tmp_path.glob("*precisionDiagnostics*"))
+    assert not list(tmp_path.glob("*optimizationPath*.log"))
 
 
 def test_cli_logging_contracts(tmp_path):
@@ -2494,9 +2715,21 @@ def test_cli_logging_contracts(tmp_path):
         assert "live milestone shown" in consoleText
         assert "visible warning" in consoleText
         assert "audit-only detail" not in consoleText
-        assert "audit-only detail" in auditText
+        assert "audit-only detail" not in auditText
         assert "live milestone shown" in auditText
         assert "test_config.test_cli_logging_contracts" in auditText
+
+        streamVerbose = io.StringIO()
+        verbosePath = tmp_path / "run.verbose.log"
+        consenrich_cli._configureCliLogging(
+            verbosePath,
+            verbose=True,
+            verbose2=False,
+            consoleStream=streamVerbose,
+        )
+        consenrich_cli.logger.info("verbose detail")
+        assert "verbose detail" in streamVerbose.getvalue()
+        assert "verbose detail" in verbosePath.read_text(encoding="utf-8")
     finally:
         for handler in list(packageLogger.handlers):
             packageLogger.removeHandler(handler)

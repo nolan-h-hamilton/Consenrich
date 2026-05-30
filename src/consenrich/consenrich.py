@@ -3,6 +3,7 @@
 
 import argparse
 import inspect
+import json
 import logging
 import math
 from multiprocessing.pool import ThreadPool
@@ -11,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 from collections.abc import Mapping
-from typing import List, Optional, Tuple, Dict, Any, Union, Sequence
+from typing import List, Optional, Tuple, Dict, Any, Union, Sequence, NamedTuple
 import sys
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ import consenrich.detrorm as detrorm
 import consenrich.peaks as peaks
 from . import cconsenrich
 from . import constants
+from . import _logging as logging_utils
 from . import misc_util
 from ._version import __version__
 from .genome_covariates import (
@@ -52,6 +54,7 @@ logger = logging.getLogger("consenrich.consenrich")
 
 _CLI_HANDLER_ATTR = "_consenrich_cli_handler"
 _CONSOLE_EVENT_ATTR = "consenrich_console"
+_CONSOLE_VERBOSE_EVENT_ATTR = "consenrich_console_verbose"
 _AUDIT_LOG_FORMAT = (
     "%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s"
 )
@@ -117,6 +120,148 @@ GAIN_SUMMARY_COLUMNS = [
     "gain_avg",
     "gain_std",
 ]
+
+MUNC_LAMBDA_LOG_COLUMNS = [
+    "record_type",
+    "event",
+    "chromosome",
+    "start",
+    "end",
+    "interval",
+    "replicate_index",
+    "lambda",
+    "lambda_lower_bound_hit",
+    "lambda_upper_bound_hit",
+    "median_diag_R",
+    "median_effective_diag_R",
+    "muncTrace",
+    "sumGain0",
+    "sumGain1",
+    "key",
+    "value",
+]
+
+TUNC_KAPPA_LOG_COLUMNS = [
+    "record_type",
+    "event",
+    "chromosome",
+    "start",
+    "end",
+    "interval",
+    "kappa",
+    "kappa_lower_bound_hit",
+    "kappa_upper_bound_hit",
+    "process_q_policy",
+    "apn_enabled",
+    "process_precision_reweighting_requested",
+    "process_precision_reweighting_effective",
+    "process_precision_reweighting_disabled_by_apn",
+    "baseQ00",
+    "baseQ11",
+    "preKappaQLevel",
+    "preKappaQTrend",
+    "effectiveQLevel",
+    "effectiveQTrend",
+    "tuncQScale",
+    "key",
+    "value",
+]
+
+DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
+    "record_type",
+    "event",
+    "chromosome",
+    "fold",
+    "interval_index",
+    "block_index",
+    "blockIDX",
+    "chrom_start",
+    "uncertainty_decile",
+    "high_signal",
+    "stratum",
+    "target",
+    "alpha",
+    "delta",
+    "q",
+    "q_source",
+    "k",
+    "tail_probability",
+    "finite_bound",
+    "certified",
+    "reason",
+    "n",
+    "coverage_before",
+    "coverage_after",
+    "mean_width_before",
+    "mean_width_after",
+    "median_width_before",
+    "median_width_after",
+    "q90_width_before",
+    "q90_width_after",
+    "residual",
+    "deleted_state_delta",
+    "state_full",
+    "state_masked",
+    "P00_full",
+    "P00_masked",
+    "covariance_delta",
+    "total_information",
+    "kept_information",
+    "heldout_information",
+    "heldout_information_fraction",
+    "delta_variance",
+    "delta_variance_source",
+    "row_weight",
+    "sd_before",
+    "sd_after",
+    "a_state",
+    "factor_segment",
+    "segment_raw_factor",
+    "segment_bootstrap_variance",
+    "segment_shrinkage_weight",
+    "contig_shrinkage_weight",
+    "key",
+    "value",
+]
+
+CONVERGENCE_LOG_COLUMNS = ["record_type", *OPTIMIZATION_PATH_COLUMNS]
+
+RUN_SUMMARY_COLUMNS = [
+    "record_type",
+    "chromosome",
+    "intervals",
+    "samples",
+    "elapsed_seconds",
+    "output_track_count",
+    "final_nll",
+    "final_forward_nis",
+    "process_q_policy",
+    "process_noise_status",
+    "process_noise_reason",
+    "lambda_lower_bound_hits",
+    "lambda_upper_bound_hits",
+    "kappa_lower_bound_hits",
+    "kappa_upper_bound_hits",
+    "state_roughness_mean_abs_diff",
+    "state_roughness_block_median",
+    "state_roughness_block_q90",
+    "delete_block_global_factor",
+    "delete_block_rows_valid",
+    "delete_block_rows_fit",
+    "delete_block_scale",
+    "delete_block_scale_reason",
+    "munc_lambda_log",
+    "tunc_kappa_log",
+    "convergence_log",
+    "delete_block_calibration_log",
+]
+
+
+class DiagnosticLogPaths(NamedTuple):
+    munc_lambda: Path
+    tunc_kappa: Path
+    convergence: Path
+    delete_block_calibration: Path
 
 
 def _countTransformVarianceFloorKwargs(
@@ -410,16 +555,6 @@ def _flattenOptimizationPathDiagnostics(
     return rows
 
 
-def _writeOptimizationPathLog(rows: Sequence[Mapping[str, Any]], path: str) -> None:
-    frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
-    frame.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
-    core._logEvent(
-        "artifact.optimization_path",
-        (("path", path), ("rows", int(len(frame)))),
-        logger_=logger,
-    )
-
-
 def _safeOutputToken(value: Any, *, fallback: str) -> str:
     token = "".join(
         ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(value).strip()
@@ -427,13 +562,76 @@ def _safeOutputToken(value: Any, *, fallback: str) -> str:
     return token or str(fallback)
 
 
-def _optimizationPathPrefix(experimentName: str, chromosome: str) -> str:
+def _diagnosticLogPaths(experimentName: str) -> DiagnosticLogPaths:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    chromosomeToken = _safeOutputToken(chromosome, fallback="contig")
-    return (
-        f"consenrichOutput_{experimentToken}_{chromosomeToken}"
-        f"_optimizationPath.v{__version__}"
+    prefix = f"consenrichOutput_{experimentToken}"
+    return DiagnosticLogPaths(
+        munc_lambda=Path(f"{prefix}_munc_lambda.v{__version__}.log"),
+        tunc_kappa=Path(f"{prefix}_tunc_kappa.v{__version__}.log"),
+        convergence=Path(f"{prefix}_convergence.v{__version__}.log"),
+        delete_block_calibration=Path(
+            f"{prefix}_delete_block_calibration.v{__version__}.log"
+        ),
     )
+
+
+def _runSummaryPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.tsv")
+
+
+def _initializeDiagnosticLogs(paths: DiagnosticLogPaths) -> None:
+    logging_utils.init_tsv_log(paths.munc_lambda, MUNC_LAMBDA_LOG_COLUMNS)
+    logging_utils.init_tsv_log(paths.tunc_kappa, TUNC_KAPPA_LOG_COLUMNS)
+    logging_utils.init_tsv_log(paths.convergence, CONVERGENCE_LOG_COLUMNS)
+    logging_utils.init_tsv_log(
+        paths.delete_block_calibration,
+        DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
+    )
+
+
+def _jsonDiagnosticValue(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, np.ndarray):
+        return value.astype(float).tolist()
+    if isinstance(value, Mapping):
+        return {
+            str(key): _jsonDiagnosticValue(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_jsonDiagnosticValue(item) for item in value]
+    if isinstance(value, (float, np.floating)):
+        value_ = float(value)
+        return value_ if np.isfinite(value_) else None
+    return value
+
+
+def _appendKeyValueDiagnostics(
+    path: Path,
+    columns: Sequence[str],
+    *,
+    recordType: str,
+    event: str,
+    chromosome: str | None,
+    values: Mapping[str, Any],
+) -> int:
+    rows = []
+    for key, value in values.items():
+        rows.append(
+            {
+                "record_type": recordType,
+                "event": event,
+                "chromosome": chromosome,
+                "key": str(key),
+                "value": (
+                    json.dumps(_jsonDiagnosticValue(value), sort_keys=True)
+                    if isinstance(value, (Mapping, list, tuple, np.ndarray))
+                    else _jsonDiagnosticValue(value)
+                ),
+            }
+        )
+    return logging_utils.append_tsv_log(path, rows, columns)
 
 
 def _genomeOptimizationPathPrefix(experimentName: str) -> str:
@@ -795,7 +993,7 @@ def _plotGenomeOptimizationPathLog(
     return True
 
 
-def _writePrecisionDiagnostics(
+def _precisionDiagnosticsFrame(
     *,
     chromosome: str,
     intervals: np.ndarray,
@@ -803,8 +1001,7 @@ def _writePrecisionDiagnostics(
     matrixMunc: np.ndarray,
     pad: float,
     precisionDiagnostics: Mapping[str, Any],
-    path: str,
-) -> bool:
+) -> pd.DataFrame:
     lambdaExp = precisionDiagnostics.get("lambdaExp")
     processPrecExp = precisionDiagnostics.get("processPrecExp")
     matrixQ0 = precisionDiagnostics.get("matrixQ0")
@@ -815,9 +1012,9 @@ def _writePrecisionDiagnostics(
     if n <= 0:
         logger.warning(
             "precisionDiagnostics.output skipped %s because no intervals were available.",
-            path,
+            chromosome,
         )
-        return False
+        return pd.DataFrame()
 
     lambdaArr = np.ones(n, dtype=np.float64)
     if lambdaExp is not None:
@@ -965,29 +1162,314 @@ def _writePrecisionDiagnostics(
             "median_effective_diag_R": medianEffectiveDiagR,
         }
     )
-    frame.to_csv(
-        path,
-        sep="\t",
-        header=True,
-        index=False,
-        float_format="%.7g",
-        lineterminator="\n",
-        compression="gzip" if str(path).endswith(".gz") else None,
+    return frame
+
+
+def _appendMuncLambdaDiagnostics(
+    frame: pd.DataFrame,
+    path: Path,
+    *,
+    chromosome: str,
+    precisionDiagnostics: Mapping[str, Any],
+) -> int:
+    if frame.empty:
+        return 0
+    lambdaValues = pd.to_numeric(frame["lambda"]).to_numpy(dtype=np.float64)
+    lambdaMin = _summaryNumber(
+        precisionDiagnostics.get("observationPrecisionMultiplierMin")
     )
-    logger.info(
-        "precisionDiagnostics.output wrote %s rows=%d policy=%s APN=%s "
-        "lambdaMedian=%.6g kappaMedian=%.6g effectiveQ00Median=%.6g "
-        "effectiveQ11Median=%.6g",
-        path,
-        int(len(frame)),
-        processQPolicy,
-        str(apnEnabled).lower(),
-        float(np.median(lambdaArr)),
-        float(np.median(kappaArr)),
-        float(np.median(effectiveQ00)),
-        float(np.median(effectiveQ11)),
+    lambdaMax = _summaryNumber(
+        precisionDiagnostics.get("observationPrecisionMultiplierMax")
     )
-    return True
+    lambdaLowerHit = (
+        np.zeros(lambdaValues.shape, dtype=bool)
+        if lambdaMin is None
+        else lambdaValues <= (float(lambdaMin) * (1.0 + 1.0e-6))
+    )
+    lambdaUpperHit = (
+        np.zeros(lambdaValues.shape, dtype=bool)
+        if lambdaMax is None
+        else lambdaValues >= (float(lambdaMax) * (1.0 - 1.0e-6))
+    )
+    out = pd.DataFrame(
+        {
+            "record_type": "interval",
+            "event": "munc_lambda.interval",
+            "chromosome": frame["Chromosome"],
+            "start": frame["Start"],
+            "end": frame["End"],
+            "interval": frame["Interval"],
+            "lambda": frame["lambda"],
+            "lambda_lower_bound_hit": lambdaLowerHit,
+            "lambda_upper_bound_hit": lambdaUpperHit,
+            "median_diag_R": frame["median_diag_R"],
+            "median_effective_diag_R": frame["median_effective_diag_R"],
+        }
+    )
+    outputTracks = precisionDiagnostics.get("outputTracks", {})
+    if isinstance(outputTracks, Mapping):
+        for name in ("muncTrace", "sumGain0", "sumGain1"):
+            if name in outputTracks:
+                out[name] = np.asarray(outputTracks[name], dtype=np.float64).reshape(-1)
+    rowsWritten = logging_utils.append_tsv_log(path, out, MUNC_LAMBDA_LOG_COLUMNS)
+    _appendKeyValueDiagnostics(
+        path,
+        MUNC_LAMBDA_LOG_COLUMNS,
+        recordType="summary",
+        event="munc_lambda.summary",
+        chromosome=chromosome,
+        values={
+            "rows": int(rowsWritten),
+            "lambda_median": float(pd.to_numeric(frame["lambda"]).median()),
+            "median_diag_R": float(pd.to_numeric(frame["median_diag_R"]).median()),
+            "median_effective_diag_R": float(
+                pd.to_numeric(frame["median_effective_diag_R"]).median()
+            ),
+        },
+    )
+    return rowsWritten
+
+
+def _appendTuncKappaDiagnostics(
+    frame: pd.DataFrame,
+    path: Path,
+    *,
+    chromosome: str,
+    precisionDiagnostics: Mapping[str, Any],
+    runDiagnostics: Mapping[str, Any],
+) -> int:
+    if frame.empty:
+        return 0
+    kappaValues = pd.to_numeric(frame["kappa"]).to_numpy(dtype=np.float64)
+    kappaMin = _summaryNumber(precisionDiagnostics.get("processPrecisionMultiplierMin"))
+    kappaMax = _summaryNumber(precisionDiagnostics.get("processPrecisionMultiplierMax"))
+    kappaLowerHit = (
+        np.zeros(kappaValues.shape, dtype=bool)
+        if kappaMin is None
+        else kappaValues <= (float(kappaMin) * (1.0 + 1.0e-6))
+    )
+    kappaUpperHit = (
+        np.zeros(kappaValues.shape, dtype=bool)
+        if kappaMax is None
+        else kappaValues >= (float(kappaMax) * (1.0 - 1.0e-6))
+    )
+    out = pd.DataFrame(
+        {
+            "record_type": "interval",
+            "event": "tunc_kappa.interval",
+            "chromosome": frame["Chromosome"],
+            "start": frame["Start"],
+            "end": frame["End"],
+            "interval": frame["Interval"],
+            "kappa": frame["kappa"],
+            "kappa_lower_bound_hit": kappaLowerHit,
+            "kappa_upper_bound_hit": kappaUpperHit,
+            "process_q_policy": frame["process_q_policy"],
+            "apn_enabled": frame["apn_enabled"],
+            "process_precision_reweighting_requested": frame[
+                "process_precision_reweighting_requested"
+            ],
+            "process_precision_reweighting_effective": frame[
+                "process_precision_reweighting_effective"
+            ],
+            "process_precision_reweighting_disabled_by_apn": frame[
+                "process_precision_reweighting_disabled_by_apn"
+            ],
+            "baseQ00": frame["baseQ00"],
+            "baseQ11": frame["baseQ11"],
+            "preKappaQLevel": frame["baseQ00"],
+            "preKappaQTrend": frame["baseQ11"],
+            "effectiveQLevel": frame["effectiveQ00"],
+            "effectiveQTrend": frame["effectiveQ11"],
+        }
+    )
+    outputTracks = precisionDiagnostics.get("outputTracks", {})
+    if isinstance(outputTracks, Mapping) and "tuncQScale" in outputTracks:
+        out["tuncQScale"] = np.asarray(
+            outputTracks["tuncQScale"],
+            dtype=np.float64,
+        ).reshape(-1)
+    rowsWritten = logging_utils.append_tsv_log(path, out, TUNC_KAPPA_LOG_COLUMNS)
+    processNoise = runDiagnostics.get("process_noise_calibration")
+    if isinstance(processNoise, Mapping):
+        _appendKeyValueDiagnostics(
+            path,
+            TUNC_KAPPA_LOG_COLUMNS,
+            recordType="summary",
+            event="tunc_kappa.process_noise_calibration",
+            chromosome=chromosome,
+            values=processNoise,
+        )
+    _appendKeyValueDiagnostics(
+        path,
+        TUNC_KAPPA_LOG_COLUMNS,
+        recordType="summary",
+        event="tunc_kappa.summary",
+        chromosome=chromosome,
+        values={
+            "rows": int(rowsWritten),
+            "kappa_median": float(pd.to_numeric(frame["kappa"]).median()),
+            "effective_q_level_median": float(
+                pd.to_numeric(frame["effectiveQ00"]).median()
+            ),
+            "effective_q_trend_median": float(
+                pd.to_numeric(frame["effectiveQ11"]).median()
+            ),
+        },
+    )
+    return rowsWritten
+
+
+def _appendConvergenceDiagnostics(
+    rows: Sequence[Mapping[str, Any]],
+    path: Path,
+) -> int:
+    if not rows:
+        return 0
+    frame = pd.DataFrame(
+        ({"record_type": "trace", **dict(row)} for row in rows),
+        columns=CONVERGENCE_LOG_COLUMNS,
+    )
+    rowsWritten = logging_utils.append_tsv_log(path, frame, CONVERGENCE_LOG_COLUMNS)
+    core._logEvent(
+        "artifact.convergence",
+        (("path", str(path)), ("rows", int(rowsWritten))),
+        logger_=logger,
+    )
+    return rowsWritten
+
+
+def _summaryNumber(value: Any) -> float | int | None:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    try:
+        valueFloat = float(value)
+    except (TypeError, ValueError):
+        return None
+    return valueFloat if np.isfinite(valueFloat) else None
+
+
+def _summaryInt(value: Any) -> int | None:
+    valueNumber = _summaryNumber(value)
+    if valueNumber is None:
+        return None
+    return int(valueNumber)
+
+
+def _summaryMapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _runSummaryRow(
+    *,
+    chromosome: str,
+    intervals: int,
+    samples: int,
+    elapsedSeconds: float,
+    outputTrackCount: int,
+    runDiagnostics: Mapping[str, Any],
+    stateRoughness: Mapping[str, Any],
+    calibrationModel: Mapping[str, Any] | None,
+    diagnosticLogPaths: DiagnosticLogPaths,
+) -> dict[str, Any]:
+    precisionHits = _summaryMapping(
+        runDiagnostics.get("precision_reweighting_boundary_hits")
+    )
+    obsHits = _summaryMapping(precisionHits.get("observation"))
+    procHits = _summaryMapping(precisionHits.get("process"))
+    processNoise = _summaryMapping(runDiagnostics.get("process_noise_calibration"))
+    calibration = _summaryMapping(calibrationModel)
+    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    return {
+        "record_type": "chromosome",
+        "chromosome": chromosome,
+        "intervals": int(intervals),
+        "samples": int(samples),
+        "elapsed_seconds": float(elapsedSeconds),
+        "output_track_count": int(outputTrackCount),
+        "final_nll": _summaryNumber(runDiagnostics.get("final_nll")),
+        "final_forward_nis": _summaryNumber(
+            runDiagnostics.get("final_forward_nis")
+        ),
+        "process_q_policy": runDiagnostics.get("process_q_policy"),
+        "process_noise_status": processNoise.get("processNoiseCalibrationStatus"),
+        "process_noise_reason": processNoise.get("processNoiseCalibrationReason"),
+        "lambda_lower_bound_hits": _summaryInt(obsHits.get("lower")),
+        "lambda_upper_bound_hits": _summaryInt(obsHits.get("upper")),
+        "kappa_lower_bound_hits": _summaryInt(procHits.get("lower")),
+        "kappa_upper_bound_hits": _summaryInt(procHits.get("upper")),
+        "state_roughness_mean_abs_diff": _summaryNumber(
+            stateRoughness.get("overall_mean_abs_diff")
+        ),
+        "state_roughness_block_median": _summaryNumber(
+            stateRoughness.get("block_mean_abs_diff_median")
+        ),
+        "state_roughness_block_q90": _summaryNumber(
+            stateRoughness.get("block_mean_abs_diff_q90")
+        ),
+        "delete_block_global_factor": _summaryNumber(
+            calibration.get("global_factor")
+        ),
+        "delete_block_rows_valid": _summaryInt(calibration.get("rows_valid")),
+        "delete_block_rows_fit": _summaryInt(calibration.get("rows_fit")),
+        "delete_block_scale": _summaryNumber(
+            targetCalibration.get("uncertainty_track_scale")
+        ),
+        "delete_block_scale_reason": targetCalibration.get(
+            "uncertainty_track_scale_reason"
+        ),
+        "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
+        "tunc_kappa_log": str(diagnosticLogPaths.tunc_kappa),
+        "convergence_log": str(diagnosticLogPaths.convergence),
+        "delete_block_calibration_log": str(
+            diagnosticLogPaths.delete_block_calibration
+        ),
+    }
+
+
+def _genomeRunSummaryRow(
+    chromosomeRows: Sequence[Mapping[str, Any]],
+    *,
+    elapsedSeconds: float,
+    diagnosticLogPaths: DiagnosticLogPaths,
+) -> dict[str, Any]:
+    intervals = sum(int(row.get("intervals") or 0) for row in chromosomeRows)
+    samples = max((int(row.get("samples") or 0) for row in chromosomeRows), default=0)
+    outputTrackCount = max(
+        (int(row.get("output_track_count") or 0) for row in chromosomeRows),
+        default=0,
+    )
+    return {
+        "record_type": "genome",
+        "chromosome": "genome",
+        "intervals": int(intervals),
+        "samples": int(samples),
+        "elapsed_seconds": float(elapsedSeconds),
+        "output_track_count": int(outputTrackCount),
+        "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
+        "tunc_kappa_log": str(diagnosticLogPaths.tunc_kappa),
+        "convergence_log": str(diagnosticLogPaths.convergence),
+        "delete_block_calibration_log": str(
+            diagnosticLogPaths.delete_block_calibration
+        ),
+    }
+
+
+def _writeRunSummary(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
+    frame = pd.DataFrame(list(rows), columns=RUN_SUMMARY_COLUMNS)
+    frame.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
+    logging_utils.log_file_written(
+        logger,
+        event="artifact.run_summary",
+        path=str(path),
+        fields=(("rows", int(len(frame))),),
+    )
 
 
 def _replicateGainSummaryPath(experimentName: str) -> str:
@@ -1185,6 +1667,7 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         "tuncMaxScale",
         "tuncMinWindowWeight",
         "tuncPriorRidge",
+        "tuncLevelBufferZ",
         "tuncProcessCovariatesEnabled",
         "tuncProcessCovariatesMode",
         "tuncProcessCovariatesFeatures",
@@ -1272,6 +1755,16 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             (
                 f"[{float(getattr(processArgs, 'tuncMinScale', constants.PROCESS_DEFAULT_TUNC_MIN_SCALE)):.6g}, "
                 f"{float(getattr(processArgs, 'tuncMaxScale', constants.PROCESS_DEFAULT_TUNC_MAX_SCALE)):.6g}]"
+            ),
+        ),
+        (
+            "TUNC level buffer z",
+            float(
+                getattr(
+                    processArgs,
+                    "tuncLevelBufferZ",
+                    constants.PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
+                )
             ),
         ),
         (
@@ -1496,8 +1989,8 @@ def _logMuncEstimationParameters(
 
 
 def _progress(iterable, **kwargs):
-    disable = kwargs.pop("disable", not sys.stderr.isatty())
-    if disable:
+    disable = kwargs.pop("disable", False)
+    if disable or not logging_utils.progress_enabled():
         return iterable
     kwargs.setdefault("mininterval", 0.5)
     kwargs.setdefault("leave", False)
@@ -1518,6 +2011,8 @@ class _ConsoleLogFilter(logging.Filter):
             return True
         if self.verbose and record.levelno >= logging.INFO:
             return True
+        if getattr(record, _CONSOLE_VERBOSE_EVENT_ATTR, False):
+            return self.verbose
         return bool(getattr(record, _CONSOLE_EVENT_ATTR, False))
 
 
@@ -1610,6 +2105,9 @@ def _configureCliLogging(
         fileHandler = logging.FileHandler(logPath, mode="w", encoding="utf-8")
         setattr(fileHandler, _CLI_HANDLER_ATTR, True)
         fileHandler.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+        fileHandler.addFilter(
+            _ConsoleLogFilter(verbose=bool(verbose), verbose2=bool(verbose2))
+        )
         fileHandler.setFormatter(logging.Formatter(_AUDIT_LOG_FORMAT))
         packageLogger.addHandler(fileHandler)
         return logPath
@@ -1624,6 +2122,15 @@ def _configureCliLogging(
 
 def _logCliMilestone(message: str, *args: Any) -> None:
     logger.info(message, *args, extra={_CONSOLE_EVENT_ATTR: True}, stacklevel=2)
+
+
+def _logCliProgressMilestone(message: str, *args: Any) -> None:
+    logger.info(
+        message,
+        *args,
+        extra={_CONSOLE_VERBOSE_EVENT_ATTR: True},
+        stacklevel=2,
+    )
 
 
 def _buildArgParser() -> argparse.ArgumentParser:
@@ -1749,6 +2256,7 @@ def main():
     args = parser.parse_args()
     if args.verbose2:
         args.verbose = True
+    logging_utils.set_progress_enabled(bool(args.verbose or args.verbose2))
 
     if args.matchBedGraph:
         if not os.path.exists(args.matchBedGraph):
@@ -1844,6 +2352,8 @@ def main():
     cliRunStart = time.perf_counter()
     config = readConfig(args.config)
     experimentName = config["experimentName"]
+    diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
+    _initializeDiagnosticLogs(diagnosticLogPaths)
     genomeArgs = config["genomeArgs"]
     inputArgs = config["inputArgs"]
     outputArgs = config["outputArgs"]
@@ -1931,6 +2441,13 @@ def main():
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
+    _logCliMilestone(
+        "Diagnostic logs: munc/lambda=%s tunc/kappa=%s convergence=%s delete-block=%s",
+        diagnosticLogPaths.munc_lambda,
+        diagnosticLogPaths.tunc_kappa,
+        diagnosticLogPaths.convergence,
+        diagnosticLogPaths.delete_block_calibration,
+    )
     _logCliMilestone(
         "Consenrich run start: experiment=%s version=%s config=%s chromosomes=%d samples=%d",
         experimentName,
@@ -4096,7 +4613,15 @@ def main():
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
     diagnosticTrackNames = tuple(getattr(outputArgs, "diagnosticTracks", ()) or ())
-    for trackName in diagnosticTrackNames:
+    stateDiagnosticTrackNames = tuple(
+        trackName for trackName in diagnosticTrackNames if trackName == "slope"
+    )
+    if any(trackName != "slope" for trackName in diagnosticTrackNames):
+        logger.info(
+            "MUNC/lambda and TUNC/kappa diagnostic tracks are written to category logs; "
+            "only slope remains a bedGraph diagnostic track."
+        )
+    for trackName in stateDiagnosticTrackNames:
         bedGraphTracks.append((trackName, trackName))
     saveBackgroundTracks = bool(
         outputArgs.saveBackgroundTracks and fitArgs.fitBackground
@@ -4111,6 +4636,18 @@ def main():
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
     genomeOptimizationPathRows: List[Mapping[str, Any]] = []
+    runSummaryRows: List[Dict[str, Any]] = []
+    segShrinkGenomeRequested = bool(
+        outputArgs.writeUncertainty
+        and uncertaintyCalibrationArgs.enabled
+        and getattr(
+            uncertaintyCalibrationArgs,
+            "deleteBlockFactorModel",
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
+        )
+        == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_SEG_SHRINK
+    )
+    segShrinkDeferredUncertainty: List[Dict[str, Any]] = []
     saveGains = bool(
         getattr(outputArgs, "saveGains", constants.OUTPUT_DEFAULT_SAVE_GAINS)
     )
@@ -4131,7 +4668,7 @@ def main():
         chromosomeStart = int(chromPlan["start"])
         chromosomeEnd = int(chromPlan["end"])
         numIntervals = int(chromPlan["numIntervals"])
-        _logCliMilestone(
+        _logCliProgressMilestone(
             "Chromosome %d/%d start: %s intervals=%d",
             int(c_ + 1),
             int(len(chromosomePlans)),
@@ -4570,14 +5107,6 @@ def main():
                 runDiagnostics,
                 startOrder=0,
             )
-            optimizationPathPrefix = _optimizationPathPrefix(
-                str(experimentName),
-                chromosome,
-            )
-            _writeOptimizationPathLog(
-                optimizationPathRows,
-                f"{optimizationPathPrefix}.log",
-            )
             genomeRecordOffset = len(genomeOptimizationPathRows)
             genomeOptimizationPathRows.extend(
                 {
@@ -4588,18 +5117,26 @@ def main():
                 for row in optimizationPathRows
             )
         if precisionDiagnostics:
-            precisionPath = (
-                f"consenrichOutput_{experimentName}_{chromosome}"
-                f"_precisionDiagnostics.v{__version__}.tsv.gz"
-            )
-            _writePrecisionDiagnostics(
+            precisionFrame = _precisionDiagnosticsFrame(
                 chromosome=chromosome,
                 intervals=intervals,
                 intervalSizeBP=intervalSizeBP,
                 matrixMunc=muncMat,
                 pad=pad_,
                 precisionDiagnostics=precisionDiagnostics,
-                path=precisionPath,
+            )
+            _appendMuncLambdaDiagnostics(
+                precisionFrame,
+                diagnosticLogPaths.munc_lambda,
+                chromosome=chromosome,
+                precisionDiagnostics=precisionDiagnostics,
+            )
+            _appendTuncKappaDiagnostics(
+                precisionFrame,
+                diagnosticLogPaths.tunc_kappa,
+                chromosome=chromosome,
+                precisionDiagnostics=precisionDiagnostics,
+                runDiagnostics=runDiagnostics,
             )
         logger.info(
             "runConsenrich.done %s elapsed=%.3fs",
@@ -4734,6 +5271,8 @@ def main():
         }
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
+        calibrationResult = None
+        calibrationModel = None
 
         if useUncertaintyCalibration:
             core._logAsciiBlock(
@@ -4815,8 +5354,10 @@ def main():
                 params=uncertaintyCalibrationArgs,
                 runKwargs=calibrationRunKwargs,
                 outPrefix=calibrationPrefix,
+                diagnosticsLogPath=str(diagnosticLogPaths.delete_block_calibration),
                 chromosome=chromosome,
             )
+            calibrationModel = calibrationResult.model
             uncertaintyTrack = np.asarray(
                 calibrationResult.calibratedUncertainty,
                 dtype=np.float32,
@@ -4828,6 +5369,21 @@ def main():
                 float(calibrationResult.model.get("global_factor", np.nan)),
                 int(calibrationResult.model.get("rows_valid", 0)),
             )
+            if segShrinkGenomeRequested:
+                segShrinkDeferredUncertainty.append(
+                    {
+                        "chromosome": chromosome,
+                        "intervals": np.asarray(intervals, dtype=np.int64).copy(),
+                        "fullP": np.asarray(P00_, dtype=np.float64).copy(),
+                        "model": dict(calibrationResult.model),
+                        "factor": np.asarray(calibrationResult.factor, dtype=np.float64),
+                        "calibrated": np.asarray(
+                            calibrationResult.calibratedUncertainty,
+                            dtype=np.float32,
+                        ),
+                        "summaryRowIndex": len(runSummaryRows),
+                    }
+                )
 
         df = pd.DataFrame(
             {
@@ -4840,13 +5396,13 @@ def main():
 
         if outputArgs.writeUncertainty:
             df["uncertainty"] = uncertaintyTrack
-        if diagnosticTrackNames:
+        if stateDiagnosticTrackNames:
             outputTracks = (
                 precisionDiagnostics.get("outputTracks", {})
                 if isinstance(precisionDiagnostics, Mapping)
                 else {}
             )
-            for trackName in diagnosticTrackNames:
+            for trackName in stateDiagnosticTrackNames:
                 if trackName == "slope":
                     trackValues = np.asarray(x[:, 1], dtype=np.float32)
                 else:
@@ -4904,9 +5460,14 @@ def main():
         )
 
         writeStart = time.perf_counter()
+        tracksForChromosome = [
+            (col, suffix)
+            for col, suffix in bedGraphTracks
+            if not (segShrinkGenomeRequested and suffix == "uncertainty")
+        ]
         for col, suffix in _progress(
-            bedGraphTracks,
-            total=len(suffixes),
+            tracksForChromosome,
+            total=len(tracksForChromosome),
             desc=f"Writing {chromosome}",
             unit="track",
         ):
@@ -4935,11 +5496,83 @@ def main():
             chromosomeElapsed,
             outputElapsed,
         )
-        _logCliMilestone(
+        runSummaryRows.append(
+            _runSummaryRow(
+                chromosome=chromosome,
+                intervals=int(numIntervals),
+                samples=int(numSamples),
+                elapsedSeconds=float(chromosomeElapsed),
+                outputTrackCount=int(len(bedGraphTracks)),
+                runDiagnostics=runDiagnostics,
+                stateRoughness=stateRoughness,
+                calibrationModel=calibrationModel,
+                diagnosticLogPaths=diagnosticLogPaths,
+            )
+        )
+        _logCliProgressMilestone(
             "Chromosome %s done: elapsed=%.1fs outputs=%d",
             chromosome,
             chromosomeElapsed,
             int(len(bedGraphTracks)),
+        )
+
+    if segShrinkGenomeRequested:
+        if not segShrinkDeferredUncertainty:
+            raise ValueError("segShrink uncertainty calibration has no processed contigs")
+        from consenrich import segshrink as segshrink_module
+
+        finalizedSegShrink = segshrink_module.combine_prepared_contigs(
+            segShrinkDeferredUncertainty,
+            positiveFloor=float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        )
+        uncertaintyBedGraphPath = (
+            f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
+        )
+        for idx, item in enumerate(finalizedSegShrink):
+            chromosome = str(item["chromosome"])
+            intervals = np.asarray(item["intervals"], dtype=np.int64)
+            calibrated = np.asarray(item["calibrated"], dtype=np.float32)
+            dfUncertainty = pd.DataFrame(
+                {
+                    "Chromosome": chromosome,
+                    "Start": intervals,
+                    "End": intervals + intervalSizeBP,
+                    "uncertainty": calibrated,
+                }
+            ).sort_values(by=["Start", "End"], kind="mergesort")
+            dfUncertainty.to_csv(
+                uncertaintyBedGraphPath,
+                sep="\t",
+                header=False,
+                index=False,
+                mode="w" if idx == 0 else "a",
+                float_format="%.4f",
+                lineterminator="\n",
+            )
+            summaryRowIndex = item.get("summaryRowIndex")
+            if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(runSummaryRows):
+                runSummaryRows[summaryRowIndex]["delete_block_global_factor"] = (
+                    _summaryNumber(item["model"].get("global_factor"))
+                )
+                runSummaryRows[summaryRowIndex]["delete_block_rows_valid"] = (
+                    _summaryInt(item["model"].get("rows_valid"))
+                )
+                runSummaryRows[summaryRowIndex]["delete_block_rows_fit"] = (
+                    _summaryInt(item["model"].get("rows_fit"))
+                )
+            if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
+                _appendKeyValueDiagnostics(
+                    diagnosticLogPaths.delete_block_calibration,
+                    DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
+                    recordType="model",
+                    event="delete_block_calibration.segShrink.processed_genome_model",
+                    chromosome=chromosome,
+                    values=item["model"],
+                )
+        logger.info(
+            "segShrink processed-genome finalization wrote uncertainty bedGraph for %d contigs: %s",
+            int(len(finalizedSegShrink)),
+            uncertaintyBedGraphPath,
         )
 
     if replicateGainAccumulator is not None:
@@ -4957,15 +5590,27 @@ def main():
         genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(
             str(experimentName)
         )
-        _writeOptimizationPathLog(
+        _appendConvergenceDiagnostics(
             genomeOptimizationPathRows,
-            f"{genomeOptimizationPathPrefix}.log",
+            diagnosticLogPaths.convergence,
         )
         _plotGenomeOptimizationPathLog(
             genomeOptimizationPathRows,
             f"{genomeOptimizationPathPrefix}.png",
             dpi=400,
         )
+
+    if bool(getattr(outputArgs, "writeRunSummary", True)):
+        summaryRows = list(runSummaryRows)
+        if summaryRows:
+            summaryRows.append(
+                _genomeRunSummaryRow(
+                    summaryRows,
+                    elapsedSeconds=time.perf_counter() - cliRunStart,
+                    diagnosticLogPaths=diagnosticLogPaths,
+                )
+            )
+        _writeRunSummary(summaryRows, _runSummaryPath(str(experimentName)))
 
     logger.info("Finished: output in human-readable format")
 

@@ -515,6 +515,383 @@ cpdef tuple cevaluateFactor(
     return factor, calibrated
 
 
+cpdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] csegShrinkSegmentCodes(
+    Py_ssize_t n,
+    Py_ssize_t segmentCount,
+):
+    if n < 1:
+        raise ValueError("n must be positive")
+    if segmentCount < 1:
+        raise ValueError("segmentCount must be positive")
+    cdef Py_ssize_t effectiveCount = segmentCount if segmentCount < n else n
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] out = np.empty(n, dtype=np.int32)
+    cdef cnp.int32_t[::1] outView = out
+    cdef Py_ssize_t i
+    with nogil:
+        for i in range(n):
+            outView[i] = <cnp.int32_t>((i * effectiveCount) // n)
+    return out
+
+
+cpdef tuple csegShrinkScopeCodes(
+    long contigOrdinal,
+    object segmentByInterval,
+    object intervalIndex,
+):
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentArr = np.ascontiguousarray(
+        np.asarray(segmentByInterval, dtype=np.int32).reshape(-1), dtype=np.int32
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalArr = np.ascontiguousarray(
+        np.asarray(intervalIndex, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef Py_ssize_t n = intervalArr.shape[0]
+    cdef Py_ssize_t intervalCount = segmentArr.shape[0]
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] contigScope = np.empty(n, dtype=np.int32)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentScope = np.empty(n, dtype=np.int32)
+    cdef cnp.int32_t[::1] segmentView = segmentArr
+    cdef cnp.int64_t[::1] intervalView = intervalArr
+    cdef cnp.int32_t[::1] contigScopeView = contigScope
+    cdef cnp.int32_t[::1] segmentScopeView = segmentScope
+    cdef Py_ssize_t i
+    cdef cnp.int32_t maxSegment = -1
+    cdef cnp.int32_t segment
+    cdef cnp.int64_t interval
+    with nogil:
+        for i in range(intervalCount):
+            if segmentView[i] > maxSegment:
+                maxSegment = segmentView[i]
+        for i in range(n):
+            interval = intervalView[i]
+            contigScopeView[i] = <cnp.int32_t>contigOrdinal
+            if interval < 0 or interval >= intervalCount or maxSegment < 0:
+                segmentScopeView[i] = <cnp.int32_t>-1
+            else:
+                segment = segmentView[interval]
+                segmentScopeView[i] = <cnp.int32_t>(
+                    contigOrdinal * (<long>maxSegment + 1) + segment
+                )
+    return contigScope, segmentScope
+
+
+cpdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] csegShrinkGroupCodes(
+    long contigOrdinal,
+    object foldIndex,
+    object blockIDX,
+):
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] foldArr = np.ascontiguousarray(
+        np.asarray(foldIndex, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockArr = np.ascontiguousarray(
+        np.asarray(blockIDX, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef Py_ssize_t n = foldArr.shape[0]
+    if blockArr.shape[0] != n:
+        raise ValueError("foldIndex and blockIDX must have the same length")
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] out = np.empty(n, dtype=np.int64)
+    cdef cnp.int64_t[::1] foldView = foldArr
+    cdef cnp.int64_t[::1] blockView = blockArr
+    cdef cnp.int64_t[::1] outView = out
+    cdef Py_ssize_t i
+    cdef cnp.int64_t maxFold = 0
+    cdef cnp.int64_t maxBlock = 0
+    cdef cnp.int64_t fold
+    cdef cnp.int64_t block
+    cdef cnp.int64_t foldStride
+    cdef cnp.int64_t blockStride
+    with nogil:
+        for i in range(n):
+            if foldView[i] > maxFold:
+                maxFold = foldView[i]
+            if blockView[i] > maxBlock:
+                maxBlock = blockView[i]
+        foldStride = maxFold + 1
+        blockStride = maxBlock + 1
+        for i in range(n):
+            fold = foldView[i]
+            block = blockView[i]
+            if fold < 0 or block < 0:
+                outView[i] = <cnp.int64_t>-1
+            else:
+                outView[i] = (
+                    (<cnp.int64_t>contigOrdinal * foldStride + fold) * blockStride
+                    + block
+                )
+    return out
+
+
+cpdef tuple csegShrinkBootstrapLogFactors(
+    object ratio,
+    object rowWeight,
+    object scopeCode,
+    object groupCode,
+    object bootstrapMultiplier,
+    Py_ssize_t scopeCount,
+    double target,
+    double z,
+    double factorMin,
+    double factorMax,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] ratioArr = np.ascontiguousarray(
+        np.asarray(ratio, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightArr = np.ascontiguousarray(
+        np.asarray(rowWeight, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] scopeArr = np.ascontiguousarray(
+        np.asarray(scopeCode, dtype=np.int32).reshape(-1), dtype=np.int32
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] groupArr = np.ascontiguousarray(
+        np.asarray(groupCode, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] multArr = np.ascontiguousarray(
+        np.asarray(bootstrapMultiplier, dtype=np.float64), dtype=np.float64
+    )
+    cdef Py_ssize_t n = ratioArr.shape[0]
+    if weightArr.shape[0] != n or scopeArr.shape[0] != n or groupArr.shape[0] != n:
+        raise ValueError("segShrink bootstrap inputs must have the same length")
+    if scopeCount < 1:
+        raise ValueError("scopeCount must be positive")
+    cdef Py_ssize_t replicateCount = multArr.shape[0]
+    cdef Py_ssize_t groupCount = multArr.shape[1]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] baseLog = np.full(scopeCount, np.nan, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] bootLog = np.full((scopeCount, replicateCount), np.nan, dtype=np.float64)
+    cdef double[::1] ratioView = ratioArr
+    cdef double[::1] weightView = weightArr
+    cdef cnp.int32_t[::1] scopeView = scopeArr
+    cdef cnp.int64_t[::1] groupView = groupArr
+    cdef double[:, ::1] multView = multArr
+    cdef double[::1] baseView = baseLog
+    cdef double[:, ::1] bootView = bootLog
+    cdef Py_ssize_t s, r, i
+    cdef double total, threshold, cumulative, w, qValue, factor
+    cdef cnp.int64_t group
+    with nogil:
+        for s in range(scopeCount):
+            total = 0.0
+            for i in range(n):
+                if scopeView[i] == s and isfinite(ratioView[i]) and isfinite(weightView[i]) and weightView[i] > 0.0:
+                    total += weightView[i]
+            if total > 0.0 and isfinite(total) and z > 0.0:
+                threshold = target * total
+                cumulative = 0.0
+                qValue = NAN
+                for i in range(n):
+                    if scopeView[i] == s and isfinite(ratioView[i]) and isfinite(weightView[i]) and weightView[i] > 0.0:
+                        cumulative += weightView[i]
+                        if cumulative >= threshold:
+                            qValue = ratioView[i]
+                            break
+                if isfinite(qValue):
+                    factor = (qValue / z) * (qValue / z)
+                    factor = _clip_double(factor, factorMin, factorMax)
+                    if factor > 0.0 and isfinite(factor):
+                        baseView[s] = log(factor)
+            for r in range(replicateCount):
+                total = 0.0
+                for i in range(n):
+                    group = groupView[i]
+                    if (
+                        scopeView[i] == s
+                        and group >= 0
+                        and group < groupCount
+                        and isfinite(ratioView[i])
+                        and isfinite(weightView[i])
+                        and weightView[i] > 0.0
+                    ):
+                        w = weightView[i] * multView[r, group]
+                        if isfinite(w) and w > 0.0:
+                            total += w
+                if not (total > 0.0 and isfinite(total) and z > 0.0):
+                    continue
+                threshold = target * total
+                cumulative = 0.0
+                qValue = NAN
+                for i in range(n):
+                    group = groupView[i]
+                    if (
+                        scopeView[i] == s
+                        and group >= 0
+                        and group < groupCount
+                        and isfinite(ratioView[i])
+                        and isfinite(weightView[i])
+                        and weightView[i] > 0.0
+                    ):
+                        w = weightView[i] * multView[r, group]
+                        if isfinite(w) and w > 0.0:
+                            cumulative += w
+                            if cumulative >= threshold:
+                                qValue = ratioView[i]
+                                break
+                if isfinite(qValue):
+                    factor = (qValue / z) * (qValue / z)
+                    factor = _clip_double(factor, factorMin, factorMax)
+                    if factor > 0.0 and isfinite(factor):
+                        bootView[s, r] = log(factor)
+    return baseLog, bootLog
+
+
+cpdef dict csegShrinkEmpiricalBayes(
+    double genomeLogFactor,
+    object contigLogFactor,
+    object contigVariance,
+    object segmentLogFactor,
+    object segmentVariance,
+    object segmentContigIndex,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigLogArr = np.ascontiguousarray(
+        np.asarray(contigLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigVarArr = np.ascontiguousarray(
+        np.asarray(contigVariance, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentLogArr = np.ascontiguousarray(
+        np.asarray(segmentLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentVarArr = np.ascontiguousarray(
+        np.asarray(segmentVariance, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentContigArr = np.ascontiguousarray(
+        np.asarray(segmentContigIndex, dtype=np.int32).reshape(-1), dtype=np.int32
+    )
+    cdef Py_ssize_t contigCount = contigLogArr.shape[0]
+    cdef Py_ssize_t segmentCount = segmentLogArr.shape[0]
+    if contigVarArr.shape[0] != contigCount:
+        raise ValueError("contig inputs must have the same length")
+    if segmentVarArr.shape[0] != segmentCount or segmentContigArr.shape[0] != segmentCount:
+        raise ValueError("segment inputs must have the same length")
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigTheta = np.empty(contigCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigAlpha = np.empty(contigCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentTheta = np.empty(segmentCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentAlpha = np.empty(segmentCount, dtype=np.float64)
+    cdef double[::1] contigLog = contigLogArr
+    cdef double[::1] contigVar = contigVarArr
+    cdef double[::1] segmentLog = segmentLogArr
+    cdef double[::1] segmentVar = segmentVarArr
+    cdef cnp.int32_t[::1] segmentContig = segmentContigArr
+    cdef double[::1] contigThetaView = contigTheta
+    cdef double[::1] contigAlphaView = contigAlpha
+    cdef double[::1] segmentThetaView = segmentTheta
+    cdef double[::1] segmentAlphaView = segmentAlpha
+    cdef Py_ssize_t i
+    cdef double weightSum = 0.0
+    cdef double valueSum = 0.0
+    cdef double w, v, y, diff, value, denom, parent
+    cdef double tauContigSq = 0.0
+    cdef double tauSegmentSq = 0.0
+    cdef cnp.int32_t contig
+    with nogil:
+        for i in range(contigCount):
+            y = contigLog[i]
+            v = contigVar[i]
+            if isfinite(y) and isfinite(v) and v >= 0.0 and isfinite(genomeLogFactor):
+                w = 1.0 / _max_floor(v, 1.0e-12)
+                diff = y - genomeLogFactor
+                value = diff * diff - v
+                if isfinite(value) and isfinite(w) and w > 0.0:
+                    valueSum += w * value
+                    weightSum += w
+        if weightSum > 0.0 and valueSum > 0.0:
+            tauContigSq = valueSum / weightSum
+        for i in range(contigCount):
+            y = contigLog[i]
+            v = contigVar[i]
+            if isfinite(y) and isfinite(v) and v >= 0.0 and isfinite(genomeLogFactor):
+                denom = tauContigSq + v
+                if denom > 0.0 and isfinite(denom):
+                    contigAlphaView[i] = tauContigSq / denom
+                else:
+                    contigAlphaView[i] = 0.0
+                contigThetaView[i] = contigAlphaView[i] * y + (1.0 - contigAlphaView[i]) * genomeLogFactor
+            else:
+                contigAlphaView[i] = 0.0
+                contigThetaView[i] = genomeLogFactor
+        weightSum = 0.0
+        valueSum = 0.0
+        for i in range(segmentCount):
+            contig = segmentContig[i]
+            y = segmentLog[i]
+            v = segmentVar[i]
+            if contig >= 0 and contig < contigCount and isfinite(y) and isfinite(v) and v >= 0.0:
+                parent = contigThetaView[contig]
+                w = 1.0 / _max_floor(v, 1.0e-12)
+                diff = y - parent
+                value = diff * diff - v
+                if isfinite(value) and isfinite(w) and w > 0.0:
+                    valueSum += w * value
+                    weightSum += w
+        if weightSum > 0.0 and valueSum > 0.0:
+            tauSegmentSq = valueSum / weightSum
+        for i in range(segmentCount):
+            contig = segmentContig[i]
+            y = segmentLog[i]
+            v = segmentVar[i]
+            if contig >= 0 and contig < contigCount:
+                parent = contigThetaView[contig]
+            else:
+                parent = genomeLogFactor
+            if isfinite(y) and isfinite(v) and v >= 0.0 and isfinite(parent):
+                denom = tauSegmentSq + v
+                if denom > 0.0 and isfinite(denom):
+                    segmentAlphaView[i] = tauSegmentSq / denom
+                else:
+                    segmentAlphaView[i] = 0.0
+                segmentThetaView[i] = segmentAlphaView[i] * y + (1.0 - segmentAlphaView[i]) * parent
+            else:
+                segmentAlphaView[i] = 0.0
+                segmentThetaView[i] = parent
+    return {
+        "tauContigSq": float(tauContigSq),
+        "tauSegmentSq": float(tauSegmentSq),
+        "contigTheta": contigTheta,
+        "contigAlpha": contigAlpha,
+        "segmentTheta": segmentTheta,
+        "segmentAlpha": segmentAlpha,
+    }
+
+
+cpdef tuple csegShrinkApplyFactors(
+    object segmentByInterval,
+    object segmentLogFactor,
+    object fullP,
+    double positiveFloor,
+):
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentArr = np.ascontiguousarray(
+        np.asarray(segmentByInterval, dtype=np.int32).reshape(-1), dtype=np.int32
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logArr = np.ascontiguousarray(
+        np.asarray(segmentLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pArr = np.ascontiguousarray(
+        np.asarray(fullP, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = segmentArr.shape[0]
+    if pArr.shape[0] != n:
+        raise ValueError("segmentByInterval and fullP must have the same length")
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] factor = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calibrated = np.empty(n, dtype=np.float32)
+    cdef cnp.int32_t[::1] segmentView = segmentArr
+    cdef double[::1] logView = logArr
+    cdef double[::1] pView = pArr
+    cdef double[::1] factorView = factor
+    cdef cnp.float32_t[::1] calView = calibrated
+    cdef Py_ssize_t i
+    cdef cnp.int32_t segment
+    cdef double f, variance
+    with nogil:
+        for i in range(n):
+            segment = segmentView[i]
+            if segment >= 0 and segment < logArr.shape[0] and isfinite(logView[segment]):
+                f = exp(logView[segment])
+            else:
+                f = 1.0
+            factorView[i] = f
+            variance = f * pView[i]
+            if variance < positiveFloor or not isfinite(variance):
+                variance = positiveFloor
+            calView[i] = <cnp.float32_t>sqrt(variance)
+    return factor, calibrated
+
+
 cpdef dict csummarizeCoverageWidths(
     real_t[::1] residual,
     real_t[::1] sdBefore,

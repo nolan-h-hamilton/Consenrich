@@ -91,6 +91,7 @@ from .constants import (
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
+    OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
     PROCESS_DEFAULT_DELTA_F,
     PROCESS_DEFAULT_NOISE_CALIBRATION,
     PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER,
@@ -98,6 +99,7 @@ from .constants import (
     PROCESS_DEFAULT_TUNC_MAX_SCALE,
     PROCESS_DEFAULT_TUNC_MIN_SCALE,
     PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
+    PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
     PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
     PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO,
     PROCESS_DEFAULT_WARMUP_ECM_ITERS,
@@ -135,7 +137,9 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
     UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_APPLY_TARGET_CALIBRATION,
+    UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
+    UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FALLBACK_MIN_VALID_FRACTION,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_MAX_INFORMATION_FRACTION,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_MIN_INFORMATION_FRACTION,
@@ -249,7 +253,13 @@ def _logEvent(
     level: int = logging.INFO,
     stacklevel: int = 2,
 ) -> None:
-    _sharedLogEvent(logger_, event, fields, level=level, stacklevel=stacklevel)
+    _sharedLogEvent(
+        logger_,
+        event,
+        fields,
+        level=level,
+        stacklevel=int(stacklevel) + 1,
+    )
 
 
 def _logAsciiBlock(
@@ -299,6 +309,10 @@ class processParams(NamedTuple):
     :type tuncMinWindowWeight: float
     :param tuncPriorRidge: Ridge penalty for the TUNC process prior fit.
     :type tuncPriorRidge: float
+    :param tuncLevelBufferZ: Posterior-SD buffer applied to the TUNC
+        state-level prior covariate. Values near zero flatten the prior trend;
+        ``0`` recovers the unbuffered prior.
+    :type tuncLevelBufferZ: float
     :param processNoiseWarmupECMIters: Maximum fixed-background ECM iterations
         per nuisance pass used by process-noise warm-up calibration.
     :type processNoiseWarmupECMIters: int
@@ -327,6 +341,7 @@ class processParams(NamedTuple):
     tuncMaxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE
     tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT
     tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE
+    tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z
     tuncProcessCovariatesEnabled: bool = False
     tuncProcessCovariatesMode: str = "transition"
     tuncProcessCovariatesFeatures: tuple[str, ...] = ()
@@ -544,6 +559,12 @@ class uncertaintyCalibrationParams(NamedTuple):
     )
     seed: int = UNCERTAINTY_CALIBRATION_DEFAULT_SEED
     writeDiagnostics: bool = UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS
+    deleteBlockFactorSegmentCount: int = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT
+    )
+    deleteBlockFactorBootstrapReplicates: int = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES
+    )
 
 
 def checkStateUncertaintyCoverage(
@@ -1007,6 +1028,8 @@ class outputParams(NamedTuple):
         ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``,
         ``tuncQScale``, ``muncTrace``, ``sumGain0``, and ``sumGain1``.
     :type diagnosticTracks: tuple[str, ...]
+    :param writeRunSummary: If True, write one high-level run summary TSV.
+    :type writeRunSummary: bool
 
     """
 
@@ -1018,6 +1041,7 @@ class outputParams(NamedTuple):
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
     saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
     cutoffReport: bool = OUTPUT_DEFAULT_CUTOFF_REPORT
+    writeRunSummary: bool = OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
 
 
 class fitParams(NamedTuple):
@@ -3869,6 +3893,7 @@ def _fitTuncProcessNoise(
     tuncMaxScale: float,
     tuncMinWindowWeight: float,
     tuncPriorRidge: float,
+    tuncLevelBufferZ: float,
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
@@ -3963,12 +3988,41 @@ def _fitTuncProcessNoise(
     tiny = 1.0e-12
     y = np.log(np.maximum(evidence, tiny))
     state = np.asarray(warmupFit["stateSmoothed"], dtype=np.float64)
-    levelMid = 0.5 * (state[:-1, 0] + state[1:, 0])
+    levelMidRaw = 0.5 * (state[:-1, 0] + state[1:, 0])
+    levelMid = levelMidRaw
+    levelBufferZ = float(max(tuncLevelBufferZ, 0.0))
+    levelMidSd = np.zeros(transitionCount, dtype=np.float64)
+    if levelBufferZ > 0.0:
+        stateCov = np.asarray(warmupFit["stateCovarSmoothed"], dtype=np.float64)
+        lagCov = np.asarray(warmupFit["lagCovSmoothed"], dtype=np.float64)
+        if (
+            stateCov.ndim == 3
+            and lagCov.ndim == 3
+            and stateCov.shape[0] >= intervalCount
+            and lagCov.shape[0] >= transitionCount
+            and stateCov.shape[1] >= 1
+            and stateCov.shape[2] >= 1
+            and lagCov.shape[1] >= 1
+            and lagCov.shape[2] >= 1
+        ):
+            levelMidVar = 0.25 * (
+                stateCov[:transitionCount, 0, 0]
+                + stateCov[1 : transitionCount + 1, 0, 0]
+                + 2.0 * lagCov[:transitionCount, 0, 0]
+            )
+            levelMidSd = np.sqrt(
+                np.maximum(np.nan_to_num(levelMidVar, nan=0.0), 0.0)
+            )
+        buffer = levelBufferZ * levelMidSd
+        levelMid = np.sign(levelMidRaw) * np.maximum(np.abs(levelMidRaw) - buffer, 0.0)
     columns = [
         np.ones(transitionCount, dtype=np.float64),
         levelMid,
     ]
-    priorDesignColumns = ["intercept", "stateLevelMidpoint"]
+    priorDesignColumns = [
+        "intercept",
+        "stateLevelMidpointBuffered" if levelBufferZ > 0.0 else "stateLevelMidpoint",
+    ]
     covariates = _coerceOptionalProcessCovariates(
         processCovariates,
         intervalCount=intervalCount,
@@ -4017,6 +4071,45 @@ def _fitTuncProcessNoise(
         floor=tiny,
     )
     priorScale = priorScale / max(priorGeom, tiny)
+    levelBufferDiagnostics: dict[str, Any] = {
+        "tuncLevelBufferZ": float(levelBufferZ),
+        "tuncLevelBufferEnabled": bool(levelBufferZ > 0.0),
+        "tuncBufferedLevelZeroFraction": 0.0,
+        "tuncBufferedLevelMedianShrinkage": 1.0,
+        "tuncLevelMidpointRawSummary": _metadataTrackSummary(levelMidRaw),
+        "tuncLevelMidpointBufferedSummary": _metadataTrackSummary(levelMid),
+        "tuncLevelMidpointSdSummary": _metadataTrackSummary(levelMidSd),
+    }
+    if np.any(valid):
+        validWeights = transitionWeights[valid]
+        rawAbs = np.abs(levelMidRaw[valid])
+        bufferedAbs = np.abs(levelMid[valid])
+        zeroIndicator = (bufferedAbs <= tiny).astype(np.float64)
+        levelBufferDiagnostics["tuncBufferedLevelZeroFraction"] = float(
+            np.average(zeroIndicator, weights=validWeights)
+        )
+        shrinkMask = rawAbs > tiny
+        if np.any(shrinkMask):
+            shrink = bufferedAbs[shrinkMask] / rawAbs[shrinkMask]
+            shrinkWeights = validWeights[shrinkMask]
+            levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"] = float(
+                _weightedQuantile(shrink, shrinkWeights, np.asarray([0.5]))[0]
+            )
+    _logEvent(
+        "process_noise.tunc_level_buffer",
+        (
+            ("z", float(levelBufferZ)),
+            ("enabled", bool(levelBufferZ > 0.0)),
+            (
+                "zero_fraction",
+                levelBufferDiagnostics["tuncBufferedLevelZeroFraction"],
+            ),
+            (
+                "median_shrinkage",
+                levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"],
+            ),
+        ),
+    )
 
     windowLength = max(
         3,
@@ -4210,6 +4303,7 @@ def _fitTuncProcessNoise(
         "tuncPriorDf": float(priorDf),
         "tuncPriorDfSource": "method_of_moments",
         "tuncPriorScale": float(priorDfScale),
+        "tuncLevelBufferZ": float(levelBufferZ),
         "tuncDependenceMultiplier": float(tuncDependenceMultiplier),
         "tuncLocalWindowMultiplier": float(tuncLocalWindowMultiplier),
         "processCovariateCount": int(0 if covariates is None else covariates.shape[1]),
@@ -4230,6 +4324,7 @@ def _fitTuncProcessNoise(
         "processQScaleSummary": _metadataTrackSummary(processQScale),
         "matrixQ0Final": matrixQ0Tunc.astype(float).tolist(),
     }
+    diagnostics.update(levelBufferDiagnostics)
     diagnostics.update(priorDfDiagnostics)
     diagnostics.update(boundary)
     return matrixQ0Tunc, processQScale, diagnostics
@@ -4532,6 +4627,7 @@ def runConsenrich(
     tuncMaxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE,
     tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
     tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
+    tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
     processNoiseWarmupECMIters: int = PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     processNoiseWarmupOuterPasses: int = PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
     processCovariates: np.ndarray | None = None,
@@ -4692,6 +4788,10 @@ def runConsenrich(
         tuncMinWindowWeight,
     )
     tuncPriorRidge = _checkFiniteNonnegative("tuncPriorRidge", tuncPriorRidge)
+    tuncLevelBufferZ = _checkFiniteNonnegative(
+        "tuncLevelBufferZ",
+        tuncLevelBufferZ,
+    )
     processCovariatesArr = _coerceOptionalProcessCovariates(
         processCovariates,
         intervalCount=intervalCount,
@@ -6418,6 +6518,7 @@ def runConsenrich(
                 tuncMaxScale=float(tuncMaxScale),
                 tuncMinWindowWeight=float(tuncMinWindowWeight),
                 tuncPriorRidge=float(tuncPriorRidge),
+                tuncLevelBufferZ=float(tuncLevelBufferZ),
                 observationPrecisionMultiplierMin=float(
                     observationPrecisionMultiplierMin
                 ),
@@ -6771,6 +6872,18 @@ def runConsenrich(
                     ),
                     "process_q_policy": processQDiagnostics["policy"],
                     "process_q_diagnostics": processQDiagnostics,
+                    "observationPrecisionMultiplierMin": float(
+                        observationPrecisionMultiplierMin
+                    ),
+                    "observationPrecisionMultiplierMax": float(
+                        observationPrecisionMultiplierMax
+                    ),
+                    "processPrecisionMultiplierMin": float(
+                        processPrecisionMultiplierMin
+                    ),
+                    "processPrecisionMultiplierMax": float(
+                        processPrecisionMultiplierMax
+                    ),
                     "lambdaExp": (
                         None
                         if fitFinal.get("lambdaExp") is None
@@ -9786,7 +9899,7 @@ def getMuncTrack(
     )
 
     def _estimateSparseNearestObsTracks() -> (
-        tuple[np.ndarray, np.ndarray, np.ndarray] | None
+        tuple[np.ndarray, np.ndarray, np.ndarray, bool] | None
     ):
         if sparseIntervalIndices is None or int(numNearest) <= 0:
             return None
@@ -9857,6 +9970,16 @@ def getMuncTrack(
             if sparseIdx.size == 0:
                 return None
 
+        sparseCountNoiseBlockMean = None
+        sparseNoiseAligned = False
+        if countModelVarianceFloorArr is not None:
+            sparseCountNoiseBlockMean = _finiteIntervalMeans(
+                countModelVarianceFloorArr,
+                blockStarts,
+                blockStarts + blockSizes,
+            )
+            sparseNoiseAligned = True
+
         sparseMeanTrack, sparseVarTrack = cconsenrich.cSparseNearestMeanVarTrack(
             valuesArr,
             np.ascontiguousarray(sparseIdx, dtype=np.intp),
@@ -9867,20 +9990,29 @@ def getMuncTrack(
             aggregateMeanAbs=False,
             maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
             pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
+            countNoiseBlockMean=sparseCountNoiseBlockMean,
+            varianceFloor=varianceFloor_,
+            varianceCap=0.0 if varianceCap_ is None else varianceCap_,
         )
         sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float32)
         sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float32)
         sparseMeanTrack[~np.isfinite(sparseMeanTrack)] = 0.0
         sparseVarTrack[~np.isfinite(sparseVarTrack)] = np.nan
-        return sparseMeanTrack, sparseVarTrack, sparseIdx
+        return sparseMeanTrack, sparseVarTrack, sparseIdx, sparseNoiseAligned
 
     sparseInterceptTrack: np.ndarray | None = None
     sparseObsVarTrack: np.ndarray | None = None
     sparseSupportWeightTrack: np.ndarray | None = None
     valuesForPriorFitArr = valuesArr
     sparseObsTracks = _estimateSparseNearestObsTracks()
+    sparseNoiseAligned = False
     if sparseObsTracks is not None:
-        sparseInterceptTrack, sparseObsVarTrack, sparseSupportIdx = sparseObsTracks
+        (
+            sparseInterceptTrack,
+            sparseObsVarTrack,
+            sparseSupportIdx,
+            sparseNoiseAligned,
+        ) = sparseObsTracks
         if sparseSupportScaleBP is None or float(sparseSupportScaleBP) <= 0.0:
             ellIntervals = float(localWindowIntervals)
         else:
@@ -10078,13 +10210,14 @@ def getMuncTrack(
     if sparseObsVarTrack is not None:
         sparseObsVarTrack = sparseObsVarTrack.astype(np.float32, copy=False)
         sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
-        sparseObsVarTrack = _subtractMuncCountNoise(
-            sparseObsVarTrack,
-            countNoiseLocalTrack,
-            varianceFloor=varianceFloor_,
-            varianceCap=varianceCap_,
-            fillNaN=False,
-        )
+        if not sparseNoiseAligned:
+            sparseObsVarTrack = _subtractMuncCountNoise(
+                sparseObsVarTrack,
+                countNoiseLocalTrack,
+                varianceFloor=varianceFloor_,
+                varianceCap=varianceCap_,
+                fillNaN=False,
+            )
         if sparseSupportWeightTrack is None:
             sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float32)
         supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float32)
