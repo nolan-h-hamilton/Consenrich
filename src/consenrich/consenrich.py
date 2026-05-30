@@ -133,6 +133,9 @@ def _countTransformVarianceFloorKwargs(
     }
 
 
+_MUNC_NUMERIC_VARIANCE_FLOOR = 1.0e-12
+
+
 def _countModelVarianceFloorForScaledCounts(
     scaledCounts: np.ndarray,
     scaleFactor: float,
@@ -207,6 +210,25 @@ def _countModelFloorMatrixForScaledCounts(
     return np.ascontiguousarray(floor.astype(np.float32), dtype=np.float32)
 
 
+def _countModelVarianceFloorScalar(
+    floorMatrix: np.ndarray | None,
+    *,
+    quantile: float = 0.05,
+    fallback: float = _MUNC_NUMERIC_VARIANCE_FLOOR,
+) -> float:
+    if floorMatrix is None:
+        return float(fallback)
+    arr = np.asarray(floorMatrix, dtype=np.float64)
+    values = arr[np.isfinite(arr) & (arr > 0.0)]
+    if values.size == 0:
+        return float(fallback)
+    q = float(np.clip(float(quantile), 0.0, 1.0))
+    value = float(np.quantile(values, q))
+    if not np.isfinite(value) or value <= 0.0:
+        return float(fallback)
+    return float(max(value, float(fallback)))
+
+
 def _summarizeCountModelVarianceFloor(
     floorMatrix: np.ndarray | None,
 ) -> dict[str, float | int]:
@@ -224,6 +246,7 @@ def _summarizeCountModelVarianceFloor(
         out.update(
             {
                 "min": float(np.min(vals)),
+                "q05": float(np.quantile(vals, 0.05)),
                 "median": float(np.median(vals)),
                 "p95": float(np.quantile(vals, 0.95)),
                 "max": float(np.max(vals)),
@@ -1850,12 +1873,17 @@ def main():
     excludeForNorm = genomeArgs.excludeForNorm
     chromSizes = genomeArgs.chromSizesFile
     deltaF_ = processArgs.deltaF
-    minR_ = observationArgs.minR
     maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
-    if minR_ is None or not np.isfinite(float(minR_)):
-        raise ValueError("observationParams.minR must be a finite value")
+    configuredMinR_ = observationArgs.minR
+    if configuredMinR_ is not None and not np.isfinite(float(configuredMinR_)):
+        raise ValueError("observationParams.minR must be finite when provided")
+    if configuredMinR_ is not None and float(configuredMinR_) > 0.0:
+        logger.info(
+            "observationParams.minR is ignored; transformed-scale count-noise "
+            "floors now provide the observation variance floor.",
+        )
     muncTrendBlockSizeBP_ = getattr(
         observationArgs,
         "muncTrendBlockSizeBP",
@@ -2933,14 +2961,21 @@ def main():
                 countModelScaleFactors,
                 treatmentSources,
                 countingArgs,
-            )
+        )
 
         floorSummary = _summarizeCountModelVarianceFloor(countModelVarianceFloorMat)
+        countNoiseDerivedVarianceFloor = _countModelVarianceFloorScalar(
+            countModelVarianceFloorMat,
+        )
         logger.info(
-            "count model variance floor %s finite=%d positive=%d median=%s p95=%s max=%s",
+            "count noise floor-derived variance floor %s value=%s finite=%d "
+            "positive=%d q05=%s min=%s median=%s p95=%s max=%s",
             chromosome,
+            _fmtDiagnosticFloat(countNoiseDerivedVarianceFloor),
             int(floorSummary.get("finite", 0)),
             int(floorSummary.get("positive", 0)),
+            _fmtDiagnosticFloat(floorSummary.get("q05")),
+            _fmtDiagnosticFloat(floorSummary.get("min")),
             _fmtDiagnosticFloat(floorSummary.get("median")),
             _fmtDiagnosticFloat(floorSummary.get("p95")),
             _fmtDiagnosticFloat(floorSummary.get("max")),
@@ -3495,6 +3530,7 @@ def main():
         diagnosticRawMat: np.ndarray | None = None,
         chromCovariates: np.ndarray | None = None,
     ) -> None:
+        chromosomeName = str(chromosomePlans[c_]["chromosome"])
         muncSizing = core._resolveMuncRuntimeSizing(
             intervalSizeBP=intervalSizeBP,
             dependenceSpanIntervals=dependenceSpanIntervals_,
@@ -3504,8 +3540,10 @@ def main():
             muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
         )
         blockSizeIntervals = int(muncSizing.trendBlockIntervals)
-        blacklistExcludeMask = _getChromBlacklistMask(
-            str(chromosomePlans[c_]["chromosome"]), intervals
+        blacklistExcludeMask = _getChromBlacklistMask(chromosomeName, intervals)
+        countModelVarianceFloorMat = _loadCountModelVarianceFloor(
+            chromosomeName,
+            int(chromMat.shape[1]),
         )
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
         collectedMeansParts: list[np.ndarray] = []
@@ -3529,6 +3567,24 @@ def main():
             if startsArr.size != blockMeansArr.size:
                 continue
             blockLengthsArr = endsArr - startsArr
+            blockVarsForPooled = np.asarray(blockVarsArr, dtype=np.float64)
+            hasCountNoise = (
+                countModelVarianceFloorMat is not None
+                and np.any(np.isfinite(countModelVarianceFloorMat[j, :]))
+            )
+            if hasCountNoise:
+                blockNoise = core._finiteIntervalMeans(
+                    countModelVarianceFloorMat[j, :],
+                    startsArr,
+                    endsArr,
+                )
+                blockVarsForPooled = core._subtractMuncCountNoise(
+                    blockVarsForPooled,
+                    blockNoise,
+                    varianceFloor=_MUNC_NUMERIC_VARIANCE_FLOOR,
+                    varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
+                    fillNaN=False,
+                ).astype(np.float64, copy=False)
             if not noDMVar:
                 blockBetas = cconsenrich.cblockAR1Beta(
                     np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
@@ -3547,8 +3603,11 @@ def main():
                 blockLogVarianceNoise = None
             valid = (
                 np.isfinite(blockMeansArr)
-                & np.isfinite(blockVarsArr)
-                & (blockVarsArr >= 1.0e-3)
+                & np.isfinite(blockVarsForPooled)
+                & (
+                    blockVarsForPooled
+                    >= (_MUNC_NUMERIC_VARIANCE_FLOOR if hasCountNoise else 1.0e-3)
+                )
             )
             if not np.any(valid):
                 continue
@@ -3571,7 +3630,7 @@ def main():
                 np.asarray(blockMeansArr[valid], dtype=np.float64)
             )
             pooledBlockVarsParts.append(
-                np.asarray(blockVarsArr[valid], dtype=np.float64)
+                np.asarray(blockVarsForPooled[valid], dtype=np.float64)
             )
             if blockLogVarianceNoise is not None:
                 pooledBlockLogVarianceNoiseParts.append(
@@ -3598,13 +3657,13 @@ def main():
             )
         if diagnosticRawMat is not None and rawDiagnosticMeansParts:
             _logMuncTrendInputSummary(
-                str(chromosomePlans[c_]["chromosome"]),
+                chromosomeName,
                 "raw",
                 np.concatenate(rawDiagnosticMeansParts),
             )
         if collectedMeansParts:
             _logMuncTrendInputSummary(
-                str(chromosomePlans[c_]["chromosome"]),
+                chromosomeName,
                 inputLabel,
                 np.concatenate(collectedMeansParts),
             )
@@ -3758,7 +3817,7 @@ def main():
         pooledNuL = float(max(4, pooledLocalWindowIntervals - 3))
     pooledNu0Cap = 100.0 * float(pooledNuL)
 
-    varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-4
+    varianceFloorForTrend = _MUNC_NUMERIC_VARIANCE_FLOOR
     varianceCapForTrend = maxR_ if maxR_ is not None and maxR_ > 0.0 else None
     _logMuncEstimationParameters(
         chromosomeCount=len(chromosomePlans),
@@ -4079,13 +4138,12 @@ def main():
             chromosome,
             int(numIntervals),
         )
-        minR_ = observationArgs.minR
         maxR_ = observationArgs.maxR
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
         # Negative process bounds are data-based and must be resolved independently
         # for each chromosome.
-        if observationArgs.maxR < 0.0:
+        if maxR_ is not None and maxR_ < 0.0:
             maxR_ = 1e4
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             minQ_ = 0.0
@@ -4112,6 +4170,9 @@ def main():
         countModelVarianceFloorMat = _loadCountModelVarianceFloor(
             chromosome,
             int(numIntervals),
+        )
+        countModelFloorQ05 = _countModelVarianceFloorScalar(
+            countModelVarianceFloorMat,
         )
         muncResidualBackground = _loadMuncResidualizationBackground(
             chromosome,
@@ -4235,6 +4296,7 @@ def main():
                     getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
                 ),
                 verbose=args.verbose2,
+                eps=varianceFloorForTrend,
                 varianceFloor=varianceFloorForTrend,
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
                 intervalsArr=muncIntervalsArr,
@@ -4318,19 +4380,11 @@ def main():
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
 
-        requestedMinR_ = float(minR_)
-        minR_ = core.resolveMuncMinRFloor(muncMat, requestedMinR_)
-        if requestedMinR_ < 0.0:
-            logger.info(
-                "observationParams.minR < 0 --> using MUNC matrix %.2f quantile floor for %s: %.4g",
-                0.05,
-                chromosome,
-                float(minR_),
-            )
-
         if blacklistedIntervals:
             floors = core.applyBlacklistMuncFloor(
-                muncMat, muncExcludeMask, float(minR_)
+                muncMat,
+                muncExcludeMask,
+                float(_MUNC_NUMERIC_VARIANCE_FLOOR),
             )
             logger.info(
                 "munc matrix: applied blacklist floors (chrom=%s, min=%.4g, median=%.4g, max=%.4g).",
@@ -4339,29 +4393,32 @@ def main():
                 float(np.median(floors)),
                 float(np.max(floors)),
             )
+        maxRFinite_ = (
+            maxR_ is not None
+            and np.isfinite(float(maxR_))
+            and float(maxR_) > _MUNC_NUMERIC_VARIANCE_FLOOR
+        )
+        maxRForRepair_ = (
+            float(maxR_) if maxRFinite_ else float(np.finfo(np.float32).max)
+        )
         muncMat = np.nan_to_num(
             muncMat.astype(np.float32, copy=False),
-            nan=np.float32(minR_),
-            posinf=np.float32(maxR_),
-            neginf=np.float32(minR_),
+            nan=np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),
+            posinf=np.float32(maxRForRepair_),
+            neginf=np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),
         )
-        np.clip(
+        np.maximum(
             muncMat,
-            np.float32(minR_),
-            np.float32(maxR_),
+            np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),
             out=muncMat,
         )
+        if maxRFinite_:
+            np.minimum(muncMat, np.float32(maxRForRepair_), out=muncMat)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            effectiveDeltaFForMinQ = (
-                1.0
-                if core._normalizeStateModel(processArgs.stateModel)
-                == core.STATE_MODEL_LEVEL
-                else deltaF_
-            )
-            autoMinQ = (1.0e-2 * minR_) + 1.0e-6
+            autoMinQ = (1.0e-2 * countModelFloorQ05) + 1.0e-6
             logger.info(
                 "processParams.minQ < 0 or processParams.maxQ < 0 --> applying minimal numerically stable bounds for conditioning",
             )
@@ -4375,7 +4432,16 @@ def main():
                 maxQ_ = np.float32(max(processArgs.maxQ, minQ_))
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
-        logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
+        logger.info(
+            "count noise floor-derived variance floor %s value=%s "
+            "numericRFloor=%s maxR=%s minQ=%s maxQ=%s",
+            chromosome,
+            _formatOptionalLogValue(countModelFloorQ05),
+            _formatOptionalLogValue(_MUNC_NUMERIC_VARIANCE_FLOOR),
+            _formatOptionalLogValue(maxR_),
+            _formatOptionalLogValue(minQ_),
+            _formatOptionalLogValue(maxQ_),
+        )
         core._logAsciiBlock(
             "chromosome fit",
             (
@@ -4399,8 +4465,9 @@ def main():
                     ),
                 ),
                 ("background window intervals", int(blockLenIntervals_)),
-                ("minR", float(minR_)),
-                ("maxR", float(maxR_)),
+                ("count noise floor q05", float(countModelFloorQ05)),
+                ("numeric R floor", float(_MUNC_NUMERIC_VARIANCE_FLOOR)),
+                ("maxR", float(maxR_) if maxR_ is not None else "NA"),
                 ("minQ", float(minQ_)),
                 ("maxQ", float(maxQ_)),
                 ("peak calling", bool(peakCallingEnabled)),

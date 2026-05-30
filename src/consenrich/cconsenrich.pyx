@@ -6725,7 +6725,7 @@ def cTransformCountVarianceFloor(
     object transformOutputScale=None,
     object transformShape=None,
 ):
-    r"""Delta-method count-transform variance floor with a nogil inner loop."""
+    r"""Posterior-predictive delta-method count-transform variance floor."""
     cdef object countsObj = np.asarray(normalizedCounts, dtype=np.float64)
     cdef bint squeeze = False
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] counts2
@@ -6787,7 +6787,7 @@ def cTransformCountVarianceFloor(
                     count = 0.0
                 rawMean = (count / sf) + 0.5
                 normalizedMean = rawMean * sf
-                normalizedVariance = rawMean * sf * sf
+                normalizedVariance = 2.0 * rawMean * sf * sf
                 deriv = _transformDerivativeAtMean_F64(
                     normalizedMean,
                     modeCode,

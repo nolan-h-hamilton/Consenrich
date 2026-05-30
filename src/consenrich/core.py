@@ -133,6 +133,7 @@ from .constants import (
     SUPPORTED_SOURCE_KINDS,
     UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP,
     UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_APPLY_TARGET_CALIBRATION,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FALLBACK_MIN_VALID_FRACTION,
@@ -339,9 +340,10 @@ class processParams(NamedTuple):
 class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich
 
-    :param minR: Genome-wide lower bound for replicate-specific observation noise
-        levels. If negative in the CLI pipeline, the effective floor is resolved
-        from the 0.05 quantile of the chromosome MUNC matrix.
+    :param minR: Legacy genome-wide lower bound for replicate-specific
+        observation noise levels. The CLI's count-aware path now uses the
+        transformed-scale count-noise floor instead of resolving a scalar MUNC
+        ``minR`` floor.
     :type minR: float | None
     :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
@@ -501,6 +503,9 @@ class uncertaintyCalibrationParams(NamedTuple):
     factorMax: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX_OVERRIDE
     ridge: float = UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE
     calibrationECMIters: int = UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS
+    calibrationOuterIters: int = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS
+    )
     targetCalibrationDelta: float | None = (
         UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA
     )
@@ -1659,8 +1664,9 @@ def transformCountVarianceFloor(
     r"""Approximate transformation-induced count variance for MUNC.
 
     The floor is the delta-method variance of the active count transform under
-    a Poisson sampling model for the unscaled count, evaluated at the Jeffreys
-    posterior mean ``raw_count + 1/2``.  This keeps zero-count intervals from
+    the posterior predictive Poisson-Gamma count model. With Jeffreys prior,
+    ``lambda | y ~ Gamma(y + 1/2, 1)``, so
+    ``Var(Y_new | y) = 2 * (y + 1/2)``.  This keeps zero-count intervals from
     being treated as variance-free without adding a user-tuned pseudo-count.
     """
 
@@ -1696,10 +1702,10 @@ def transformCountVarianceFloor(
 
     finiteCounts = np.isfinite(counts2)
     nonnegativeCounts = np.where(finiteCounts, np.maximum(counts2, 0.0), 0.0)
-    # Use the Jeffreys mean so zero-count intervals still carry count noise.
+    # Posterior predictive Poisson-Gamma variance under Jeffreys prior.
     rawPosteriorMean = (nonnegativeCounts / scales[:, None]) + 0.5
     normalizedMean = rawPosteriorMean * scales[:, None]
-    normalizedVariance = rawPosteriorMean * np.square(scales[:, None])
+    normalizedVariance = 2.0 * rawPosteriorMean * np.square(scales[:, None])
     derivative = _transformDerivativeAtCountMean(
         normalizedMean,
         transformMethod=transformMethod,
@@ -8297,12 +8303,19 @@ def _formatMuncVarianceDiagnostics(
     floorLine = ""
     if countModelVarianceFloorTrack is not None:
         floorLine = f"\n\t{_sdQuantiles('count_floor', countModelVarianceFloorTrack)}"
+        localName = "L_excess"
+        globalName = "G_excess"
+        finalName = "V0_total"
+    else:
+        localName = "L"
+        globalName = "G"
+        finalName = "V0"
 
     return (
         "MUNC variance SD diagnostics:\n"
-        f"\t{_sdQuantiles('L', localVarianceTrack)}\n"
-        f"\t{_sdQuantiles('G', globalVarianceTrack)}\n"
-        f"\t{_sdQuantiles('V0', finalVarianceTrack)}"
+        f"\t{_sdQuantiles(localName, localVarianceTrack)}\n"
+        f"\t{_sdQuantiles(globalName, globalVarianceTrack)}\n"
+        f"\t{_sdQuantiles(finalName, finalVarianceTrack)}"
         f"{floorLine}\n"
         f"\t{tailSummary}"
     )
@@ -8357,6 +8370,75 @@ def _coerceMuncCountModelVarianceFloor(
     return out
 
 
+def _finiteIntervalMeans(
+    values: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    startsArr = np.asarray(starts, dtype=np.intp).reshape(-1)
+    endsArr = np.asarray(ends, dtype=np.intp).reshape(-1)
+    if startsArr.shape != endsArr.shape:
+        raise ValueError("starts and ends must have the same shape")
+    finite = np.isfinite(arr)
+    valCum = np.concatenate(([0.0], np.cumsum(np.where(finite, arr, 0.0))))
+    nCum = np.concatenate(([0], np.cumsum(finite.astype(np.int64))))
+    lo = np.clip(startsArr, 0, arr.size)
+    hi = np.clip(endsArr, lo, arr.size)
+    counts = nCum[hi] - nCum[lo]
+    out = np.full(lo.shape, np.nan, dtype=np.float64)
+    ok = counts > 0
+    out[ok] = (valCum[hi[ok]] - valCum[lo[ok]]) / counts[ok]
+    return out
+
+
+def _rollingCenteredWindowMean(
+    values: np.ndarray,
+    windowLength: int,
+    excludeMask: np.ndarray | None = None,
+) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    n = arr.size
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    win = int(max(1, min(int(windowLength), n)))
+    starts = np.arange(n, dtype=np.intp) - (win // 2)
+    starts = np.clip(starts, 0, max(n - win, 0))
+    ends = starts + win
+    out = _finiteIntervalMeans(arr, starts, ends)
+    if excludeMask is not None:
+        ex = np.asarray(excludeMask, dtype=np.uint8).reshape(-1)
+        if ex.shape != arr.shape:
+            raise ValueError("excludeMask must match values")
+        exCum = np.concatenate(([0], np.cumsum((ex != 0).astype(np.int64))))
+        out[(exCum[ends] - exCum[starts]) != 0] = np.nan
+    return out
+
+
+def _subtractMuncCountNoise(
+    totalVarianceTrack: np.ndarray,
+    countNoiseTrack: np.ndarray | None,
+    *,
+    varianceFloor: float,
+    varianceCap: float | None = None,
+    fillNaN: bool = False,
+) -> npt.NDArray[np.float32]:
+    out = np.asarray(totalVarianceTrack, dtype=np.float64).copy()
+    if countNoiseTrack is not None:
+        noise = np.asarray(countNoiseTrack, dtype=np.float64).reshape(-1)
+        if noise.shape != out.reshape(-1).shape:
+            raise ValueError("countNoiseTrack must match variance track")
+        flat = out.reshape(-1)
+        finite = np.isfinite(flat) & np.isfinite(noise)
+        flat[finite] = flat[finite] - noise[finite]
+    return _clipVarianceTrack(
+        out,
+        floor=varianceFloor,
+        cap=varianceCap,
+        fillNaN=fillNaN,
+    )
+
+
 def applyMuncCountModelVarianceFloor(
     muncVarianceTrack: np.ndarray,
     countModelVarianceFloor: np.ndarray | None,
@@ -8364,12 +8446,16 @@ def applyMuncCountModelVarianceFloor(
     varianceFloor: float,
     varianceCap: float | None = None,
 ) -> npt.NDArray[np.float32]:
-    r"""Apply a precomputed transformed-scale count-model variance floor to MUNC.
+    r"""Combine excess MUNC variance with transformed-scale count-model variance.
 
-    ``countModelVarianceFloor`` is intentionally already on the same scale as the
+    ``muncVarianceTrack`` is the empirical excess term. ``countModelVarianceFloor``
+    is intentionally already on the same scale as the
     transformed observation track. Raw-count Poisson/NB or treatment-control
     delta-method calculations belong upstream, where the raw counts, scale
     factors, and transform parameters are still available.
+
+    The historical function name says "floor", but the default model is now
+    forced to be additive: ``R_total = R_count + R_empirical_excess``.
     """
 
     out = _clipVarianceTrack(
@@ -8385,7 +8471,7 @@ def applyMuncCountModelVarianceFloor(
         return out.astype(np.float32, copy=False)
 
     finite = np.isfinite(floorTrack)
-    out[finite] = np.maximum(out[finite], floorTrack[finite])
+    out[finite] = out[finite] + floorTrack[finite]
     return _clipVarianceTrack(out, floor=varianceFloor, cap=varianceCap)
 
 
@@ -9517,9 +9603,9 @@ def getMuncTrack(
 
     Variance is modeled as a function of a signed mean signal predictor. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
     If ``countModelVarianceFloor`` is supplied, it must be a precomputed
-    per-interval transformed-scale lower bound for this replicate; it is
-    combined with the fitted MUNC track by elementwise maximum after EB
-    shrinkage.
+    per-interval transformed-scale count-noise variance for this replicate.
+    MUNC estimates the empirical excess over that term, and the final
+    observation variance is forced to be ``R_count + R_empirical_excess``.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -9528,9 +9614,9 @@ def getMuncTrack(
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
     :param countModelVarianceFloor: Optional transformed-scale observation
-        variance floor for this replicate. Finite entries are combined with
-        the final fitted MUNC track by elementwise maximum; ``NaN`` entries
-        leave the fitted MUNC value unchanged.
+        count-noise variance for this replicate. Finite entries are subtracted
+        from local/global variance targets before shrinkage and added back to
+        the final fitted MUNC track.
     :type countModelVarianceFloor: np.ndarray | None
 
     See :class:`consenrich.core.observationParams` for other parameters.
@@ -9689,6 +9775,15 @@ def getMuncTrack(
                 ),
                 dtype=np.uint8,
             )
+    countNoiseLocalTrack = (
+        _rollingCenteredWindowMean(
+            countModelVarianceFloorArr,
+            localWindowIntervals,
+            localObsExcludeMaskArr,
+        )
+        if countModelVarianceFloorArr is not None
+        else None
+    )
 
     def _estimateSparseNearestObsTracks() -> (
         tuple[np.ndarray, np.ndarray, np.ndarray] | None
@@ -9848,12 +9943,26 @@ def getMuncTrack(
             maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
             pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
         )
-        mask = np.isfinite(blockMeans) & np.isfinite(blockVars) & (blockVars >= 1.0e-6)
+        blockVarsForTrend = np.asarray(blockVars, dtype=np.float64)
+        if countModelVarianceFloorArr is not None:
+            blockNoise = _finiteIntervalMeans(countModelVarianceFloorArr, _starts, _ends)
+            blockVarsForTrend = _subtractMuncCountNoise(
+                blockVarsForTrend,
+                blockNoise,
+                varianceFloor=varianceFloor_,
+                varianceCap=varianceCap_,
+                fillNaN=False,
+            ).astype(np.float64, copy=False)
+        mask = (
+            np.isfinite(blockMeans)
+            & np.isfinite(blockVarsForTrend)
+            & (blockVarsForTrend >= varianceFloor_)
+        )
         supportFraction = (
             float(np.sum(mask)) / float(len(blockMeans)) if len(blockMeans) else 0.0
         )
         means_Masked = blockMeans[mask]
-        var_Masked = blockVars[mask]
+        var_Masked = blockVarsForTrend[mask]
         order = np.argsort(_muncTrendPredictor(means_Masked))
         means_Sorted = means_Masked[order]
         var_Sorted = var_Masked[order]
@@ -9958,20 +10067,22 @@ def getMuncTrack(
         useInnovationVar=useInnovationVariance,
     ).astype(np.float32, copy=False)
     fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
-    fallbackObsVarTrack = _clipVarianceTrack(
+    fallbackObsVarTrack = _subtractMuncCountNoise(
         fallbackObsVarTrack,
-        floor=varianceFloor_,
-        cap=varianceCap_,
+        countNoiseLocalTrack,
+        varianceFloor=varianceFloor_,
+        varianceCap=varianceCap_,
         fillNaN=False,
     )
 
     if sparseObsVarTrack is not None:
         sparseObsVarTrack = sparseObsVarTrack.astype(np.float32, copy=False)
         sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
-        sparseObsVarTrack = _clipVarianceTrack(
+        sparseObsVarTrack = _subtractMuncCountNoise(
             sparseObsVarTrack,
-            floor=varianceFloor_,
-            cap=varianceCap_,
+            countNoiseLocalTrack,
+            varianceFloor=varianceFloor_,
+            varianceCap=varianceCap_,
             fillNaN=False,
         )
         if sparseSupportWeightTrack is None:

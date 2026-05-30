@@ -1165,6 +1165,13 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
             )
         ),
+        calibrationOuterIters=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.calibrationOuterIters",
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS,
+            )
+        ),
         targetCalibrationDelta=_cfgGet(
             configData,
             "uncertaintyCalibrationParams.targetCalibrationDelta",

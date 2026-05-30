@@ -1105,7 +1105,8 @@ def calibrateChromosomeStateUncertainty(
         int(params.calibrationECMIters),
         core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
     )
-    fitKwargs["ECM_outerIters"] = 1
+    calibrationOuterIters = max(1, int(params.calibrationOuterIters))
+    fitKwargs["ECM_outerIters"] = calibrationOuterIters
     fitKwargs["ECM_minOuterIters"] = 1
     fitKwargs["processNoiseWarmupECMIters"] = (
         core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
@@ -1621,8 +1622,9 @@ def calibrateChromosomeStateUncertainty(
                 None if holdoutFractionRaw is None else float(holdoutFractionRaw)
             ),
             "calibration_ecm_iters": int(params.calibrationECMIters),
+            "calibration_outer_iters": int(calibrationOuterIters),
             "refit_policy": {
-                "ECM_outerIters": 1,
+                "ECM_outerIters": int(calibrationOuterIters),
                 "ECM_minOuterIters": 1,
                 "returnBackground": True,
                 "returnScales": True,

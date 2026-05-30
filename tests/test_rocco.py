@@ -1313,8 +1313,29 @@ def _caseMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
     policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
 
     assert policy["active"] is True
-    assert policy["width_threshold_bp"] == 60000
-    assert policy["num_width_cluster_candidates"] == 2
+    assert policy["gap_width_threshold_bp"] == 60000
+    assert policy["width_threshold_bp"] == policy["width_cap_bp"]
+    assert 10000 <= policy["width_threshold_bp"] < 20000
+    assert policy["num_width_tail_gap_candidates"] == 2
+    assert policy["num_width_cluster_candidates"] == 3
+
+
+@pytest.mark.correctness
+def _caseMassiveSubpeakWidthPolicyCapsExtremeTailGap():
+    widths = np.concatenate(
+        [
+            np.linspace(500.0, 5000.0, 4500),
+            np.asarray([12000.0, 15000.0, 18000.0, 22000.0]),
+            np.asarray([33000.0, 46600.0, 70000.0]),
+        ]
+    )
+
+    policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
+
+    assert policy["active"] is True
+    assert policy["gap_width_threshold_bp"] >= 30000
+    assert policy["width_threshold_bp"] == policy["width_cap_bp"]
+    assert 10000 <= policy["width_threshold_bp"] <= 20000
 
 
 @pytest.mark.correctness
@@ -1365,13 +1386,17 @@ def _caseSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain():
 
     assert len(rows) == 2
     assert exportDetails["num_massive_subpeak_splits"] == 1
+    assert exportDetails["num_massive_subpeak_contracts"] == 0
     assert all(meta["massive_subpeak_cleanup_applied"] for meta in rowMeta)
+    assert all(
+        int(row[2]) - int(row[1]) < policy["width_threshold_bp"] for row in rows
+    )
     assert rowMeta[0]["end"] <= int(intervals[300])
     assert rowMeta[1]["start"] >= int(ends[379])
 
 
 @pytest.mark.correctness
-def _caseSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
+def _caseSolutionToChromNarrowPeakRowsContractsMassiveSmoothDomain():
     n = 700
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -1404,10 +1429,103 @@ def _caseSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
     )
 
     assert len(rows) == 1
+    assert len(rowMeta) == 1
     assert exportDetails["num_massive_subpeak_candidates"] == 1
     assert exportDetails["num_massive_subpeak_splits"] == 0
-    assert rowMeta[0]["massive_subpeak_cleanup_candidate"] is True
-    assert rowMeta[0]["massive_subpeak_cleanup_applied"] is False
+    assert exportDetails["num_massive_subpeak_contracts"] == 1
+    assert exportDetails["num_segments_kept"] == 1
+    assert rowMeta[0]["massive_subpeak_cleanup_applied"] is True
+    assert rowMeta[0]["massive_subpeak_cleanup_mode"] == "width_capped_core"
+    assert int(rows[0][2]) - int(rows[0][1]) < policy["width_threshold_bp"]
+
+
+@pytest.mark.correctness
+def _caseSolutionToChromNarrowPeakRowsContractsToMinBpCap():
+    n = 2200
+    intervals = np.arange(0, n * 100, 100, dtype=np.int64)
+    ends = intervals + 100
+    state = np.ones(n, dtype=np.float64)
+    scores = state.copy()
+    solution = np.zeros(n, dtype=np.uint8)
+    solution[100:2100] = 1
+    policy = {
+        "active": True,
+        "width_threshold_bp": 60000,
+        "min_bp": 10000,
+        "contract_width_bp": 10000,
+        "null_center": float(np.log(1000.0)),
+        "null_scale": 1.0,
+    }
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="massiveCapTest",
+        nullScale=0.25,
+        trimScoreFloor=0.0,
+        subpeakSelectionPenalty=0.0,
+        subpeakBoundaryCost=0.25,
+        massiveSubpeakCleanup=True,
+        massiveSubpeakWidthPolicy=policy,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 1
+    assert exportDetails["num_massive_subpeak_contracts"] == 1
+    assert rowMeta[0]["massive_subpeak_cleanup_mode"] == "width_capped_core"
+    assert int(rows[0][2]) - int(rows[0][1]) < policy["contract_width_bp"]
+
+
+@pytest.mark.correctness
+def _caseSolutionToChromNarrowPeakRowsContractsOversizedSplitChildren():
+    n = 750
+    intervals = np.arange(0, n * 100, 100, dtype=np.int64)
+    ends = intervals + 100
+    state = np.ones(n, dtype=np.float64)
+    state[100:430] = 3.0
+    state[430:500] = 0.2
+    state[500:590] = 2.8
+    scores = state.copy()
+    solution = np.zeros(n, dtype=np.uint8)
+    solution[50:650] = 1
+    policy = {
+        "active": True,
+        "width_threshold_bp": 46600,
+        "min_bp": 10000,
+        "contract_width_bp": 10000,
+        "null_center": float(np.log(1000.0)),
+        "null_scale": 1.0,
+    }
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="massiveChildCapTest",
+        nullScale=0.25,
+        trimScoreFloor=0.0,
+        subpeakSelectionPenalty=0.0,
+        subpeakBoundaryCost=0.25,
+        massiveSubpeakCleanup=True,
+        massiveSubpeakWidthPolicy=policy,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 2
+    assert exportDetails["num_massive_subpeak_splits"] == 1
+    assert exportDetails["num_massive_subpeak_contracts"] == 2
+    assert all(int(row[2]) - int(row[1]) < policy["contract_width_bp"] for row in rows)
+    assert any(
+        meta["massive_subpeak_cleanup_mode"] == "width_capped_core"
+        for meta in rowMeta
+    )
 
 
 @pytest.mark.correctness
@@ -2019,9 +2137,21 @@ def test_rocco_subpeak_policy_contracts(contract_case):
 def test_rocco_massive_domain_policy_contracts(contract_case):
     for label, func in (
         ("separated tail cluster required", _caseMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster),
+        ("extreme tail gap capped", _caseMassiveSubpeakWidthPolicyCapsExtremeTailGap),
         ("smooth tail not flagged", _caseMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap),
         ("massive domain forced split", _caseSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain),
-        ("massive smooth domain kept", _caseSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit),
+        (
+            "massive smooth domain contracted",
+            _caseSolutionToChromNarrowPeakRowsContractsMassiveSmoothDomain,
+        ),
+        (
+            "massive contraction uses min-bp cap",
+            _caseSolutionToChromNarrowPeakRowsContractsToMinBpCap,
+        ),
+        (
+            "massive split children contract to cap",
+            _caseSolutionToChromNarrowPeakRowsContractsOversizedSplitChildren,
+        ),
     ):
         contract_case(label, func)
 

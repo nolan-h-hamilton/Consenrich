@@ -89,6 +89,7 @@ _MASSIVE_SUBPEAK_SPLIT_Z = MASSIVE_SUBPEAK_SPLIT_Z
 _MASSIVE_SUBPEAK_MAX_DEPTH = MASSIVE_SUBPEAK_MAX_DEPTH
 _MASSIVE_SUBPEAK_MIN_CHILD_BP = MASSIVE_SUBPEAK_MIN_CHILD_BP
 _MASSIVE_SUBPEAK_MIN_CHILD_FRACTION = MASSIVE_SUBPEAK_MIN_CHILD_FRACTION
+_MASSIVE_SUBPEAK_TRIGGER_Z_CAP = 3.0
 _DWB_PEAK_SCORING_MAX_REPLAYS = 32
 _DWB_PEAK_SCORING_MAX_SEGMENTS = 10000
 _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW = 500
@@ -3059,7 +3060,11 @@ def _learnMassiveSubpeakWidthPolicy(
         "enabled": bool(enabled),
         "method": "robust_log_width_tail_gap",
         "width_threshold_bp": None,
+        "gap_width_threshold_bp": None,
+        "width_cap_bp": None,
+        "width_cap_z": float(_MASSIVE_SUBPEAK_TRIGGER_Z_CAP),
         "min_bp": int(max(int(minBP), 1)),
+        "contract_width_bp": int(max(int(minBP), 1)),
         "alpha": float(alpha),
         "bulk_quantile": float(bulkQuantile),
         "max_fraction": float(maxFraction),
@@ -3110,9 +3115,20 @@ def _learnMassiveSubpeakWidthPolicy(
         candidates.append((float(right), int(rightCount), float(logGap)))
     if not candidates:
         return details
-    threshold, clusterCount, logGap = min(candidates, key=lambda item: item[0])
+    gapThreshold, gapClusterCount, logGap = min(candidates, key=lambda item: item[0])
+    widthCap = math.exp(
+        float(scoreMeta["center"])
+        + float(_MASSIVE_SUBPEAK_TRIGGER_Z_CAP) * float(scoreMeta["scale"])
+    )
+    if (not np.isfinite(widthCap)) or widthCap <= 0.0:
+        widthCap = float(gapThreshold)
+    widthCap = float(max(minBP_, widthCap))
+    threshold = float(max(minBP_, min(float(gapThreshold), widthCap)))
+    details["gap_width_threshold_bp"] = int(round(float(gapThreshold)))
+    details["width_cap_bp"] = int(round(float(widthCap)))
     details["width_threshold_bp"] = int(round(float(threshold)))
-    details["num_width_cluster_candidates"] = int(clusterCount)
+    details["num_width_cluster_candidates"] = int(np.sum(widths >= float(threshold)))
+    details["num_width_tail_gap_candidates"] = int(gapClusterCount)
     details["selected_log_gap"] = float(logGap)
     details["active"] = True
     return details
@@ -3193,6 +3209,117 @@ def _bestMassiveSubpeakSplit(
     }
 
 
+def _contractMassiveSubpeakSegment(
+    startIdx: int,
+    endIdx: int,
+    scores: np.ndarray,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    thresholdBP: float,
+    minRunBins: int,
+    splitQuantile: float = _MASSIVE_SUBPEAK_SPLIT_QUANTILE,
+) -> Tuple[int, int, Dict[str, Any]] | None:
+    scores_ = np.asarray(scores, dtype=np.float64)
+    intervals_ = np.asarray(intervals, dtype=np.int64)
+    ends_ = np.asarray(ends, dtype=np.int64)
+    start = int(startIdx)
+    end = int(endIdx)
+    if start < 0 or end < start or end >= scores_.size:
+        return None
+
+    localScores = scores_[start : end + 1]
+    localStarts = intervals_[start : end + 1]
+    localEnds = ends_[start : end + 1]
+    n = int(localScores.size)
+    if n == 0:
+        return None
+    originalWidth = int(max(int(localEnds[-1]) - int(localStarts[0]), 0))
+    threshold_ = float(thresholdBP)
+    if (not np.isfinite(threshold_)) or threshold_ <= 0.0:
+        return None
+
+    finiteScores = np.where(np.isfinite(localScores), localScores, -math.inf)
+    if not bool(np.any(np.isfinite(finiteScores))):
+        return None
+
+    mids = 0.5 * (localStarts.astype(np.float64) + localEnds.astype(np.float64))
+    maxScore = float(np.max(finiteScores))
+    maxMask = finiteScores >= maxScore - max(1.0e-12, abs(maxScore) * 1.0e-12)
+    centerAbs = float(np.median(mids[maxMask])) if bool(np.any(maxMask)) else float(
+        0.5 * (int(localStarts[0]) + int(localEnds[-1]))
+    )
+    centerLocal = int(np.argmin(np.abs(mids - centerAbs)))
+    minBins = int(max(int(minRunBins), 1))
+
+    finiteOnly = finiteScores[np.isfinite(finiteScores)]
+    low = float(np.quantile(finiteOnly, float(np.clip(splitQuantile, 0.0, 1.0))))
+    dynamic = float(maxScore - low)
+    if np.isfinite(dynamic) and dynamic > 1.0e-12:
+        floor = float(low + 0.5 * dynamic)
+        keep = finiteScores >= floor
+        if bool(keep[centerLocal]):
+            left = centerLocal
+            while left > 0 and bool(keep[left - 1]):
+                left -= 1
+            right = centerLocal
+            while right + 1 < n and bool(keep[right + 1]):
+                right += 1
+            width = int(max(int(localEnds[right]) - int(localStarts[left]), 0))
+            if (
+                right - left + 1 >= minBins
+                and width < threshold_
+                and width < originalWidth
+            ):
+                return int(start + left), int(start + right), {
+                    "mode": "adaptive_core",
+                    "core_score_floor": float(floor),
+                    "core_width_bp": int(width),
+                }
+
+    left = centerLocal
+    right = centerLocal
+    while True:
+        choices: List[Tuple[float, float, int]] = []
+        if left > 0:
+            widthLeft = int(max(int(localEnds[right]) - int(localStarts[left - 1]), 0))
+            if widthLeft < threshold_:
+                choices.append(
+                    (
+                        float(finiteScores[left - 1]),
+                        -abs(float(mids[left - 1]) - centerAbs),
+                        -1,
+                    )
+                )
+        if right + 1 < n:
+            widthRight = int(
+                max(int(localEnds[right + 1]) - int(localStarts[left]), 0)
+            )
+            if widthRight < threshold_:
+                choices.append(
+                    (
+                        float(finiteScores[right + 1]),
+                        -abs(float(mids[right + 1]) - centerAbs),
+                        1,
+                    )
+                )
+        if not choices:
+            break
+        _score, _distance, direction = max(choices)
+        if int(direction) < 0:
+            left -= 1
+        else:
+            right += 1
+
+    width = int(max(int(localEnds[right]) - int(localStarts[left]), 0))
+    if right - left + 1 < minBins or width >= threshold_ or width >= originalWidth:
+        return None
+    return int(start + left), int(start + right), {
+        "mode": "width_capped_core",
+        "core_score_floor": None,
+        "core_width_bp": int(width),
+    }
+
+
 def _makeSubpeakSegment(
     startIdx: int,
     endIdx: int,
@@ -3206,7 +3333,8 @@ def _makeSubpeakSegment(
     cleanupCandidate: bool = False,
     cleanupApplied: bool = False,
     cleanupDetails: Mapping[str, Any] | None = None,
-) -> Dict[str, int | float | bool | None]:
+    cleanupMode: str | None = None,
+) -> Dict[str, int | float | bool | str | None]:
     start = int(startIdx)
     end = int(endIdx)
     state_ = np.asarray(state, dtype=np.float64)
@@ -3223,6 +3351,7 @@ def _makeSubpeakSegment(
         "subpeak_boundary_penalty": float(boundaryPenalty),
         "massive_subpeak_cleanup_candidate": bool(cleanupCandidate),
         "massive_subpeak_cleanup_applied": bool(cleanupApplied),
+        "massive_subpeak_cleanup_mode": cleanupMode,
         "massive_subpeak_split_gain": (
             None if details.get("gain") is None else float(details["gain"])
         ),
@@ -3231,6 +3360,16 @@ def _makeSubpeakSegment(
         ),
         "massive_subpeak_gap_bins": (
             None if details.get("gap_bins") is None else int(details["gap_bins"])
+        ),
+        "massive_subpeak_core_width_bp": (
+            None
+            if details.get("core_width_bp") is None
+            else int(details["core_width_bp"])
+        ),
+        "massive_subpeak_core_score_floor": (
+            None
+            if details.get("core_score_floor") is None
+            else float(details["core_score_floor"])
         ),
         "massive_subpeak_parent_start_idx": int(originalStartIdx),
         "massive_subpeak_parent_end_idx": int(originalEndIdx),
@@ -4017,8 +4156,18 @@ def _forceMassiveSubpeakSegments(
             "splits": 0,
             "segments_added": 0,
             "evaluated": 0,
+            "contracts": 0,
         }
     threshold_ = float(threshold)
+    contractThreshold = float(
+        widthPolicy.get(
+            "contract_width_bp",
+            widthPolicy.get("min_bp", _MASSIVE_SUBPEAK_MIN_BP),
+        )
+    )
+    if (not np.isfinite(contractThreshold)) or contractThreshold <= 0.0:
+        contractThreshold = float(_MASSIVE_SUBPEAK_MIN_BP)
+    contractThreshold = float(min(contractThreshold, threshold_))
     scores_ = np.asarray(scores, dtype=np.float64)
     state_ = np.asarray(state, dtype=np.float64)
     intervals_ = np.asarray(intervals, dtype=np.int64)
@@ -4045,15 +4194,86 @@ def _forceMassiveSubpeakSegments(
             1,
         )
     )
+    contractMinBins = int(
+        max(
+            int(minRunBins),
+            int(math.ceil(float(_MASSIVE_SUBPEAK_MIN_CHILD_BP) / float(stepBP))),
+            1,
+        )
+    )
     maxDepth_ = int(max(int(maxDepth), 0))
-    counts = {"candidates": 0, "splits": 0, "segments_added": 0, "evaluated": 0}
+    counts = {
+        "candidates": 0,
+        "splits": 0,
+        "segments_added": 0,
+        "evaluated": 0,
+        "contracts": 0,
+    }
     objective = float(child.get("subpeak_objective", 0.0))
     boundaryPenalty = float(child.get("subpeak_boundary_penalty", 0.0))
 
+    def _contract_or_keep(
+        start: int,
+        end: int,
+        split: Mapping[str, Any] | None,
+    ) -> List[Dict[str, Any]]:
+        contraction = _contractMassiveSubpeakSegment(
+            start,
+            end,
+            scores_,
+            intervals_,
+            ends_,
+            thresholdBP=contractThreshold,
+            minRunBins=contractMinBins,
+            splitQuantile=float(splitQuantile),
+        )
+        if contraction is None:
+            return [
+                _makeSubpeakSegment(
+                    start,
+                    end,
+                    state_,
+                    originalStart,
+                    originalEnd,
+                    1,
+                    bool(start != originalStart or end != originalEnd),
+                    objective,
+                    boundaryPenalty,
+                    cleanupCandidate=True,
+                    cleanupApplied=False,
+                    cleanupDetails=split,
+                    cleanupMode="unsplit",
+                )
+            ]
+        contractStart, contractEnd, contractDetails = contraction
+        details = {} if split is None else dict(split)
+        details.update(contractDetails)
+        counts["contracts"] += 1
+        return [
+            _makeSubpeakSegment(
+                contractStart,
+                contractEnd,
+                state_,
+                originalStart,
+                originalEnd,
+                1,
+                True,
+                objective,
+                boundaryPenalty,
+                cleanupCandidate=True,
+                cleanupApplied=True,
+                cleanupDetails=details,
+                cleanupMode=str(contractDetails["mode"]),
+            )
+        ]
+
     def _recurse(start: int, end: int, depth: int) -> List[Dict[str, Any]]:
         widthBP = int(max(int(ends_[end]) - int(intervals_[start]), 0))
-        candidate = bool(widthBP >= threshold_)
-        if not candidate or depth >= maxDepth_:
+        candidate = bool(
+            widthBP >= threshold_
+            or (depth > 0 and widthBP >= contractThreshold)
+        )
+        if not candidate:
             return [
                 _makeSubpeakSegment(
                     start,
@@ -4069,6 +4289,10 @@ def _forceMassiveSubpeakSegments(
                     cleanupApplied=False,
                 )
             ]
+        if depth >= maxDepth_:
+            counts["candidates"] += 1
+            counts["evaluated"] += 1
+            return _contract_or_keep(start, end, None)
         counts["candidates"] += 1
         counts["evaluated"] += 1
         localScores = scores_[start : end + 1]
@@ -4083,43 +4307,13 @@ def _forceMassiveSubpeakSegments(
             or float(split["gain"]) <= 0.0
             or float(split["z"]) < float(minSplitZ)
         ):
-            return [
-                _makeSubpeakSegment(
-                    start,
-                    end,
-                    state_,
-                    originalStart,
-                    originalEnd,
-                    1,
-                    bool(start != originalStart or end != originalEnd),
-                    objective,
-                    boundaryPenalty,
-                    cleanupCandidate=True,
-                    cleanupApplied=False,
-                    cleanupDetails=split,
-                )
-            ]
+            return _contract_or_keep(start, end, split)
         gapStart = int(start + int(split["gap_start_local"]))
         gapEnd = int(start + int(split["gap_end_local"]))
         leftEnd = int(gapStart - 1)
         rightStart = int(gapEnd + 1)
         if leftEnd - start + 1 < minBins or end - rightStart + 1 < minBins:
-            return [
-                _makeSubpeakSegment(
-                    start,
-                    end,
-                    state_,
-                    originalStart,
-                    originalEnd,
-                    1,
-                    bool(start != originalStart or end != originalEnd),
-                    objective,
-                    boundaryPenalty,
-                    cleanupCandidate=True,
-                    cleanupApplied=False,
-                    cleanupDetails=split,
-                )
-            ]
+            return _contract_or_keep(start, end, split)
         counts["splits"] += 1
         left = _recurse(start, leftEnd, depth + 1)
         right = _recurse(rightStart, end, depth + 1)
@@ -4127,6 +4321,9 @@ def _forceMassiveSubpeakSegments(
         for segment in merged:
             segment["massive_subpeak_cleanup_candidate"] = True
             segment["massive_subpeak_cleanup_applied"] = True
+            segment["massive_subpeak_cleanup_mode"] = (
+                segment.get("massive_subpeak_cleanup_mode") or "split"
+            )
             segment["massive_subpeak_split_gain"] = float(split["gain"])
             segment["massive_subpeak_split_z"] = float(split["z"])
             segment["massive_subpeak_gap_bins"] = int(split["gap_bins"])
@@ -4259,6 +4456,7 @@ def _solutionToChromNarrowPeakRows(
         "num_massive_subpeak_splits": 0,
         "num_massive_subpeak_segments_added": 0,
         "num_massive_subpeak_evaluated": 0,
+        "num_massive_subpeak_contracts": 0,
         "num_coordinate_gap_splits": 0,
     }
     n = int(solution_.size)
@@ -4352,6 +4550,9 @@ def _solutionToChromNarrowPeakRows(
                 )
                 exportDetails["num_massive_subpeak_evaluated"] += int(
                     forceCounts["evaluated"]
+                )
+                exportDetails["num_massive_subpeak_contracts"] += int(
+                    forceCounts["contracts"]
                 )
                 forcedSegments.extend(forced)
             childSegments = forcedSegments
@@ -4449,6 +4650,9 @@ def _solutionToChromNarrowPeakRows(
                     "massive_subpeak_cleanup_applied": bool(
                         child.get("massive_subpeak_cleanup_applied", False)
                     ),
+                    "massive_subpeak_cleanup_mode": child.get(
+                        "massive_subpeak_cleanup_mode"
+                    ),
                     "massive_subpeak_width_p": (
                         None if widthP is None else float(widthP)
                     ),
@@ -4475,6 +4679,16 @@ def _solutionToChromNarrowPeakRows(
                         None
                         if child.get("massive_subpeak_gap_bins") is None
                         else int(child["massive_subpeak_gap_bins"])
+                    ),
+                    "massive_subpeak_core_width_bp": (
+                        None
+                        if child.get("massive_subpeak_core_width_bp") is None
+                        else int(child["massive_subpeak_core_width_bp"])
+                    ),
+                    "massive_subpeak_core_score_floor": (
+                        None
+                        if child.get("massive_subpeak_core_score_floor") is None
+                        else float(child["massive_subpeak_core_score_floor"])
                     ),
                     "trimmed_from_parent": bool(wasTrimmed),
                     "trim_score_floor": (
@@ -4807,7 +5021,7 @@ def solveRocco(
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
             "massive_subpeak_cleanup": bool(massiveSubpeakCleanup),
             "massive_subpeak_cleanup_policy": (
-                "robust_log_width_tail_gap_plus_valley_deficit"
+                "robust_log_width_tail_gap_split_or_contract"
             ),
             "massive_subpeak_min_bp": int(_MASSIVE_SUBPEAK_MIN_BP),
             "massive_subpeak_width_alpha": float(_MASSIVE_SUBPEAK_WIDTH_ALPHA),

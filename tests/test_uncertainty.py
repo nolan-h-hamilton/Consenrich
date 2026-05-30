@@ -557,7 +557,10 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     assert len(capturedKwargs) == params.folds
     assert len(capturedMasks) == params.folds
     assert all(kwargs.get("fitBackground") is True for kwargs in capturedKwargs)
-    assert all(kwargs["ECM_outerIters"] == 1 for kwargs in capturedKwargs)
+    assert all(
+        kwargs["ECM_outerIters"] == params.calibrationOuterIters
+        for kwargs in capturedKwargs
+    )
     assert all(
         kwargs["ECM_minOuterIters"] == 1 for kwargs in capturedKwargs
     )

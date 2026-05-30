@@ -376,7 +376,10 @@ def _case_readConfigGenericCountTransform(
         readConfig(str(invalidPath))
 
 
-def _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypatch):
+def _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
+    tmp_path,
+    monkeypatch,
+):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
     counts = np.asarray([0.5, 2.0, 8.0], dtype=np.float64)
@@ -404,7 +407,9 @@ def _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypat
     )
 
     momentCounts = counts + 0.5 * scaleFactor
-    normalizedVariance = (scaleFactor * counts) + (0.5 * scaleFactor * scaleFactor)
+    normalizedVariance = 2.0 * (
+        (scaleFactor * counts) + (0.5 * scaleFactor * scaleFactor)
+    )
     z = momentCounts + inputOffset
     u = z / inputScale
     derivativeByMethod = {
@@ -482,7 +487,29 @@ def _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypat
 
 
 def test_count_model_variance_floor_transform_delta_method(tmp_path, monkeypatch):
-    _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypatch)
+    _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
+        tmp_path,
+        monkeypatch,
+    )
+
+
+def test_count_model_variance_floor_scalar_uses_count_noise_not_munc_minr():
+    floor = np.asarray(
+        [
+            [np.nan, 0.04, 0.01],
+            [0.09, np.inf, 0.25],
+        ],
+        dtype=np.float32,
+    )
+
+    expected = np.quantile([0.01, 0.04, 0.09, 0.25], 0.05)
+    assert consenrich_cli._countModelVarianceFloorScalar(floor) == pytest.approx(
+        expected
+    )
+    assert consenrich_cli._countModelVarianceFloorScalar(
+        np.full((2, 3), np.nan, dtype=np.float32),
+        fallback=1.0e-7,
+    ) == pytest.approx(1.0e-7)
 
 
 def _case_readConfigDottedAndNestedEquivalent(
@@ -914,6 +941,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
         "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction",
         "uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
+        "uncertaintyCalibrationParams.calibrationOuterIters",
         "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
     ):
         assert key in defaults
@@ -1482,6 +1510,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
         defaultArgs.deleteBlockScoreWeightMode
         == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE
     )
+    assert (
+        defaultArgs.calibrationOuterIters
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS
+    )
     assert defaultArgs.deleteBlockApplyTargetCalibration is None
 
     configExplicitYaml = """
@@ -1493,6 +1525,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.blockSizeBP: 25000
     uncertaintyCalibrationParams.folds: 3
     uncertaintyCalibrationParams.maxScores: 1234
+    uncertaintyCalibrationParams.calibrationOuterIters: 4
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
     uncertaintyCalibrationParams.targetCalibrationDelta: 0.025
     uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
@@ -1522,6 +1555,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.blockSizeBP == 25_000
     assert explicitArgs.folds == 3
     assert explicitArgs.maxScores == 1234
+    assert explicitArgs.calibrationOuterIters == 4
     assert explicitArgs.targets == (0.5, 0.9)
     assert explicitArgs.targetCalibrationDelta == pytest.approx(0.025)
     assert explicitArgs.scaleUncertaintyByTargetCalibration is False

@@ -66,7 +66,38 @@ def test_transform_count_variance_floor_is_transform_dependent_and_applied():
         varianceFloor=1.0e-6,
     )
     assert np.all(floored >= log1Floor)
-    assert floored[0] == pytest.approx(log1Floor[0])
+    assert floored[0] == pytest.approx(log1Floor[0] + munc[0])
+
+
+def test_munc_count_model_variance_is_additive_excess_term():
+    excess = np.asarray([0.02, 0.20, 0.03], dtype=np.float32)
+    count_noise = np.asarray([0.10, 0.05, np.nan], dtype=np.float32)
+
+    combined = core.applyMuncCountModelVarianceFloor(
+        excess,
+        count_noise,
+        varianceFloor=1.0e-6,
+    )
+
+    assert combined[0] == pytest.approx(0.12)
+    assert combined[1] == pytest.approx(0.25)
+    assert combined[2] == pytest.approx(0.03)
+
+
+def test_munc_excess_variance_subtracts_count_noise_and_clips():
+    total = np.asarray([0.08, 0.20, np.nan], dtype=np.float32)
+    count_noise = np.asarray([0.10, 0.05, 0.02], dtype=np.float32)
+
+    excess = core._subtractMuncCountNoise(
+        total,
+        count_noise,
+        varianceFloor=1.0e-6,
+        fillNaN=False,
+    )
+
+    assert excess[0] == pytest.approx(1.0e-6)
+    assert excess[1] == pytest.approx(0.15)
+    assert np.isnan(excess[2])
 _REMOVED_EM_PREFIX = "E" + "M" + "_"
 
 
