@@ -1466,7 +1466,7 @@ def calibrateChromosomeStateUncertainty(
     if factorModel == segshrink.SEGSHRINK_MODEL:
         targetForFactor = max(tuple(float(t) for t in params.targets))
         factorMin, factorMax = _factorBounds(params)
-        segShrinkFit = segshrink.fit_single_contig(
+        segShrinkFit = segshrink.fitSingleContig(
             residual=residualFit,
             pDelta=pDeltaFit,
             rowWeight=rowWeight[fitRows],

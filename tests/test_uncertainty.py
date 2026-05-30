@@ -384,7 +384,7 @@ def _caseSegShrinkCythonParityContract():
     )
     assert group.tolist() == [10, 14, 11, 15]
 
-    multipliers = segshrink.bootstrap_multipliers(
+    multipliers = segshrink.bootstrapMultipliers(
         groupCount=3,
         replicateCount=9,
         seed=17,
@@ -392,7 +392,7 @@ def _caseSegShrinkCythonParityContract():
     assert multipliers.shape == (9, 3)
     assert np.array_equal(
         multipliers,
-        segshrink.bootstrap_multipliers(
+        segshrink.bootstrapMultipliers(
             groupCount=3,
             replicateCount=9,
             seed=17,
@@ -779,7 +779,7 @@ def _caseSegShrinkCalibrationContract(monkeypatch):
 
 def _caseSegShrinkProcessedContigContract():
     with pytest.raises(ValueError, match="no processed contigs"):
-        segshrink.combine_prepared_contigs(
+        segshrink.combinePreparedContigs(
             [],
             positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
         )
@@ -825,7 +825,7 @@ def _caseSegShrinkProcessedContigContract():
             }
         )
 
-    finalized = segshrink.combine_prepared_contigs(
+    finalized = segshrink.combinePreparedContigs(
         prepared,
         positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
     )

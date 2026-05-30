@@ -5521,7 +5521,7 @@ def main():
             raise ValueError("segShrink uncertainty calibration has no processed contigs")
         from consenrich import segshrink as segshrink_module
 
-        finalizedSegShrink = segshrink_module.combine_prepared_contigs(
+        finalizedSegShrink = segshrink_module.combinePreparedContigs(
             segShrinkDeferredUncertainty,
             positiveFloor=float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
         )

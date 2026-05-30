@@ -10,7 +10,7 @@ from . import cuncertainty as _cuncertainty
 SEGSHRINK_MODEL = "segShrink"
 
 
-def bootstrap_multipliers(
+def bootstrapMultipliers(
     *,
     groupCount: int,
     replicateCount: int,
@@ -25,7 +25,7 @@ def bootstrap_multipliers(
     ).astype(np.float64, copy=False)
 
 
-def _bootstrap_variance(values: np.ndarray) -> float:
+def _bootstrapVariance(values: np.ndarray) -> float:
     finite = np.asarray(values, dtype=np.float64)
     finite = finite[np.isfinite(finite)]
     if finite.size < 2:
@@ -36,7 +36,7 @@ def _bootstrap_variance(values: np.ndarray) -> float:
     return variance
 
 
-def _dense_group_codes(groupCode: np.ndarray) -> tuple[np.ndarray, int]:
+def _denseGroupCodes(groupCode: np.ndarray) -> tuple[np.ndarray, int]:
     groupCode = np.asarray(groupCode, dtype=np.int64).reshape(-1)
     valid = groupCode >= 0
     dense = np.full(groupCode.shape[0], -1, dtype=np.int64)
@@ -47,7 +47,7 @@ def _dense_group_codes(groupCode: np.ndarray) -> tuple[np.ndarray, int]:
     return dense, int(unique.size)
 
 
-def _expanded_scope_rows(
+def _expandedScopeRows(
     *,
     ratio: np.ndarray,
     rowWeight: np.ndarray,
@@ -99,7 +99,7 @@ def _expanded_scope_rows(
     )
 
 
-def fit_single_contig(
+def fitSingleContig(
     *,
     residual: np.ndarray,
     pDelta: np.ndarray,
@@ -139,7 +139,7 @@ def fit_single_contig(
     )
     segmentCountEffective = int(np.max(segmentByInterval)) + 1
     groupCodeRaw = _cuncertainty.csegShrinkGroupCodes(0, foldIndex, blockIDX)
-    groupCode, groupCount = _dense_group_codes(groupCodeRaw)
+    groupCode, groupCount = _denseGroupCodes(groupCodeRaw)
     validVariance = (
         np.isfinite(residual)
         & np.isfinite(pDelta)
@@ -166,7 +166,7 @@ def fit_single_contig(
         scopeCode,
         groupExpanded,
         scopeCount,
-    ) = _expanded_scope_rows(
+    ) = _expandedScopeRows(
         ratio=ratio,
         rowWeight=rowWeight,
         rowSegment=rowSegment,
@@ -175,7 +175,7 @@ def fit_single_contig(
     )
     if ratioExpanded.size == 0:
         raise ValueError("segShrink factor fit has no finite weighted score rows")
-    multipliers = bootstrap_multipliers(
+    multipliers = bootstrapMultipliers(
         groupCount=groupCount,
         replicateCount=int(bootstrapReplicates),
         seed=int(seed),
@@ -195,7 +195,7 @@ def fit_single_contig(
     baseLog = np.asarray(baseLog, dtype=np.float64)
     bootLog = np.asarray(bootLog, dtype=np.float64)
     scopeVariance = np.array(
-        [_bootstrap_variance(bootLog[idx, :]) for idx in range(scopeCount)],
+        [_bootstrapVariance(bootLog[idx, :]) for idx in range(scopeCount)],
         dtype=np.float64,
     )
     genomeLog = float(baseLog[0])
@@ -299,7 +299,7 @@ def fit_single_contig(
     }
 
 
-def _finite_log_factor(value: Any) -> float:
+def _finiteLogFactor(value: Any) -> float:
     try:
         valueFloat = float(value)
     except (TypeError, ValueError):
@@ -309,7 +309,7 @@ def _finite_log_factor(value: Any) -> float:
     return float(np.log(valueFloat))
 
 
-def _finite_variance(value: Any) -> float:
+def _finiteVariance(value: Any) -> float:
     try:
         valueFloat = float(value)
     except (TypeError, ValueError):
@@ -319,7 +319,7 @@ def _finite_variance(value: Any) -> float:
     return valueFloat
 
 
-def _processed_genome_log(contigLog: np.ndarray, contigVariance: np.ndarray) -> float:
+def _processedGenomeLog(contigLog: np.ndarray, contigVariance: np.ndarray) -> float:
     finite = np.isfinite(contigLog)
     finiteVar = finite & np.isfinite(contigVariance) & (contigVariance > 0.0)
     if np.any(finiteVar):
@@ -330,7 +330,7 @@ def _processed_genome_log(contigLog: np.ndarray, contigVariance: np.ndarray) -> 
     raise ValueError("segShrink processed-genome factor is not finite")
 
 
-def combine_prepared_contigs(
+def combinePreparedContigs(
     prepared: list[dict[str, Any]],
     *,
     positiveFloor: float,
@@ -357,21 +357,21 @@ def combine_prepared_contigs(
         model = item["model"]
         contigRows = list(model.get("contigShrinkage", ()))
         contigRow = contigRows[0] if contigRows else {}
-        contigLog[contigOrdinal] = _finite_log_factor(contigRow.get("rawFactor"))
-        contigVariance[contigOrdinal] = _finite_variance(
+        contigLog[contigOrdinal] = _finiteLogFactor(contigRow.get("rawFactor"))
+        contigVariance[contigOrdinal] = _finiteVariance(
             contigRow.get("bootstrapVariance")
         )
         segmentRows = list(model.get("segmentShrinkage", ()))
         segmentRowsByContig.append(segmentRows)
         segmentLogPieces.append(
             np.asarray(
-                [_finite_log_factor(row.get("rawFactor")) for row in segmentRows],
+                [_finiteLogFactor(row.get("rawFactor")) for row in segmentRows],
                 dtype=np.float64,
             )
         )
         segmentVariancePieces.append(
             np.asarray(
-                [_finite_variance(row.get("bootstrapVariance")) for row in segmentRows],
+                [_finiteVariance(row.get("bootstrapVariance")) for row in segmentRows],
                 dtype=np.float64,
             )
         )
@@ -379,7 +379,7 @@ def combine_prepared_contigs(
             np.full(len(segmentRows), contigOrdinal, dtype=np.int32)
         )
 
-    genomeLog = _processed_genome_log(contigLog, contigVariance)
+    genomeLog = _processedGenomeLog(contigLog, contigVariance)
     segmentLog = (
         np.concatenate(segmentLogPieces)
         if segmentLogPieces
