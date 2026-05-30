@@ -1,0 +1,498 @@
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from . import cuncertainty as _cuncertainty
+
+
+SEGSHRINK_MODEL = "segShrink"
+
+
+def bootstrap_multipliers(
+    *,
+    groupCount: int,
+    replicateCount: int,
+    seed: int,
+) -> np.ndarray:
+    if groupCount < 1:
+        return np.zeros((int(replicateCount), 0), dtype=np.float64)
+    rng = np.random.default_rng(int(seed))
+    return rng.poisson(
+        1.0,
+        size=(int(replicateCount), int(groupCount)),
+    ).astype(np.float64, copy=False)
+
+
+def _bootstrap_variance(values: np.ndarray) -> float:
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < 2:
+        return float("inf")
+    variance = float(np.var(finite, ddof=1))
+    if not np.isfinite(variance) or variance <= 0.0:
+        return float("inf")
+    return variance
+
+
+def _dense_group_codes(groupCode: np.ndarray) -> tuple[np.ndarray, int]:
+    groupCode = np.asarray(groupCode, dtype=np.int64).reshape(-1)
+    valid = groupCode >= 0
+    dense = np.full(groupCode.shape[0], -1, dtype=np.int64)
+    if not np.any(valid):
+        return dense, 0
+    unique, inverse = np.unique(groupCode[valid], return_inverse=True)
+    dense[valid] = inverse.astype(np.int64, copy=False)
+    return dense, int(unique.size)
+
+
+def _expanded_scope_rows(
+    *,
+    ratio: np.ndarray,
+    rowWeight: np.ndarray,
+    rowSegment: np.ndarray,
+    groupCode: np.ndarray,
+    segmentCount: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    ratio = np.asarray(ratio, dtype=np.float64).reshape(-1)
+    rowWeight = np.asarray(rowWeight, dtype=np.float64).reshape(-1)
+    rowSegment = np.asarray(rowSegment, dtype=np.int32).reshape(-1)
+    groupCode = np.asarray(groupCode, dtype=np.int64).reshape(-1)
+    valid = (
+        np.isfinite(ratio)
+        & np.isfinite(rowWeight)
+        & (rowWeight > 0.0)
+        & (rowSegment >= 0)
+        & (rowSegment < int(segmentCount))
+        & (groupCode >= 0)
+    )
+    ratio = ratio[valid]
+    rowWeight = rowWeight[valid]
+    rowSegment = rowSegment[valid]
+    groupCode = groupCode[valid]
+    if ratio.size == 0:
+        return (
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.int32),
+            np.empty(0, dtype=np.int64),
+            int(segmentCount) + 2,
+        )
+    scopeCode = np.concatenate(
+        [
+            np.zeros(ratio.size, dtype=np.int32),
+            np.ones(ratio.size, dtype=np.int32),
+            (rowSegment + 2).astype(np.int32, copy=False),
+        ]
+    )
+    ratioExpanded = np.tile(ratio, 3)
+    weightExpanded = np.tile(rowWeight, 3)
+    groupExpanded = np.tile(groupCode, 3)
+    order = np.lexsort((ratioExpanded, scopeCode))
+    return (
+        ratioExpanded[order],
+        weightExpanded[order],
+        scopeCode[order],
+        groupExpanded[order],
+        int(segmentCount) + 2,
+    )
+
+
+def fit_single_contig(
+    *,
+    residual: np.ndarray,
+    pDelta: np.ndarray,
+    rowWeight: np.ndarray,
+    intervalIndex: np.ndarray,
+    foldIndex: np.ndarray,
+    blockIDX: np.ndarray,
+    fullP: np.ndarray,
+    target: float,
+    targetZ: float,
+    factorMin: float,
+    factorMax: float,
+    segmentCount: int,
+    bootstrapReplicates: int,
+    seed: int,
+    positiveFloor: float,
+) -> dict[str, Any]:
+    residual = np.asarray(residual, dtype=np.float64).reshape(-1)
+    pDelta = np.asarray(pDelta, dtype=np.float64).reshape(-1)
+    rowWeight = np.asarray(rowWeight, dtype=np.float64).reshape(-1)
+    intervalIndex = np.asarray(intervalIndex, dtype=np.int64).reshape(-1)
+    foldIndex = np.asarray(foldIndex, dtype=np.int64).reshape(-1)
+    blockIDX = np.asarray(blockIDX, dtype=np.int64).reshape(-1)
+    fullP = np.asarray(fullP, dtype=np.float64).reshape(-1)
+    if not (
+        residual.shape[0]
+        == pDelta.shape[0]
+        == rowWeight.shape[0]
+        == intervalIndex.shape[0]
+        == foldIndex.shape[0]
+        == blockIDX.shape[0]
+    ):
+        raise ValueError("segShrink score inputs must have the same length")
+    segmentByInterval = _cuncertainty.csegShrinkSegmentCodes(
+        int(fullP.shape[0]),
+        int(segmentCount),
+    )
+    segmentCountEffective = int(np.max(segmentByInterval)) + 1
+    groupCodeRaw = _cuncertainty.csegShrinkGroupCodes(0, foldIndex, blockIDX)
+    groupCode, groupCount = _dense_group_codes(groupCodeRaw)
+    validVariance = (
+        np.isfinite(residual)
+        & np.isfinite(pDelta)
+        & (pDelta > float(positiveFloor))
+        & np.isfinite(rowWeight)
+        & (rowWeight > 0.0)
+        & (intervalIndex >= 0)
+        & (intervalIndex < fullP.shape[0])
+    )
+    if not np.any(validVariance):
+        raise ValueError("segShrink factor fit has no valid score rows")
+    ratio = np.empty(residual.shape[0], dtype=np.float64)
+    ratio.fill(np.nan)
+    ratio[validVariance] = np.abs(residual[validVariance]) / np.sqrt(
+        pDelta[validVariance]
+    )
+    rowSegment = np.full(intervalIndex.shape[0], -1, dtype=np.int32)
+    rowSegment[validVariance] = segmentByInterval[
+        intervalIndex[validVariance]
+    ].astype(np.int32, copy=False)
+    (
+        ratioExpanded,
+        weightExpanded,
+        scopeCode,
+        groupExpanded,
+        scopeCount,
+    ) = _expanded_scope_rows(
+        ratio=ratio,
+        rowWeight=rowWeight,
+        rowSegment=rowSegment,
+        groupCode=groupCode,
+        segmentCount=segmentCountEffective,
+    )
+    if ratioExpanded.size == 0:
+        raise ValueError("segShrink factor fit has no finite weighted score rows")
+    multipliers = bootstrap_multipliers(
+        groupCount=groupCount,
+        replicateCount=int(bootstrapReplicates),
+        seed=int(seed),
+    )
+    baseLog, bootLog = _cuncertainty.csegShrinkBootstrapLogFactors(
+        ratioExpanded,
+        weightExpanded,
+        scopeCode,
+        groupExpanded,
+        multipliers,
+        scopeCount,
+        float(target),
+        float(targetZ),
+        float(factorMin),
+        float(factorMax),
+    )
+    baseLog = np.asarray(baseLog, dtype=np.float64)
+    bootLog = np.asarray(bootLog, dtype=np.float64)
+    scopeVariance = np.array(
+        [_bootstrap_variance(bootLog[idx, :]) for idx in range(scopeCount)],
+        dtype=np.float64,
+    )
+    genomeLog = float(baseLog[0])
+    if not np.isfinite(genomeLog):
+        raise ValueError("segShrink processed-genome factor is not finite")
+    contigLog = np.asarray([baseLog[1]], dtype=np.float64)
+    contigVariance = np.asarray([scopeVariance[1]], dtype=np.float64)
+    segmentLog = np.asarray(baseLog[2:], dtype=np.float64)
+    segmentVariance = np.asarray(scopeVariance[2:], dtype=np.float64)
+    segmentContigIndex = np.zeros(segmentCountEffective, dtype=np.int32)
+    empiricalBayes = _cuncertainty.csegShrinkEmpiricalBayes(
+        genomeLog,
+        contigLog,
+        contigVariance,
+        segmentLog,
+        segmentVariance,
+        segmentContigIndex,
+    )
+    segmentTheta = np.asarray(empiricalBayes["segmentTheta"], dtype=np.float64)
+    factor, calibrated = _cuncertainty.csegShrinkApplyFactors(
+        segmentByInterval,
+        segmentTheta,
+        fullP,
+        float(positiveFloor),
+    )
+    factor = np.asarray(factor, dtype=np.float64)
+    calibrated = np.asarray(calibrated, dtype=np.float32)
+    segmentRows = np.asarray(
+        [int(np.count_nonzero(rowSegment == idx)) for idx in range(segmentCountEffective)],
+        dtype=np.int64,
+    )
+    segmentShrinkage = []
+    for idx in range(segmentCountEffective):
+        rawLog = float(segmentLog[idx]) if idx < segmentLog.size else float("nan")
+        rawFactor = float(np.exp(rawLog)) if np.isfinite(rawLog) else None
+        variance = float(segmentVariance[idx]) if idx < segmentVariance.size else float("inf")
+        alpha = float(np.asarray(empiricalBayes["segmentAlpha"], dtype=np.float64)[idx])
+        theta = float(segmentTheta[idx])
+        reason = "none"
+        if rawFactor is None:
+            reason = "missingRawFactor"
+        elif not np.isfinite(variance):
+            reason = "invalidBootstrapVariance"
+        elif alpha <= 0.0:
+            reason = "collapsedToContig"
+        segmentShrinkage.append(
+            {
+                "segment": int(idx),
+                "rows": int(segmentRows[idx]),
+                "rawFactor": rawFactor,
+                "bootstrapVariance": None if not np.isfinite(variance) else variance,
+                "shrinkageWeight": alpha,
+                "factor": float(np.exp(theta)) if np.isfinite(theta) else None,
+                "fallbackReason": reason,
+            }
+        )
+    contigTheta = np.asarray(empiricalBayes["contigTheta"], dtype=np.float64)
+    contigAlpha = np.asarray(empiricalBayes["contigAlpha"], dtype=np.float64)
+    contigFactor = float(np.exp(contigTheta[0])) if contigTheta.size else float(np.exp(genomeLog))
+    genomeFactor = float(np.exp(genomeLog))
+    modelMeta = {
+        "success": True,
+        "factor_model": SEGSHRINK_MODEL,
+        "factorModel": SEGSHRINK_MODEL,
+        "global_factor": contigFactor,
+        "global_sd_multiplier": float(np.sqrt(contigFactor)),
+        "global_factor_target": float(target),
+        "global_factor_target_z": float(targetZ),
+        "hierarchyScope": "singleProcessedContig",
+        "processedContigCount": 1,
+        "segmentCount": int(segmentCountEffective),
+        "bootstrapReplicates": int(bootstrapReplicates),
+        "blockIDXUnitCount": int(groupCount),
+        "genomeFactor": genomeFactor,
+        "tauContigSq": float(empiricalBayes["tauContigSq"]),
+        "tauSegmentSq": float(empiricalBayes["tauSegmentSq"]),
+        "contigShrinkage": [
+            {
+                "contigOrdinal": 0,
+                "rawFactor": float(np.exp(contigLog[0])),
+                "bootstrapVariance": (
+                    None
+                    if not np.isfinite(contigVariance[0])
+                    else float(contigVariance[0])
+                ),
+                "shrinkageWeight": float(contigAlpha[0]) if contigAlpha.size else 0.0,
+                "factor": contigFactor,
+            }
+        ],
+        "segmentShrinkage": segmentShrinkage,
+    }
+    return {
+        "factor": factor,
+        "calibrated": calibrated,
+        "modelMeta": modelMeta,
+        "segmentByInterval": np.asarray(segmentByInterval, dtype=np.int32),
+        "segmentRawLogFactor": segmentLog,
+        "segmentBootstrapVariance": segmentVariance,
+        "segmentShrinkageWeight": np.asarray(empiricalBayes["segmentAlpha"], dtype=np.float64),
+        "refitPolicy": {},
+    }
+
+
+def _finite_log_factor(value: Any) -> float:
+    try:
+        valueFloat = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    if not np.isfinite(valueFloat) or valueFloat <= 0.0:
+        return float("nan")
+    return float(np.log(valueFloat))
+
+
+def _finite_variance(value: Any) -> float:
+    try:
+        valueFloat = float(value)
+    except (TypeError, ValueError):
+        return float("inf")
+    if not np.isfinite(valueFloat) or valueFloat < 0.0:
+        return float("inf")
+    return valueFloat
+
+
+def _processed_genome_log(contigLog: np.ndarray, contigVariance: np.ndarray) -> float:
+    finite = np.isfinite(contigLog)
+    finiteVar = finite & np.isfinite(contigVariance) & (contigVariance > 0.0)
+    if np.any(finiteVar):
+        weights = 1.0 / np.maximum(contigVariance[finiteVar], 1.0e-12)
+        return float(np.sum(weights * contigLog[finiteVar]) / np.sum(weights))
+    if np.any(finite):
+        return float(np.mean(contigLog[finite]))
+    raise ValueError("segShrink processed-genome factor is not finite")
+
+
+def combine_prepared_contigs(
+    prepared: list[dict[str, Any]],
+    *,
+    positiveFloor: float,
+) -> list[dict[str, Any]]:
+    if not prepared:
+        raise ValueError("segShrink uncertainty calibration has no processed contigs")
+    contigCount = int(len(prepared))
+    if contigCount == 1:
+        item = dict(prepared[0])
+        model = dict(item["model"])
+        model["hierarchyScope"] = "singleProcessedContig"
+        model["processedContigCount"] = 1
+        item["model"] = model
+        return [item]
+
+    contigLog = np.empty(contigCount, dtype=np.float64)
+    contigVariance = np.empty(contigCount, dtype=np.float64)
+    segmentLogPieces: list[np.ndarray] = []
+    segmentVariancePieces: list[np.ndarray] = []
+    segmentContigPieces: list[np.ndarray] = []
+    segmentRowsByContig: list[list[dict[str, Any]]] = []
+
+    for contigOrdinal, item in enumerate(prepared):
+        model = item["model"]
+        contigRows = list(model.get("contigShrinkage", ()))
+        contigRow = contigRows[0] if contigRows else {}
+        contigLog[contigOrdinal] = _finite_log_factor(contigRow.get("rawFactor"))
+        contigVariance[contigOrdinal] = _finite_variance(
+            contigRow.get("bootstrapVariance")
+        )
+        segmentRows = list(model.get("segmentShrinkage", ()))
+        segmentRowsByContig.append(segmentRows)
+        segmentLogPieces.append(
+            np.asarray(
+                [_finite_log_factor(row.get("rawFactor")) for row in segmentRows],
+                dtype=np.float64,
+            )
+        )
+        segmentVariancePieces.append(
+            np.asarray(
+                [_finite_variance(row.get("bootstrapVariance")) for row in segmentRows],
+                dtype=np.float64,
+            )
+        )
+        segmentContigPieces.append(
+            np.full(len(segmentRows), contigOrdinal, dtype=np.int32)
+        )
+
+    genomeLog = _processed_genome_log(contigLog, contigVariance)
+    segmentLog = (
+        np.concatenate(segmentLogPieces)
+        if segmentLogPieces
+        else np.empty(0, dtype=np.float64)
+    )
+    segmentVariance = (
+        np.concatenate(segmentVariancePieces)
+        if segmentVariancePieces
+        else np.empty(0, dtype=np.float64)
+    )
+    segmentContigIndex = (
+        np.concatenate(segmentContigPieces)
+        if segmentContigPieces
+        else np.empty(0, dtype=np.int32)
+    )
+    empiricalBayes = _cuncertainty.csegShrinkEmpiricalBayes(
+        genomeLog,
+        contigLog,
+        contigVariance,
+        segmentLog,
+        segmentVariance,
+        segmentContigIndex,
+    )
+    contigTheta = np.asarray(empiricalBayes["contigTheta"], dtype=np.float64)
+    contigAlpha = np.asarray(empiricalBayes["contigAlpha"], dtype=np.float64)
+    segmentTheta = np.asarray(empiricalBayes["segmentTheta"], dtype=np.float64)
+    segmentAlpha = np.asarray(empiricalBayes["segmentAlpha"], dtype=np.float64)
+    genomeFactor = float(np.exp(genomeLog))
+    contigTable = []
+    for contigOrdinal in range(contigCount):
+        rawFactor = (
+            float(np.exp(contigLog[contigOrdinal]))
+            if np.isfinite(contigLog[contigOrdinal])
+            else None
+        )
+        variance = contigVariance[contigOrdinal]
+        contigTable.append(
+            {
+                "contigOrdinal": int(contigOrdinal),
+                "chromosome": str(prepared[contigOrdinal].get("chromosome", "")),
+                "rawFactor": rawFactor,
+                "bootstrapVariance": None if not np.isfinite(variance) else float(variance),
+                "shrinkageWeight": float(contigAlpha[contigOrdinal]),
+                "factor": float(np.exp(contigTheta[contigOrdinal])),
+            }
+        )
+
+    out: list[dict[str, Any]] = []
+    offset = 0
+    for contigOrdinal, item in enumerate(prepared):
+        model = dict(item["model"])
+        fullP = np.asarray(item["fullP"], dtype=np.float64).reshape(-1)
+        segmentRows = segmentRowsByContig[contigOrdinal]
+        localCount = len(segmentRows)
+        localTheta = segmentTheta[offset:offset + localCount]
+        localAlpha = segmentAlpha[offset:offset + localCount]
+        segmentByInterval = _cuncertainty.csegShrinkSegmentCodes(
+            int(fullP.shape[0]),
+            max(localCount, 1),
+        )
+        factor, calibrated = _cuncertainty.csegShrinkApplyFactors(
+            segmentByInterval,
+            localTheta,
+            fullP,
+            float(positiveFloor),
+        )
+        segmentTable = []
+        for localIDX, row in enumerate(segmentRows):
+            rawLog = segmentLog[offset + localIDX]
+            variance = segmentVariance[offset + localIDX]
+            theta = localTheta[localIDX]
+            alpha = localAlpha[localIDX]
+            reason = "none"
+            if not np.isfinite(rawLog):
+                reason = "missingRawFactor"
+            elif not np.isfinite(variance):
+                reason = "invalidBootstrapVariance"
+            elif alpha <= 0.0:
+                reason = "collapsedToContig"
+            segmentTable.append(
+                {
+                    **dict(row),
+                    "rawFactor": float(np.exp(rawLog)) if np.isfinite(rawLog) else None,
+                    "bootstrapVariance": (
+                        None if not np.isfinite(variance) else float(variance)
+                    ),
+                    "shrinkageWeight": float(alpha),
+                    "factor": float(np.exp(theta)) if np.isfinite(theta) else None,
+                    "fallbackReason": reason,
+                }
+            )
+        model.update(
+            {
+                "hierarchyScope": "processedGenome",
+                "processedContigCount": contigCount,
+                "genomeFactor": genomeFactor,
+                "global_factor": float(np.exp(contigTheta[contigOrdinal])),
+                "global_sd_multiplier": float(
+                    np.sqrt(np.exp(contigTheta[contigOrdinal]))
+                ),
+                "tauContigSq": float(empiricalBayes["tauContigSq"]),
+                "tauSegmentSq": float(empiricalBayes["tauSegmentSq"]),
+                "contigShrinkage": contigTable,
+                "segmentShrinkage": segmentTable,
+            }
+        )
+        out.append(
+            {
+                **item,
+                "factor": np.asarray(factor, dtype=np.float64),
+                "calibrated": np.asarray(calibrated, dtype=np.float32),
+                "model": model,
+            }
+        )
+        offset += localCount
+    return out
