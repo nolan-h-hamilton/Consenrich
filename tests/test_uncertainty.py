@@ -61,7 +61,7 @@ def _caseDeleteBlockGlobalFactorUsesWeightedQuantile():
 
 
 def _caseSegShrinkFactorModelStrictContract():
-    assert uncertainty._normalizeDeleteBlockFactorModel(None) == "global"
+    assert uncertainty._normalizeDeleteBlockFactorModel(None) == "segShrink"
     assert uncertainty._normalizeDeleteBlockFactorModel("global") == "global"
     assert uncertainty._normalizeDeleteBlockFactorModel("segShrink") == "segShrink"
     for value in ("seg-shrink", "seg_shrink", "segshrink", "SegShrink"):
@@ -511,7 +511,16 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     model = result.model
     assert model["mode"] == "delete_block_state"
     assert model["score_definition"] == "deleted_state_delta_over_deleted_state_delta_sd"
-    assert model["factor_model"] == "global"
+    assert model["factor_model"] == "segShrink"
+    assert model["factorModel"] == "segShrink"
+    assert (
+        model["segmentCount"]
+        == core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT
+    )
+    assert (
+        model["bootstrapReplicates"]
+        == core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES
+    )
     assert "global_factor" in model
     assert "objective" not in model
     assert model["target_calibration"]["enabled"] is True

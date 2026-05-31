@@ -634,6 +634,41 @@ def _appendKeyValueDiagnostics(
     return logging_utils.append_tsv_log(path, rows, columns)
 
 
+def _selectPrecisionDiagnosticIntervalRows(
+    frame: pd.DataFrame,
+    *,
+    detail: str,
+    maxRowsPerChromosome: int,
+) -> tuple[pd.DataFrame, np.ndarray, dict[str, Any]]:
+    totalRows = int(len(frame))
+    detail_ = str(detail or constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL)
+    if detail_ == "full":
+        positions = np.arange(totalRows, dtype=np.int64)
+    elif detail_ == "sampled":
+        maxRows = max(int(maxRowsPerChromosome), 0)
+        if totalRows <= maxRows:
+            positions = np.arange(totalRows, dtype=np.int64)
+        elif maxRows == 0:
+            positions = np.empty(0, dtype=np.int64)
+        else:
+            positions = np.unique(
+                np.linspace(0, totalRows - 1, num=maxRows, dtype=np.int64)
+            )
+    elif detail_ == "summary":
+        positions = np.empty(0, dtype=np.int64)
+    else:
+        raise ValueError(f"Unsupported precision diagnostic detail {detail!r}")
+    selected = frame.iloc[positions].copy() if positions.size else frame.iloc[[]].copy()
+    return selected, positions, {
+        "detail": detail_,
+        "rows_total": totalRows,
+        "rows_written": int(positions.size),
+        "rows_omitted": int(max(totalRows - int(positions.size), 0)),
+        "max_rows_per_chromosome": int(maxRowsPerChromosome),
+        "sampled": bool(int(positions.size) < totalRows),
+    }
+
+
 def _genomeOptimizationPathPrefix(experimentName: str) -> str:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return f"consenrichOutput_{experimentToken}_genome_optimizationPath.v{__version__}"
@@ -805,6 +840,17 @@ def _plotOptimizationPathLog(
     return True
 
 
+def _normalizedRemainingObjectiveGap(objective: Sequence[float]) -> np.ndarray:
+    objectiveArray = np.asarray(objective, dtype=np.float64)
+    if objectiveArray.size == 0:
+        return np.asarray([], dtype=np.float64)
+    finalObjective = float(objectiveArray[-1])
+    initialGap = float(objectiveArray[0] - finalObjective)
+    if not np.isfinite(initialGap) or abs(initialGap) <= 1.0e-12:
+        return np.zeros_like(objectiveArray, dtype=np.float64)
+    return (objectiveArray - finalObjective) / initialGap
+
+
 def _plotGenomeOptimizationPathLog(
     rows: Sequence[Mapping[str, Any]],
     path: str,
@@ -881,24 +927,22 @@ def _plotGenomeOptimizationPathLog(
         plotOrder = np.arange(1, len(chromFrame) + 1, dtype=np.float64)
         objective = chromFrame["objective_value"].to_numpy(dtype=np.float64)
         improvement = objective[0] - objective
+        remainingGap = _normalizedRemainingObjectiveGap(objective)
         if len(plotOrder) == 1:
             normalizedX = np.array([0.0], dtype=np.float64)
         else:
             normalizedX = (plotOrder - 1.0) / float(len(plotOrder) - 1)
-        finalImprovement = float(improvement[-1])
-        denominator = finalImprovement if abs(finalImprovement) > 1.0e-12 else 1.0
-        normalizedImprovement = improvement / denominator
         if len(normalizedX) == 1:
             interpolated = np.full_like(
                 interpolationGrid,
-                float(normalizedImprovement[0]),
+                float(remainingGap[0]),
                 dtype=np.float64,
             )
         else:
             interpolated = np.interp(
                 interpolationGrid,
                 normalizedX,
-                normalizedImprovement,
+                remainingGap,
             )
         normalizedCurves.append(interpolated)
 
@@ -913,7 +957,7 @@ def _plotGenomeOptimizationPathLog(
         )
         normAx.plot(
             normalizedX,
-            normalizedImprovement,
+            remainingGap,
             color=navyBlue,
             alpha=0.24,
             linewidth=1.0,
@@ -934,7 +978,7 @@ def _plotGenomeOptimizationPathLog(
         )
         normAx.scatter(
             [normalizedX[-1]],
-            [normalizedImprovement[-1]],
+            [remainingGap[-1]],
             s=18,
             marker="o",
             linewidths=0.6,
@@ -980,7 +1024,8 @@ def _plotGenomeOptimizationPathLog(
     rawAx.set_ylabel("NLL improvement", color=darkBlack)
     normAx.set_title("Normalized chromosome scale", color=darkBlack)
     normAx.set_xlabel("Fraction of chromosome iterations", color=darkBlack)
-    normAx.set_ylabel("Fraction of final NLL improvement", color=darkBlack)
+    normAx.set_ylabel("Remaining NLL gap to final (fraction of start)", color=darkBlack)
+    normAx.axhline(0.0, color=darkBlack, linewidth=0.8, alpha=0.5)
     for axis in (rawAx, normAx):
         axis.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
         handles, _labels = axis.get_legend_handles_labels()
@@ -1171,10 +1216,19 @@ def _appendMuncLambdaDiagnostics(
     *,
     chromosome: str,
     precisionDiagnostics: Mapping[str, Any],
+    detail: str = constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL,
+    maxRowsPerChromosome: int = (
+        constants.OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
+    ),
 ) -> int:
     if frame.empty:
         return 0
-    lambdaValues = pd.to_numeric(frame["lambda"]).to_numpy(dtype=np.float64)
+    outFrame, rowPositions, sampling = _selectPrecisionDiagnosticIntervalRows(
+        frame,
+        detail=detail,
+        maxRowsPerChromosome=maxRowsPerChromosome,
+    )
+    lambdaValues = pd.to_numeric(outFrame["lambda"]).to_numpy(dtype=np.float64)
     lambdaMin = _summaryNumber(
         precisionDiagnostics.get("observationPrecisionMultiplierMin")
     )
@@ -1195,22 +1249,26 @@ def _appendMuncLambdaDiagnostics(
         {
             "record_type": "interval",
             "event": "munc_lambda.interval",
-            "chromosome": frame["Chromosome"],
-            "start": frame["Start"],
-            "end": frame["End"],
-            "interval": frame["Interval"],
-            "lambda": frame["lambda"],
+            "chromosome": outFrame["Chromosome"],
+            "start": outFrame["Start"],
+            "end": outFrame["End"],
+            "interval": outFrame["Interval"],
+            "lambda": outFrame["lambda"],
             "lambda_lower_bound_hit": lambdaLowerHit,
             "lambda_upper_bound_hit": lambdaUpperHit,
-            "median_diag_R": frame["median_diag_R"],
-            "median_effective_diag_R": frame["median_effective_diag_R"],
+            "median_diag_R": outFrame["median_diag_R"],
+            "median_effective_diag_R": outFrame["median_effective_diag_R"],
         }
     )
     outputTracks = precisionDiagnostics.get("outputTracks", {})
     if isinstance(outputTracks, Mapping):
         for name in ("muncTrace", "sumGain0", "sumGain1"):
             if name in outputTracks:
-                out[name] = np.asarray(outputTracks[name], dtype=np.float64).reshape(-1)
+                track = np.asarray(outputTracks[name], dtype=np.float64).reshape(-1)
+                if track.shape[0] == len(frame):
+                    out[name] = track[rowPositions]
+                elif track.shape[0] == len(outFrame):
+                    out[name] = track
     rowsWritten = logging_utils.append_tsv_log(path, out, MUNC_LAMBDA_LOG_COLUMNS)
     _appendKeyValueDiagnostics(
         path,
@@ -1219,6 +1277,7 @@ def _appendMuncLambdaDiagnostics(
         event="munc_lambda.summary",
         chromosome=chromosome,
         values={
+            **sampling,
             "rows": int(rowsWritten),
             "lambda_median": float(pd.to_numeric(frame["lambda"]).median()),
             "median_diag_R": float(pd.to_numeric(frame["median_diag_R"]).median()),
@@ -1237,10 +1296,19 @@ def _appendTuncKappaDiagnostics(
     chromosome: str,
     precisionDiagnostics: Mapping[str, Any],
     runDiagnostics: Mapping[str, Any],
+    detail: str = constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL,
+    maxRowsPerChromosome: int = (
+        constants.OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
+    ),
 ) -> int:
     if frame.empty:
         return 0
-    kappaValues = pd.to_numeric(frame["kappa"]).to_numpy(dtype=np.float64)
+    outFrame, rowPositions, sampling = _selectPrecisionDiagnosticIntervalRows(
+        frame,
+        detail=detail,
+        maxRowsPerChromosome=maxRowsPerChromosome,
+    )
+    kappaValues = pd.to_numeric(outFrame["kappa"]).to_numpy(dtype=np.float64)
     kappaMin = _summaryNumber(precisionDiagnostics.get("processPrecisionMultiplierMin"))
     kappaMax = _summaryNumber(precisionDiagnostics.get("processPrecisionMultiplierMax"))
     kappaLowerHit = (
@@ -1257,38 +1325,39 @@ def _appendTuncKappaDiagnostics(
         {
             "record_type": "interval",
             "event": "tunc_kappa.interval",
-            "chromosome": frame["Chromosome"],
-            "start": frame["Start"],
-            "end": frame["End"],
-            "interval": frame["Interval"],
-            "kappa": frame["kappa"],
+            "chromosome": outFrame["Chromosome"],
+            "start": outFrame["Start"],
+            "end": outFrame["End"],
+            "interval": outFrame["Interval"],
+            "kappa": outFrame["kappa"],
             "kappa_lower_bound_hit": kappaLowerHit,
             "kappa_upper_bound_hit": kappaUpperHit,
-            "process_q_policy": frame["process_q_policy"],
-            "apn_enabled": frame["apn_enabled"],
-            "process_precision_reweighting_requested": frame[
+            "process_q_policy": outFrame["process_q_policy"],
+            "apn_enabled": outFrame["apn_enabled"],
+            "process_precision_reweighting_requested": outFrame[
                 "process_precision_reweighting_requested"
             ],
-            "process_precision_reweighting_effective": frame[
+            "process_precision_reweighting_effective": outFrame[
                 "process_precision_reweighting_effective"
             ],
-            "process_precision_reweighting_disabled_by_apn": frame[
+            "process_precision_reweighting_disabled_by_apn": outFrame[
                 "process_precision_reweighting_disabled_by_apn"
             ],
-            "baseQ00": frame["baseQ00"],
-            "baseQ11": frame["baseQ11"],
-            "preKappaQLevel": frame["baseQ00"],
-            "preKappaQTrend": frame["baseQ11"],
-            "effectiveQLevel": frame["effectiveQ00"],
-            "effectiveQTrend": frame["effectiveQ11"],
+            "baseQ00": outFrame["baseQ00"],
+            "baseQ11": outFrame["baseQ11"],
+            "preKappaQLevel": outFrame["baseQ00"],
+            "preKappaQTrend": outFrame["baseQ11"],
+            "effectiveQLevel": outFrame["effectiveQ00"],
+            "effectiveQTrend": outFrame["effectiveQ11"],
         }
     )
     outputTracks = precisionDiagnostics.get("outputTracks", {})
     if isinstance(outputTracks, Mapping) and "tuncQScale" in outputTracks:
-        out["tuncQScale"] = np.asarray(
-            outputTracks["tuncQScale"],
-            dtype=np.float64,
-        ).reshape(-1)
+        track = np.asarray(outputTracks["tuncQScale"], dtype=np.float64).reshape(-1)
+        if track.shape[0] == len(frame):
+            out["tuncQScale"] = track[rowPositions]
+        elif track.shape[0] == len(outFrame):
+            out["tuncQScale"] = track
     rowsWritten = logging_utils.append_tsv_log(path, out, TUNC_KAPPA_LOG_COLUMNS)
     processNoise = runDiagnostics.get("process_noise_calibration")
     if isinstance(processNoise, Mapping):
@@ -1307,6 +1376,7 @@ def _appendTuncKappaDiagnostics(
         event="tunc_kappa.summary",
         chromosome=chromosome,
         values={
+            **sampling,
             "rows": int(rowsWritten),
             "kappa_median": float(pd.to_numeric(frame["kappa"]).median()),
             "effective_q_level_median": float(
@@ -1689,6 +1759,10 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     uncertaintyArgs = config["uncertaintyCalibrationArgs"]
     matchingArgs = config["matchingArgs"]
     fitArgs = config["fitArgs"]
+    processKappaMin = float(processArgs.precisionMultiplierMin)
+    processKappaMinLabel = (
+        "auto" if processKappaMin < 0.0 else f"{processKappaMin:.6g}"
+    )
 
     def yn(value: Any) -> str:
         return "yes" if bool(value) else "no"
@@ -1770,7 +1844,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         (
             "process kappa bounds",
             (
-                f"[{float(processArgs.precisionMultiplierMin):.6g}, "
+                f"[{processKappaMinLabel}, "
                 f"{float(processArgs.precisionMultiplierMax):.6g}]"
             ),
         ),
@@ -2447,6 +2521,13 @@ def main():
         diagnosticLogPaths.tunc_kappa,
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
+    )
+    _logCliMilestone(
+        "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d roccoMetadata=%s",
+        int(outputArgs.maxNonTrackFileBytes),
+        outputArgs.precisionDiagnosticDetail,
+        int(outputArgs.maxPrecisionDiagnosticRowsPerChromosome),
+        matchingArgs.metadataDetail,
     )
     _logCliMilestone(
         "Consenrich run start: experiment=%s version=%s config=%s chromosomes=%d samples=%d",
@@ -5130,6 +5211,8 @@ def main():
                 diagnosticLogPaths.munc_lambda,
                 chromosome=chromosome,
                 precisionDiagnostics=precisionDiagnostics,
+                detail=outputArgs.precisionDiagnosticDetail,
+                maxRowsPerChromosome=outputArgs.maxPrecisionDiagnosticRowsPerChromosome,
             )
             _appendTuncKappaDiagnostics(
                 precisionFrame,
@@ -5137,6 +5220,8 @@ def main():
                 chromosome=chromosome,
                 precisionDiagnostics=precisionDiagnostics,
                 runDiagnostics=runDiagnostics,
+                detail=outputArgs.precisionDiagnosticDetail,
+                maxRowsPerChromosome=outputArgs.maxPrecisionDiagnosticRowsPerChromosome,
             )
         logger.info(
             "runConsenrich.done %s elapsed=%.3fs",
@@ -5682,6 +5767,8 @@ def main():
                 blacklistBedFile=genomeArgs.blacklistFile,
                 randSeed=matchingArgs.randSeed,
                 verbose=bool(args.verbose),
+                metadataDetail=matchingArgs.metadataDetail,
+                maxNonTrackFileBytes=outputArgs.maxNonTrackFileBytes,
                 stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
                 returnSummary=True,
             )

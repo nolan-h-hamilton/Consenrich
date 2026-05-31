@@ -388,6 +388,8 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     assert Path(resultPath).is_file()
     assert metaPath.is_file()
     meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    assert meta["metadata_detail"] == "compact"
+    assert meta["settings"]["metadata_detail"] == "compact"
     assert meta["settings"]["budget_method"] == "dwb_tail_occupancy"
     assert meta["settings"]["null_calibration_method"] == "stationary_null_dwb"
     assert meta["pooled_null_floor"] is None
@@ -403,7 +405,10 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
             chrom["budget_details"]["budget_post_shrink"]
         )
         assert chrom["budget_details"]["budget_shrinkage_meta"] is None
-        assert "peak_details" in chrom
+        assert "peak_details" not in chrom
+        assert "candidate_details" not in chrom
+        assert chrom["peak_details_omitted"] >= chrom["num_segments"]
+        assert chrom["candidate_details_omitted"] >= chrom["num_segments"]
     lines = outPath.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 1
     assert lines[0].startswith("chr")
@@ -480,6 +485,36 @@ def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
     assert summary["files"][2]["bytes"] == detailPath.stat().st_size
     assert "rocco.summary peaks=" in caplog.text
     assert "output.inventory" in caplog.text
+
+
+def _caseSolveRoccoMetadataCapFallsBackToBounded(tmp_path, caplog):
+    statePath, uncPath = _writeToyBedGraphs(tmp_path)
+    outPath = tmp_path / "bounded_rocco.narrowPeak"
+    metaPath = tmp_path / "bounded_rocco.narrowPeak.json"
+
+    with caplog.at_level(logging.WARNING, logger="consenrich.peaks"):
+        peaks.solveRocco(
+            str(statePath),
+            uncertaintyBedGraphFile=str(uncPath),
+            numBootstrap=24,
+            dependenceSpan=8,
+            randSeed=11,
+            outPath=str(outPath),
+            metaPath=str(metaPath),
+            metadataDetail="full",
+            maxNonTrackFileBytes=1,
+        )
+
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    assert meta["metadata_detail"] == "bounded"
+    assert meta["settings"]["metadata_requested_detail"] == "full"
+    assert meta["settings"]["metadata_byte_cap"] == 1
+    for chrom in meta["chromosomes"].values():
+        assert "peak_details" not in chrom
+        assert "candidate_details" not in chrom
+        assert chrom["peak_details_omitted"] >= chrom["num_segments"]
+        assert chrom["candidate_details_omitted"] >= chrom["num_segments"]
+    assert "ROCCO metadata bounded" in caplog.text
 
 
 def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
@@ -766,6 +801,7 @@ def _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ(tmp_path):
         massiveSubpeakCleanup=False,
         outPath=str(outPath),
         metaPath=str(metaPath),
+        metadataDetail="full",
     )
 
     meta = json.loads(metaPath.read_text(encoding="utf-8"))
@@ -1674,7 +1710,7 @@ def _caseNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass():
 
 
 @pytest.mark.correctness
-def _caseNestedROCCORefinementSatisfiesAnchoredMonotonicityContract():
+def _caseNestedROCCORefinementSatisfiesRequiredBinMonotonicityContract():
     scores = np.full(120, -0.4, dtype=np.float64)
     scores[15:35] = -0.2
     scores[72:82] = 3.0
@@ -1704,13 +1740,13 @@ def _caseNestedROCCORefinementSatisfiesAnchoredMonotonicityContract():
     assert details["history"][0]["num_parent_peaks"] == 2
     assert details["history"][0]["num_parent_peaks_after"] == 3
     assert details["history"][0]["num_parent_erasure_violations"] == 0
-    assert details["history"][0]["num_anchor_survival_violations"] == 0
+    assert details["history"][0]["num_required_bin_violations"] == 0
     assert details["history"][0]["num_peak_count_monotonicity_violations"] == 0
     assert details["history"][0]["num_coverage_expansion_violations"] == 0
 
 
 @pytest.mark.correctness
-def _caseNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow():
+def _caseNestedROCCORefinementKeepsRequiredBinMinRunWhenPeakIsNarrow():
     scores = np.zeros(40, dtype=np.float64)
     scores[20] = 8.0
     firstPass = np.zeros(40, dtype=np.uint8)
@@ -1735,7 +1771,7 @@ def _caseNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow():
     assert details["history"][0]["num_parent_peaks"] == 1
     assert details["history"][0]["num_parent_peaks_after"] == 1
     assert details["history"][0]["num_parent_erasure_violations"] == 0
-    assert details["history"][0]["num_anchor_survival_violations"] == 0
+    assert details["history"][0]["num_required_bin_violations"] == 0
     assert details["history"][0]["num_short_child_runs_expanded"] == 0
     assert details["history"][0]["num_short_child_bins_added"] == 0
 
@@ -1777,7 +1813,7 @@ def _caseNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
     assert detailRows[0]["soft_budget_target"] == detailRows[0]["budget_target"]
     assert detailRows[0]["nonpos_selected"] >= 0
     assert detailRows[0]["min_child_bins"] == 5
-    assert detailRows[0]["anchor_selected"] is True
+    assert detailRows[0]["required_selected"] is True
 
 
 def _caseSolveRoccoVerboseWritesNullReplayFalseSegmentDiagnostics(tmp_path, caplog):
@@ -1890,7 +1926,7 @@ def _caseSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
 
 
 @pytest.mark.correctness
-def _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild():
+def _caseNestedROCCOAllNegativeParentStillEmitsRequiredBinChild():
     scores = np.full(40, -1.0, dtype=np.float64)
     firstPass = np.zeros(40, dtype=np.uint8)
     firstPass[10:30] = 1
@@ -1913,7 +1949,7 @@ def _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild():
     assert details["history"][0]["num_parent_peaks"] == 1
     assert details["history"][0]["num_parent_peaks_after"] == 1
     assert details["history"][0]["num_parent_erasure_violations"] == 0
-    assert details["history"][0]["num_anchor_survival_violations"] == 0
+    assert details["history"][0]["num_required_bin_violations"] == 0
 
 
 @pytest.mark.correctness
@@ -1937,7 +1973,7 @@ def _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
 
 def _assertNestedPolicyMetadataIsUseful(details):
     assert details["subproblem_mode"]
-    assert details["anchor_policy"]
+    assert details["required_bin_policy"]
     assert details["min_child_bins"] >= 1
     assert details["initial_selected_count"] >= details["final_selected_count"]
     assert details["history"]
@@ -1945,7 +1981,7 @@ def _assertNestedPolicyMetadataIsUseful(details):
         assert step["selected_count_after"] <= step["selected_count_before"]
         assert step["num_coverage_expansion_violations"] == 0
         assert step["num_parent_erasure_violations"] == 0
-        assert step["num_anchor_survival_violations"] == 0
+        assert step["num_required_bin_violations"] == 0
         assert np.isfinite(step["objective"])
         assert np.isfinite(step["objective_delta"])
         assert 0.0 <= step["jaccard"] <= 1.0
@@ -2164,7 +2200,7 @@ def test_rocco_nested_refinement_contracts(contract_case):
         ("flat positive plateau retained", _caseNestedROCCORefinementDoesNotEraseFlatPositivePlateau),
         ("first-pass budget only", _caseNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass),
         ("short parent skipped", _caseNestedROCCORefinementSkipsShortParentRegions),
-        ("all-negative parent emits child", _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild),
+        ("all-negative parent emits child", _caseNestedROCCOAllNegativeParentStillEmitsRequiredBinChild),
         ("coherent parent retained", _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion),
         (
             "adaptive plateau retained",
@@ -2182,14 +2218,14 @@ def test_rocco_nested_refinement_contracts(contract_case):
         contract_case(label, func)
 
 
-def test_rocco_anchored_min_run_contracts(contract_case):
+def test_rocco_required_bin_min_run_contracts(contract_case):
     contract_case(
-        "anchored monotonicity",
-        _caseNestedROCCORefinementSatisfiesAnchoredMonotonicityContract,
+        "required_bin monotonicity",
+        _caseNestedROCCORefinementSatisfiesRequiredBinMonotonicityContract,
     )
     contract_case(
-        "anchored min-run for narrow peak",
-        _caseNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow,
+        "required_bin min-run for narrow peak",
+        _caseNestedROCCORefinementKeepsRequiredBinMinRunWhenPeakIsNarrow,
     )
 
 
@@ -2219,6 +2255,13 @@ def test_rocco_diagnostics_contracts(tmp_path, caplog, contract_case):
     contract_case(
         "ROCCO summary inventory",
         _caseSolveRoccoReturnsSummaryInventoryAndLogs,
+        tmp_path,
+        caplog,
+    )
+    caplog.clear()
+    contract_case(
+        "ROCCO metadata cap fallback",
+        _caseSolveRoccoMetadataCapFallsBackToBounded,
         tmp_path,
         caplog,
     )

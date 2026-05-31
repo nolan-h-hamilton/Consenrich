@@ -64,6 +64,7 @@ from .constants import (
     FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
     INPUT_DEFAULT_ROLE,
+    MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MUNC_AR1_MAX_BETA_DEFAULT,
@@ -85,10 +86,15 @@ from .constants import (
     OBSERVATION_DEFAULT_MIN_R,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     OBSERVATION_DEFAULT_NO_DM_VAR,
+    OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX,
+    OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
     OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
     OUTPUT_DEFAULT_CUTOFF_REPORT,
+    OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
+    OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
+    OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
     OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
@@ -221,6 +227,13 @@ from ._normalization import (
 logger = logging.getLogger(__name__)
 
 _PROCESS_NOISE_WARMUP_Q_LOG_CHANGE_RTOL = 1.0e-2
+_QINIT_MIN_TRANSITIONS = 8
+_QINIT_PRECISION_CAP_QUANTILE = 0.95
+_QINIT_PRECISION_CAP_MULTIPLIER = 20.0
+_QINIT_PRIOR_LOG_SD = math.log(4.0)
+_QINIT_DEFAULT_T_NU = 8.0
+_TUNC_DEADBAND_PRIOR_WEIGHT = 0.5
+_TUNC_DEADBAND_HIGH_PROBABILITY = 0.8
 
 
 def _makeECMProgressBar(
@@ -321,8 +334,9 @@ class processParams(NamedTuple):
     :type processNoiseWarmupOuterPasses: int
     :param precisionMultiplierMin: Lower clamp for process precision multipliers
         :math:`\kappa_{[i]}` during robust ECM reweighting. If negative, it is
-        resolved at fit time to the most permissive convexity-preserving lower
-        clamp for the active state dimension and ``ECM_robustTNu``.
+        resolved at fit time to the most permissive strict
+        convexity-preserving lower clamp for the active state dimension and
+        ``ECM_robustTNu``.
     :type precisionMultiplierMin: float
     :param precisionMultiplierMax: Upper clamp for process precision multipliers
         :math:`\kappa_{[i]}` during robust ECM reweighting.
@@ -355,11 +369,6 @@ class processParams(NamedTuple):
 class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich
 
-    :param minR: Legacy genome-wide lower bound for replicate-specific
-        observation noise levels. The CLI's count-aware path now uses the
-        transformed-scale count-noise floor instead of resolving a scalar MUNC
-        ``minR`` floor.
-    :type minR: float | None
     :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical signed-mean variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
@@ -369,7 +378,7 @@ class observationParams(NamedTuple):
     :type muncVarianceModel: str | None
     :param muncAR1VarianceFunctional: AR(1) variance target used by MUNC
         block, sparse-nearest, and rolling local variance estimates. ``"marginal"``
-        uses the stationary AR(1) variance; ``"innovation"`` uses the AR(1)
+        uses the stationary AR(1) variance. ``"innovation"`` uses the 1-step AR(1)
         innovation variance.
     :type muncAR1VarianceFunctional: str | None
     :param muncTrendBlockSizeBP: Expected sampled block size for fitting the MUNC signed mean-variance trend. If unset, it is inferred at runtime.
@@ -392,7 +401,7 @@ class observationParams(NamedTuple):
     :type muncCovariatesFeatures: tuple[str, ...] | None
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
     :type EB_setNu0: int | None
-    :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
+    :param EB_setNuL: If provided, manually sets local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
     :param noDMVar: If True, disable the AR(1) delta-method log-variance correction and use nominal local/block variance degrees of freedom.
     :type noDMVar: bool | None
@@ -983,6 +992,10 @@ class matchingParams(NamedTuple):
     :param uncertaintyScoreZ: Non-negative multiplier for ``"lower_confidence"``
         score construction.
     :type uncertaintyScoreZ: float
+    :param metadataDetail: Detail level for ROCCO metadata JSON. ``"compact"``
+        keeps summary diagnostics, while ``"full"`` also includes per-peak and
+        candidate-detail arrays.
+    :type metadataDetail: str
     :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
 
@@ -999,6 +1012,7 @@ class matchingParams(NamedTuple):
     exportFilterUncertaintyMultiplier: Optional[float]
     uncertaintyScoreMode: str = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
     uncertaintyScoreZ: float = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
+    metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
 
 
 class outputParams(NamedTuple):
@@ -1030,6 +1044,18 @@ class outputParams(NamedTuple):
     :type diagnosticTracks: tuple[str, ...]
     :param writeRunSummary: If True, write one high-level run summary TSV.
     :type writeRunSummary: bool
+    :param precisionDiagnosticDetail: Detail level for dense precision diagnostic
+        diagnostic logs. ``"summary"`` writes only compact summaries, ``"sampled"``
+        writes summaries plus deterministic interval samples, and ``"full"`` writes
+        all interval rows.
+    :type precisionDiagnosticDetail: str
+    :param maxPrecisionDiagnosticRowsPerChromosome: Maximum interval rows to write
+        per chromosome when ``precisionDiagnosticDetail`` is ``"sampled"``.
+    :type maxPrecisionDiagnosticRowsPerChromosome: int
+    :param maxNonTrackFileBytes: Default size budget for non-track files.
+        Exact ``.bw``, ``.bedGraph``, and ``.narrowPeak`` track outputs are exempt.
+        Set to 0 to disable the cap.
+    :type maxNonTrackFileBytes: int
 
     """
 
@@ -1042,6 +1068,11 @@ class outputParams(NamedTuple):
     saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
     cutoffReport: bool = OUTPUT_DEFAULT_CUTOFF_REPORT
     writeRunSummary: bool = OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
+    precisionDiagnosticDetail: str = OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
+    maxPrecisionDiagnosticRowsPerChromosome: int = (
+        OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
+    )
+    maxNonTrackFileBytes: int = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
 
 
 class fitParams(NamedTuple):
@@ -2228,7 +2259,7 @@ def _processKappaConvexityLowerBound(
     stateDim_ = int(stateDim)
     if stateDim_ <= 0:
         raise ValueError("state dimension must be positive")
-    return (nu + float(stateDim_)) / (2.0 * nu)
+    return (nu + float(stateDim_)) / (2.0 * nu) + 1.0e-4
 
 
 def _checkProcessPrecisionMultiplierBounds(
@@ -2247,10 +2278,16 @@ def _checkProcessPrecisionMultiplierBounds(
             robustTNu=robustTNu,
             stateDim=stateDim,
         )
-        minValue_ = min(float(convexityMin), maxValue_)
+        if maxValue_ < convexityMin:
+            raise ValueError(
+                "`processPrecisionMultiplierMax` must be >= the auto "
+                "`processPrecisionMultiplierMin` convexity-preserving lower "
+                f"bound {float(convexityMin):.6g}"
+            )
+        minValue_ = float(convexityMin)
         logger.info(
             "processParams.precisionMultiplierMin=auto resolved to %.6g "
-            "using convexity-preserving bound %.6g "
+            "using strict convexity-preserving bound %.6g "
             "(ECM_robustTNu=%.6g, stateDim=%d, precisionMultiplierMax=%.6g)",
             float(minValue_),
             float(convexityMin),
@@ -2889,8 +2926,12 @@ def estimateProvisionalBackground(
     pad: float = 1.0e-4,
     observationPrecision: np.ndarray | None = None,
     observationMask: np.ndarray | None = None,
-    observationPrecisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
-    observationPrecisionMultiplierMax: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX,
+    observationPrecisionMultiplierMin: float = (
+        OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN
+    ),
+    observationPrecisionMultiplierMax: float = (
+        OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX
+    ),
     backgroundSmoothness: float = FIT_DEFAULT_BACKGROUND_SMOOTHNESS,
     zeroCenterBackground: bool = FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
     useNonnegativeBackground: bool = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
@@ -3986,6 +4027,8 @@ def _fitTuncProcessNoise(
         return seedQClamped, processQScale, info
 
     tiny = 1.0e-12
+    minScale = float(max(tuncMinScale, tiny))
+    maxScale = float(max(tuncMaxScale, minScale))
     y = np.log(np.maximum(evidence, tiny))
     state = np.asarray(warmupFit["stateSmoothed"], dtype=np.float64)
     levelMidRaw = 0.5 * (state[:-1, 0] + state[1:, 0])
@@ -4071,6 +4114,42 @@ def _fitTuncProcessNoise(
         floor=tiny,
     )
     priorScale = priorScale / max(priorGeom, tiny)
+    priorScaleBeforeDeadband = priorScale.copy()
+    deadbandProbability = np.zeros(transitionCount, dtype=np.float64)
+    deadbandWeight = np.zeros(transitionCount, dtype=np.float64)
+    deadbandEnabled = bool(levelBufferZ > 0.0)
+    if deadbandEnabled:
+        denom = np.maximum(levelMidSd, tiny)
+        r = np.divide(
+            levelMidRaw,
+            denom,
+            out=np.zeros_like(levelMidRaw, dtype=np.float64),
+            where=np.isfinite(denom) & (denom > 0.0),
+        )
+        deadbandProbability = stats.norm.cdf(levelBufferZ - r) - stats.norm.cdf(
+            -levelBufferZ - r
+        )
+        deadbandProbability = np.clip(
+            np.nan_to_num(deadbandProbability, nan=0.0, posinf=0.0, neginf=0.0),
+            0.0,
+            1.0,
+        )
+        deadbandWeight = np.clip(
+            float(_TUNC_DEADBAND_PRIOR_WEIGHT) * deadbandProbability,
+            0.0,
+            1.0,
+        )
+        logPrior = np.log(np.maximum(priorScale, tiny))
+        logNull = math.log(max(minScale, tiny))
+        priorScale = np.exp(
+            np.clip((1.0 - deadbandWeight) * logPrior + deadbandWeight * logNull, -30.0, 30.0)
+        )
+        deadbandGeom = _weightedGeometricMean(
+            priorScale[valid],
+            transitionWeights[valid],
+            floor=tiny,
+        )
+        priorScale = priorScale / max(deadbandGeom, tiny)
     levelBufferDiagnostics: dict[str, Any] = {
         "tuncLevelBufferZ": float(levelBufferZ),
         "tuncLevelBufferEnabled": bool(levelBufferZ > 0.0),
@@ -4079,6 +4158,15 @@ def _fitTuncProcessNoise(
         "tuncLevelMidpointRawSummary": _metadataTrackSummary(levelMidRaw),
         "tuncLevelMidpointBufferedSummary": _metadataTrackSummary(levelMid),
         "tuncLevelMidpointSdSummary": _metadataTrackSummary(levelMidSd),
+        "tuncDeadbandPriorEnabled": bool(deadbandEnabled),
+        "tuncDeadbandZ": float(levelBufferZ),
+        "tuncDeadbandMeanProbability": 0.0,
+        "tuncDeadbandHighProbabilityFraction": 0.0,
+        "tuncDeadbandNullScale": float(minScale),
+        "tuncPriorScaleBeforeDeadbandSummary": _metadataTrackSummary(
+            priorScaleBeforeDeadband
+        ),
+        "tuncPriorScaleAfterDeadbandSummary": _metadataTrackSummary(priorScale),
     }
     if np.any(valid):
         validWeights = transitionWeights[valid]
@@ -4095,6 +4183,20 @@ def _fitTuncProcessNoise(
             levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"] = float(
                 _weightedQuantile(shrink, shrinkWeights, np.asarray([0.5]))[0]
             )
+        if deadbandEnabled:
+            deadbandValid = deadbandProbability[valid]
+            levelBufferDiagnostics["tuncDeadbandMeanProbability"] = float(
+                np.average(deadbandValid, weights=validWeights)
+            )
+            levelBufferDiagnostics["tuncDeadbandHighProbabilityFraction"] = float(
+                np.average(
+                    (
+                        deadbandValid
+                        >= float(_TUNC_DEADBAND_HIGH_PROBABILITY)
+                    ).astype(np.float64),
+                    weights=validWeights,
+                )
+            )
     _logEvent(
         "process_noise.tunc_level_buffer",
         (
@@ -4108,6 +4210,19 @@ def _fitTuncProcessNoise(
                 "median_shrinkage",
                 levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"],
             ),
+        ),
+    )
+    _logEvent(
+        "process_noise.tunc_deadband_prior",
+        (
+            ("enabled", bool(deadbandEnabled)),
+            ("z", float(levelBufferZ)),
+            ("mean_probability", levelBufferDiagnostics["tuncDeadbandMeanProbability"]),
+            (
+                "high_probability_fraction",
+                levelBufferDiagnostics["tuncDeadbandHighProbabilityFraction"],
+            ),
+            ("null_scale", float(minScale)),
         ),
     )
 
@@ -4136,8 +4251,6 @@ def _fitTuncProcessNoise(
     priorDfDiagnostics: dict[str, Any] = {}
     dependence = float(max(tuncDependenceMultiplier, tiny))
     minWindowWeight = float(max(tuncMinWindowWeight, 0.0))
-    minScale = float(max(tuncMinScale, tiny))
-    maxScale = float(max(tuncMaxScale, minScale))
     windowStats: list[tuple[int, int, float, float, float, float]] = []
     for center in centers:
         start = max(0, int(center) - halfWindow)
@@ -4416,6 +4529,292 @@ def _countActiveAdjacentProcessNoiseTransitions(
     return int(np.count_nonzero(intervalActive[1:] & intervalActive[:-1]))
 
 
+def _robustLocation1d(values: np.ndarray, weights: np.ndarray) -> float:
+    x = np.asarray(values, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    mask = np.isfinite(x) & np.isfinite(w) & (w > 0.0)
+    x = x[mask]
+    w = w[mask]
+    if x.size == 0:
+        return float("nan")
+    if x.size == 1:
+        return float(x[0])
+    loc = float(np.median(x))
+    scale = 1.4826 * float(np.median(np.abs(x - loc)))
+    if not np.isfinite(scale) or scale <= 1.0e-12:
+        return loc
+    c = 1.345
+    for _ in range(4):
+        resid = x - loc
+        huber = np.minimum(1.0, (c * scale) / np.maximum(np.abs(resid), 1.0e-12))
+        eff = w * huber
+        denom = float(np.sum(eff))
+        if denom <= 0.0 or not np.isfinite(denom):
+            break
+        nextLoc = float(np.sum(eff * x) / denom)
+        if not np.isfinite(nextLoc) or abs(nextLoc - loc) <= 1.0e-10 * max(1.0, abs(loc)):
+            loc = nextLoc
+            break
+        loc = nextLoc
+    return loc
+
+
+def _weightedFiniteQuantile(
+    values: np.ndarray,
+    weights: np.ndarray,
+    quantile: float,
+) -> float:
+    x = np.asarray(values, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    mask = np.isfinite(x) & np.isfinite(w) & (w > 0.0)
+    if not np.any(mask):
+        return float("nan")
+    return float(_weightedQuantile(x[mask], w[mask], np.asarray([quantile]))[0])
+
+
+def _qSeedPosteriorFromTransitions(
+    *,
+    deltas: np.ndarray,
+    samplingVariances: np.ndarray,
+    transitionWeights: np.ndarray,
+    qFloor: float,
+    qCap: float,
+    robustTNu: float,
+    source: str,
+) -> dict[str, Any]:
+    tiny = np.finfo(np.float64).tiny
+    delta = np.asarray(deltas, dtype=np.float64).reshape(-1)
+    s2 = np.asarray(samplingVariances, dtype=np.float64).reshape(-1)
+    weights = np.asarray(transitionWeights, dtype=np.float64).reshape(-1)
+    mask = (
+        np.isfinite(delta)
+        & np.isfinite(s2)
+        & (s2 >= 0.0)
+        & np.isfinite(weights)
+        & (weights > 0.0)
+    )
+    delta = delta[mask]
+    s2 = s2[mask]
+    weights = weights[mask]
+    transitionCount = int(delta.size)
+    effectiveCount = 0.0
+    if weights.size:
+        sumW = float(np.sum(weights))
+        sumW2 = float(np.sum(weights * weights))
+        effectiveCount = (sumW * sumW) / sumW2 if sumW2 > 0.0 else 0.0
+    if transitionCount < _QINIT_MIN_TRANSITIONS or effectiveCount < _QINIT_MIN_TRANSITIONS:
+        return {
+            "ok": False,
+            "source": source,
+            "reason": "insufficient_transition_support",
+            "transitionCount": transitionCount,
+            "effectiveTransitionCount": float(effectiveCount),
+        }
+
+    center = _weightedFiniteQuantile(delta, weights, 0.5)
+    absDev = np.abs(delta - center)
+    robustScale = 1.4826 * _weightedFiniteQuantile(absDev, weights, 0.5)
+    medianS2 = _weightedFiniteQuantile(s2, weights, 0.5)
+    if not np.isfinite(robustScale):
+        robustScale = 0.0
+    if not np.isfinite(medianS2):
+        medianS2 = 0.0
+    qPrior = max(robustScale * robustScale - medianS2, float(qFloor))
+    if not np.isfinite(qPrior) or qPrior <= 0.0:
+        qPrior = float(qFloor)
+
+    deconvolved = np.maximum(delta * delta - s2, 0.0)
+    qTransition90 = _weightedFiniteQuantile(deconvolved, weights, 0.9)
+    if not np.isfinite(qTransition90):
+        qTransition90 = float(qFloor)
+
+    lower = _resolveProcessNoiseFloor(qFloor)
+    if np.isfinite(qCap):
+        upper = max(float(qCap), lower)
+    else:
+        upperCandidates = np.asarray(
+            [
+                qPrior * 1.0e4,
+                qTransition90 * 100.0,
+                medianS2 * 100.0,
+                float(np.nanmax(delta * delta)) * 10.0 if delta.size else np.nan,
+                lower * 1.0e6,
+            ],
+            dtype=np.float64,
+        )
+        upperCandidates = upperCandidates[
+            np.isfinite(upperCandidates) & (upperCandidates > lower)
+        ]
+        upper = float(np.max(upperCandidates)) if upperCandidates.size else lower * 10.0
+    if upper <= lower * (1.0 + 1.0e-10):
+        grid = np.asarray([lower], dtype=np.float64)
+    else:
+        grid = np.exp(np.linspace(math.log(lower), math.log(upper), 256))
+
+    nu = float(robustTNu)
+    if not np.isfinite(nu) or nu <= 0.0:
+        nu = _QINIT_DEFAULT_T_NU
+    nu = max(4.0, nu)
+    normalizedWeights = weights / max(_weightedFiniteQuantile(weights, weights, 0.5), tiny)
+    normalizedWeights = np.clip(normalizedWeights, 0.25, 4.0)
+    logPriorCenter = math.log(max(qPrior, lower))
+    logPriorSd = max(float(_QINIT_PRIOR_LOG_SD), 1.0e-6)
+    logPost = np.empty(grid.shape, dtype=np.float64)
+    for idx, q in enumerate(grid):
+        var = np.maximum(float(q) + s2, tiny)
+        scale = np.sqrt(var)
+        z = delta / scale
+        logLike = stats.t.logpdf(z, df=nu) - np.log(scale)
+        logPrior = -0.5 * ((math.log(float(q)) - logPriorCenter) / logPriorSd) ** 2
+        logPost[idx] = float(np.sum(normalizedWeights * logLike) + logPrior)
+    finiteLogPost = np.isfinite(logPost)
+    if not np.any(finiteLogPost):
+        return {
+            "ok": False,
+            "source": source,
+            "reason": "nonfinite_posterior",
+            "transitionCount": transitionCount,
+            "effectiveTransitionCount": float(effectiveCount),
+        }
+    maxLogPost = float(np.max(logPost[finiteLogPost]))
+    posterior = np.where(finiteLogPost, np.exp(logPost - maxLogPost), 0.0)
+    totalPosterior = float(np.sum(posterior))
+    if totalPosterior <= 0.0 or not np.isfinite(totalPosterior):
+        return {
+            "ok": False,
+            "source": source,
+            "reason": "degenerate_posterior",
+            "transitionCount": transitionCount,
+            "effectiveTransitionCount": float(effectiveCount),
+        }
+    posterior = posterior / totalPosterior
+    cdf = np.cumsum(posterior)
+
+    def _posteriorQuantile(prob: float) -> float:
+        return float(np.interp(float(prob), cdf, grid))
+
+    mode = float(grid[int(np.argmax(posterior))])
+    return {
+        "ok": True,
+        "source": source,
+        "reason": "ok",
+        "transitionCount": transitionCount,
+        "effectiveTransitionCount": float(effectiveCount),
+        "medianSamplingVariance": float(medianS2),
+        "priorLevel": float(qPrior),
+        "posteriorModeLevel": mode,
+        "posteriorMedianLevel": _posteriorQuantile(0.5),
+        "posteriorQ05Level": _posteriorQuantile(0.05),
+        "posteriorQ95Level": _posteriorQuantile(0.95),
+        "transitionQ90": float(qTransition90),
+    }
+
+
+def _estimateSameTrackProcessNoiseTransitions(
+    *,
+    matrixData: np.ndarray,
+    obsVar: np.ndarray,
+    finiteMask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    data = np.asarray(matrixData, dtype=np.float64)
+    obs = np.asarray(obsVar, dtype=np.float64)
+    active = (
+        np.asarray(finiteMask, dtype=bool)[:, 1:]
+        & np.asarray(finiteMask, dtype=bool)[:, :-1]
+        & np.isfinite(data[:, 1:])
+        & np.isfinite(data[:, :-1])
+        & np.isfinite(obs[:, 1:])
+        & np.isfinite(obs[:, :-1])
+        & (obs[:, 1:] > 0.0)
+        & (obs[:, :-1] > 0.0)
+    )
+    rd = obs[:, 1:] + obs[:, :-1]
+    precision = np.where(active & (rd > 0.0), 1.0 / rd, 0.0)
+    positivePrecision = precision[precision > 0.0]
+    cap = float("nan")
+    capFraction = 0.0
+    if positivePrecision.size:
+        medianPrecision = float(np.median(positivePrecision))
+        qPrecision = float(
+            np.quantile(positivePrecision, _QINIT_PRECISION_CAP_QUANTILE)
+        )
+        cap = min(qPrecision, _QINIT_PRECISION_CAP_MULTIPLIER * medianPrecision)
+        if np.isfinite(cap) and cap > 0.0:
+            capFraction = float(np.mean(positivePrecision > cap))
+            precision = np.minimum(precision, cap)
+    deltas: list[float] = []
+    samplingVariances: list[float] = []
+    transitionWeights: list[float] = []
+    pairCount = 0
+    for k in range(active.shape[1]):
+        mask = precision[:, k] > 0.0
+        if not np.any(mask):
+            continue
+        d = data[mask, k + 1] - data[mask, k]
+        p = precision[mask, k]
+        pairCount += int(d.size)
+        loc = _robustLocation1d(d, p)
+        sumP = float(np.sum(p))
+        sumP2 = float(np.sum(p * p))
+        if not np.isfinite(loc) or sumP <= 0.0 or not np.isfinite(sumP):
+            continue
+        deltas.append(loc)
+        samplingVariances.append(1.0 / sumP)
+        effPairs = (sumP * sumP) / sumP2 if sumP2 > 0.0 else 1.0
+        transitionWeights.append(max(float(effPairs), 1.0))
+    return (
+        np.asarray(deltas, dtype=np.float64),
+        np.asarray(samplingVariances, dtype=np.float64),
+        np.asarray(transitionWeights, dtype=np.float64),
+        {
+            "pairCount": int(pairCount),
+            "precisionCap": float(cap),
+            "precisionCapFraction": float(capFraction),
+        },
+    )
+
+
+def _estimatePooledProcessNoiseTransitions(
+    *,
+    matrixData: np.ndarray,
+    obsVar: np.ndarray,
+    finiteMask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    data = np.asarray(matrixData, dtype=np.float64)
+    obs = np.asarray(obsVar, dtype=np.float64)
+    active = np.asarray(finiteMask, dtype=bool)
+    weights = np.where(active & np.isfinite(obs) & (obs > 0.0), 1.0 / obs, 0.0)
+    weightSum = np.sum(weights, axis=0, dtype=np.float64)
+    weightedData = np.where(active, data * weights, 0.0)
+    pooledMean = np.divide(
+        np.sum(weightedData, axis=0, dtype=np.float64),
+        weightSum,
+        out=np.full(data.shape[1], np.nan, dtype=np.float64),
+        where=weightSum > 0.0,
+    )
+    pooledVar = np.divide(
+        1.0,
+        weightSum,
+        out=np.full(data.shape[1], np.nan, dtype=np.float64),
+        where=weightSum > 0.0,
+    )
+    valid = (
+        np.isfinite(pooledMean[1:])
+        & np.isfinite(pooledMean[:-1])
+        & np.isfinite(pooledVar[1:])
+        & np.isfinite(pooledVar[:-1])
+    )
+    deltas = pooledMean[1:][valid] - pooledMean[:-1][valid]
+    samplingVariances = pooledVar[1:][valid] + pooledVar[:-1][valid]
+    transitionWeights = np.divide(
+        1.0,
+        np.maximum(samplingVariances, np.finfo(np.float64).tiny),
+        out=np.ones_like(samplingVariances),
+        where=samplingVariances > 0.0,
+    )
+    return deltas, samplingVariances, transitionWeights
+
+
 def _estimateInitialProcessNoiseFromData(
     *,
     matrixData: np.ndarray,
@@ -4424,7 +4823,11 @@ def _estimateInitialProcessNoiseFromData(
     stateModel: str,
     minQ: float,
     maxQ: float,
-) -> np.ndarray:
+    deltaF: float,
+    tuncMaxScale: float,
+    processNoiseCalibration: str,
+    robustTNu: float | None,
+) -> tuple[np.ndarray, dict[str, Any]]:
     qFloor = _resolveProcessNoiseFloor(minQ)
     qCap = _resolveProcessNoiseCap(maxQ, minQ=qFloor)
     data = np.asarray(matrixData, dtype=np.float64)
@@ -4438,70 +4841,149 @@ def _estimateInitialProcessNoiseFromData(
         pad=float(pad),
     )
     obsVar = np.maximum(obsVarRaw, 1.0e-12)
-    weights = np.where(finiteMask, 1.0 / obsVar, 0.0)
-    weightSum = np.sum(weights, axis=0, dtype=np.float64)
-    weightedData = np.where(finiteMask, data * weights, 0.0)
-    pooledMean = np.divide(
-        np.sum(weightedData, axis=0, dtype=np.float64),
-        weightSum,
-        out=np.full(data.shape[1], np.nan, dtype=np.float64),
-        where=weightSum > 0.0,
+
+    robustNu = (
+        _QINIT_DEFAULT_T_NU
+        if robustTNu is None or not np.isfinite(float(robustTNu))
+        else float(robustTNu)
     )
-    finitePooled = np.isfinite(pooledMean)
-    d = pooledMean[1:] - pooledMean[:-1]
-    d = d[finitePooled[1:] & finitePooled[:-1]]
-    d = d[np.isfinite(d)]
-    qInit = float("nan")
-    if d.size > 0:
-        medianD = float(np.median(d))
-        scale1 = 1.4826 * float(np.median(np.abs(d - medianD)))
-        if np.isfinite(scale1) and scale1 > 0.0:
-            qInit = 0.5 * scale1 * scale1
-        else:
-            nonzeroD = np.abs(d[np.abs(d) > qFloor])
-            if nonzeroD.size >= 2:
-                nonzeroMedian = float(np.median(nonzeroD))
-                qInit = 0.5 * nonzeroMedian * nonzeroMedian
-            else:
-                trimCount = int(np.floor(0.05 * d.size))
-                sortedD = np.sort(d)
-                trimmed = (
-                    sortedD[trimCount : d.size - trimCount]
-                    if trimCount > 0 and d.size > 2 * trimCount
-                    else sortedD
-                )
-                if trimmed.size > 0:
-                    trimmedRMS = float(np.sqrt(np.mean(trimmed * trimmed)))
-                    if np.isfinite(trimmedRMS) and trimmedRMS > 0.0:
-                        qInit = 0.5 * trimmedRMS * trimmedRMS
-    if not np.isfinite(qInit) or qInit <= 0.0:
+    deltas, samplingVariances, transitionWeights, sameTrackDiagnostics = (
+        _estimateSameTrackProcessNoiseTransitions(
+            matrixData=data,
+            obsVar=obsVar,
+            finiteMask=finiteMask,
+        )
+    )
+    estimate = _qSeedPosteriorFromTransitions(
+        deltas=deltas,
+        samplingVariances=samplingVariances,
+        transitionWeights=transitionWeights,
+        qFloor=qFloor,
+        qCap=qCap,
+        robustTNu=robustNu,
+        source="sameTrackEB",
+    )
+    if not bool(estimate.get("ok", False)):
+        pooledDeltas, pooledSamplingVariances, pooledTransitionWeights = (
+            _estimatePooledProcessNoiseTransitions(
+                matrixData=data,
+                obsVar=obsVar,
+                finiteMask=finiteMask,
+            )
+        )
+        pooledEstimate = _qSeedPosteriorFromTransitions(
+            deltas=pooledDeltas,
+            samplingVariances=pooledSamplingVariances,
+            transitionWeights=pooledTransitionWeights,
+            qFloor=qFloor,
+            qCap=qCap,
+            robustTNu=robustNu,
+            source="pooledEB",
+        )
+        if bool(pooledEstimate.get("ok", False)):
+            estimate = pooledEstimate
+
+    source = str(estimate.get("source", "fallback"))
+    reason = str(estimate.get("reason", "ok"))
+    qPosteriorMedian = float(estimate.get("posteriorMedianLevel", np.nan))
+    qTransition90 = float(estimate.get("transitionQ90", np.nan))
+    qBeforeGuardrail = qPosteriorMedian
+    guardrailApplied = False
+    calibrationMode = _normalizeProcessNoiseCalibrationMode(processNoiseCalibration)
+    tuncScale = float(tuncMaxScale)
+    if (
+        calibrationMode == PROCESS_NOISE_CALIBRATION_TUNC
+        and np.isfinite(tuncScale)
+        and tuncScale > 0.0
+        and np.isfinite(qTransition90)
+        and qTransition90 > 0.0
+    ):
+        guarded = max(qPosteriorMedian, qTransition90 / tuncScale)
+        guardrailApplied = bool(
+            np.isfinite(qPosteriorMedian) and guarded > qPosteriorMedian * 1.000001
+        )
+        qBeforeGuardrail = guarded
+
+    if not np.isfinite(qBeforeGuardrail) or qBeforeGuardrail <= 0.0:
         fallbackPool = obsVar[finiteMask]
         fallbackPool = fallbackPool[np.isfinite(fallbackPool) & (fallbackPool > 0.0)]
         fallbackVar = (
             float(np.median(fallbackPool)) if fallbackPool.size else float("nan")
         )
-        qInit = (
+        qBeforeGuardrail = (
             1.0e-4 * fallbackVar
             if np.isfinite(fallbackVar) and fallbackVar > 0.0
             else qFloor
         )
-    qInit = _clampProcessNoise(qInit, qFloor=qFloor, qCap=qCap)
+        source = "observationVarianceFloor" if np.isfinite(fallbackVar) else "minQ"
+        reason = "fallback_observation_variance" if np.isfinite(fallbackVar) else "fallback_min_q"
+    qInit = _clampProcessNoise(qBeforeGuardrail, qFloor=qFloor, qCap=qCap)
     stateModelMode = _normalizeStateModel(stateModel)
     if stateModelMode == STATE_MODEL_LEVEL_TREND:
+        deltaF_ = max(float(deltaF), 1.0e-12)
+        qTrendRaw = qInit * float(PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO) / (
+            deltaF_ * deltaF_
+        )
         qTrendInit = _clampProcessNoise(
-            qInit * float(PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO),
+            qTrendRaw,
             qFloor=qFloor,
             qCap=qCap,
         )
     else:
         qTrendInit = qInit
-    return constructMatrixQ(
+        qTrendRaw = qTrendInit
+    matrixQ = constructMatrixQ(
         minDiagQ=qFloor,
         Q00=qInit,
         Q01=0.0,
         Q10=0.0,
         Q11=qTrendInit,
     ).astype(np.float32, copy=False)
+    qSeedClampChanged = bool(
+        abs(qInit / max(qBeforeGuardrail, qFloor) - 1.0) > 1.0e-6
+        if np.isfinite(qBeforeGuardrail) and qBeforeGuardrail > 0.0
+        else False
+    )
+    qSeedTuncCoverageQ90 = (
+        qTransition90 / max(qInit * tuncScale, np.finfo(np.float64).tiny)
+        if calibrationMode == PROCESS_NOISE_CALIBRATION_TUNC
+        and np.isfinite(qTransition90)
+        and np.isfinite(tuncScale)
+        and tuncScale > 0.0
+        else float("nan")
+    )
+    diagnostics = {
+        "qSeedSource": source,
+        "qSeedReason": reason,
+        "qSeedTransitionCount": int(estimate.get("transitionCount", 0)),
+        "qSeedEffectiveTransitionCount": float(
+            estimate.get("effectiveTransitionCount", 0.0)
+        ),
+        "qSeedPairCount": int(sameTrackDiagnostics.get("pairCount", 0)),
+        "qSeedPrecisionCapFraction": float(
+            sameTrackDiagnostics.get("precisionCapFraction", 0.0)
+        ),
+        "qSeedPriorLevel": float(estimate.get("priorLevel", np.nan)),
+        "qSeedPosteriorMedianLevel": float(
+            estimate.get("posteriorMedianLevel", np.nan)
+        ),
+        "qSeedPosteriorModeLevel": float(estimate.get("posteriorModeLevel", np.nan)),
+        "qSeedPosteriorQ05Level": float(estimate.get("posteriorQ05Level", np.nan)),
+        "qSeedPosteriorQ95Level": float(estimate.get("posteriorQ95Level", np.nan)),
+        "qSeedTransitionQ90": float(qTransition90),
+        "qSeedTuncCoverageQ90": float(qSeedTuncCoverageQ90),
+        "qSeedGuardrailApplied": bool(guardrailApplied),
+        "qSeedLevelPreClamp": float(qBeforeGuardrail),
+        "qSeedTrendPreClamp": float(qTrendRaw),
+        "qSeedLevelFinal": float(qInit),
+        "qSeedTrendFinal": float(qTrendInit),
+        "qSeedClampChanged": bool(qSeedClampChanged),
+        "qSeedTrendLevelRatio": float(qTrendInit / max(qInit, qFloor)),
+        "qSeedMedianSamplingVariance": float(
+            estimate.get("medianSamplingVariance", np.nan)
+        ),
+    }
+    return matrixQ, diagnostics
 
 
 def constructMatrixQ(
@@ -4633,8 +5115,8 @@ def runConsenrich(
     processCovariates: np.ndarray | None = None,
     observationPrecisionMultiplierMin: float = 0.25,
     observationPrecisionMultiplierMax: float = 4.0,
-    processPrecisionMultiplierMin: float = 0.25,
-    processPrecisionMultiplierMax: float = 4.0,
+    processPrecisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
+    processPrecisionMultiplierMax: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX,
     observationMask: np.ndarray | None = None,
     initialBackground: np.ndarray | None = None,
     initialObservationPrecision: np.ndarray | None = None,
@@ -4946,15 +5428,23 @@ def runConsenrich(
     def buildMatrixF(deltaFLocal: float) -> np.ndarray:
         return constructMatrixF(float(deltaFLocal)).astype(np.float32, copy=False)
 
-    def buildMatrixQ0(_deltaFLocal: float) -> np.ndarray:
-        return _estimateInitialProcessNoiseFromData(
+    qSeedDiagnostics: dict[str, Any] = {}
+
+    def buildMatrixQ0(deltaFLocal: float) -> np.ndarray:
+        nonlocal qSeedDiagnostics
+        matrixQ0Estimated, qSeedDiagnostics = _estimateInitialProcessNoiseFromData(
             matrixData=matrixData,
             matrixMunc=matrixMunc,
             pad=float(pad),
             stateModel=stateModelMode,
             minQ=float(minQ),
             maxQ=float(maxQ),
+            deltaF=float(deltaFLocal),
+            tuncMaxScale=float(tuncMaxScale),
+            processNoiseCalibration=processNoiseCalibrationMode,
+            robustTNu=ECM_robustTNu,
         )
+        return matrixQ0Estimated
 
     def _runForwardBackward(
         *,
@@ -6534,6 +7024,8 @@ def runConsenrich(
         processNoiseCalibrationInfo["warmupOuterPasses"] = float(warmupOuterIters)
     if processNoiseCalibrationInfo is None:
         raise RuntimeError("process-noise calibration did not produce diagnostics")
+    if qSeedDiagnostics:
+        processNoiseCalibrationInfo.update(qSeedDiagnostics)
     processNoiseCalibrationInfo.update(qCalibrationSupport)
     processNoiseCalibrationInfo["resolvedMinQ"] = float(minQ)
     processNoiseCalibrationInfo["resolvedMaxQ"] = float(maxQForAPN)

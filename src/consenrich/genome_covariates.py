@@ -84,7 +84,7 @@ def resolve_genome_covariate_feature_config(
     available_features: Sequence[str] | None = None,
     config_name: str = "features",
 ) -> tuple[str, ...]:
-    """Resolve config-style feature selectors into manifest feature names.
+    """Resolve config feature selectors into manifest feature names.
 
     ``"all"`` expands to all manifest features when ``available_features`` is
     provided; otherwise it expands to the supplied defaults.

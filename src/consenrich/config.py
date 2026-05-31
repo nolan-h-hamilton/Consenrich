@@ -197,6 +197,46 @@ def _normalizeMatchingUncertaintyScoreMode(value: Any) -> str:
     return _sharedNormalizeMatchingUncertaintyScoreMode(value)
 
 
+def _normalizeOutputPrecisionDiagnosticDetail(value: Any) -> str:
+    raw = constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL if value is None else value
+    key = str(raw).strip().lower().replace("-", "_")
+    if key in {"summary", "summaries"}:
+        return "summary"
+    if key in {"sample", "sampled"}:
+        return "sampled"
+    if key in {"full", "all", "interval", "intervals"}:
+        return "full"
+    supported = ", ".join(constants.OUTPUT_PRECISION_DIAGNOSTIC_DETAILS)
+    raise ValueError(
+        "Unsupported outputParams.precisionDiagnosticDetail "
+        f"{value!r}; supported values: {supported}."
+    )
+
+
+def _normalizeNonnegativeInt(value: Any, configName: str) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{configName} must be a non-negative integer") from exc
+    if out < 0:
+        raise ValueError(f"{configName} must be a non-negative integer")
+    return out
+
+
+def _normalizeMatchingMetadataDetail(value: Any) -> str:
+    raw = constants.MATCHING_DEFAULT_METADATA_DETAIL if value is None else value
+    key = str(raw).strip().lower().replace("-", "_")
+    if key in {"compact", "summary", "summarized", "summarised"}:
+        return "compact"
+    if key in {"full", "all", "verbose"}:
+        return "full"
+    supported = ", ".join(constants.MATCHING_METADATA_DETAILS)
+    raise ValueError(
+        f"Unsupported matchingParams.metadataDetail {value!r}; "
+        f"supported values: {supported}."
+    )
+
+
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
     return _sharedValidateMatchingUncertaintyScoreZ(value)
 
@@ -521,6 +561,32 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
             constants.OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
         )
     diagnosticTracks_ = _normalizeOutputDiagnosticTracks(diagnosticTracksRaw)
+    precisionDiagnosticDetail_ = _normalizeOutputPrecisionDiagnosticDetail(
+        _cfgGet(
+            configData,
+            "outputParams.precisionDiagnosticDetail",
+            _cfgDefault(configData, "outputParams.precisionDiagnosticDetail"),
+        )
+    )
+    maxPrecisionDiagnosticRowsPerChromosome_ = _normalizeNonnegativeInt(
+        _cfgGet(
+            configData,
+            "outputParams.maxPrecisionDiagnosticRowsPerChromosome",
+            _cfgDefault(
+                configData,
+                "outputParams.maxPrecisionDiagnosticRowsPerChromosome",
+            ),
+        ),
+        "outputParams.maxPrecisionDiagnosticRowsPerChromosome",
+    )
+    maxNonTrackFileBytes_ = _normalizeNonnegativeInt(
+        _cfgGet(
+            configData,
+            "outputParams.maxNonTrackFileBytes",
+            _cfgDefault(configData, "outputParams.maxNonTrackFileBytes"),
+        ),
+        "outputParams.maxNonTrackFileBytes",
+    )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
@@ -531,6 +597,9 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         diagnosticTracks=diagnosticTracks_,
         cutoffReport=bool(cutoffReport_),
         writeRunSummary=bool(writeRunSummary_),
+        precisionDiagnosticDetail=precisionDiagnosticDetail_,
+        maxPrecisionDiagnosticRowsPerChromosome=maxPrecisionDiagnosticRowsPerChromosome_,
+        maxNonTrackFileBytes=maxNonTrackFileBytes_,
     )
 
 
@@ -2054,6 +2123,13 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 configData,
                 "matchingParams.uncertaintyScoreZ",
                 constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+            )
+        ),
+        metadataDetail=_normalizeMatchingMetadataDetail(
+            _cfgGet(
+                configData,
+                "matchingParams.metadataDetail",
+                constants.MATCHING_DEFAULT_METADATA_DETAIL,
             )
         ),
     )

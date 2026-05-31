@@ -163,6 +163,7 @@ def _caseInitialConfigurationSummaryStaysCompact(
     assert "treatment_inputs=3" in caplog.text
     assert "process_noise_calibration=tunc" in caplog.text
     assert 'tunc_scale_bounds="[0.5, 2]"' in caplog.text
+    assert 'process_kappa_bounds="[auto, 10]"' in caplog.text
     assert "3 outer passes x 11 ECM iters" in caplog.text
     assert "inputSource(" not in caplog.text
     assert "'countingArgs':" not in caplog.text
@@ -529,8 +530,12 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.plotOptimizationPath: false
     outputParams.cutoffReport: true
     outputParams.writeRunSummary: false
+    outputParams.precisionDiagnosticDetail: sampled
+    outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
+    outputParams.maxNonTrackFileBytes: 1024
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
+    matchingParams.metadataDetail: full
     """
 
     nestedYaml = """
@@ -551,9 +556,13 @@ def _case_readConfigDottedAndNestedEquivalent(
       plotOptimizationPath: false
       cutoffReport: true
       writeRunSummary: false
+      precisionDiagnosticDetail: sampled
+      maxPrecisionDiagnosticRowsPerChromosome: 7
+      maxNonTrackFileBytes: 1024
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
+      metadataDetail: full
     """
 
     dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
@@ -615,12 +624,20 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputNested.cutoffReport is True
     assert outputDotted.writeRunSummary is False
     assert outputNested.writeRunSummary is False
+    assert outputDotted.precisionDiagnosticDetail == "sampled"
+    assert outputNested.precisionDiagnosticDetail == "sampled"
+    assert outputDotted.maxPrecisionDiagnosticRowsPerChromosome == 7
+    assert outputNested.maxPrecisionDiagnosticRowsPerChromosome == 7
+    assert outputDotted.maxNonTrackFileBytes == 1024
+    assert outputNested.maxNonTrackFileBytes == 1024
     assert outputDotted == outputNested
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]
     matchingDotted = configDotted["matchingArgs"]
     matchingNested = configNested["matchingArgs"]
+    assert matchingDotted.metadataDetail == "full"
+    assert matchingNested.metadataDetail == "full"
 
     assert type(samDotted) is type(samNested)
     assert type(matchingDotted) is type(matchingNested)
@@ -1119,6 +1136,22 @@ def _case_runtime_defaults_are_centralized(
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     )
     assert (
+        parsed["outputArgs"].precisionDiagnosticDetail
+        == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
+    )
+    assert (
+        parsed["outputArgs"].maxPrecisionDiagnosticRowsPerChromosome
+        == constants.OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
+    )
+    assert (
+        parsed["outputArgs"].maxNonTrackFileBytes
+        == constants.OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
+    )
+    assert (
+        parsed["matchingArgs"].metadataDetail
+        == constants.MATCHING_DEFAULT_METADATA_DETAIL
+    )
+    assert (
         consenrich_core.outputParams(
             convertToBigWig=parsed["outputArgs"].convertToBigWig,
             roundDigits=parsed["outputArgs"].roundDigits,
@@ -1149,6 +1182,14 @@ def _case_runtime_defaults_are_centralized(
             writeUncertainty=parsed["outputArgs"].writeUncertainty,
         ).writeRunSummary
         == constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
+    )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).precisionDiagnosticDetail
+        == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
     )
     assert (
         consenrich_core.fitParams().useNonnegativeBackground
@@ -1537,6 +1578,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert (
         defaultArgs.deleteBlockScoreWeightMode
         == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE
+    )
+    assert (
+        defaultArgs.deleteBlockFactorModel
+        == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_SEG_SHRINK
     )
     assert (
         defaultArgs.calibrationOuterIters
@@ -2442,6 +2487,13 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             is False
         )
 
+    remainingGap = consenrich_cli._normalizedRemainingObjectiveGap([10.0, 8.0, 7.0])
+    np.testing.assert_allclose(remainingGap, np.asarray([1.0, 1.0 / 3.0, 0.0]))
+    np.testing.assert_allclose(
+        consenrich_cli._normalizedRemainingObjectiveGap([5.0, 5.0]),
+        np.asarray([0.0, 0.0]),
+    )
+
     saveCalls = []
     fakeMatplotlib = types.ModuleType("matplotlib")
     fakePyplot = types.ModuleType("matplotlib.pyplot")
@@ -2685,11 +2737,44 @@ def test_diagnostic_category_log_helpers(tmp_path):
     assert list(tuncLog.columns) == consenrich_cli.TUNC_KAPPA_LOG_COLUMNS
     assert list(convergenceLog.columns) == consenrich_cli.CONVERGENCE_LOG_COLUMNS
     assert list(deleteLog.columns) == consenrich_cli.DELETE_BLOCK_CALIBRATION_LOG_COLUMNS
-    assert set(muncLog["record_type"]) == {"interval", "summary"}
-    assert set(tuncLog["record_type"]) == {"interval", "summary"}
+    assert set(muncLog["record_type"]) == {"summary"}
+    assert set(tuncLog["record_type"]) == {"summary"}
+    assert "interval" not in set(muncLog["record_type"])
+    assert "interval" not in set(tuncLog["record_type"])
+    assert "rows_omitted" in set(muncLog["key"])
+    assert "rows_omitted" in set(tuncLog["key"])
     assert convergenceLog["record_type"].tolist() == ["trace"]
     assert not list(tmp_path.glob("*precisionDiagnostics*"))
     assert not list(tmp_path.glob("*optimizationPath*.log"))
+
+    sampledPaths = consenrich_cli.DiagnosticLogPaths(
+        munc_lambda=tmp_path / "munc_lambda_sampled.log",
+        tunc_kappa=tmp_path / "tunc_kappa_sampled.log",
+        convergence=tmp_path / "convergence_sampled.log",
+        delete_block_calibration=tmp_path / "delete_block_sampled.log",
+    )
+    consenrich_cli._initializeDiagnosticLogs(sampledPaths)
+    consenrich_cli._appendMuncLambdaDiagnostics(
+        frame,
+        sampledPaths.munc_lambda,
+        chromosome="chr1",
+        precisionDiagnostics=precisionDiagnostics,
+        detail="sampled",
+        maxRowsPerChromosome=2,
+    )
+    consenrich_cli._appendTuncKappaDiagnostics(
+        frame,
+        sampledPaths.tunc_kappa,
+        chromosome="chr1",
+        precisionDiagnostics=precisionDiagnostics,
+        runDiagnostics={},
+        detail="sampled",
+        maxRowsPerChromosome=2,
+    )
+    sampledMuncLog = pd.read_csv(sampledPaths.munc_lambda, sep="\t")
+    sampledTuncLog = pd.read_csv(sampledPaths.tunc_kappa, sep="\t")
+    assert np.sum(sampledMuncLog["record_type"] == "interval") == 2
+    assert np.sum(sampledTuncLog["record_type"] == "interval") == 2
 
 
 def test_cli_logging_contracts(tmp_path):

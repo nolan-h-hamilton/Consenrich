@@ -30,6 +30,34 @@ TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
+def test_process_precision_auto_min_uses_strict_convexity_bound():
+    assert core.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN < 0.0
+    assert core._processKappaConvexityLowerBound(
+        robustTNu=8.0,
+        stateDim=2,
+    ) == pytest.approx(0.6251)
+
+    minValue, maxValue = core._checkProcessPrecisionMultiplierBounds(
+        minValue=-1.0,
+        maxValue=1.10,
+        robustTNu=8.0,
+        stateDim=2,
+    )
+
+    assert minValue == pytest.approx(0.6251)
+    assert maxValue == pytest.approx(1.10)
+
+
+def test_process_precision_auto_min_rejects_too_small_max():
+    with pytest.raises(ValueError, match="auto .*convexity-preserving lower bound"):
+        core._checkProcessPrecisionMultiplierBounds(
+            minValue=-1.0,
+            maxValue=0.5,
+            robustTNu=8.0,
+            stateDim=2,
+        )
+
+
 def test_transform_count_variance_floor_is_transform_dependent_and_applied():
     counts = np.array([0.0, 1.0, 4.0], dtype=np.float32)
     log1Floor = core.transformCountVarianceFloor(
@@ -1877,6 +1905,214 @@ def _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
 
 
 @pytest.mark.correctness
+def _caseInitialProcessNoiseSeedDeconvolvesObservationNoise():
+    n = 32
+    m = 4
+    minQ = 1.0e-4
+    matrixData = np.full((m, n), 0.25, dtype=np.float32)
+    matrixMunc = np.full((m, n), 10.0, dtype=np.float32)
+
+    matrixQ, diagnostics = core._estimateInitialProcessNoiseFromData(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=1.0e-4,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        minQ=minQ,
+        maxQ=1.0,
+        deltaF=0.5,
+        tuncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        robustTNu=8.0,
+    )
+
+    assert diagnostics["qSeedSource"] == "sameTrackEB"
+    assert diagnostics["qSeedTransitionCount"] == n - 1
+    assert diagnostics["qSeedLevelFinal"] < 3.0 * minQ
+    assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
+    assert matrixQ[1, 1] == pytest.approx(minQ)
+
+
+@pytest.mark.correctness
+def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
+    rng = np.random.default_rng(122)
+    n = 160
+    m = 4
+    qTrue = 1.0e-2
+    obsVar = 2.0e-3
+    latent = np.cumsum(rng.normal(0.0, np.sqrt(qTrue), size=n))
+    matrixData = np.vstack(
+        [latent + rng.normal(0.0, np.sqrt(obsVar), size=n) for _ in range(m)]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), obsVar, dtype=np.float32)
+
+    matrixQ, diagnostics = core._estimateInitialProcessNoiseFromData(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=1.0e-4,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        minQ=1.0e-5,
+        maxQ=1.0,
+        deltaF=1.0,
+        tuncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        robustTNu=8.0,
+    )
+
+    assert diagnostics["qSeedSource"] == "sameTrackEB"
+    assert 0.3 * qTrue <= diagnostics["qSeedLevelFinal"] <= 3.0 * qTrue
+    assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
+    assert matrixQ[1, 1] == pytest.approx(
+        diagnostics["qSeedLevelFinal"] * core.PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO
+    )
+
+
+@pytest.mark.correctness
+def _caseInitialProcessNoiseSeedCapsDominantLowMuncArtifact():
+    n = 30
+    m = 5
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixData[0, n // 2 :] = 100.0
+    matrixMunc = np.full((m, n), 0.1, dtype=np.float32)
+    matrixMunc[0, :] = 1.0e-9
+
+    matrixQ, diagnostics = core._estimateInitialProcessNoiseFromData(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=1.0e-4,
+        stateModel=core.STATE_MODEL_LEVEL,
+        minQ=1.0e-5,
+        maxQ=10.0,
+        deltaF=1.0,
+        tuncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        robustTNu=8.0,
+    )
+
+    assert diagnostics["qSeedSource"] == "sameTrackEB"
+    assert diagnostics["qSeedPrecisionCapFraction"] > 0.0
+    assert diagnostics["qSeedLevelFinal"] < 1.0e-3
+    assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
+
+
+@pytest.mark.correctness
+def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
+    n = 20
+    matrixData = np.full((2, n), np.nan, dtype=np.float32)
+    matrixData[0, ::2] = 0.0
+    matrixData[1, 1::2] = 1.0
+    matrixMunc = np.full((2, n), 0.1, dtype=np.float32)
+
+    matrixQ, diagnostics = core._estimateInitialProcessNoiseFromData(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=1.0e-4,
+        stateModel=core.STATE_MODEL_LEVEL,
+        minQ=1.0e-4,
+        maxQ=1.0,
+        deltaF=1.0,
+        tuncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        robustTNu=8.0,
+    )
+
+    assert diagnostics["qSeedSource"] == "pooledEB"
+    assert diagnostics["qSeedTransitionCount"] == n - 1
+    assert np.isfinite(matrixQ).all()
+    assert matrixQ[0, 0] > 1.0e-4
+
+
+@pytest.mark.correctness
+def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
+    intervalCount = 24
+    state = np.zeros((intervalCount, 1), dtype=np.float64)
+    state[intervalCount // 2 :, 0] = 5.0
+    stateCov = np.ones((intervalCount, 1, 1), dtype=np.float64) * 0.04
+    lagCov = np.zeros((intervalCount, 1, 1), dtype=np.float64)
+    lagCov[:-1, 0, 0] = 0.02
+    warmupFit = {
+        "stateSmoothed": state.astype(np.float32),
+        "stateCovarSmoothed": stateCov.astype(np.float32),
+        "lagCovSmoothed": lagCov.astype(np.float32),
+        "matrixMunc": np.full((3, intervalCount), 0.1, dtype=np.float32),
+        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
+    }
+
+    _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+        warmupFit=warmupFit,
+        matrixMunc=warmupFit["matrixMunc"],
+        matrixF=np.asarray([[1.0]], dtype=np.float32),
+        seedQ=np.diag([1.0e-2, 1.0e-2]).astype(np.float32),
+        stateModel=core.STATE_MODEL_LEVEL,
+        pad=1.0e-4,
+        minQ=1.0e-5,
+        maxQ=1.0,
+        blockLenIntervals=3,
+        processCovariates=None,
+        tuncLocalWindowMultiplier=1.0,
+        tuncDependenceMultiplier=1.0,
+        tuncMinScale=0.25,
+        tuncMaxScale=4.0,
+        tuncMinWindowWeight=0.0,
+        tuncPriorRidge=1.0e-3,
+        tuncLevelBufferZ=1.64,
+        observationPrecisionMultiplierMin=0.25,
+        observationPrecisionMultiplierMax=4.0,
+    )
+
+    before = info["tuncPriorScaleBeforeDeadbandSummary"]
+    after = info["tuncPriorScaleAfterDeadbandSummary"]
+    assert info["tuncDeadbandPriorEnabled"] is True
+    assert info["tuncDeadbandMeanProbability"] > 0.0
+    assert info["tuncDeadbandHighProbabilityFraction"] > 0.0
+    assert info["tuncDeadbandNullScale"] == pytest.approx(0.25)
+    assert after["min"] < before["min"]
+
+
+@pytest.mark.correctness
+def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
+    intervalCount = 20
+    state = np.full((intervalCount, 1), 10.0, dtype=np.float64)
+    stateCov = np.ones((intervalCount, 1, 1), dtype=np.float64) * 0.01
+    lagCov = np.zeros((intervalCount, 1, 1), dtype=np.float64)
+    lagCov[:-1, 0, 0] = 0.005
+    warmupFit = {
+        "stateSmoothed": state.astype(np.float32),
+        "stateCovarSmoothed": stateCov.astype(np.float32),
+        "lagCovSmoothed": lagCov.astype(np.float32),
+        "matrixMunc": np.full((2, intervalCount), 0.1, dtype=np.float32),
+        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
+    }
+
+    _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+        warmupFit=warmupFit,
+        matrixMunc=warmupFit["matrixMunc"],
+        matrixF=np.asarray([[1.0]], dtype=np.float32),
+        seedQ=np.diag([1.0e-2, 1.0e-2]).astype(np.float32),
+        stateModel=core.STATE_MODEL_LEVEL,
+        pad=1.0e-4,
+        minQ=1.0e-5,
+        maxQ=1.0,
+        blockLenIntervals=3,
+        processCovariates=None,
+        tuncLocalWindowMultiplier=1.0,
+        tuncDependenceMultiplier=1.0,
+        tuncMinScale=0.25,
+        tuncMaxScale=4.0,
+        tuncMinWindowWeight=0.0,
+        tuncPriorRidge=1.0e-3,
+        tuncLevelBufferZ=1.64,
+        observationPrecisionMultiplierMin=0.25,
+        observationPrecisionMultiplierMax=4.0,
+    )
+
+    before = info["tuncPriorScaleBeforeDeadbandSummary"]
+    after = info["tuncPriorScaleAfterDeadbandSummary"]
+    assert info["tuncDeadbandPriorEnabled"] is True
+    assert info["tuncDeadbandMeanProbability"] < 1.0e-6
+    assert after["median"] == pytest.approx(before["median"])
+
+
+@pytest.mark.correctness
 def _caseRunConsenrichOuterPassSmoke(caplog):
     rng = np.random.default_rng(0)
     n = 64
@@ -2115,7 +2351,8 @@ def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
     assert qInfo["processNoisePolicy"] == "tunc"
     assert qInfo["preKappaQLevel"] >= 5.0e-2
     assert qInfo["qFloor"] == pytest.approx(5.0e-2)
-    assert qInfo["hitQLevelFloor"] is True
+    assert qInfo["qSeedSource"] == "sameTrackEB"
+    assert qInfo["qSeedLevelFinal"] < 1.25 * qInfo["qFloor"]
     assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["preKappaQLevel"])
 
 
@@ -5816,6 +6053,30 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         (
             "TUNC prior df MoM degenerate inputs",
             _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs,
+        ),
+        (
+            "robust Q seed deconvolves observation noise",
+            _caseInitialProcessNoiseSeedDeconvolvesObservationNoise,
+        ),
+        (
+            "robust Q seed recovers random walk scale",
+            _caseInitialProcessNoiseSeedRecoversRandomWalkScale,
+        ),
+        (
+            "robust Q seed caps low MUNC artifact",
+            _caseInitialProcessNoiseSeedCapsDominantLowMuncArtifact,
+        ),
+        (
+            "robust Q seed pooled EB fallback",
+            _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap,
+        ),
+        (
+            "TUNC deadband prior shrinks near null",
+            _caseTuncDeadbandPriorShrinksNearNullPriorScale,
+        ),
+        (
+            "TUNC deadband prior negligible outside deadband",
+            _caseTuncDeadbandPriorNegligibleOutsideDeadband,
         ),
         (
             "state uncertainty coverage",

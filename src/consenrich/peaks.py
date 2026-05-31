@@ -39,6 +39,8 @@ from .constants import (
     MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+    MATCHING_DEFAULT_METADATA_DETAIL,
+    MATCHING_METADATA_DETAILS,
     MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     NESTED_ROCCO_ITERS_DEFAULT,
@@ -46,6 +48,7 @@ from .constants import (
     NESTED_ROCCO_MIN_CHILD_STEPS,
     NESTED_ROCCO_MIN_PARENT_STEPS,
     NESTED_ROCCO_SUBTASK_MAX_ITER,
+    OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     ROCCO_BUDGET_MAX,
     ROCCO_BUDGET_MIN,
     ROCCO_BUDGET_Z_GRID,
@@ -67,6 +70,8 @@ _ROCCO_BUDGET_Z_GRID = ROCCO_BUDGET_Z_GRID
 _ROCCO_MAX_ITER_DEFAULT = ROCCO_MAX_ITER_DEFAULT
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
+_MATCHING_DEFAULT_METADATA_DETAIL = MATCHING_DEFAULT_METADATA_DETAIL
+_OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
 _NESTED_ROCCO_ITERS_DEFAULT = NESTED_ROCCO_ITERS_DEFAULT
 _NESTED_ROCCO_JACCARD_DEFAULT = NESTED_ROCCO_JACCARD_DEFAULT
 _NESTED_ROCCO_MIN_PARENT_STEPS = NESTED_ROCCO_MIN_PARENT_STEPS
@@ -127,6 +132,19 @@ def _validateUncertaintyScoreZ(value: float) -> float:
     return _sharedValidateUncertaintyScoreZ(
         value,
         config_name="uncertaintyScoreZ",
+    )
+
+
+def _normalizeRoccoMetadataDetail(value: str | None) -> str:
+    raw = _MATCHING_DEFAULT_METADATA_DETAIL if value is None else value
+    key = str(raw).strip().lower().replace("-", "_")
+    if key in {"compact", "summary", "summarized", "summarised"}:
+        return "compact"
+    if key in {"full", "all", "verbose"}:
+        return "full"
+    supported = ", ".join(MATCHING_METADATA_DETAILS)
+    raise ValueError(
+        f"Unsupported metadataDetail {value!r}; supported values: {supported}."
     )
 
 
@@ -3381,7 +3399,7 @@ def _solveParentConditionedSubpeaks(
     boundaryCosts: npt.ArrayLike,
     selectionPenalty: float,
     minRunBins: int,
-    anchorIndex: int | None = None,
+    requiredIndex: int | None = None,
 ) -> Tuple[np.ndarray, float, Dict[str, Any]]:
     scores_ = np.asarray(scores, dtype=np.float64)
     if scores_.ndim != 1 or scores_.size == 0:
@@ -3394,7 +3412,9 @@ def _solveParentConditionedSubpeaks(
         raise ValueError("`selectionPenalty` must be finite")
 
     n = int(scores_.size)
-    anchor = None if anchorIndex is None else int(np.clip(int(anchorIndex), 0, n - 1))
+    requiredBin = (
+        None if requiredIndex is None else int(np.clip(int(requiredIndex), 0, n - 1))
+    )
     minRunBins_ = int(min(max(int(minRunBins), 1), n))
     numStates = int(minRunBins_ + 1)
     negInf = -math.inf
@@ -3443,7 +3463,7 @@ def _solveParentConditionedSubpeaks(
         newValues = np.full(numStates, negInf, dtype=np.float64)
         newCounts = np.full(numStates, largeCount, dtype=np.int64)
         transitionCost = float(costs_[i])
-        forceOn = bool(anchor is not None and i == anchor)
+        forceOn = bool(requiredBin is not None and i == requiredBin)
 
         if not forceOn:
             if np.isfinite(prevValues[0]):
@@ -3533,8 +3553,10 @@ def _solveParentConditionedSubpeaks(
         penalty_,
     )
     selectedCount = int(np.sum(mask))
-    if anchor is not None and not bool(mask[anchor]):
-        raise RuntimeError("parent-conditioned subpeak DP violated anchor constraint")
+    if requiredBin is not None and not bool(mask[requiredBin]):
+        raise RuntimeError(
+            "parent-conditioned subpeak DP violated required bin constraint"
+        )
     runs = _selectedRunBounds(mask)
     return (
         mask,
@@ -3550,9 +3572,11 @@ def _solveParentConditionedSubpeaks(
             "boundary_penalty": float(boundaryPenalty),
             "min_run_bins": int(minRunBins_),
             "num_runs": int(len(runs)),
-            "anchor_index": None if anchor is None else int(anchor),
-            "anchor_selected": bool(True if anchor is None else mask[anchor]),
-            "anchor_fallback_window": False,
+            "required_index": None if requiredBin is None else int(requiredBin),
+            "required_selected": bool(
+                True if requiredBin is None else mask[requiredBin]
+            ),
+            "required_fallback_window": False,
         },
     )
 
@@ -3614,15 +3638,15 @@ def _refineNestedROCCOSolution(
     diagnosticLabel: str | None = None,
     diagnosticDetailPath: str | Path | None = None,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
-    r"""Run anchored local ROCCO refinements inside selected first-pass regions.
+    r"""Run local ROCCO refinements inside selected first-pass regions.
 
     For each eligible parent or child region ``R``, solve an exact local chain
     problem with ``localGamma = 0.25 * gamma``, a hard minimum selected-run
-    length, and a mandatory anchor at the strongest local evidence bin. When
+    length, and a mandatory required bin at the strongest local evidence bin. When
     ``nestedRoccoBudgetScale < 1``, translate the scale into a soft per-bin
     penalty rather than a hard local quota. This keeps nested ROCCO as a
     refinement step: children may shrink or split a parent, but every parent
-    contributes at least one anchored child.
+    contributes at least one child.
     """
     scores_ = _asFloatVector("scores", scores)
     rawScores_ = scores_
@@ -3681,7 +3705,7 @@ def _refineNestedROCCOSolution(
         "min_region_bins": int(minRegionBins_),
         "min_region_bp": None if minRegionBP_ is None else int(minRegionBP_),
         "min_child_bins": int(minRegionBins_),
-        "anchor_policy": "argmax_raw_score_leftmost",
+        "required_bin_policy": "argmax_raw_score_leftmost",
         "diagnostic_detail_path": diagnosticDetailPath_,
         "initial_selected_count": int(np.sum(current)),
         "final_selected_count": int(np.sum(current)),
@@ -3716,9 +3740,9 @@ def _refineNestedROCCOSolution(
         softBudgetPenaltyRegions = 0
         localPenaltyExtraTotal = 0.0
         localPenaltyExtraMax = 0.0
-        anchorFallbackWindows = 0
+        requiredFallbackWindows = 0
         parentErasureViolations = 0
-        anchorSurvivalViolations = 0
+        requiredBinViolations = 0
         if diagnostics_:
             logger.info(
                 "nested ROCCO%s iter=%d start parent_regions=%d selected=%d budget_scale=%.4g local_gamma=%.6g selection_penalty=%.6g",
@@ -3766,7 +3790,7 @@ def _refineNestedROCCOSolution(
                 localMinChildBins,
             )
             localRawScores = rawScores_[start : end + 1]
-            anchorLocal = int(np.argmax(localRawScores))
+            requiredLocal = int(np.argmax(localRawScores))
             localBudgetPenalty = float("nan")
             localPenaltyDetails: Dict[str, float] = {
                 "base_penalty": float(selectionPenalty_),
@@ -3790,7 +3814,7 @@ def _refineNestedROCCOSolution(
                         boundaryCosts=localGamma,
                         selectionPenalty=localSelectionPenalty,
                         minRunBins=localMinChildBins,
-                        anchorIndex=anchorLocal,
+                        requiredIndex=requiredLocal,
                     )
                 )
                 localMode = "parent_conditioned_min_run_soft_budget"
@@ -3810,13 +3834,13 @@ def _refineNestedROCCOSolution(
                         boundaryCosts=localGamma,
                         selectionPenalty=localSelectionPenalty,
                         minRunBins=localMinChildBins,
-                        anchorIndex=anchorLocal,
+                        requiredIndex=requiredLocal,
                     )
                 )
                 localMode = "parent_conditioned_min_run_dp"
             localEmptySolution = False
-            localAnchorFallbackUsed = bool(
-                localDetails.get("anchor_fallback_window", False)
+            localRequiredFallbackUsed = bool(
+                localDetails.get("required_fallback_window", False)
             )
             penaltyExtra = float(localPenaltyDetails["extra_penalty"])
             localPenaltyExtraTotal += penaltyExtra
@@ -3826,10 +3850,10 @@ def _refineNestedROCCOSolution(
                 emptyLocalSolutions += 1
                 parentErasureViolations += 1
                 localMask = previous[start : end + 1].copy()
-            if not bool(localMask[anchorLocal]):
-                anchorSurvivalViolations += 1
-            if localAnchorFallbackUsed:
-                anchorFallbackWindows += 1
+            if not bool(localMask[requiredLocal]):
+                requiredBinViolations += 1
+            if localRequiredFallbackUsed:
+                requiredFallbackWindows += 1
             newMask[start : end + 1] = localMask
             if diagnostics_:
                 if intervals_ is not None and ends_ is not None:
@@ -3859,10 +3883,10 @@ def _refineNestedROCCOSolution(
                         "budget_target": int(localSoftBudgetTarget),
                         "soft_budget_target": int(localSoftBudgetTarget),
                         "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
-                        "anchor_local": int(anchorLocal),
-                        "anchor_selected": bool(localMask[anchorLocal]),
+                        "required_local": int(requiredLocal),
+                        "required_selected": bool(localMask[requiredLocal]),
                         "empty_solution": bool(localEmptySolution),
-                        "anchor_fallback": bool(localAnchorFallbackUsed),
+                        "required_fallback": bool(localRequiredFallbackUsed),
                         "objective": float(_localObjective),
                         "penalized": float(localDetails["penalized_objective"]),
                         "solver_penalty": float(localDetails["selection_penalty"]),
@@ -3904,9 +3928,9 @@ def _refineNestedROCCOSolution(
                 "num_soft_budget_penalty_regions": int(softBudgetPenaltyRegions),
                 "num_empty_local_solutions": int(emptyLocalSolutions),
                 "num_budget_fallback_windows": int(budgetFallbackWindows),
-                "num_anchor_fallback_windows": int(anchorFallbackWindows),
+                "num_required_fallback_windows": int(requiredFallbackWindows),
                 "num_parent_erasure_violations": int(parentErasureViolations),
-                "num_anchor_survival_violations": int(anchorSurvivalViolations),
+                "num_required_bin_violations": int(requiredBinViolations),
                 "num_peak_count_monotonicity_violations": int(
                     peakCountMonotonicityViolations
                 ),
@@ -3930,7 +3954,7 @@ def _refineNestedROCCOSolution(
         )
         if diagnostics_:
             logger.info(
-                "nested ROCCO%s iter=%d done selected_before=%d selected_after=%d parent_regions=%d parent_regions_after=%d skipped_short=%d budget_constrained=%d empty_solutions=%d anchor_fallback=%d parent_erasure_violations=%d anchor_survival_violations=%d peak_count_violations=%d coverage_expansion_violations=%d short_child_expanded=%d local_penalty_extra_mean=%.6g objective=%.6g objective_delta=%.6g jaccard=%.6f",
+                "nested ROCCO%s iter=%d done selected_before=%d selected_after=%d parent_regions=%d parent_regions_after=%d skipped_short=%d budget_constrained=%d empty_solutions=%d required_fallback=%d parent_erasure_violations=%d required_bin_violations=%d peak_count_violations=%d coverage_expansion_violations=%d short_child_expanded=%d local_penalty_extra_mean=%.6g objective=%.6g objective_delta=%.6g jaccard=%.6f",
                 label_,
                 int(iterIdx + 1),
                 int(selectedBefore),
@@ -3940,9 +3964,9 @@ def _refineNestedROCCOSolution(
                 int(skippedShort),
                 int(softBudgetPenaltyRegions),
                 int(emptyLocalSolutions),
-                int(anchorFallbackWindows),
+                int(requiredFallbackWindows),
                 int(parentErasureViolations),
-                int(anchorSurvivalViolations),
+                int(requiredBinViolations),
                 int(peakCountMonotonicityViolations),
                 int(coverageExpansionViolations),
                 int(expandedShortChildRuns),
@@ -4077,13 +4101,13 @@ def _solveParentConditionedSubpeakSegments(
     segState = np.asarray(segmentState, dtype=np.float64)
     if segScores.size != segState.size:
         raise ValueError("`segmentScores` and `segmentState` must match")
-    anchorLocal = int(np.argmax(segScores))
+    requiredLocal = int(np.argmax(segScores))
     localMask, _objective, details = _solveParentConditionedSubpeaks(
         segScores,
         boundaryCosts=float(max(float(boundaryCost), 0.0)),
         selectionPenalty=float(selectionPenalty),
         minRunBins=int(max(int(minRunBins), 1)),
-        anchorIndex=anchorLocal,
+        requiredIndex=requiredLocal,
     )
     runs = _selectedRunBounds(localMask)
     if len(runs) == 0:
@@ -4927,6 +4951,190 @@ def _logOutputInventory(summary: Mapping[str, Any]) -> None:
         logger.info("output.inventory %s", " | ".join(parts))
 
 
+def _compactRoccoMetadata(meta: Mapping[str, Any]) -> Dict[str, Any]:
+    compact: Dict[str, Any] = dict(meta)
+    compact["metadata_detail"] = "compact"
+    settings = dict(compact.get("settings", {}))
+    settings["metadata_detail"] = "compact"
+    settings["metadata_omits"] = ["candidate_details", "peak_details"]
+    compact["settings"] = settings
+    chromCompact: Dict[str, Any] = {}
+    chromosomes = meta.get("chromosomes", {})
+    if isinstance(chromosomes, Mapping):
+        for chromosome, chromMetaAny in chromosomes.items():
+            if not isinstance(chromMetaAny, Mapping):
+                continue
+            chromMeta = dict(chromMetaAny)
+            candidateDetails = chromMeta.pop("candidate_details", [])
+            peakDetails = chromMeta.pop("peak_details", [])
+            exportDetails = dict(chromMeta.get("export_details", {}))
+            exportCandidateDetails = exportDetails.pop("candidate_details", [])
+            candidateCount = max(
+                len(candidateDetails) if isinstance(candidateDetails, list) else 0,
+                len(exportCandidateDetails)
+                if isinstance(exportCandidateDetails, list)
+                else 0,
+            )
+            peakCount = len(peakDetails) if isinstance(peakDetails, list) else 0
+            exportDetails["candidate_details_omitted"] = int(candidateCount)
+            chromMeta["export_details"] = exportDetails
+            chromMeta["candidate_details_omitted"] = int(candidateCount)
+            chromMeta["peak_details_omitted"] = int(peakCount)
+            chromCompact[str(chromosome)] = chromMeta
+    compact["chromosomes"] = chromCompact
+    return compact
+
+
+def _boundedJsonValue(value: Any, *, depth: int = 2) -> Any:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if value is None or isinstance(value, (bool, str, int)):
+        return value
+    if isinstance(value, float):
+        return float(value) if np.isfinite(value) else None
+    if isinstance(value, np.ndarray):
+        return {"omitted_type": "ndarray", "shape": [int(x) for x in value.shape]}
+    if isinstance(value, Mapping):
+        if depth <= 0:
+            return {"omitted_type": "mapping", "keys": int(len(value))}
+        return {
+            str(key): _boundedJsonValue(child, depth=depth - 1)
+            for key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return {"omitted_type": "sequence", "length": int(len(value))}
+    return str(value)
+
+
+def _boundedRoccoMetadata(
+    meta: Mapping[str, Any],
+    *,
+    requestedDetail: str,
+    maxBytes: int,
+    attemptedBytes: int,
+) -> Dict[str, Any]:
+    settings = dict(meta.get("settings", {}))
+    settings["metadata_detail"] = "bounded"
+    settings["metadata_requested_detail"] = str(requestedDetail)
+    settings["metadata_byte_cap"] = int(maxBytes)
+    settings["metadata_attempted_bytes"] = int(attemptedBytes)
+    settings["metadata_omits"] = [
+        "candidate_details",
+        "peak_details",
+        "nested_details",
+        "large_sequence_values",
+    ]
+    bounded: Dict[str, Any] = {
+        "metadata_detail": "bounded",
+        "settings": _boundedJsonValue(settings, depth=2),
+        "pooled_null_floor": _boundedJsonValue(meta.get("pooled_null_floor"), depth=2),
+        "budget_shrinkage": _boundedJsonValue(meta.get("budget_shrinkage"), depth=2),
+        "blacklist_filter": _boundedJsonValue(
+            meta.get("blacklist_filter", {}),
+            depth=2,
+        ),
+        "massive_subpeak_width_policy": _boundedJsonValue(
+            meta.get("massive_subpeak_width_policy", {}),
+            depth=2,
+        ),
+        "chromosomes": {},
+    }
+    chromosomes = meta.get("chromosomes", {})
+    if isinstance(chromosomes, Mapping):
+        for chromosome, chromMetaAny in chromosomes.items():
+            if not isinstance(chromMetaAny, Mapping):
+                continue
+            peakDetails = chromMetaAny.get("peak_details", [])
+            exportDetails = chromMetaAny.get("export_details", {})
+            exportCandidateDetails = (
+                exportDetails.get("candidate_details", [])
+                if isinstance(exportDetails, Mapping)
+                else []
+            )
+            chromBounded: Dict[str, Any] = {}
+            for key in (
+                "n_loci",
+                "interval_bp",
+                "budget",
+                "objective",
+                "first_pass_objective",
+                "num_parent_segments",
+                "num_segments",
+                "num_candidate_segments",
+                "num_segments_dropped_median_signal_local_p",
+                "export_trim_score_floor",
+                "state_diagnostics",
+                "budget_details",
+                "gamma_details",
+                "solve_details",
+                "null_replay_false_segment_diagnostics",
+            ):
+                if key in chromMetaAny:
+                    chromBounded[key] = _boundedJsonValue(chromMetaAny[key], depth=2)
+            chromBounded["candidate_details_omitted"] = int(
+                len(exportCandidateDetails)
+                if isinstance(exportCandidateDetails, list)
+                else chromMetaAny.get("candidate_details_omitted", 0)
+            )
+            chromBounded["peak_details_omitted"] = int(
+                len(peakDetails)
+                if isinstance(peakDetails, list)
+                else chromMetaAny.get("peak_details_omitted", 0)
+            )
+            bounded["chromosomes"][str(chromosome)] = chromBounded
+    return bounded
+
+
+def _writeRoccoMetadata(
+    metaPath: str,
+    meta: Mapping[str, Any],
+    *,
+    metadataDetail: str,
+    maxNonTrackFileBytes: int,
+) -> None:
+    path = Path(metaPath)
+
+    def writePayload(payload: Mapping[str, Any]) -> int:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        return int(path.stat().st_size)
+
+    maxBytes = int(max(maxNonTrackFileBytes, 0))
+    payload = meta if metadataDetail == "full" else _compactRoccoMetadata(meta)
+    attemptedBytes = writePayload(payload)
+    if maxBytes <= 0 or attemptedBytes <= maxBytes:
+        return
+    if metadataDetail == "full":
+        compact = _compactRoccoMetadata(meta)
+        compactBytes = writePayload(compact)
+        if compactBytes <= maxBytes:
+            logger.warning(
+                "ROCCO metadata detail downgraded from full to compact because %s "
+                "would exceed the non-track file cap: full_bytes=%d cap_bytes=%d",
+                metaPath,
+                attemptedBytes,
+                maxBytes,
+            )
+            return
+        attemptedBytes = compactBytes
+    bounded = _boundedRoccoMetadata(
+        meta,
+        requestedDetail=metadataDetail,
+        maxBytes=maxBytes,
+        attemptedBytes=attemptedBytes,
+    )
+    boundedBytes = writePayload(bounded)
+    logger.warning(
+        "ROCCO metadata bounded to keep non-track file under policy cap: "
+        "path=%s requested_detail=%s attempted_bytes=%d bounded_bytes=%d cap_bytes=%d",
+        metaPath,
+        metadataDetail,
+        attemptedBytes,
+        boundedBytes,
+        maxBytes,
+    )
+
+
 def solveRocco(
     stateBedGraphFile: str,
     uncertaintyBedGraphFile: str | None = None,
@@ -4949,6 +5157,8 @@ def solveRocco(
     outPath: str | None = None,
     metaPath: str | None = None,
     verbose: bool = False,
+    metadataDetail: str = _MATCHING_DEFAULT_METADATA_DETAIL,
+    maxNonTrackFileBytes: int = _OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
     blacklistBedFile: str | None = None,
     writeMetadata: bool = True,
@@ -4960,6 +5170,7 @@ def solveRocco(
     )
     uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
     uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
+    metadataDetail_ = _normalizeRoccoMetadataDetail(metadataDetail)
     if uncertaintyScoreMode_ == "lower_confidence" and uncertaintyBedGraphFile is None:
         raise ValueError(
             "`lower_confidence` uncertaintyScoreMode requires an uncertainty bedGraph"
@@ -5044,6 +5255,7 @@ def solveRocco(
             "uncertainty_score_mode": str(uncertaintyScoreMode_),
             "uncertainty_score_z": float(uncertaintyScoreZ_),
             "dwb_null_enabled": True,
+            "metadata_detail": metadataDetail_,
             "rand_seed": int(randSeed),
         },
         "pooled_null_floor": None,
@@ -5396,8 +5608,12 @@ def solveRocco(
             handle.write("\t".join(map(str, row)) + "\n")
 
     if metaPath is not None:
-        with open(metaPath, "w", encoding="utf-8") as handle:
-            json.dump(meta, handle, indent=2, sort_keys=True)
+        _writeRoccoMetadata(
+            metaPath,
+            meta,
+            metadataDetail=metadataDetail_,
+            maxNonTrackFileBytes=maxNonTrackFileBytes,
+        )
     summary = _buildRoccoSummary(
         outPath=str(outPath),
         metaPath=str(metaPath),
