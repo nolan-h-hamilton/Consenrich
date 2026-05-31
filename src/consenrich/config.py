@@ -1455,6 +1455,15 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     )
     if float(tuncLevelBufferZ) < 0.0:
         raise ValueError("`processParams.tuncLevelBufferZ` must be non-negative.")
+    qSeedPriorLevel = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.qSeedPriorLevel",
+            _cfgDefault(configData, "processParams.qSeedPriorLevel"),
+        ),
+        name="processParams.qSeedPriorLevel",
+        positive=True,
+    )
     tuncProcessCovariatesEnabled = bool(
         _cfgGet(
             configData,
@@ -1548,6 +1557,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 "processParams.maxQ",
                 _cfgDefault(configData, "processParams.maxQ"),
             ),
+            "qSeedPriorLevel": qSeedPriorLevel,
             "processNoiseCalibration": processNoiseCalibration,
             "tuncLocalWindowMultiplier": tuncLocalWindowMultiplier,
             "tuncDependenceMultiplier": tuncDependenceMultiplier,

@@ -17,7 +17,7 @@ def _write_cache(tmp_path, chrom="chrTest", bin_size=50, features=FEATURES):
         [
             [0.40, 0.00, 0.10],
             [0.60, 0.20, 0.30],
-            [np.nan, 0.50, 0.00],
+            [0.55, 0.50, 0.00],
             [0.50, 1.00, 0.20],
         ],
         dtype=np.float32,
@@ -74,8 +74,8 @@ def test_genome_covariate_cache_fetch_exact_and_aggregate(tmp_path):
     aggregated = cache.fetch("chrTest", start=0, end=200, interval_size_bp=100)
     expected = np.asarray(
         [
-            np.nanmean(arr[0:2], axis=0),
-            np.nanmean(arr[2:4], axis=0),
+            np.mean(arr[0:2], axis=0),
+            np.mean(arr[2:4], axis=0),
         ],
         dtype=np.float32,
     )
@@ -109,12 +109,12 @@ def test_genome_covariate_cache_supports_feature_selection_and_partial_fetch(tmp
     expected = np.asarray(
         [
             [
-                np.nanmean(arr[1:3, 2]),
-                np.nanmean(arr[1:3, 0]),
+                np.mean(arr[1:3, 2]),
+                np.mean(arr[1:3, 0]),
             ],
             [
-                np.nanmean(arr[3:4, 2]),
-                np.nanmean(arr[3:4, 0]),
+                np.mean(arr[3:4, 2]),
+                np.mean(arr[3:4, 0]),
             ],
         ],
         dtype=np.float32,

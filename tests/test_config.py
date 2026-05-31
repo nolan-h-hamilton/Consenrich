@@ -729,6 +729,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
       tuncMinWindowWeight: 2.0
       tuncPriorRidge: 0.002
       tuncLevelBufferZ: 1.25
+      qSeedPriorLevel: 3.0e-8
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
       precisionMultiplierMin: 0.5
@@ -755,6 +756,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.tuncMinWindowWeight == pytest.approx(2.0)
     assert processArgs.tuncPriorRidge == pytest.approx(0.002)
     assert processArgs.tuncLevelBufferZ == pytest.approx(1.25)
+    assert processArgs.qSeedPriorLevel == pytest.approx(3.0e-8)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
@@ -1210,6 +1212,10 @@ def _case_runtime_defaults_are_centralized(
     )
     assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
     assert (
+        consenrich_core.processParams().qSeedPriorLevel
+        == constants.PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL
+    )
+    assert (
         consenrich_core.uncertaintyCalibrationParams().enabled
         == constants.UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED
     )
@@ -1314,6 +1320,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
       tuncMinWindowWeight: 4.0
       tuncPriorRidge: 0.02
       tuncLevelBufferZ: 0.75
+      qSeedPriorLevel: 4.0e-8
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
       precisionMultiplierMin: 0.25
@@ -1327,6 +1334,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     supportedProcessKwargs = {
         "processNoiseWarmupOuterPasses",
         "processNoiseCalibration",
+        "qSeedPriorLevel",
         "tuncLocalWindowMultiplier",
         "tuncDependenceMultiplier",
         "tuncMinScale",
@@ -1344,6 +1352,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
 
     assert kwargs["processNoiseCalibration"] == "fixed"
     assert "tuncPriorDf" not in kwargs
+    assert kwargs["qSeedPriorLevel"] == pytest.approx(4.0e-8)
     assert kwargs["tuncLocalWindowMultiplier"] == pytest.approx(2.5)
     assert kwargs["tuncDependenceMultiplier"] == pytest.approx(3.0)
     assert kwargs["tuncMinScale"] == pytest.approx(0.5)

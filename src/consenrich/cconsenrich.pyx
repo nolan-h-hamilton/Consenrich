@@ -6846,7 +6846,8 @@ def cTuncObservationInformation(
         lam = np.ascontiguousarray(np.asarray(lambdaExp, dtype=np.float64).reshape(-1), dtype=np.float64)
         if lam.shape[0] != n:
             raise ValueError("lambdaExp length must match interval count")
-        lam = np.ascontiguousarray(np.nan_to_num(lam, nan=1.0, posinf=1.0, neginf=1.0), dtype=np.float64)
+        if not np.all(np.isfinite(lam)):
+            raise ValueError("lambdaExp must contain only finite values")
         lam = np.ascontiguousarray(np.clip(lam, observationPrecisionMultiplierMin, observationPrecisionMultiplierMax), dtype=np.float64)
     info = np.zeros(n, dtype=np.float64)
     with nogil:

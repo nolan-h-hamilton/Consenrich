@@ -2066,6 +2066,14 @@ def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
     assert info["tuncDeadbandHighProbabilityFraction"] > 0.0
     assert info["tuncDeadbandNullScale"] == pytest.approx(0.25)
     assert after["min"] < before["min"]
+    assert info["tuncDeadbandHighProbabilityThreshold"] == pytest.approx(0.8)
+    assert info["tuncDeadbandHighTransitionCount"] > 0
+    assert info["tuncDeadbandHighTransitionFraction"] > 0.0
+    assert info["tuncDeadbandHighRawScaleSummary"]["median"] is not None
+    assert info["tuncDeadbandHighTransitionScaleSummary"]["median"] is not None
+    assert info["tuncDeadbandHighRebasedProcessQScaleSummary"]["median"] is not None
+    assert info["tuncDeadbandHighQLevelSummary"]["median"] is not None
+    assert info["tuncDeadbandHighQTrendSummary"]["median"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
@@ -2110,6 +2118,11 @@ def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
     assert info["tuncDeadbandPriorEnabled"] is True
     assert info["tuncDeadbandMeanProbability"] < 1.0e-6
     assert after["median"] == pytest.approx(before["median"])
+    assert info["tuncDeadbandHighTransitionCount"] == 0
+    assert info["tuncDeadbandHighRawScaleSummary"]["median"] is None
+    assert info["tuncDeadbandHighTransitionScaleSummary"]["median"] is None
+    assert info["tuncDeadbandHighRebasedProcessQScaleSummary"]["median"] is None
+    assert info["tuncDeadbandHighQLevelSummary"]["median"] is None
 
 
 @pytest.mark.correctness
@@ -2318,6 +2331,10 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert qInfo["preKappaQTrend"] > 0.0
     assert "processQScaleSummary" in qInfo
     assert "processQScale" not in qInfo
+    assert "_tuncDeadbandHighIntervalMask" not in qInfo
+    assert "tuncDeadbandHighKappaSummary" in qInfo
+    assert "tuncDeadbandHighEffectiveQLevelSummary" in qInfo
+    assert "tuncDeadbandHighEffectiveQTrendSummary" in qInfo
 
 
 @pytest.mark.correctness

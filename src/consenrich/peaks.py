@@ -2073,7 +2073,9 @@ def _bhQValues(pValues: npt.ArrayLike) -> np.ndarray:
     p = np.asarray(pValues, dtype=np.float64).ravel()
     if p.size == 0:
         return np.asarray([], dtype=np.float64)
-    p = np.clip(np.where(np.isfinite(p), p, 1.0), 0.0, 1.0)
+    if not np.all(np.isfinite(p)):
+        raise ValueError("`pValues` contains non-finite values")
+    p = np.clip(p, 0.0, 1.0)
     order = np.argsort(p, kind="mergesort")
     out = np.empty_like(p)
     previous = 1.0
@@ -2114,18 +2116,12 @@ def _empiricalReplaySegmentPValues(
     if len(nullParts) == 0:
         return np.ones(observed.size, dtype=np.float64)
     nullStats = np.concatenate(nullParts)
-    nullStats = nullStats[np.isfinite(nullStats)]
-    if nullStats.size == 0:
-        return np.ones(observed.size, dtype=np.float64)
+    if not np.all(np.isfinite(observed)) or not np.all(np.isfinite(nullStats)):
+        raise ValueError("replay segment statistics contain non-finite values")
     nullStats.sort()
-    out = np.ones(observed.size, dtype=np.float64)
     denominator = float(nullStats.size + 1)
-    finite = np.isfinite(observed)
-    if np.any(finite):
-        tailStarts = np.searchsorted(nullStats, observed[finite], side="left")
-        out[finite] = (
-            1.0 + (nullStats.size - tailStarts).astype(np.float64)
-        ) / denominator
+    tailStarts = np.searchsorted(nullStats, observed, side="left")
+    out = (1.0 + (nullStats.size - tailStarts).astype(np.float64)) / denominator
     return np.clip(out, 0.0, 1.0)
 
 
@@ -2140,28 +2136,21 @@ def _replayFDRQValues(
         np.asarray(draw, dtype=np.float64).ravel()
         for draw in nullStatsByDraw
     ]
-    nullDraws = [draw[np.isfinite(draw)] for draw in nullDraws]
+    if not np.all(np.isfinite(observed)) or any(
+        not np.all(np.isfinite(draw)) for draw in nullDraws
+    ):
+        raise ValueError("replay FDR statistics contain non-finite values")
     for draw in nullDraws:
         draw.sort()
-    observedFinite = np.asarray(
-        observed[np.isfinite(observed)],
-        dtype=np.float64,
-    )
-    observedFinite.sort()
-    order = np.argsort(
-        -np.where(np.isfinite(observed), observed, -np.inf),
-        kind="mergesort",
-    )
+    statsSorted = np.sort(observed)
+    order = np.argsort(-observed, kind="mergesort")
     rawFdr = np.ones(observed.size, dtype=np.float64)
     replayPseudocount = 1.0 / float(len(nullDraws) + 1) if len(nullDraws) > 0 else 1.0
     for rank, idx in enumerate(order):
         threshold = float(observed[idx])
-        if not np.isfinite(threshold):
-            rawFdr[rank] = 1.0
-            continue
         observedAtThreshold = int(
-            observedFinite.size
-            - np.searchsorted(observedFinite, threshold, side="left")
+            statsSorted.size
+            - np.searchsorted(statsSorted, threshold, side="left")
         )
         expectedNull = float(
             np.mean(
@@ -3057,7 +3046,9 @@ def _massiveSubpeakWidthScores(
         scale = 1.0
     z = (logs - center) / scale
     p = stats.norm.sf(z)
-    p = np.clip(np.where(np.isfinite(p), p, 1.0), 0.0, 1.0)
+    if not np.all(np.isfinite(p)):
+        raise RuntimeError("width-score p-values contain non-finite values")
+    p = np.clip(p, 0.0, 1.0)
     qValues = _bhQValues(p)
     return p, qValues, {"center": float(center), "scale": float(scale)}
 
@@ -3099,7 +3090,7 @@ def _learnMassiveSubpeakWidthPolicy(
     if (not bool(enabled)) or valid.size < int(details["min_peaks"]):
         return details
     pValues, qValues, scoreMeta = _massiveSubpeakWidthScores(
-        widths,
+        valid,
         bulkQuantile=float(bulkQuantile),
     )
     details["null_center"] = float(scoreMeta["center"])
@@ -3107,8 +3098,7 @@ def _learnMassiveSubpeakWidthPolicy(
     alpha_ = float(np.clip(float(alpha), 0.0, 1.0))
     minBP_ = float(details["min_bp"])
     tail = (
-        np.isfinite(widths)
-        & (widths >= minBP_)
+        (valid >= minBP_)
         & np.isfinite(qValues)
         & (qValues <= alpha_)
     )
@@ -3124,7 +3114,7 @@ def _learnMassiveSubpeakWidthPolicy(
         logGap = float(np.log(right) - np.log(left))
         if logGap < float(minLogGap):
             continue
-        rightMask = widths >= float(right)
+        rightMask = valid >= float(right)
         rightCount = int(np.sum(rightMask))
         if rightCount < 1 or rightCount > maxCount:
             continue
@@ -3145,7 +3135,7 @@ def _learnMassiveSubpeakWidthPolicy(
     details["gap_width_threshold_bp"] = int(round(float(gapThreshold)))
     details["width_cap_bp"] = int(round(float(widthCap)))
     details["width_threshold_bp"] = int(round(float(threshold)))
-    details["num_width_cluster_candidates"] = int(np.sum(widths >= float(threshold)))
+    details["num_width_cluster_candidates"] = int(np.sum(valid >= float(threshold)))
     details["num_width_tail_gap_candidates"] = int(gapClusterCount)
     details["selected_log_gap"] = float(logGap)
     details["active"] = True
@@ -3255,26 +3245,23 @@ def _contractMassiveSubpeakSegment(
     threshold_ = float(thresholdBP)
     if (not np.isfinite(threshold_)) or threshold_ <= 0.0:
         return None
-
-    finiteScores = np.where(np.isfinite(localScores), localScores, -math.inf)
-    if not bool(np.any(np.isfinite(finiteScores))):
-        return None
+    if not np.all(np.isfinite(localScores)):
+        raise ValueError("`scores` contains non-finite values")
 
     mids = 0.5 * (localStarts.astype(np.float64) + localEnds.astype(np.float64))
-    maxScore = float(np.max(finiteScores))
-    maxMask = finiteScores >= maxScore - max(1.0e-12, abs(maxScore) * 1.0e-12)
+    maxScore = float(np.max(localScores))
+    maxMask = localScores >= maxScore - max(1.0e-12, abs(maxScore) * 1.0e-12)
     centerAbs = float(np.median(mids[maxMask])) if bool(np.any(maxMask)) else float(
         0.5 * (int(localStarts[0]) + int(localEnds[-1]))
     )
     centerLocal = int(np.argmin(np.abs(mids - centerAbs)))
     minBins = int(max(int(minRunBins), 1))
 
-    finiteOnly = finiteScores[np.isfinite(finiteScores)]
-    low = float(np.quantile(finiteOnly, float(np.clip(splitQuantile, 0.0, 1.0))))
+    low = float(np.quantile(localScores, float(np.clip(splitQuantile, 0.0, 1.0))))
     dynamic = float(maxScore - low)
     if np.isfinite(dynamic) and dynamic > 1.0e-12:
         floor = float(low + 0.5 * dynamic)
-        keep = finiteScores >= floor
+        keep = localScores >= floor
         if bool(keep[centerLocal]):
             left = centerLocal
             while left > 0 and bool(keep[left - 1]):
@@ -3303,7 +3290,7 @@ def _contractMassiveSubpeakSegment(
             if widthLeft < threshold_:
                 choices.append(
                     (
-                        float(finiteScores[left - 1]),
+                        float(localScores[left - 1]),
                         -abs(float(mids[left - 1]) - centerAbs),
                         -1,
                     )
@@ -3315,7 +3302,7 @@ def _contractMassiveSubpeakSegment(
             if widthRight < threshold_:
                 choices.append(
                     (
-                        float(finiteScores[right + 1]),
+                        float(localScores[right + 1]),
                         -abs(float(mids[right + 1]) - centerAbs),
                         1,
                     )

@@ -235,6 +235,10 @@ def validate_genome_covariate_cache(
             raise ValueError(
                 f"genome covariate array for {name} must contain numeric values"
             )
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(
+                f"genome covariate array for {name} must contain only finite values"
+            )
     if not chromosomes:
         raise ValueError("genome covariate cache must define at least one chromosome")
 
@@ -429,10 +433,5 @@ class ConsenrichGenomeCovariateCache:
         for idx in range(n_out):
             lo = idx * group
             hi = min((idx + 1) * group, base.shape[0])
-            block = np.asarray(base[lo:hi, :], dtype=np.float32)
-            finite = np.isfinite(block)
-            counts = np.sum(finite, axis=0)
-            if np.any(counts > 0):
-                sums = np.sum(np.where(finite, block, 0.0), axis=0)
-                out[idx, counts > 0] = sums[counts > 0] / counts[counts > 0]
+            out[idx, :] = np.mean(base[lo:hi, :], axis=0, dtype=np.float64)
         return out

@@ -134,24 +134,6 @@ def _resolveExtendFrom5pBPPairs(
         logger.warning("No treatment extension lengths provided...returning [],[]")
         return [], []
 
-    n_treat = len(treatmentExtendFrom5pBP)
-
-    if controlExtendFrom5pBP:
-        if len(controlExtendFrom5pBP) == 1 and n_treat > 1:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP) * n_treat
-            logger.info(
-                "Only one control extension length provided: broadcasting this value for all control BAM files."
-            )
-        elif len(controlExtendFrom5pBP) != n_treat:
-            logger.warning(
-                "Sizes of treatment and control extension length lists are incompatible...returning [],[]"
-            )
-            return [], []
-        else:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP)
-    else:
-        controlExtendFrom5pBP = list(treatmentExtendFrom5pBP)
-
     finalTreatment = [int(x) for x in treatmentExtendFrom5pBP]
     finalControl = [int(x) for x in treatmentExtendFrom5pBP]
 

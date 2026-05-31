@@ -1068,7 +1068,8 @@ def _precisionDiagnosticsFrame(
             raise RuntimeError(
                 f"lambdaExp length mismatch for {chromosome}: expected {n}, got {lambdaArr.size}"
             )
-    lambdaArr = np.nan_to_num(lambdaArr, nan=1.0, posinf=1.0, neginf=1.0)
+    if not np.all(np.isfinite(lambdaArr)):
+        raise RuntimeError(f"lambdaExp contains non-finite values for {chromosome}")
     lambdaArr = np.maximum(lambdaArr, np.finfo(np.float64).tiny)
 
     kappaArr = np.ones(n, dtype=np.float64)
@@ -1078,7 +1079,8 @@ def _precisionDiagnosticsFrame(
             raise RuntimeError(
                 f"processPrecExp length mismatch for {chromosome}: expected {n}, got {kappaArr.size}"
             )
-    kappaArr = np.nan_to_num(kappaArr, nan=1.0, posinf=1.0, neginf=1.0)
+    if not np.all(np.isfinite(kappaArr)):
+        raise RuntimeError(f"processPrecExp contains non-finite values for {chromosome}")
     kappaArr = np.maximum(kappaArr, np.finfo(np.float64).tiny)
 
     q = np.asarray(matrixQ0, dtype=np.float64)
@@ -1731,6 +1733,7 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
     for parameterName in (
         "processNoiseCalibration",
+        "qSeedPriorLevel",
         "tuncLocalWindowMultiplier",
         "tuncDependenceMultiplier",
         "tuncMinScale",
@@ -1815,6 +1818,16 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         (
             "process Q bounds",
             f"[{float(processArgs.minQ):.6g}, {float(processArgs.maxQ):.6g}]",
+        ),
+        (
+            "q seed prior level",
+            float(
+                getattr(
+                    processArgs,
+                    "qSeedPriorLevel",
+                    constants.PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
+                )
+            ),
         ),
         (
             "process noise calibration",
@@ -3336,24 +3349,12 @@ def main():
                 "all requested chromosomes."
             ) from exc
         raw = np.asarray(raw, dtype=np.float32)
-        if raw.shape[0] < int(numIntervals):
-            logger.warning(
-                "MUNC genomic covariates: cache for %s covers %d/%d requested "
-                "intervals; missing intervals will be excluded from additive "
-                "covariate fitting and will use the baseline MUNC trend.",
-                chromosome,
-                int(raw.shape[0]),
-                int(numIntervals),
+        if raw.shape[0] != int(numIntervals):
+            raise ValueError(
+                "MUNC genomic covariates: cache for "
+                f"{chromosome} returned {int(raw.shape[0])} intervals, "
+                f"expected {int(numIntervals)}"
             )
-            padded = np.full(
-                (int(numIntervals), raw.shape[1]),
-                np.nan,
-                dtype=np.float32,
-            )
-            padded[: raw.shape[0], :] = raw
-            raw = padded
-        elif raw.shape[0] > int(numIntervals):
-            raw = raw[: int(numIntervals), :]
         return _prepareMuncCovariateTrack(raw)
 
     def _blockCovariateMeans(
