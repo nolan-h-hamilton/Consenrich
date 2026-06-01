@@ -8,6 +8,7 @@ import math
 import os
 import logging
 import tempfile
+from types import SimpleNamespace
 from typing import Tuple, List, Optional
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import scipy.stats as stats
 import scipy.signal as spySig  # renamed to avoid conflict with any `signal` variables
 
 import consenrich.core as core
+import consenrich.consenrich as consenrichRuntime
 import consenrich.ccounts as ccounts
 import consenrich.cconsenrich as cconsenrich
 import consenrich.diagnostics as diagnostics
@@ -86,6 +88,10 @@ def test_transform_count_variance_floor_is_transform_dependent_and_applied():
     assert np.all(np.isfinite(log1Floor))
     assert log1Floor[0] > 0.0
     assert log2Floor[0] < log1Floor[0]
+    expectedLog1 = (counts.astype(np.float64) + 0.5) / np.square(
+        counts.astype(np.float64) + 1.5
+    )
+    np.testing.assert_allclose(log1Floor, expectedLog1.astype(np.float32))
 
     munc = np.full_like(log1Floor, 0.01, dtype=np.float32)
     floored = core.applyMuncCountModelVarianceFloor(
@@ -94,38 +100,24 @@ def test_transform_count_variance_floor_is_transform_dependent_and_applied():
         varianceFloor=1.0e-6,
     )
     assert np.all(floored >= log1Floor)
-    assert floored[0] == pytest.approx(log1Floor[0] + munc[0])
+    assert floored[0] == pytest.approx(log1Floor[0])
 
 
-def test_munc_count_model_variance_is_additive_excess_term():
-    excess = np.asarray([0.02, 0.20, 0.03], dtype=np.float32)
+def test_munc_count_model_variance_is_lower_bound():
+    totalVariance = np.asarray([0.02, 0.20, 0.03], dtype=np.float32)
     count_noise = np.asarray([0.10, 0.05, np.nan], dtype=np.float32)
 
     combined = core.applyMuncCountModelVarianceFloor(
-        excess,
+        totalVariance,
         count_noise,
         varianceFloor=1.0e-6,
     )
 
-    assert combined[0] == pytest.approx(0.12)
-    assert combined[1] == pytest.approx(0.25)
+    assert combined[0] == pytest.approx(0.10)
+    assert combined[1] == pytest.approx(0.20)
     assert combined[2] == pytest.approx(0.03)
 
 
-def test_munc_excess_variance_subtracts_count_noise_and_clips():
-    total = np.asarray([0.08, 0.20, np.nan], dtype=np.float32)
-    count_noise = np.asarray([0.10, 0.05, 0.02], dtype=np.float32)
-
-    excess = core._subtractMuncCountNoise(
-        total,
-        count_noise,
-        varianceFloor=1.0e-6,
-        fillNaN=False,
-    )
-
-    assert excess[0] == pytest.approx(1.0e-6)
-    assert excess[1] == pytest.approx(0.15)
-    assert np.isnan(excess[2])
 _REMOVED_EM_PREFIX = "E" + "M" + "_"
 
 
@@ -371,6 +363,66 @@ def _caseEventLogFormattingIsCompactAndAttributed(caplog):
     assert (
         caplog.records[-1].message == "event=munc.track.start munc_variance_eb=enabled"
     )
+
+
+def test_runtime_munc_count_floor_logging(caplog):
+    sizing = core._resolveMuncRuntimeSizing(
+        intervalSizeBP=25,
+        dependenceSpanIntervals=None,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+    )
+    baseObservationFields = {
+        "EB_use": True,
+        "EB_setNu0": None,
+        "EB_setNuL": None,
+        "numNearest": 0,
+        "sparseSupportScaleBP": None,
+        "sparseSupportPrior": 1.0,
+    }
+    caplog.set_level(logging.INFO, logger=consenrichRuntime.logger.name)
+
+    for flagValue, expectedStatus in ((False, "disabled"), (None, "enabled")):
+        caplog.clear()
+        observationFields = dict(baseObservationFields)
+        if flagValue is not None:
+            observationFields["useCountNoiseFloor"] = flagValue
+        consenrichRuntime._logMuncEstimationParameters(
+            chromosomeCount=1,
+            sampleCount=1,
+            intervalSizeBP=25,
+            sizing=sizing,
+            muncVarianceModel="kalman",
+            samplingIters=8,
+            dependenceContextBP=None,
+            dependenceSpanIntervals=None,
+            trendMultiplier=1.0,
+            localMultiplier=1.0,
+            observationArgs=SimpleNamespace(**observationFields),
+            sparseBedEnabled=False,
+            varianceFloor=1.0e-12,
+            varianceCap=None,
+            trendNumBasis=6,
+            trendMinObsPerBasis=1.0,
+            trendMinEdf=1.0,
+            trendMaxEdf=None,
+            trendLambdaMin=1.0e-6,
+            trendLambdaMax=1.0e6,
+            trendLambdaGridSize=5,
+            pooledPairCount=4,
+        )
+
+        assert f"munc_count_model_floor={expectedStatus}" in caplog.records[-1].message
+
+
+def test_munc_eb_prior_g_uncertainty_modes_are_limited():
+    assert core._normalizeMuncEBPriorGUncertaintyMode(None) == "proxy"
+    assert core._normalizeMuncEBPriorGUncertaintyMode("proxy") == "proxy"
+    assert core._normalizeMuncEBPriorGUncertaintyMode("diagonal") == "proxy"
+    assert core._normalizeMuncEBPriorGUncertaintyMode("disabled") == "disabled"
+
+    with pytest.raises(ValueError, match="g uncertainty"):
+        core._normalizeMuncEBPriorGUncertaintyMode("exact")
 
 
 @pytest.mark.correctness
@@ -2959,18 +3011,17 @@ def _casePSplineLimitsBasisCountByWeightedSupport():
 
 
 @pytest.mark.correctness
-def _casePooledMuncTrendRecoversReplicateVarianceFactors():
+def _casePooledMuncTrendUsesSharedShapeAndSampleStrength():
     rng = np.random.default_rng(2025)
     meansBase = np.linspace(-10.0, 10.0, 300, dtype=np.float64)
-    factorsTrue = np.array([0.5, 1.0, 2.0], dtype=np.float64)
-    means = np.tile(meansBase, factorsTrue.size)
-    sampleIndex = np.repeat(np.arange(factorsTrue.size), meansBase.size)
+    residualSd = np.array([0.03, 0.25, 0.60], dtype=np.float64)
+    means = np.tile(meansBase, residualSd.size)
+    sampleIndex = np.repeat(np.arange(residualSd.size), meansBase.size)
     x = np.sign(means) * np.log1p(np.abs(means))
     sharedVariance = np.exp(-0.7 + 0.25 * np.sin(2.0 * x) + 0.08 * x)
     blockVariances = (
         sharedVariance
-        * factorsTrue[sampleIndex]
-        * np.exp(rng.normal(0.0, 0.03, means.size))
+        * np.exp(rng.normal(0.0, residualSd[sampleIndex], means.size))
     )
 
     pooled = core.fitPooledMuncVarianceTrend(
@@ -2985,12 +3036,100 @@ def _casePooledMuncTrendRecoversReplicateVarianceFactors():
         eps=1.0e-8,
     )
 
-    logMae = np.mean(
-        np.abs(np.log(pooled.replicateVarianceFactors) - np.log(factorsTrue))
+    predicted = core.evalPSplineLogVarianceTrend(
+        pooled.trend,
+        meansBase,
+        eps=1.0e-8,
     )
-    assert logMae < 0.08
+    nu0BySample = []
+    for sample in range(residualSd.size):
+        sampleMask = sampleIndex == sample
+        nu0BySample.append(
+            core.EB_computePooledPriorStrength(
+                blockVariances[sampleMask],
+                core.evalPSplineLogVarianceTrend(
+                    pooled.trend,
+                    means[sampleMask],
+                    eps=1.0e-8,
+                ),
+                Nu_local=12.0,
+                sampleIndex=sampleIndex[sampleMask],
+                chromosomeIndex=np.zeros(np.count_nonzero(sampleMask), dtype=np.int64),
+                blockStarts=np.arange(np.count_nonzero(sampleMask), dtype=np.int64),
+                thinBinSize=1,
+                localLogVarianceNoise=np.full(
+                    np.count_nonzero(sampleMask),
+                    0.02,
+                    dtype=np.float64,
+                ),
+            )
+        )
+
+    xBase = x[: meansBase.size]
+    sharedTarget = np.exp(-0.7 + 0.25 * np.sin(2.0 * xBase) + 0.08 * xBase)
+    assert np.allclose(pooled.replicateVarianceFactors, np.ones(residualSd.size))
+    assert np.mean(np.abs(np.log(predicted) - np.log(sharedTarget))) < 0.35
+    assert len({round(float(value), 4) for value in nu0BySample}) > 1
     assert pooled.diagnostics["predictor"] == "signed_log1p"
-    assert pooled.diagnostics["iterations"] <= 3
+    assert pooled.diagnostics["replicate_factor_fit"] == "disabled"
+
+
+@pytest.mark.correctness
+def _caseMuncTrendRejectsInvalidVarianceValues():
+    means = np.linspace(-2.0, 2.0, 8, dtype=np.float64)
+    samples = np.arange(means.size, dtype=np.int64) % 2
+    message = "blockVariances must contain only finite positive values"
+
+    for badValue in (-1.0, 0.0, np.nan, np.inf):
+        variances = np.linspace(1.0, 2.0, means.size, dtype=np.float64)
+        variances[3] = badValue
+
+        with pytest.raises(ValueError, match=message):
+            core.fitPSplineLogVarianceTrend(
+                means,
+                variances,
+                trendNumBasis=6,
+                trendMinObsPerBasis=1.0,
+                trendLambdaGridSize=5,
+                eps=1.0e-8,
+            )
+        with pytest.raises(ValueError, match=message):
+            core.fitPooledMuncVarianceTrend(
+                means,
+                variances,
+                samples,
+                trendNumBasis=6,
+                trendMinObsPerBasis=1.0,
+                trendLambdaGridSize=5,
+                eps=1.0e-8,
+            )
+
+
+@pytest.mark.correctness
+def _caseNonnegativeRidgeFailsWhenNNLSSolverFails(monkeypatch):
+    def failNNLS(*args, **kwargs):
+        raise RuntimeError("iteration limit")
+
+    monkeypatch.setattr(core.optimize, "nnls", failNNLS)
+
+    with pytest.raises(
+        RuntimeError,
+        match="nonnegative ridge NNLS failed",
+    ) as excInfo:
+        means = np.linspace(-1.0, 1.0, 4, dtype=np.float64)
+        baseline = np.ones(means.size, dtype=np.float64)
+        core.fitMuncAdditiveCovariateModel(
+            means,
+            baseline + 1.0,
+            baseline,
+            np.ones((means.size, 1), dtype=np.float64),
+            np.zeros(means.size, dtype=np.int64),
+            sampleCount=1,
+            minBlocksPerReplicate=1,
+        )
+
+    assert isinstance(excInfo.value.__cause__, RuntimeError)
+    assert str(excInfo.value.__cause__) == "iteration limit"
 
 
 @pytest.mark.correctness
@@ -3104,6 +3243,8 @@ def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
         diagnostics={},
     )
     covariates = np.ones((values.size, 1), dtype=np.float32)
+    localTrack0 = np.full(values.size, 3.0, dtype=np.float32)
+    localTrack1 = np.full(values.size, 6.0, dtype=np.float32)
 
     track0, _ = core.getMuncTrack(
         "chrTest",
@@ -3112,11 +3253,15 @@ def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
         25,
         muncTrendBlockSizeBP=100,
         muncLocalWindowSizeBP=100,
-        EB_use=False,
+        EB_use=True,
+        EB_localQuantile=-1.0,
+        EB_setNuL=4,
+        EB_pooledNu0=1.0e9,
         pooledTrend=trend,
         covariateTrack=covariates,
         additiveCovariateModel=model,
         replicateIndex=0,
+        localVarianceTrack=localTrack0,
         varianceFloor=1.0e-6,
     )
     track1, _ = core.getMuncTrack(
@@ -3126,76 +3271,20 @@ def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
         25,
         muncTrendBlockSizeBP=100,
         muncLocalWindowSizeBP=100,
-        EB_use=False,
+        EB_use=True,
+        EB_localQuantile=-1.0,
+        EB_setNuL=4,
+        EB_pooledNu0=1.0e9,
         pooledTrend=trend,
         covariateTrack=covariates,
         additiveCovariateModel=model,
         replicateIndex=1,
+        localVarianceTrack=localTrack1,
         varianceFloor=1.0e-6,
     )
 
-    np.testing.assert_allclose(track0, np.full(values.size, 3.0), rtol=1.0e-6)
-    np.testing.assert_allclose(track1, np.full(values.size, 6.0), rtol=1.0e-6)
-
-
-@pytest.mark.correctness
-def _caseReplicateMuncPriorsDifferAndProcessMatchesSerial(tmp_path):
-    meansBase = np.linspace(-8.0, 8.0, 160, dtype=np.float64)
-    means = np.tile(meansBase, 2)
-    sampleIndex = np.repeat([0, 1], meansBase.size)
-    chromIndex = np.tile(np.repeat([0, 1], meansBase.size // 2), 2)
-    starts = np.tile(np.arange(meansBase.size, dtype=np.int64), 2)
-    x = np.sign(means) * np.log1p(np.abs(means))
-    variances = np.empty_like(means)
-    variances[sampleIndex == 0] = np.exp(-0.4 + 0.35 * x[sampleIndex == 0])
-    variances[sampleIndex == 1] = np.exp(0.5 - 0.25 * x[sampleIndex == 1])
-
-    common = dict(
-        chromosomeIndex=chromIndex,
-        blockStarts=starts,
-        sampleCount=2,
-        eps=1.0e-8,
-        trendNumBasis=18,
-        trendMinObsPerBasis=5.0,
-        trendMinEdf=2.0,
-        trendMaxEdf=12.0,
-        trendLambdaGridSize=13,
-        EB_setNuL=8,
-        localWindowIntervals=11,
-        thinBinSize=7,
-        localLogVarianceNoise=np.full_like(means, 0.05, dtype=np.float64),
-    )
-    serial = core.fitReplicateMuncVariancePriors(
-        means,
-        variances,
-        sampleIndex,
-        workers=1,
-        **common,
-    )
-    process = core.fitReplicateMuncVariancePriors(
-        means,
-        variances,
-        sampleIndex,
-        workers=2,
-        memmapDir=str(tmp_path),
-        **common,
-    )
-
-    probe = np.array([-5.0, 0.0, 5.0], dtype=np.float64)
-    serialPred0 = core.evalPSplineLogVarianceTrend(serial[0].trend, probe, eps=1.0e-8)
-    serialPred1 = core.evalPSplineLogVarianceTrend(serial[1].trend, probe, eps=1.0e-8)
-    processPred0 = core.evalPSplineLogVarianceTrend(process[0].trend, probe, eps=1.0e-8)
-    processPred1 = core.evalPSplineLogVarianceTrend(process[1].trend, probe, eps=1.0e-8)
-
-    assert len(serial) == 2
-    assert not np.allclose(serialPred0, serialPred1)
-    np.testing.assert_allclose(processPred0, serialPred0, rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(processPred1, serialPred1, rtol=0.0, atol=0.0)
-    assert all(np.isfinite(prior.Nu_0) and prior.Nu_0 >= 4.0 for prior in serial)
-    assert all(
-        prior.diagnostics.get("Nu_L_source") == "delta_method_ar1_blocks"
-        for prior in process
-    )
+    np.testing.assert_allclose(track0, np.full(values.size, 3.0), rtol=1.0e-5)
+    np.testing.assert_allclose(track1, np.full(values.size, 6.0), rtol=1.0e-5)
 
 
 @pytest.mark.correctness
@@ -3502,147 +3591,53 @@ def _caseApplyBlacklistMuncFloorUsesAutoFloorWhenMinRNegative():
 
 
 @pytest.mark.correctness
-def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
+def _caseGetMuncTrackRejectsSparseLocalVariancePaths():
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.6, intervals.size, dtype=np.float32)
-    sparseIntervalIndices = np.array([1, 2, 3, 4, 9, 10, 11, 12], dtype=np.intp)
-    fakeVarTrack = np.linspace(0.2, 0.5, intervals.size, dtype=np.float32)
-    fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-    countFloor = np.linspace(0.01, 0.08, intervals.size, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeSparseNearest(*args, **kwargs):
-        seen["sparse_centers"] = np.asarray(args[1]).copy()
-        seen["block_starts"] = np.asarray(args[2]).copy()
-        seen["block_sizes"] = np.asarray(args[3]).copy()
-        seen["count_noise_block_mean"] = np.asarray(
-            kwargs.get("countNoiseBlockMean"),
-            dtype=np.float64,
-        ).copy()
-        seen["sparse_variance_floor"] = np.asarray(
-            [kwargs.get("varianceFloor")],
-            dtype=np.float64,
-        )
-        seen["sparse_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return (
-            np.zeros(intervals.size, dtype=np.float32),
-            fakeVarTrack.copy(),
-        )
-
-    def _fakeRolling(*args, **kwargs):
-        seen["rolling_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return fakeRollingVarTrack.copy()
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        seen["block_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
-        return {"slope": 1.0}
-
-    def _fakeEvalPSplineLogVarianceTrend(opt, meanTrack, *args, **kwargs):
-        meanTrackArr = np.asarray(meanTrack, dtype=np.float32)
-        return np.maximum(0.25, meanTrackArr + 0.1).astype(np.float32)
-
-    def _fakeEBComputePriorStrength(localVars, _priorVars, _nuLocal, **kwargs):
-        seen["local_vars"] = np.asarray(localVars).copy()
-        seen["thin_stride"] = np.asarray([kwargs.get("thinStride", 1)], dtype=np.int64)
-        return 10.0
-
-    monkeypatch.setattr(
-        cconsenrich,
-        "cSparseNearestMeanVarTrack",
-        _fakeSparseNearest,
+    localVarianceTrack = np.full(values.size, 0.5, dtype=np.float32)
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(0.5)], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={},
     )
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        _fakeRolling,
-    )
-    monkeypatch.setattr(
-        cconsenrich,
-        "cmeanVarPairs",
-        _fakeMeanVarPairs,
-    )
-    monkeypatch.setattr(
-        core, "fitPSplineLogVarianceTrend", _fakeFitPSplineLogVarianceTrend
-    )
-    monkeypatch.setattr(
-        core, "evalPSplineLogVarianceTrend", _fakeEvalPSplineLogVarianceTrend
-    )
-    monkeypatch.setattr(core, "EB_computePriorStrength", _fakeEBComputePriorStrength)
-
-    muncTrack, support = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-        samplingIters=64,
-        sparseIntervalIndices=sparseIntervalIndices,
-        numNearest=3,
-        sparseSupportScaleBP=50,
-        sparseSupportPrior=1.0,
-        EB_localQuantile=-1.0,
-        EB_use=True,
-        countModelVarianceFloor=countFloor,
+    cases = (
+        (
+            "sparse-nearest MUNC",
+            {
+                "sparseIntervalIndices": np.array([1, 4, 7], dtype=np.intp),
+            },
+        ),
+        ("sparse-nearest MUNC", {"numNearest": 3}),
+        (
+            "restrictLocalVarianceToSparseBed",
+            {
+                "sparseRegionMask": np.ones(values.size, dtype=np.uint8),
+                "restrictLocalVarianceToSparseBed": True,
+            },
+        ),
     )
 
-    supportWeights = core._sparseSupportWeights(
-        sparseIntervalIndices,
-        intervals.size,
-        ellIntervals=2.0,
-        supportPrior=1.0,
-    )
-    countNoiseLocalTrack = core._rollingCenteredWindowMean(
-        countFloor,
-        6,
-        np.zeros(intervals.size, dtype=np.uint8),
-    )
-    rollingExcess = core._subtractMuncCountNoise(
-        fakeRollingVarTrack,
-        countNoiseLocalTrack,
-        varianceFloor=1.0e-6,
-        fillNaN=False,
-    )
-    expectedLocalVars = supportWeights * fakeVarTrack.astype(np.float64) + (
-        1.0 - supportWeights
-    ) * rollingExcess.astype(np.float64)
-    sparseSet = set(sparseIntervalIndices.tolist())
-    for blockStart, blockSize in zip(seen["block_starts"], seen["block_sizes"]):
-        blockRange = range(int(blockStart), int(blockStart + blockSize))
-        assert all(idx in sparseSet for idx in blockRange)
-    expectedBlockNoise = core._finiteIntervalMeans(
-        countFloor,
-        seen["block_starts"],
-        seen["block_starts"] + seen["block_sizes"],
-    )
-
-    assert np.array_equal(seen["sparse_centers"], sparseIntervalIndices)
-    assert np.allclose(seen["count_noise_block_mean"], expectedBlockNoise)
-    assert seen["sparse_variance_floor"][0] == pytest.approx(1.0e-6)
-    assert bool(seen["sparse_use_innovation_var"][0]) is False
-    assert bool(seen["rolling_use_innovation_var"][0]) is False
-    assert bool(seen["block_use_innovation_var"][0]) is False
-    assert np.allclose(seen["local_vars"], expectedLocalVars)
-    assert int(seen["thin_stride"][0]) == 6
-    assert muncTrack.shape == values.shape
-    assert np.isfinite(muncTrack).all()
-    assert support > 0.0
+    for message, kwargs in cases:
+        with pytest.raises(ValueError, match=message):
+            core.getMuncTrack(
+                chromosome="chrTest",
+                intervals=intervals,
+                values=values,
+                intervalSizeBP=25,
+                muncTrendBlockSizeBP=125,
+                muncLocalWindowSizeBP=150,
+                pooledTrend=pooledTrend,
+                localVarianceTrack=localVarianceTrack,
+                **kwargs,
+            )
 
 
 @pytest.mark.correctness
@@ -3651,35 +3646,27 @@ def _caseGetMuncTrackClipsHugePriorBeforeShrinkage(
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.2, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-    fakeRollingVarTrack = np.linspace(0.05, 0.2, intervals.size, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        seen["block_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeRolling(*args, **kwargs):
-        seen["rolling_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return fakeRollingVarTrack.copy()
+    localVarTrack = np.linspace(0.05, 0.2, intervals.size, dtype=np.float32)
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([0.0], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={},
+    )
 
     def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
-        return {"huge": True}
+        pytest.fail("pooled trend should be reused")
 
     def _fakeEvalPSplineLogVarianceTrend(*args, **kwargs):
         return np.full(values.shape, 1.0e100, dtype=np.float64)
 
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
     monkeypatch.setattr(
         core, "fitPSplineLogVarianceTrend", _fakeFitPSplineLogVarianceTrend
     )
@@ -3702,13 +3689,13 @@ def _caseGetMuncTrackClipsHugePriorBeforeShrinkage(
         samplingIters=64,
         EB_localQuantile=-1.0,
         EB_use=True,
+        pooledTrend=pooledTrend,
+        localVarianceTrack=localVarTrack,
         varianceCap=0.75,
     )
 
     assert np.all(np.isfinite(muncTrack))
     assert np.all(muncTrack <= np.float32(0.75))
-    assert bool(seen["rolling_use_innovation_var"][0]) is False
-    assert bool(seen["block_use_innovation_var"][0]) is False
 
 
 @pytest.mark.correctness
@@ -3719,24 +3706,23 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
     values = np.linspace(0.1, 1.2, intervals.size, dtype=np.float32)
     localVarTrack = np.full(intervals.size, 1.0, dtype=np.float32)
     priorVarTrack = np.full(intervals.size, 0.01, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        lambda *args, **kwargs: localVarTrack.copy(),
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(0.01)], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={},
     )
     monkeypatch.setattr(
         core,
         "fitPSplineLogVarianceTrend",
-        lambda *args, **kwargs: {"flat": True},
+        lambda *args, **kwargs: pytest.fail("pooled trend should be reused"),
     )
     monkeypatch.setattr(
         core,
@@ -3760,6 +3746,8 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
         EB_localQuantile=-1.0,
         EB_setNuL=10,
         EB_use=True,
+        pooledTrend=pooledTrend,
+        localVarianceTrack=localVarTrack,
         varianceFloor=0.0,
         varianceCap=10.0,
     )
@@ -3769,38 +3757,38 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
     assert np.allclose(muncTrack, expected.astype(np.float32))
 
 
-def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPatch):
+def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
+    monkeypatch: pytest.MonkeyPatch,
+):
     intervals = np.arange(0, 500, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.5, intervals.size, dtype=np.float32)
     localVarTrack = np.full(intervals.size, 2.0, dtype=np.float32)
     priorVarTrack = np.full(intervals.size, 10.0, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
     seen: dict[str, float] = {}
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _failRollingBeta(*args, **kwargs):
-        pytest.fail("noDMVar=True should skip rolling AR(1) beta for Nu_L")
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(10.0)], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={},
+    )
 
     def _fakePriorStrength(local, prior, Nu_local, *args, **kwargs):
         seen["Nu_L"] = float(Nu_local)
+        np.testing.assert_allclose(local, localVarTrack)
+        np.testing.assert_allclose(prior, priorVarTrack)
         return 4.0
 
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        lambda *args, **kwargs: localVarTrack.copy(),
-    )
-    monkeypatch.setattr(cconsenrich, "crollingMuncAR1Beta", _failRollingBeta)
     monkeypatch.setattr(
         core,
         "fitPSplineLogVarianceTrend",
-        lambda *args, **kwargs: {"flat": True},
+        lambda *args, **kwargs: pytest.fail("pooled trend should be reused"),
     )
     monkeypatch.setattr(
         core,
@@ -3819,7 +3807,8 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
         samplingIters=64,
         EB_localQuantile=-1.0,
         EB_use=True,
-        noDMVar=True,
+        pooledTrend=pooledTrend,
+        localVarianceTrack=localVarTrack,
         varianceFloor=0.0,
         varianceCap=20.0,
     )
@@ -3832,12 +3821,14 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.correctness
-def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
+def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
     values = np.linspace(-1.0, 1.0, intervals.size, dtype=np.float32)
     localVarTrack = np.full(intervals.size, 9.0, dtype=np.float32)
+    priorMeanTrack = np.full(intervals.size, 2.0, dtype=np.float32)
+    priorVarTrack = np.linspace(2.0, 3.0, intervals.size, dtype=np.float32)
     pooledTrend = core.PSplineLogVarianceTrend(
         knots=np.empty(0, dtype=np.float64),
         degree=-1,
@@ -3851,16 +3842,19 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
         finiteCount=8,
         diagnostics={},
     )
+    seen = {"priorMean": False}
 
-    def _fakeMeanVarPairs(*args, **kwargs):
-        pytest.fail("pooled trend should not resample block pairs")
+    realEval = core.evalPSplineLogVarianceTrend
 
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        lambda *args, **kwargs: localVarTrack.copy(),
-    )
+    def _fakeEval(trend, predictor, **kwargs):
+        predictorArr = np.asarray(predictor, dtype=np.float32)
+        if predictorArr.shape == priorMeanTrack.shape:
+            np.testing.assert_allclose(predictorArr, priorMeanTrack)
+            seen["priorMean"] = True
+            return priorVarTrack.copy()
+        return realEval(trend, predictor, **kwargs)
+
+    monkeypatch.setattr(core, "evalPSplineLogVarianceTrend", _fakeEval)
     monkeypatch.setattr(
         core,
         "fitPSplineLogVarianceTrend",
@@ -3884,238 +3878,81 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
         EB_setNuL=10,
         EB_use=True,
         pooledTrend=pooledTrend,
-        replicateVarianceFactor=3.0,
+        priorMeanTrack=priorMeanTrack,
         EB_pooledNu0=4.0,
+        localVarianceTrack=localVarTrack,
         varianceFloor=0.0,
         varianceCap=20.0,
     )
 
-    expected = (10.0 * localVarTrack + 4.0 * np.float32(6.0)) / 14.0
+    expected = (10.0 * localVarTrack + 4.0 * priorVarTrack) / 14.0
+    assert seen["priorMean"]
     assert np.allclose(muncTrack, expected.astype(np.float32))
 
 
 @pytest.mark.correctness
-def _caseMeanVarPairSampleSizesStayWithinTrackLength():
-    intervals = np.arange(1024, dtype=np.uint32)
-    values = np.linspace(-0.5, 0.5, intervals.size, dtype=np.float32)
-    excludeMask = np.zeros(intervals.size, dtype=np.uint8)
-
-    means, variances, starts, ends = cconsenrich.cmeanVarPairs(
-        intervals,
-        values,
-        900,
-        256,
-        42,
-        excludeMask,
+def _caseGetMuncTrackRejectsReplicateVarianceFactor():
+    intervals = np.arange(0, 300, 25, dtype=np.uint32)
+    values = np.linspace(-1.0, 1.0, intervals.size, dtype=np.float32)
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(2.0)], dtype=np.float64),
+        xMin=-1.0,
+        xMax=1.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=8,
+        diagnostics={},
     )
 
-    assert means.shape == (256,)
-    assert variances.shape == (256,)
-    assert starts.shape == ends.shape == (256,)
-    assert np.all(starts >= 0)
-    assert np.all(ends <= values.size)
-    assert np.all(ends > starts)
+    with pytest.raises(ValueError, match="replicateVarianceFactor"):
+        core.getMuncTrack(
+            chromosome="chrTest",
+            intervals=intervals,
+            values=values,
+            intervalSizeBP=25,
+            muncTrendBlockSizeBP=125,
+            muncLocalWindowSizeBP=150,
+            pooledTrend=pooledTrend,
+            replicateVarianceFactor=1.5,
+        )
 
 
 @pytest.mark.correctness
-def _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
-    rng = np.random.default_rng(44)
-    n = 4096
-    phi = 0.8
-    values = np.zeros(n, dtype=np.float64)
-    innovations = rng.normal(scale=np.sqrt(1.0 - phi * phi), size=n)
-    values[0] = rng.normal()
-    for i in range(1, n):
-        values[i] = phi * values[i - 1] + innovations[i]
-
-    excludeMask = np.zeros(n, dtype=np.uint8)
-    innovationVar = cconsenrich.crolling_AR1_IVar(
-        values.astype(np.float32),
-        201,
-        excludeMask,
-        useInnovationVar=True,
+def _caseBroadMuncTileEvidenceAggregatesSeedAndSamples():
+    seedMean = np.asarray([0.0, 1.0, 3.0, -1.0], dtype=np.float32)
+    evidence = np.asarray(
+        [
+            [1.0, 2.0, 3.0, 4.0],
+            [4.0, 3.0, 2.0, 1.0],
+        ],
+        dtype=np.float32,
     )
-    marginalVar = cconsenrich.crolling_AR1_IVar(
-        values.astype(np.float32),
-        201,
-        excludeMask,
-        useInnovationVar=False,
-    )
+    starts = np.asarray([0, 2], dtype=np.intp)
+    sizes = np.asarray([2, 2], dtype=np.intp)
+    exclude = np.asarray([0, 1, 0, 0], dtype=np.uint8)
+    weights = np.asarray([1.0, 1.0, 0.5, 1.5], dtype=np.float64)
 
-    assert float(np.median(marginalVar)) > 1.8 * float(np.median(innovationVar))
-    assert float(np.median(marginalVar)) == pytest.approx(1.0, rel=0.25)
-
-
-@pytest.mark.correctness
-def test_core_rolling_ar1_uses_canonical_block_variance_functional():
-    rng = np.random.default_rng(47)
-    n = 160
-    windowLength = 21
-    values = np.zeros(n, dtype=np.float64)
-    innovations = rng.normal(scale=0.35, size=n)
-    for i in range(1, n):
-        values[i] = 0.82 * values[i - 1] + innovations[i]
-    values = (values + np.linspace(-0.4, 0.6, n)).astype(np.float32)
-    excludeMask = np.zeros(n, dtype=np.uint8)
-
-    rollingMarginal = cconsenrich.crollingMuncVariance(
-        values,
-        windowLength,
-        excludeMask,
-        useInnovationVar=False,
-        maxBeta=0.95,
-    )
-    starts = np.arange(n - windowLength + 1, dtype=np.intp)
-    blockSizes = np.full(starts.shape, windowLength, dtype=np.intp)
-    _means, canonicalBlockVars = cconsenrich.cSparseNearestMeanVarTrack(
-        values,
+    predictor, tileEvidence, tileWeight = cconsenrich.cbroadMuncTileEvidence(
+        seedMean,
+        evidence,
         starts,
-        starts,
-        blockSizes,
-        1,
-        useInnovationVar=False,
-        aggregateMeanAbs=False,
-        maxBeta=0.95,
-    )
-    centeredOutputIdx = starts + (windowLength // 2)
-
-    np.testing.assert_allclose(
-        rollingMarginal[centeredOutputIdx],
-        canonicalBlockVars[starts],
-        rtol=1.0e-5,
-        atol=1.0e-6,
+        sizes,
+        exclude,
+        weights,
+        eps=0.5,
     )
 
-    rollingInnovation = cconsenrich.crollingMuncVariance(
-        values,
-        windowLength,
-        excludeMask,
-        useInnovationVar=True,
-        maxBeta=0.80,
+    expectedPredictor = np.asarray(
+        [0.0, (0.5 * np.log1p(3.0) - 1.5 * np.log1p(1.0)) / 2.0],
+        dtype=np.float64,
     )
-    cappedMarginal = cconsenrich.crollingMuncVariance(
-        values,
-        windowLength,
-        excludeMask,
-        useInnovationVar=False,
-        maxBeta=0.80,
-    )
-    maxInflation = 1.0 / (1.0 - 0.80 * 0.80)
-    assert np.all(
-        cappedMarginal[centeredOutputIdx]
-        <= (maxInflation * rollingInnovation[centeredOutputIdx]) + 1.0e-5
-    )
-
-
-@pytest.mark.correctness
-def test_core_sparse_nearest_subtracts_count_noise_before_aggregation():
-    values = np.linspace(0.0, 1.0, 18, dtype=np.float32)
-    sparseCenters = np.array([3, 8, 14], dtype=np.intp)
-    blockStarts = np.array([1, 6, 12], dtype=np.intp)
-    blockSizes = np.array([5, 5, 5], dtype=np.intp)
-    excludeMask = np.zeros(values.size, dtype=np.uint8)
-
-    _means0, vars0 = cconsenrich.cSparseNearestMeanVarTrack(
-        values,
-        sparseCenters,
-        blockStarts,
-        blockSizes,
-        1,
-        useInnovationVar=False,
-        aggregateMeanAbs=False,
-    )
-    countNoise = np.array([0.01, 0.02, 0.03], dtype=np.float64)
-    _means1, vars1 = cconsenrich.cSparseNearestMeanVarTrack(
-        values,
-        sparseCenters,
-        blockStarts,
-        blockSizes,
-        1,
-        useInnovationVar=False,
-        aggregateMeanAbs=False,
-        countNoiseBlockMean=countNoise,
-        varianceFloor=1.0e-6,
-    )
-
-    expectedAtCenters = np.maximum(
-        vars0[sparseCenters].astype(np.float64) - countNoise,
-        1.0e-6,
-    )
-    np.testing.assert_allclose(
-        vars1[sparseCenters],
-        expectedAtCenters.astype(np.float32),
-        rtol=1.0e-6,
-        atol=1.0e-7,
-    )
-
-    rolling = cconsenrich.crollingMuncVariance(
-        values,
-        5,
-        excludeMask,
-        useInnovationVar=False,
-    )
-    assert np.isfinite(rolling).all()
-
-
-@pytest.mark.correctness
-def test_core_delta_method_nu_l_uses_rolling_ar1_beta_uncertainty():
-    rng = np.random.default_rng(48)
-    n = 4096
-    windowLength = 201
-    excludeMask = np.zeros(n, dtype=np.uint8)
-
-    def _simulateAR1(phi: float) -> np.ndarray:
-        values = np.zeros(n, dtype=np.float64)
-        innovationScale = math.sqrt(max(1.0 - phi * phi, 1.0e-6))
-        innovations = rng.normal(scale=innovationScale, size=n)
-        values[0] = rng.normal()
-        for i in range(1, n):
-            values[i] = phi * values[i - 1] + innovations[i]
-        return values.astype(np.float32)
-
-    whiteNoiseBeta = cconsenrich.crollingMuncAR1Beta(
-        _simulateAR1(0.0),
-        windowLength,
-        excludeMask,
-    )
-    correlatedValues = _simulateAR1(0.82)
-    correlatedBeta = cconsenrich.crollingMuncAR1Beta(
-        correlatedValues,
-        windowLength,
-        excludeMask,
-    )
-    blockStarts = np.arange(0, 800, 100, dtype=np.intp)
-    blockSizes = np.full(blockStarts.shape, windowLength, dtype=np.intp)
-    blockBeta = cconsenrich.cblockAR1Beta(correlatedValues, blockStarts, blockSizes)
-    blockNoise = core._computeDeltaMethodAR1LogVarianceNoise(blockBeta, blockSizes)
-    blockInnovationNoise = core._computeDeltaMethodAR1LogVarianceNoise(
-        blockBeta,
-        blockSizes,
-        muncAR1VarianceFunctional="innovation",
-    )
-
-    assert float(np.median(whiteNoiseBeta)) < 0.10
-    assert float(np.median(correlatedBeta)) > 0.65
-    assert float(np.median(blockBeta)) > 0.65
-    assert np.all(np.isfinite(blockNoise))
-    assert np.all(np.isfinite(blockInnovationNoise))
-    assert float(np.median(blockNoise)) > float(np.median(blockInnovationNoise))
-
-    nominalNuL = float(windowLength - 3)
-    zeroNuL, zeroDiag = core._computeDeltaMethodAR1NuL(
-        np.zeros(200, dtype=np.float32),
-        windowLength,
-    )
-    highNuL, highDiag = core._computeDeltaMethodAR1NuL(
-        np.full(200, 0.85, dtype=np.float32),
-        windowLength,
-    )
-
-    assert zeroNuL == pytest.approx(nominalNuL)
-    assert zeroDiag["beta_median"] == pytest.approx(0.0)
-    assert 4.0 <= highNuL < zeroNuL
-    assert highDiag["beta_median"] == pytest.approx(0.85, rel=1.0e-6)
-    assert highDiag["nu_eff_q95"] < nominalNuL
+    np.testing.assert_allclose(predictor, expectedPredictor)
+    np.testing.assert_allclose(tileEvidence, np.asarray([[1.0, 3.75], [4.0, 1.25]]))
+    np.testing.assert_allclose(tileWeight, np.asarray([[1.0, 2.0], [1.0, 2.0]]))
 
 
 @pytest.mark.correctness
@@ -4171,287 +4008,6 @@ def _caseMuncSizingAndCythonVarianceModels():
     assert dependenceSizing.dependenceSpanIntervals == 17
     assert dependenceSizing.trendBlockIntervals == 26
     assert dependenceSizing.localWindowIntervals == 43
-
-
-@pytest.mark.correctness
-def _caseGetMuncTrackSparseNearestResidualizesPriorBySignedLocalIntercept(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    intervals = np.arange(0, 400, 25, dtype=np.uint32)
-    values = np.linspace(-0.4, 1.1, intervals.size, dtype=np.float32)
-    sparseIntervalIndices = np.array([1, 2, 3, 4, 9, 10, 11, 12], dtype=np.intp)
-    sparseMeanTrack = np.linspace(-0.2, 0.3, intervals.size, dtype=np.float32)
-    sparseVarTrack = np.linspace(0.2, 0.5, intervals.size, dtype=np.float32)
-    fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeSparseNearest(*args, **kwargs):
-        seen["sparse_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return sparseMeanTrack.copy(), sparseVarTrack.copy()
-
-    def _fakeRolling(*args, **kwargs):
-        seen["rolling_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return fakeRollingVarTrack.copy()
-
-    def _fakeMeanVarPairs(_intervalsArg, valuesArg, *args, **kwargs):
-        seen["prior_fit_values"] = np.asarray(valuesArg).copy()
-        seen["block_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeEMA(meanTrackArg, alpha):
-        seen["ema_input"] = np.asarray(meanTrackArg).copy()
-        return np.asarray(meanTrackArg).copy()
-
-    def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
-        return {"slope": 1.0}
-
-    def _fakeEvalPSplineLogVarianceTrend(opt, meanTrack, *args, **kwargs):
-        seen["prior_eval_mean_track"] = np.asarray(meanTrack).copy()
-        meanTrackArr = np.asarray(meanTrack, dtype=np.float32)
-        return np.maximum(0.25, meanTrackArr + 0.1).astype(np.float32)
-
-    monkeypatch.setattr(
-        cconsenrich,
-        "cSparseNearestMeanVarTrack",
-        _fakeSparseNearest,
-    )
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        _fakeRolling,
-    )
-    monkeypatch.setattr(
-        cconsenrich,
-        "cmeanVarPairs",
-        _fakeMeanVarPairs,
-    )
-    monkeypatch.setattr(cconsenrich, "cEMA", _fakeEMA)
-    monkeypatch.setattr(
-        core, "fitPSplineLogVarianceTrend", _fakeFitPSplineLogVarianceTrend
-    )
-    monkeypatch.setattr(
-        core, "evalPSplineLogVarianceTrend", _fakeEvalPSplineLogVarianceTrend
-    )
-
-    muncTrack, support = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-        samplingIters=64,
-        sparseIntervalIndices=sparseIntervalIndices,
-        numNearest=3,
-        sparseSupportScaleBP=50,
-        sparseSupportPrior=1.0,
-        EB_localQuantile=-1.0,
-        EB_use=True,
-    )
-
-    supportWeights = core._sparseSupportWeights(
-        sparseIntervalIndices,
-        intervals.size,
-        ellIntervals=2.0,
-        supportPrior=1.0,
-    )
-    expectedResidual = values.astype(np.float64) - (
-        supportWeights * sparseMeanTrack.astype(np.float64)
-    )
-    assert np.allclose(seen["prior_fit_values"], expectedResidual)
-    assert np.allclose(seen["ema_input"], expectedResidual)
-    assert np.allclose(seen["prior_eval_mean_track"], expectedResidual)
-    assert bool(seen["sparse_use_innovation_var"][0]) is False
-    assert bool(seen["rolling_use_innovation_var"][0]) is False
-    assert bool(seen["block_use_innovation_var"][0]) is False
-    assert muncTrack.shape == values.shape
-    assert np.isfinite(muncTrack).all()
-    assert support > 0.0
-
-
-@pytest.mark.correctness
-def test_core_get_munc_track_can_use_innovation_variance_functional(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    intervals = np.arange(0, 400, 25, dtype=np.uint32)
-    values = np.linspace(-0.2, 1.3, intervals.size, dtype=np.float32)
-    sparseIntervalIndices = np.array([2, 3, 4, 5, 9, 10, 11, 12], dtype=np.intp)
-    fakeTrack = np.linspace(0.2, 0.6, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 0.9, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.5, 8, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeSparseNearest(*args, **kwargs):
-        seen["sparse_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", False))],
-            dtype=bool,
-        )
-        return fakeTrack.copy(), fakeTrack.copy()
-
-    def _fakeRolling(*args, **kwargs):
-        seen["rolling_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", False))],
-            dtype=bool,
-        )
-        return fakeTrack.copy()
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        seen["block_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", False))],
-            dtype=bool,
-        )
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
-        return {"slope": 1.0}
-
-    def _fakeEvalPSplineLogVarianceTrend(opt, meanTrack, *args, **kwargs):
-        return np.full_like(np.asarray(meanTrack, dtype=np.float32), 0.3)
-
-    monkeypatch.setattr(
-        cconsenrich,
-        "cSparseNearestMeanVarTrack",
-        _fakeSparseNearest,
-    )
-    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(
-        core,
-        "fitPSplineLogVarianceTrend",
-        _fakeFitPSplineLogVarianceTrend,
-    )
-    monkeypatch.setattr(
-        core,
-        "evalPSplineLogVarianceTrend",
-        _fakeEvalPSplineLogVarianceTrend,
-    )
-
-    muncTrack, support = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-        samplingIters=64,
-        sparseIntervalIndices=sparseIntervalIndices,
-        numNearest=3,
-        EB_localQuantile=-1.0,
-        EB_use=True,
-        noDMVar=True,
-        muncAR1VarianceFunctional="innovation",
-    )
-
-    assert bool(seen["sparse_use_innovation_var"][0]) is True
-    assert bool(seen["rolling_use_innovation_var"][0]) is True
-    assert bool(seen["block_use_innovation_var"][0]) is True
-    assert muncTrack.shape == values.shape
-    assert np.isfinite(muncTrack).all()
-    assert support > 0.0
-
-
-@pytest.mark.correctness
-def _caseGetMuncTrackRestrictsRollingAR1ToSparseBed(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    intervals = np.arange(0, 400, 25, dtype=np.uint32)
-    values = np.linspace(0.1, 1.6, intervals.size, dtype=np.float32)
-    excludeMask = np.zeros(intervals.size, dtype=np.uint8)
-    excludeMask[6] = 1
-    sparseRegionMask = np.array(
-        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0],
-        dtype=np.uint8,
-    )
-    fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeRolling(valuesArg, blockLengthArg, excludeMaskArg, *args, **kwargs):
-        seen["values"] = np.asarray(valuesArg).copy()
-        seen["excludeMask"] = np.asarray(excludeMaskArg).copy()
-        seen["blockLength"] = np.asarray([blockLengthArg], dtype=np.int64)
-        seen["rolling_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        return fakeRollingVarTrack.copy()
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        seen["block_use_innovation_var"] = np.asarray(
-            [bool(kwargs.get("useInnovationVar", True))],
-            dtype=bool,
-        )
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
-        return {"slope": 1.0}
-
-    def _fakeEvalPSplineLogVarianceTrend(opt, meanTrack, *args, **kwargs):
-        meanTrackArr = np.asarray(meanTrack, dtype=np.float32)
-        return np.maximum(0.25, meanTrackArr + 0.1).astype(np.float32)
-
-    monkeypatch.setattr(
-        cconsenrich,
-        "crollingMuncVariance",
-        _fakeRolling,
-    )
-    monkeypatch.setattr(
-        cconsenrich,
-        "cmeanVarPairs",
-        _fakeMeanVarPairs,
-    )
-    monkeypatch.setattr(
-        core, "fitPSplineLogVarianceTrend", _fakeFitPSplineLogVarianceTrend
-    )
-    monkeypatch.setattr(
-        core, "evalPSplineLogVarianceTrend", _fakeEvalPSplineLogVarianceTrend
-    )
-
-    muncTrack, support = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-        samplingIters=64,
-        excludeMask=excludeMask,
-        sparseRegionMask=sparseRegionMask,
-        restrictLocalVarianceToSparseBed=True,
-        EB_use=True,
-    )
-
-    expectedExcludeMask = np.logical_or(
-        excludeMask != 0,
-        sparseRegionMask == 0,
-    ).astype(np.uint8)
-
-    assert np.array_equal(seen["values"], values)
-    assert int(seen["blockLength"][0]) == 6
-    assert np.array_equal(seen["excludeMask"], expectedExcludeMask)
-    assert bool(seen["rolling_use_innovation_var"][0]) is False
-    assert bool(seen["block_use_innovation_var"][0]) is False
-    assert muncTrack.shape == values.shape
-    assert np.isfinite(muncTrack).all()
-    assert support > 0.0
 
 
 @pytest.mark.correctness
@@ -6142,7 +5698,11 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     contract_case("level state-model smoke", _caseRunConsenrichLevelStateModelSmoke)
 
 
-def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case):
+def test_core_pspline_sparse_support_and_trend_contracts(
+    tmp_path,
+    monkeypatch,
+    contract_case,
+):
     contract_case(
         "BED mask interval overlap", _caseGetBedMaskUsesIntervalSpanOverlap, tmp_path
     )
@@ -6160,9 +5720,18 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
         ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
         (
-            "pooled MUNC trend factors",
-            _casePooledMuncTrendRecoversReplicateVarianceFactors,
+            "pooled MUNC shared trend",
+            _casePooledMuncTrendUsesSharedShapeAndSampleStrength,
         ),
+        (
+            "MUNC trend invalid variance rejection",
+            _caseMuncTrendRejectsInvalidVarianceValues,
+        ),
+        (
+            "MUNC sparse local variance rejection",
+            _caseGetMuncTrackRejectsSparseLocalVariancePaths,
+        ),
+        ("broad-tile MUNC evidence", _caseBroadMuncTileEvidenceAggregatesSeedAndSamples),
         (
             "MUNC additive covariate model",
             _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
@@ -6195,9 +5764,18 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
     ):
         contract_case(label, func)
     contract_case(
-        "replicate MUNC priors",
-        _caseReplicateMuncPriorsDifferAndProcessMatchesSerial,
-        tmp_path,
+        "nonnegative ridge NNLS failure",
+        _caseNonnegativeRidgeFailsWhenNNLSSolverFails,
+        monkeypatch,
+    )
+    contract_case(
+        "MUNC supplied pooled trend",
+        _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean,
+        monkeypatch,
+    )
+    contract_case(
+        "MUNC rejects replicate factor",
+        _caseGetMuncTrackRejectsReplicateVarianceFactor,
     )
 
 

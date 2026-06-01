@@ -9,9 +9,7 @@ import math
 import os
 import sys
 import inspect
-from concurrent.futures import ProcessPoolExecutor
 import time
-import tempfile
 import warnings
 from functools import lru_cache
 from tempfile import NamedTemporaryFile
@@ -67,15 +65,12 @@ from .constants import (
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
-    MUNC_AR1_MAX_BETA_DEFAULT,
-    MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
-    MUNC_AR1_SUPPORTED_VARIANCE_FUNCTIONALS,
-    MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION,
-    MUNC_AR1_VARIANCE_FUNCTIONAL_MARGINAL,
+    MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED,
+    MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY,
+    MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES,
     MUNC_SUPPORTED_VARIANCE_MODELS,
-    MUNC_VARIANCE_MODEL_AR1,
-    MUNC_VARIANCE_MODEL_CODE_AR1,
-    OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL,
+    MUNC_VARIANCE_MODEL_CODE_KALMAN,
+    MUNC_VARIANCE_MODEL_KALMAN,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
@@ -83,9 +78,20 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SEED,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRATA,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MAX_Q,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MIN_Q,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_ECM_ITERS,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_OUTER_PASSES,
     OBSERVATION_DEFAULT_MIN_R,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
-    OBSERVATION_DEFAULT_NO_DM_VAR,
+    OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX,
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
@@ -284,7 +290,9 @@ def _logAsciiBlock(
     level: int = logging.INFO,
     indentLevel: int = 0,
 ) -> None:
-    del indentLevel
+    indentLevel = max(0, int(indentLevel))
+    if indentLevel:
+        rows = (("phase depth", int(indentLevel)), *tuple(rows))
     _logEvent(title, rows, logger_=logger_, level=level, stacklevel=3)
 
 
@@ -375,14 +383,9 @@ class observationParams(NamedTuple):
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical signed-mean variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
     :type samplingIters: int | None
-    :param muncVarianceModel: Local MUNC variance estimator. The only
-        supported value is ``"ar1"``.
+    :param muncVarianceModel: MUNC variance evidence model. The only
+        supported value is ``"kalman"``.
     :type muncVarianceModel: str | None
-    :param muncAR1VarianceFunctional: AR(1) variance target used by MUNC
-        block, sparse-nearest, and rolling local variance estimates. ``"marginal"``
-        uses the stationary AR(1) variance. ``"innovation"`` uses the 1-step AR(1)
-        innovation variance.
-    :type muncAR1VarianceFunctional: str | None
     :param muncTrendBlockSizeBP: Expected sampled block size for fitting the MUNC signed mean-variance trend. If unset, it is inferred at runtime.
     :type muncTrendBlockSizeBP: int | None
     :param muncLocalWindowSizeBP: Sliding-window size for local MUNC variance tracks. If unset, it is inferred at runtime.
@@ -405,8 +408,6 @@ class observationParams(NamedTuple):
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually sets local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
-    :param noDMVar: If True, disable the AR(1) delta-method log-variance correction and use nominal local/block variance degrees of freedom.
-    :type noDMVar: bool | None
     :param trendNumBasis: Upper bound on P-spline basis functions for the global log-variance trend.
     :type trendNumBasis: int | None
     :param trendMinObsPerBasis: Minimum effective trend observations per fitted spline basis function.
@@ -463,9 +464,6 @@ class observationParams(NamedTuple):
     precisionMultiplierMax: float | None = 4.0
     useReplicateTrends: bool | None = False
     muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    )
     muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
     muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
     muncTrendBlockDependenceMultiplier: float | None = (
@@ -477,7 +475,26 @@ class observationParams(NamedTuple):
     restrictLocalVarianceToSparseBed: bool | None = (
         OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
     )
-    noDMVar: bool | None = OBSERVATION_DEFAULT_NO_DM_VAR
+    useCountNoiseFloor: bool | None = OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR
+    muncEBPriorTileSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP
+    muncEBPriorTileCount: int = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT
+    muncEBPriorStrata: int | None = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRATA
+    muncEBPriorMinTilesPerStratum: int = (
+        OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM
+    )
+    muncEBPriorSeed: int = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SEED
+    muncEBPriorSupportMinQ: float = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MIN_Q
+    muncEBPriorSupportMaxQ: float = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MAX_Q
+    muncEBPriorMaxExtrapolatedFraction: float = (
+        OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION
+    )
+    muncEBPriorWarmupECMIters: int = OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_ECM_ITERS
+    muncEBPriorWarmupOuterPasses: int = (
+        OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_OUTER_PASSES
+    )
+    muncEBPriorGUncertaintyMode: str | None = (
+        OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
+    )
     muncCovariatesEnabled: bool | None = OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED
     muncCovariatesMode: str | None = OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE
     muncCovariatesFeatures: tuple[str, ...] | None = (
@@ -1719,10 +1736,9 @@ def transformCountVarianceFloor(
     r"""Approximate transformation-induced count variance for MUNC.
 
     The floor is the delta-method variance of the active count transform under
-    the posterior predictive Poisson-Gamma count model. With Jeffreys prior,
-    ``lambda | y ~ Gamma(y + 1/2, 1)``, so
-    ``Var(Y_new | y) = 2 * (y + 1/2)``.  This keeps zero-count intervals from
-    being treated as variance-free without adding a user-tuned pseudo-count.
+    a conditional Poisson count model with Jeffreys-rate smoothing. For scaled
+    count ``c`` and scale factor ``s``, ``lambdaHat = c / s + 1/2`` and
+    ``Var(sY | lambdaHat) = s^2 * lambdaHat``.
     """
 
     if hasattr(cconsenrich, "cTransformCountVarianceFloor"):
@@ -1757,10 +1773,10 @@ def transformCountVarianceFloor(
 
     finiteCounts = np.isfinite(counts2)
     nonnegativeCounts = np.where(finiteCounts, np.maximum(counts2, 0.0), 0.0)
-    # Posterior predictive Poisson-Gamma variance under Jeffreys prior.
-    rawPosteriorMean = (nonnegativeCounts / scales[:, None]) + 0.5
-    normalizedMean = rawPosteriorMean * scales[:, None]
-    normalizedVariance = 2.0 * rawPosteriorMean * np.square(scales[:, None])
+    # Conditional plug-in Poisson variance under Jeffreys-rate smoothing.
+    lambdaHat = (nonnegativeCounts / scales[:, None]) + 0.5
+    normalizedMean = lambdaHat * scales[:, None]
+    normalizedVariance = lambdaHat * np.square(scales[:, None])
     derivative = _transformDerivativeAtCountMean(
         normalizedMean,
         transformMethod=transformMethod,
@@ -5407,6 +5423,7 @@ def runConsenrich(
         )
     logIndentLevel = max(0, int(logIndentLevel or 0))
     logRunRole = str(logRunRole or "").strip()
+    logRunLabel = logRunRole if logRunRole else "primary chromosome"
     logRunRoleLower = logRunRole.lower()
     logPrimaryRole = not logRunRoleLower or logRunRoleLower.startswith("primary")
     logDeepDetails = logger.isEnabledFor(logging.DEBUG)
@@ -5428,6 +5445,7 @@ def runConsenrich(
     _logAsciiBlock(
         "core start",
         (
+            ("run label", logRunLabel),
             ("tracks", int(trackCount)),
             ("intervals", int(intervalCount)),
             ("blocks", int(blockCount)),
@@ -5465,9 +5483,10 @@ def runConsenrich(
         level=logCoreBlockLevel,
     )
     logger.info(
-        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d "
+        "runConsenrich.core.start runLabel=%s tracks=%d intervals=%d blocks=%d "
         "ECM_fixedBackgroundIters=%d outerIters=%d stateModel=%s "
         "processNoiseCalibration=%s",
+        logRunLabel,
         int(trackCount),
         int(intervalCount),
         int(blockCount),
@@ -6241,8 +6260,10 @@ def runConsenrich(
 
         for outerPassIndex in range(outerPassCount):
             _logAsciiBlock(
-                "inner ECM fit / fixed-background",
+                f"{phaseLabel} / fixed-g ECM pass",
                 (
+                    ("run label", logRunLabel),
+                    ("fit phase", phaseLabel),
                     (
                         "outer pass",
                         f"{int(outerPassIndex + 1)}/{int(outerPassCount)}",
@@ -6409,11 +6430,14 @@ def runConsenrich(
                 outerStopReasonLocal = "fit_background_false"
                 logger.log(
                     logging.INFO if logPrimaryRole else logging.DEBUG,
-                    "outerPass[1/1]: fitBackground=False backgroundShift=0 "
+                    "outerPass[1/1] phase=%s runLabel=%s: "
+                    "fitBackground=False backgroundShift=0 "
                     "lambdaMean=%s lambdaMedian=%s relativeSignChangePerKB=%s "
                     "lambdaLowerBoundHits=%s lambdaUpperBoundHits=%s "
                     "kappaMean=%s kappaMedian=%s kappaLowerBoundHits=%s "
                     "kappaUpperBoundHits=%s outerObjectiveChangePerCell=%s",
+                    phaseLabel,
+                    logRunLabel,
                     _formatMaybeFloat(lambdaMeanLocal),
                     _formatMaybeFloat(lambdaMedianLocal),
                     _formatMaybeFloat(lastRelativeSignChangePerKBLocal),
@@ -6662,7 +6686,7 @@ def runConsenrich(
                     if logPrimaryRole and "post-process-noise fit" in phaseLabel
                     else logging.DEBUG
                 ),
-                "outerPass[%d/%d]: backgroundShift=%.6g "
+                "outerPass[%d/%d] phase=%s runLabel=%s: backgroundShift=%.6g "
                 "backgroundShiftThreshold=%.6g backgroundObjectivePerCell=%s "
                 "backgroundObjectiveChangePerCell=%s "
                 "backgroundObjectiveThresholdPerCell=%s lambdaMean=%s "
@@ -6675,6 +6699,8 @@ def runConsenrich(
                 "innerECMConverged=%s",
                 int(outerPassIndex + 1),
                 int(outerPassCount),
+                phaseLabel,
+                logRunLabel,
                 float(bgChange),
                 float(bgTol),
                 _formatMaybeFloat(lastBackgroundObjectivePerCellLocal),
@@ -6713,8 +6739,10 @@ def runConsenrich(
 
         if fitBackgroundLocal:
             _logAsciiBlock(
-                f"{phaseLabel} / final fixed-background ECM",
+                f"{phaseLabel} / final fixed-g ECM",
                 (
+                    ("run label", logRunLabel),
+                    ("fit phase", phaseLabel),
                     ("tracks", int(mLocal)),
                     ("intervals", int(nLocal)),
                     ("ECM max iterations", int(ecmItersLocal)),
@@ -6853,13 +6881,14 @@ def runConsenrich(
                     if logPrimaryRole and "post-process-noise fit" in phaseLabel
                     else logging.DEBUG
                 ),
-                "finalFixedBackgroundECM[%s]: iters=%d converged=%s "
+                "finalFixedBackgroundECM[%s] runLabel=%s: iters=%d converged=%s "
                 "stable=%d/%d fixedBackgroundAbsRelChange=%s "
                 "fixedBackgroundRtol=%s relativeSignChangePerKB=%s "
                 "lambdaMean=%s lambdaMedian=%s lambdaLowerBoundHits=%s "
                 "lambdaUpperBoundHits=%s kappaMean=%s kappaMedian=%s "
                 "kappaLowerBoundHits=%s kappaUpperBoundHits=%s",
                 phaseLabel,
+                logRunLabel,
                 int(ecmItersDoneLocal),
                 str(bool(lastInnerECMConvergedLocal)),
                 int(finalECMDiagnosticsNormalized.get("stable_iters", 0) or 0),
@@ -6886,6 +6915,8 @@ def runConsenrich(
         _logAsciiBlock(
             f"{phaseLabel} / forward-backward scoring",
             (
+                ("run label", logRunLabel),
+                ("fit phase", phaseLabel),
                 ("tracks", int(mLocal)),
                 ("intervals", int(nLocal)),
                 ("background model", bool(fitBackgroundLocal)),
@@ -7047,6 +7078,8 @@ def runConsenrich(
         _logAsciiBlock(
             "process noise warmup",
             (
+                ("run label", logRunLabel),
+                ("fit phase", "TUNC warmup fit"),
                 ("purpose", "TUNC transition evidence warmup"),
                 ("tracks", int(trackCount)),
                 ("intervals", int(intervalCount)),
@@ -7071,7 +7104,7 @@ def runConsenrich(
             useAPNOverride=False,
             initialBackgroundLocal=postQInitialBackground,
             initialLambdaLocal=postQInitialLambda,
-            phaseLabel="process noise TUNC warmup",
+            phaseLabel="TUNC warmup fit",
             phaseIndentLevel=logIndentLevel + 1,
             logAlternatingECMIterations=False,
         )
@@ -7127,6 +7160,7 @@ def runConsenrich(
     _logEvent(
         "process_noise.calibration",
         (
+            ("run label", logRunLabel),
             ("mode", processNoiseCalibrationInfo["processNoisePolicy"]),
             ("status", processNoiseCalibrationInfo["processNoiseCalibrationStatus"]),
             ("reason", processNoiseCalibrationInfo["processNoiseCalibrationReason"]),
@@ -7162,6 +7196,8 @@ def runConsenrich(
     _logAsciiBlock(
         fitPhaseLabel,
         (
+            ("run label", logRunLabel),
+            ("fit phase", fitPhaseLabel),
             ("tracks", int(trackCount)),
             ("intervals", int(intervalCount)),
             ("ECM max iterations", int(ECM_fixedBackgroundIters)),
@@ -7175,8 +7211,10 @@ def runConsenrich(
         level=logCoreBlockLevel,
     )
     logger.info(
-        "runConsenrich.%s.start tracks=%d intervals=%d ECM_fixedBackgroundIters=%d outerIters=%d",
+        "runConsenrich.%s.start runLabel=%s tracks=%d intervals=%d "
+        "ECM_fixedBackgroundIters=%d outerIters=%d",
         fitLogEvent,
+        logRunLabel,
         int(trackCount),
         int(intervalCount),
         int(ECM_fixedBackgroundIters),
@@ -7198,8 +7236,9 @@ def runConsenrich(
         logAlternatingECMIterations=bool(logMainAlternatingECMIterations),
     )
     logger.info(
-        "runConsenrich.%s.done elapsed=%.3fs",
+        "runConsenrich.%s.done runLabel=%s elapsed=%.3fs",
         fitLogEvent,
+        logRunLabel,
         time.perf_counter() - stageStart,
     )
     stateSmoothed = np.asarray(fitFinal["stateSmoothed"], dtype=np.float32)
@@ -7285,9 +7324,10 @@ def runConsenrich(
                 )
             )
     logger.info(
-        "processQ.finalPolicy policy=%s APN=%s procPrecisionRequested=%s "
+        "processQ.finalPolicy runLabel=%s policy=%s APN=%s procPrecisionRequested=%s "
         "procPrecisionEffective=%s baseQLevel=%s baseQTrend=%s "
         "effectiveQLevelMedian=%s effectiveQTrendMedian=%s",
+        logRunLabel,
         str(processQDiagnostics["policy"]),
         str(bool(processQDiagnostics["apn_enabled"])).lower(),
         str(
@@ -7304,6 +7344,8 @@ def runConsenrich(
     _logAsciiBlock(
         f"{fitPhaseLabel} summary",
         (
+            ("run label", logRunLabel),
+            ("fit phase", fitPhaseLabel),
             ("fit NLL", float(fitFinal.get("sumNLL", np.nan))),
             ("standardized forward innovation", float(finalForwardNIS)),
             ("backgroundShift at stop", float(fitFinal.get("backgroundShift", np.nan))),
@@ -7323,10 +7365,11 @@ def runConsenrich(
         level=logSummaryBlockLevel,
     )
     logger.info(
-        "runConsenrich.%s.summary finalNLL=%s finalForwardNIS=%.6g "
+        "runConsenrich.%s.summary runLabel=%s finalNLL=%s finalForwardNIS=%.6g "
         "backgroundShift=%s backgroundObjectiveChangePerCell=%s "
         "outerObjectiveChangePerCell=%s outerStopReason=%s backgroundMaxAbs=%.6g",
         fitLogEvent,
+        logRunLabel,
         _formatMaybeFloat(fitFinal.get("sumNLL", np.nan)),
         finalForwardNIS,
         _formatMaybeFloat(fitFinal.get("backgroundShift", np.nan)),
@@ -7441,6 +7484,7 @@ def runConsenrich(
     _logAsciiBlock(
         "core done",
         (
+            ("run label", logRunLabel),
             ("tracks", int(trackCount)),
             ("intervals", int(intervalCount)),
             ("elapsed seconds", float(totalElapsed)),
@@ -7449,7 +7493,8 @@ def runConsenrich(
         level=logCoreBlockLevel,
     )
     logger.info(
-        "runConsenrich.core.done tracks=%d intervals=%d elapsed=%.3fs",
+        "runConsenrich.core.done runLabel=%s tracks=%d intervals=%d elapsed=%.3fs",
+        logRunLabel,
         int(trackCount),
         int(intervalCount),
         totalElapsed,
@@ -7713,15 +7758,6 @@ class PooledMuncVarianceTrend(NamedTuple):
     diagnostics: dict[str, Any]
 
 
-class ReplicateMuncVariancePrior(NamedTuple):
-    r"""Replicate-specific genome-wide MUNC variance prior."""
-
-    trend: PSplineLogVarianceTrend
-    Nu_0: float
-    Nu_L: float
-    diagnostics: dict[str, Any]
-
-
 class MuncAdditiveCovariateModel(NamedTuple):
     r"""Nonnegative additive genomic-covariate variance model for MUNC."""
 
@@ -7871,6 +7907,10 @@ def fitPSplineLogVarianceTrend(
 
     if variances.size != means.size:
         raise ValueError("blockMeans and blockVariances must have the same length")
+    if variances.size and (
+        (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
+    ):
+        raise ValueError("blockVariances must contain only finite positive values")
 
     floor = float(max(float(eps), 1.0e-12))
     x = _muncTrendPredictor(means)
@@ -8207,12 +8247,21 @@ def _fitNonnegativeRidge(
         yw = np.concatenate((yw, np.zeros(X.shape[1], dtype=np.float64)))
     try:
         beta, _ = optimize.nnls(Xw, yw, maxiter=max(3 * Xw.shape[1], 1))
-    except Exception:
-        beta = np.linalg.lstsq(Xw, yw, rcond=None)[0]
-        beta = np.maximum(beta, 0.0)
+    except RuntimeError as exc:
+        raise RuntimeError("nonnegative ridge NNLS failed to converge") from exc
     beta = np.asarray(beta, dtype=np.float64)
-    beta[~np.isfinite(beta)] = 0.0
-    beta[beta < 0.0] = 0.0
+    if beta.shape != (X.shape[1],):
+        raise RuntimeError(
+            "nonnegative ridge NNLS returned an invalid coefficient count"
+        )
+    if not np.all(np.isfinite(beta)):
+        raise FloatingPointError(
+            "nonnegative ridge NNLS returned non-finite coefficients"
+        )
+    if np.any(beta < 0.0):
+        raise FloatingPointError(
+            "nonnegative ridge NNLS returned negative coefficients"
+        )
     return beta
 
 
@@ -8384,7 +8433,12 @@ def evalMuncAdditiveCovariateModel(
     else:
         rep = int(replicateIndex)
         perRep = np.asarray(model.perReplicateCoefficients, dtype=np.float64)
-        if rep < 0 or rep >= perRep.shape[0]:
+        usesPooled = np.asarray(model.replicateUsesPooled, dtype=bool).ravel()
+        if (
+            rep < 0
+            or rep >= perRep.shape[0]
+            or (rep < usesPooled.size and bool(usesPooled[rep]))
+        ):
             coefficients = np.asarray(model.pooledCoefficients, dtype=np.float64)
         else:
             coefficients = perRep[rep, :, :]
@@ -8427,6 +8481,7 @@ def fitPooledMuncVarianceTrend(
 ) -> PooledMuncVarianceTrend:
     r"""Fit a pooled signed MUNC trend plus replicate variance factors."""
 
+    _ = maxIters, tol
     means = np.asarray(blockMeans, dtype=np.float64).ravel()
     variances = np.asarray(blockVariances, dtype=np.float64).ravel()
     samples = np.asarray(sampleIndex, dtype=np.intp).ravel()
@@ -8438,6 +8493,10 @@ def fitPooledMuncVarianceTrend(
         weightsArr = np.asarray(weights, dtype=np.float64).ravel()
         if weightsArr.shape != means.shape:
             raise ValueError("weights must align with blockMeans")
+    if variances.size and (
+        (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
+    ):
+        raise ValueError("blockVariances must contain only finite positive values")
 
     mask = (
         np.isfinite(means)
@@ -8472,46 +8531,9 @@ def fitPooledMuncVarianceTrend(
             diagnostics={"fallback": "no_valid_pairs"},
         )
 
-    sampleCount = int(np.max(samples)) + 1
-    logFactors = np.zeros(sampleCount, dtype=np.float64)
-    trend: PSplineLogVarianceTrend | None = None
-    maxChange = float("inf")
-    itersUsed = 0
-    for iterIndex in range(int(max(1, maxIters))):
-        factors = np.exp(logFactors)
-        adjustedVariances = variances / np.maximum(factors[samples], 1.0e-12)
-        trend = fitPSplineLogVarianceTrend(
-            means,
-            adjustedVariances,
-            weights=weightsArr,
-            eps=eps,
-            trendNumBasis=trendNumBasis,
-            trendMinObsPerBasis=trendMinObsPerBasis,
-            trendMinEdf=trendMinEdf,
-            trendMaxEdf=trendMaxEdf,
-            trendLambdaMin=trendLambdaMin,
-            trendLambdaMax=trendLambdaMax,
-            trendLambdaGridSize=trendLambdaGridSize,
-        )
-        predicted = evalPSplineLogVarianceTrend(trend, means, eps=eps)
-        residual = np.log(np.maximum(variances, eps)) - np.log(
-            np.maximum(predicted, eps)
-        )
-        nextLogFactors = np.zeros_like(logFactors)
-        for sample in range(sampleCount):
-            sampleMask = samples == sample
-            nextLogFactors[sample] = _winsorizedMedian(residual[sampleMask])
-        nextLogFactors -= float(np.mean(nextLogFactors))
-        maxChange = float(np.max(np.abs(nextLogFactors - logFactors)))
-        logFactors = nextLogFactors
-        itersUsed = iterIndex + 1
-        if maxChange < float(tol):
-            break
-
-    factors = np.exp(logFactors)
     trend = fitPSplineLogVarianceTrend(
         means,
-        variances / np.maximum(factors[samples], 1.0e-12),
+        variances,
         weights=weightsArr,
         eps=eps,
         trendNumBasis=trendNumBasis,
@@ -8522,382 +8544,24 @@ def fitPooledMuncVarianceTrend(
         trendLambdaMax=trendLambdaMax,
         trendLambdaGridSize=trendLambdaGridSize,
     )
+    sampleCount = int(np.max(samples)) + 1
+    factors = np.ones(sampleCount, dtype=np.float64)
     diagnostics = {
         "pooled_pairs": int(means.size),
         "replicate_count": int(sampleCount),
-        "factor_min": float(np.min(factors)) if factors.size else 1.0,
-        "factor_median": float(np.median(factors)) if factors.size else 1.0,
-        "factor_max": float(np.max(factors)) if factors.size else 1.0,
-        "iterations": int(itersUsed),
-        "max_log_factor_change": float(maxChange),
+        "factor_min": 1.0,
+        "factor_median": 1.0,
+        "factor_max": 1.0,
+        "iterations": 0,
+        "max_log_factor_change": 0.0,
         "predictor": "signed_log1p",
+        "replicate_factor_fit": "disabled",
     }
     return PooledMuncVarianceTrend(
         trend=trend,
         replicateVarianceFactors=factors.astype(np.float64, copy=False),
         diagnostics=diagnostics,
     )
-
-
-def _fitReplicateMuncVariancePriorFromArrays(
-    sample: int,
-    blockMeans: np.ndarray,
-    blockVariances: np.ndarray,
-    localLogVarianceNoise: np.ndarray | None,
-    weights: np.ndarray | None,
-    chromosomeIndex: np.ndarray | None,
-    blockStarts: np.ndarray | None,
-    eps: float,
-    maxVariance: float | None,
-    trendNumBasis: int,
-    trendMinObsPerBasis: float,
-    trendMinEdf: float,
-    trendMaxEdf: float | None,
-    trendLambdaMin: float,
-    trendLambdaMax: float,
-    trendLambdaGridSize: int,
-    EB_setNu0: int | float | None,
-    EB_setNuL: int | float | None,
-    localWindowIntervals: int,
-    thinBinSize: int,
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    ),
-) -> ReplicateMuncVariancePrior:
-    muncAR1VarianceFunctionalName = _normalizeMuncAR1VarianceFunctional(
-        muncAR1VarianceFunctional
-    )
-    means = np.asarray(blockMeans, dtype=np.float64).ravel()
-    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
-    if localLogVarianceNoise is None:
-        noiseArr = None
-    else:
-        noiseArr = np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
-        if noiseArr.shape != means.shape:
-            raise ValueError("localLogVarianceNoise must align with blockMeans")
-    if weights is None:
-        weightsArr = np.ones_like(means, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-    if means.shape != variances.shape or means.shape != weightsArr.shape:
-        raise ValueError("replicate MUNC block arrays must align")
-
-    mask = (
-        np.isfinite(means)
-        & np.isfinite(variances)
-        & np.isfinite(weightsArr)
-        & (variances > max(float(eps), 1.0e-12))
-        & (weightsArr > 0.0)
-    )
-    meansFit = means[mask]
-    variancesFit = variances[mask]
-    weightsFit = weightsArr[mask]
-    noiseFit = None if noiseArr is None else noiseArr[mask]
-
-    trend = fitPSplineLogVarianceTrend(
-        meansFit,
-        variancesFit,
-        weights=weightsFit,
-        eps=eps,
-        trendNumBasis=trendNumBasis,
-        trendMinObsPerBasis=trendMinObsPerBasis,
-        trendMinEdf=trendMinEdf,
-        trendMaxEdf=trendMaxEdf,
-        trendLambdaMin=trendLambdaMin,
-        trendLambdaMax=trendLambdaMax,
-        trendLambdaGridSize=trendLambdaGridSize,
-    )
-
-    if EB_setNuL is not None and float(EB_setNuL) > 3.0:
-        Nu_L = float(EB_setNuL)
-    else:
-        Nu_L = float(max(4, int(localWindowIntervals) - 3))
-    Nu0Cap = 50.0 * float(Nu_L)
-    specifiedNu0 = _coerceEBPriorStrength(EB_setNu0)
-    if specifiedNu0 is not None:
-        Nu_0 = float(specifiedNu0)
-        nu0Source = "specified"
-    elif meansFit.size == 0:
-        Nu_0 = float(Nu0Cap)
-        nu0Source = "no_valid_pairs"
-    else:
-        priorVariance = evalPSplineLogVarianceTrend(
-            trend,
-            meansFit,
-            eps=eps,
-            maxVariance=maxVariance,
-        ).astype(np.float64, copy=False)
-        if chromosomeIndex is None:
-            chromFit = None
-        else:
-            chromFit = np.asarray(chromosomeIndex, dtype=np.int64).ravel()[mask]
-        if blockStarts is None:
-            startsFit = None
-        else:
-            startsFit = np.asarray(blockStarts, dtype=np.int64).ravel()[mask]
-        sampleFit = np.full(meansFit.shape, int(sample), dtype=np.int64)
-        Nu_0 = EB_computePooledPriorStrength(
-            variancesFit,
-            priorVariance,
-            Nu_L,
-            sampleIndex=sampleFit,
-            chromosomeIndex=chromFit,
-            blockStarts=startsFit,
-            thinBinSize=thinBinSize,
-            localLogVarianceNoise=noiseFit,
-        )
-        nu0Source = "replicate_moment_match"
-
-    if not np.isfinite(Nu_0) or Nu_0 < 4.0:
-        Nu_0 = float(Nu0Cap)
-        nu0Source = "cap_fallback"
-    if Nu_0 > Nu0Cap:
-        Nu_0 = float(Nu0Cap)
-
-    diagnostics = {
-        "sample": int(sample),
-        "replicate_pairs": int(meansFit.size),
-        "Nu_0_source": str(nu0Source),
-        "predictor": "signed_log1p",
-        "worker": "serial",
-    }
-    if noiseFit is not None:
-        diagnostics.update(
-            {
-                "munc_ar1_variance_functional": (muncAR1VarianceFunctionalName),
-                "munc_ar1_max_beta": float(MUNC_AR1_MAX_BETA_DEFAULT),
-                "munc_ar1_pairs_reg_lambda": float(MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
-                "munc_ar1_nu_l_beta_max_beta": float(MUNC_AR1_MAX_BETA_DEFAULT),
-            }
-        )
-        finiteNoise = np.asarray(
-            noiseFit[np.isfinite(noiseFit) & (noiseFit > 0.0)],
-            dtype=np.float64,
-        )
-        if finiteNoise.size:
-            blockNuEff = 2.0 * itrigamma(finiteNoise)
-            blockNuEff = blockNuEff[np.isfinite(blockNuEff)]
-            diagnostics.update(
-                {
-                    "Nu_L_source": "delta_method_ar1_blocks",
-                    "block_logvar_noise_median": float(np.median(finiteNoise)),
-                    "block_Nu_L_effective_median": (
-                        float(np.median(blockNuEff))
-                        if blockNuEff.size
-                        else float("nan")
-                    ),
-                }
-            )
-
-    return ReplicateMuncVariancePrior(
-        trend=trend,
-        Nu_0=float(Nu_0),
-        Nu_L=float(Nu_L),
-        diagnostics=diagnostics,
-    )
-
-
-def _fitReplicateMuncVariancePriorWorker(
-    task: tuple[int, dict[str, str], dict[str, Any]],
-):
-    sample, paths, params = task
-    sampleIndex = np.load(paths["sampleIndex"], mmap_mode="r")
-    sampleMask = np.asarray(sampleIndex == int(sample))
-    weightsPath = paths.get("weights")
-    chromPath = paths.get("chromosomeIndex")
-    startsPath = paths.get("blockStarts")
-    prior = _fitReplicateMuncVariancePriorFromArrays(
-        int(sample),
-        np.load(paths["blockMeans"], mmap_mode="r")[sampleMask],
-        np.load(paths["blockVariances"], mmap_mode="r")[sampleMask],
-        (
-            None
-            if paths.get("localLogVarianceNoise") is None
-            else np.load(paths["localLogVarianceNoise"], mmap_mode="r")[sampleMask]
-        ),
-        (
-            None
-            if weightsPath is None
-            else np.load(weightsPath, mmap_mode="r")[sampleMask]
-        ),
-        None if chromPath is None else np.load(chromPath, mmap_mode="r")[sampleMask],
-        None if startsPath is None else np.load(startsPath, mmap_mode="r")[sampleMask],
-        **params,
-    )
-    diagnostics = dict(prior.diagnostics)
-    diagnostics["worker"] = "process"
-    return int(sample), prior._replace(diagnostics=diagnostics)
-
-
-def fitReplicateMuncVariancePriors(
-    blockMeans: np.ndarray,
-    blockVariances: np.ndarray,
-    sampleIndex: np.ndarray,
-    chromosomeIndex: np.ndarray | None = None,
-    blockStarts: np.ndarray | None = None,
-    weights: np.ndarray | None = None,
-    localLogVarianceNoise: np.ndarray | None = None,
-    sampleCount: int | None = None,
-    eps: float = 1.0e-2,
-    maxVariance: float | None = None,
-    trendNumBasis: int = 60,
-    trendMinObsPerBasis: float = 25.0,
-    trendMinEdf: float = 3.0,
-    trendMaxEdf: float | None = 30.0,
-    trendLambdaMin: float = 1.0e-6,
-    trendLambdaMax: float = 1.0e6,
-    trendLambdaGridSize: int = 41,
-    EB_setNu0: int | float | None = None,
-    EB_setNuL: int | float | None = None,
-    localWindowIntervals: int = 4,
-    thinBinSize: int = 1,
-    workers: int = 1,
-    memmapDir: str | None = None,
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    ),
-) -> list[ReplicateMuncVariancePrior]:
-    r"""Fit one genome-wide MUNC variance prior per replicate."""
-
-    muncAR1VarianceFunctionalName = _normalizeMuncAR1VarianceFunctional(
-        muncAR1VarianceFunctional
-    )
-    means = np.asarray(blockMeans, dtype=np.float64).ravel()
-    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
-    samples = np.asarray(sampleIndex, dtype=np.int64).ravel()
-    if means.shape != variances.shape or means.shape != samples.shape:
-        raise ValueError("blockMeans, blockVariances, and sampleIndex must align")
-    if localLogVarianceNoise is None:
-        noiseArr = None
-    else:
-        noiseArr = np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
-        if noiseArr.shape != means.shape:
-            raise ValueError("localLogVarianceNoise must align with blockMeans")
-    if weights is None:
-        weightsArr = np.ones_like(means, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-        if weightsArr.shape != means.shape:
-            raise ValueError("weights must align with blockMeans")
-    if (
-        chromosomeIndex is not None
-        and np.asarray(chromosomeIndex).ravel().shape != means.shape
-    ):
-        raise ValueError("chromosomeIndex must align with blockMeans")
-    if blockStarts is not None and np.asarray(blockStarts).ravel().shape != means.shape:
-        raise ValueError("blockStarts must align with blockMeans")
-
-    if sampleCount is None:
-        sampleCount_ = int(np.max(samples)) + 1 if samples.size else 0
-    else:
-        sampleCount_ = int(max(sampleCount, 0))
-
-    params = {
-        "eps": float(eps),
-        "maxVariance": None if maxVariance is None else float(maxVariance),
-        "trendNumBasis": int(trendNumBasis),
-        "trendMinObsPerBasis": float(trendMinObsPerBasis),
-        "trendMinEdf": float(trendMinEdf),
-        "trendMaxEdf": None if trendMaxEdf is None else float(trendMaxEdf),
-        "trendLambdaMin": float(trendLambdaMin),
-        "trendLambdaMax": float(trendLambdaMax),
-        "trendLambdaGridSize": int(trendLambdaGridSize),
-        "EB_setNu0": EB_setNu0,
-        "EB_setNuL": EB_setNuL,
-        "localWindowIntervals": int(localWindowIntervals),
-        "thinBinSize": int(thinBinSize),
-        "muncAR1VarianceFunctional": muncAR1VarianceFunctionalName,
-    }
-
-    def _serial(sample: int) -> ReplicateMuncVariancePrior:
-        sampleMask = samples == int(sample)
-        return _fitReplicateMuncVariancePriorFromArrays(
-            int(sample),
-            means[sampleMask],
-            variances[sampleMask],
-            None if noiseArr is None else noiseArr[sampleMask],
-            weightsArr[sampleMask],
-            (
-                None
-                if chromosomeIndex is None
-                else np.asarray(chromosomeIndex, dtype=np.int64).ravel()[sampleMask]
-            ),
-            (
-                None
-                if blockStarts is None
-                else np.asarray(blockStarts, dtype=np.int64).ravel()[sampleMask]
-            ),
-            **params,
-        )
-
-    workerCount = int(max(workers, 1))
-    if workerCount <= 1 or sampleCount_ <= 1:
-        return [_serial(sample) for sample in range(sampleCount_)]
-
-    ownsTempDir = memmapDir is None
-    tmpContext = (
-        tempfile.TemporaryDirectory(prefix="consenrich_replicate_munc_")
-        if ownsTempDir
-        else None
-    )
-    try:
-        workDir = tmpContext.name if tmpContext is not None else str(memmapDir)
-        os.makedirs(workDir, exist_ok=True)
-        paths = {
-            "blockMeans": os.path.join(workDir, "replicate_munc_block_means.npy"),
-            "blockVariances": os.path.join(
-                workDir, "replicate_munc_block_variances.npy"
-            ),
-            "sampleIndex": os.path.join(workDir, "replicate_munc_sample_index.npy"),
-            "weights": os.path.join(workDir, "replicate_munc_weights.npy"),
-        }
-        np.save(paths["blockMeans"], means, allow_pickle=False)
-        np.save(paths["blockVariances"], variances, allow_pickle=False)
-        np.save(paths["sampleIndex"], samples, allow_pickle=False)
-        np.save(paths["weights"], weightsArr, allow_pickle=False)
-        if noiseArr is not None:
-            paths["localLogVarianceNoise"] = os.path.join(
-                workDir,
-                "replicate_munc_local_log_variance_noise.npy",
-            )
-            np.save(paths["localLogVarianceNoise"], noiseArr, allow_pickle=False)
-        if chromosomeIndex is not None:
-            paths["chromosomeIndex"] = os.path.join(
-                workDir,
-                "replicate_munc_chromosome_index.npy",
-            )
-            np.save(
-                paths["chromosomeIndex"],
-                np.asarray(chromosomeIndex, dtype=np.int64).ravel(),
-                allow_pickle=False,
-            )
-        if blockStarts is not None:
-            paths["blockStarts"] = os.path.join(
-                workDir,
-                "replicate_munc_block_starts.npy",
-            )
-            np.save(
-                paths["blockStarts"],
-                np.asarray(blockStarts, dtype=np.int64).ravel(),
-                allow_pickle=False,
-            )
-
-        out: list[ReplicateMuncVariancePrior | None] = [None] * sampleCount_
-        tasks = [(sample, paths, params) for sample in range(sampleCount_)]
-        with ProcessPoolExecutor(
-            max_workers=min(workerCount, sampleCount_)
-        ) as executor:
-            for sample, prior in executor.map(
-                _fitReplicateMuncVariancePriorWorker, tasks
-            ):
-                out[int(sample)] = prior
-        return [
-            prior if prior is not None else _serial(sample)
-            for sample, prior in enumerate(out)
-        ]
-    finally:
-        if tmpContext is not None:
-            tmpContext.cleanup()
 
 
 def applyBlacklistMuncFloor(
@@ -9053,8 +8717,8 @@ def _formatMuncVarianceDiagnostics(
     floorLine = ""
     if countModelVarianceFloorTrack is not None:
         floorLine = f"\n\t{_sdQuantiles('count_floor', countModelVarianceFloorTrack)}"
-        localName = "L_excess"
-        globalName = "G_excess"
+        localName = "L_total"
+        globalName = "G_total"
         finalName = "V0_total"
     else:
         localName = "L"
@@ -9165,30 +8829,6 @@ def _rollingCenteredWindowMean(
     return out
 
 
-def _subtractMuncCountNoise(
-    totalVarianceTrack: np.ndarray,
-    countNoiseTrack: np.ndarray | None,
-    *,
-    varianceFloor: float,
-    varianceCap: float | None = None,
-    fillNaN: bool = False,
-) -> npt.NDArray[np.float32]:
-    out = np.asarray(totalVarianceTrack, dtype=np.float64).copy()
-    if countNoiseTrack is not None:
-        noise = np.asarray(countNoiseTrack, dtype=np.float64).reshape(-1)
-        if noise.shape != out.reshape(-1).shape:
-            raise ValueError("countNoiseTrack must match variance track")
-        flat = out.reshape(-1)
-        finite = np.isfinite(flat) & np.isfinite(noise)
-        flat[finite] = flat[finite] - noise[finite]
-    return _clipVarianceTrack(
-        out,
-        floor=varianceFloor,
-        cap=varianceCap,
-        fillNaN=fillNaN,
-    )
-
-
 def applyMuncCountModelVarianceFloor(
     muncVarianceTrack: np.ndarray,
     countModelVarianceFloor: np.ndarray | None,
@@ -9196,16 +8836,12 @@ def applyMuncCountModelVarianceFloor(
     varianceFloor: float,
     varianceCap: float | None = None,
 ) -> npt.NDArray[np.float32]:
-    r"""Combine excess MUNC variance with transformed-scale count-model variance.
+    r"""Apply transformed-scale count-model variance as a MUNC lower bound.
 
-    ``muncVarianceTrack`` is the empirical excess term. ``countModelVarianceFloor``
-    is intentionally already on the same scale as the
-    transformed observation track. Raw-count Poisson/NB or treatment-control
-    delta-method calculations belong upstream, where the raw counts, scale
-    factors, and transform parameters are still available.
-
-    The historical function name says "floor", but the default model is now
-    forced to be additive: ``R_total = R_count + R_empirical_excess``.
+    ``countModelVarianceFloor`` is intentionally already on the same scale as
+    the transformed observation track. Raw-count Poisson/NB or
+    treatment-control delta-method calculations belong upstream, where the raw
+    counts, scale factors, and transform parameters are still available.
     """
 
     out = _clipVarianceTrack(
@@ -9221,7 +8857,7 @@ def applyMuncCountModelVarianceFloor(
         return out.astype(np.float32, copy=False)
 
     finite = np.isfinite(floorTrack)
-    out[finite] = out[finite] + floorTrack[finite]
+    out[finite] = np.maximum(out[finite], floorTrack[finite])
     return _clipVarianceTrack(out, floor=varianceFloor, cap=varianceCap)
 
 
@@ -9340,6 +8976,82 @@ def _buildBackgroundBandedSystem(
 
     banded[0, :] = diag
     return banded
+
+
+def _backgroundPenaltyDiagonal(
+    intervalCount: int,
+    lamFirst: float,
+    lamSecond: float,
+) -> np.ndarray:
+    n = int(intervalCount)
+    diag = np.zeros(n, dtype=np.float64)
+    if n >= 2 and lamFirst > 0.0:
+        diag[0] += lamFirst
+        diag[-1] += lamFirst
+        if n > 2:
+            diag[1:-1] += 2.0 * lamFirst
+    if n >= 3 and lamSecond > 0.0:
+        if n == 3:
+            diag += np.asarray([1.0, 4.0, 1.0], dtype=np.float64) * lamSecond
+        else:
+            diag[0] += lamSecond
+            diag[-1] += lamSecond
+            diag[1] += 5.0 * lamSecond
+            diag[-2] += 5.0 * lamSecond
+            if n > 4:
+                diag[2:-2] += 6.0 * lamSecond
+    return diag
+
+
+def _diagonalBackgroundUncertainty(
+    matrixMunc: np.ndarray,
+    *,
+    blockLenIntervals: int,
+    pad: float,
+    lambdaExp: np.ndarray | None,
+    backgroundSmoothness: float,
+    fitBackground: bool,
+    backgroundTrack: np.ndarray | None = None,
+    useNonnegativeBackground: bool = False,
+    backgroundNegativePenaltyMultiplier: float | None = None,
+) -> np.ndarray:
+    munc = np.asarray(matrixMunc, dtype=np.float64)
+    if munc.ndim != 2:
+        raise ValueError("matrixMunc must be two-dimensional")
+    intervalCount = int(munc.shape[1])
+    if not bool(fitBackground):
+        return np.zeros(intervalCount, dtype=np.float32)
+    denom = np.maximum(munc + float(pad), 1.0e-12)
+    invVar = 1.0 / denom
+    if lambdaExp is not None:
+        lam = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+        if lam.shape[0] != intervalCount:
+            raise ValueError("lambdaExp length must match matrixMunc interval count")
+        invVar *= np.maximum(lam, 1.0e-12)[None, :]
+    weightTrack = np.sum(invVar, axis=0, dtype=np.float64)
+    lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=int(blockLenIntervals),
+        backgroundSmoothness=float(backgroundSmoothness),
+    )
+    diagonal = weightTrack + _backgroundPenaltyDiagonal(
+        intervalCount,
+        float(lamFirst),
+        float(lamSecond),
+    )
+    if (
+        bool(useNonnegativeBackground)
+        and backgroundTrack is not None
+        and backgroundNegativePenaltyMultiplier is not None
+    ):
+        negativePenaltyMultiplier = float(backgroundNegativePenaltyMultiplier)
+        if negativePenaltyMultiplier > 0.0:
+            bg = np.asarray(backgroundTrack, dtype=np.float64).reshape(-1)
+            if bg.shape[0] != intervalCount:
+                raise ValueError("backgroundTrack length must match matrixMunc")
+            positiveWeights = weightTrack[weightTrack > 0.0]
+            weightScale = float(np.median(positiveWeights)) if positiveWeights.size else 1.0
+            diagonal[bg < 0.0] += negativePenaltyMultiplier * max(weightScale, 1.0e-12)
+    return (1.0 / np.maximum(diagonal, 1.0e-12)).astype(np.float32)
 
 
 def _solveBackgroundLinearSystem(
@@ -9801,30 +9513,33 @@ def _normalizeMuncVarianceModel(model: str | int | None) -> str:
         return OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     if isinstance(model, (int, np.integer)):
         modelCode = int(model)
-        if modelCode == MUNC_VARIANCE_MODEL_CODE_AR1:
-            return MUNC_VARIANCE_MODEL_AR1
+        if modelCode == MUNC_VARIANCE_MODEL_CODE_KALMAN:
+            return MUNC_VARIANCE_MODEL_KALMAN
     modelName = str(model).strip().lower().replace("-", "").replace("_", "")
-    if modelName in {"ar1", "ar"}:
-        return MUNC_VARIANCE_MODEL_AR1
+    if modelName in {"kalman", "smoother", "kf"}:
+        return MUNC_VARIANCE_MODEL_KALMAN
     supportedModels = ", ".join(MUNC_SUPPORTED_VARIANCE_MODELS)
     raise ValueError(
         f"unsupported MUNC variance model {model!r}; expected {supportedModels}"
     )
 
 
-def _normalizeMuncAR1VarianceFunctional(functional: str | None) -> str:
-    if functional is None:
-        return OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    name = str(functional).strip().lower().replace("-", "").replace("_", "")
-    if name in {"marginal", "stationary", "observation", "observed"}:
-        return MUNC_AR1_VARIANCE_FUNCTIONAL_MARGINAL
-    if name in {"innovation", "innov", "residual"}:
-        return MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
-    supported = ", ".join(MUNC_AR1_SUPPORTED_VARIANCE_FUNCTIONALS)
-    raise ValueError(
-        f"unsupported MUNC AR1 variance functional {functional!r}; "
-        f"expected {supported}"
-    )
+def _normalizeMuncEBPriorGUncertaintyMode(mode: str | None) -> str:
+    if mode is None:
+        return OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
+    key = str(mode).strip().lower().replace("-", "").replace("_", "")
+    if key == "diagonal":
+        return MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY
+    canonicalByKey = {
+        item.replace("-", "").replace("_", "").lower(): item
+        for item in MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES)
+        raise ValueError(
+            f"unsupported MUNC EB prior g uncertainty mode {mode!r}; expected {supported}"
+        )
+    return canonicalByKey[key]
 
 
 def _resolveMuncRuntimeSizing(
@@ -10190,131 +9905,6 @@ def _coerceEBPriorStrength(value: float | int | None) -> float | None:
     return nu0
 
 
-def _computeDeltaMethodAR1LogVarianceNoise(
-    betaTrack: np.ndarray,
-    blockLengths: np.ndarray | int,
-    maxBeta: float = MUNC_AR1_MAX_BETA_DEFAULT,
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    ),
-) -> np.ndarray:
-    r"""
-    Compute the delta method approximation of the log-variance of AR(1) noise. Used to assign observation noise estimates to finite genomic windows.
-
-    Parameters
-    ----------
-    betaTrack : np.ndarray
-        Array of AR(1) coefficients.
-    blockLengths : np.ndarray | int
-        Array of block lengths or a single integer.
-    maxBeta : float, optional
-        Maximum allowed value for beta.
-    muncAR1VarianceFunctional : str | None, optional
-        Functional name for MUNC AR(1) variance.
-
-    Returns
-    -------
-    np.ndarray
-        Array of log-variance noise values.
-    """
-    functionalName = _normalizeMuncAR1VarianceFunctional(muncAR1VarianceFunctional)
-    betaArr = np.asarray(betaTrack, dtype=np.float64).ravel()
-    if np.ndim(blockLengths) == 0:
-        blockLengthArr = np.full(betaArr.shape, int(blockLengths), dtype=np.float64)
-    else:
-        blockLengthArr = np.asarray(blockLengths, dtype=np.float64).ravel()
-        if blockLengthArr.shape != betaArr.shape:
-            raise ValueError("blockLengths must be scalar or align with betaTrack")
-
-    logVarianceNoise = np.full(betaArr.shape, np.nan, dtype=np.float64)
-    valid = np.isfinite(betaArr) & (betaArr >= 0.0) & (blockLengthArr >= 4.0)
-    if not np.any(valid):
-        return logVarianceNoise
-
-    maxBeta_ = float(maxBeta)
-    if not np.isfinite(maxBeta_) or maxBeta_ <= 0.0:
-        maxBeta_ = MUNC_AR1_MAX_BETA_DEFAULT
-    maxBeta_ = min(max(maxBeta_, 1.0e-6), 0.999)
-
-    betaValid = np.clip(betaArr[valid], 0.0, maxBeta_)
-    dfRSS = np.maximum(blockLengthArr[valid] - 3.0, 1.0e-8)
-    nPairs = np.maximum(blockLengthArr[valid] - 1.0, 1.0)
-    oneMinusBetaSq = np.maximum(1.0 - betaValid * betaValid, 1.0e-8)
-    varBetaHat = oneMinusBetaSq / nPairs
-    logVarianceNoise[valid] = np.asarray(trigamma(dfRSS / 2.0), dtype=np.float64)
-    # marginal or innovation var
-    if functionalName == MUNC_AR1_VARIANCE_FUNCTIONAL_MARGINAL:
-        grad = (2.0 * betaValid) / oneMinusBetaSq
-        logVarianceNoise[valid] += grad * grad * varBetaHat
-    return logVarianceNoise
-
-
-def _computeDeltaMethodAR1NuL(
-    betaTrack: np.ndarray,
-    localWindowIntervals: int,
-    maxBeta: float = MUNC_AR1_MAX_BETA_DEFAULT,
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    ),
-) -> tuple[float, dict[str, float]]:
-    functionalName = _normalizeMuncAR1VarianceFunctional(muncAR1VarianceFunctional)
-    nominalNuL = float(max(4, int(localWindowIntervals) - 3))
-    betaArr = np.asarray(betaTrack, dtype=np.float64).ravel()
-    betaArr = betaArr[np.isfinite(betaArr) & (betaArr >= 0.0)]
-    if betaArr.size == 0 or nominalNuL <= 4.0:
-        return nominalNuL, {
-            "nominal": nominalNuL,
-            "effective": nominalNuL,
-            "beta_median": float("nan"),
-            "beta_q95": float("nan"),
-            "beta_clipped_fraction": float("nan"),
-            "beta_max_beta": float(MUNC_AR1_MAX_BETA_DEFAULT),
-        }
-
-    maxBeta_ = float(maxBeta)
-    if not np.isfinite(maxBeta_) or maxBeta_ <= 0.0:
-        maxBeta_ = MUNC_AR1_MAX_BETA_DEFAULT
-    maxBeta_ = min(max(maxBeta_, 1.0e-6), 0.999)
-    betaArr = np.clip(betaArr, 0.0, maxBeta_)
-
-    varLogVariance = _computeDeltaMethodAR1LogVarianceNoise(
-        betaArr,
-        int(localWindowIntervals),
-        maxBeta=maxBeta_,
-        muncAR1VarianceFunctional=functionalName,
-    )
-    varLogVariance = varLogVariance[np.isfinite(varLogVariance)]
-    rawNuEffTrack = 2.0 * itrigamma(varLogVariance)
-    rawNuEffTrack = rawNuEffTrack[np.isfinite(rawNuEffTrack)]
-    if rawNuEffTrack.size == 0:
-        nuEff = nominalNuL
-        nuEffTrack = rawNuEffTrack
-        floorFraction = float("nan")
-        ceilingFraction = float("nan")
-    else:
-        nuEffTrack = np.clip(rawNuEffTrack, 4.0, nominalNuL)
-        nuEff = float(np.median(nuEffTrack))
-        floorFraction = float(np.mean(rawNuEffTrack <= (4.0 + 1.0e-7)))
-        ceilingFraction = float(np.mean(rawNuEffTrack >= (nominalNuL - 1.0e-7)))
-    clippedFraction = float(np.mean(betaArr >= (maxBeta_ - 1.0e-7)))
-    return nuEff, {
-        "nominal": nominalNuL,
-        "effective": nuEff,
-        "beta_median": float(np.median(betaArr)),
-        "beta_q95": float(np.quantile(betaArr, 0.95)),
-        "beta_clipped_fraction": clippedFraction,
-        "beta_max_beta": float(maxBeta_),
-        "nu_eff_q05": (
-            float(np.quantile(nuEffTrack, 0.05)) if nuEffTrack.size else nuEff
-        ),
-        "nu_eff_q95": (
-            float(np.quantile(nuEffTrack, 0.95)) if nuEffTrack.size else nuEff
-        ),
-        "nu_eff_floor_fraction": floorFraction,
-        "nu_eff_ceiling_fraction": ceilingFraction,
-    }
-
-
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
@@ -10330,9 +9920,6 @@ def getMuncTrack(
         OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
     ),
     muncVarianceModel: str | int | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
-    muncAR1VarianceFunctional: str | None = (
-        OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
-    ),
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
@@ -10341,7 +9928,6 @@ def getMuncTrack(
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
-    noDMVar: bool | None = OBSERVATION_DEFAULT_NO_DM_VAR,
     trendNumBasis: int = 60,
     trendMinObsPerBasis: float = 25.0,
     trendMinEdf: float = 3.0,
@@ -10365,12 +9951,14 @@ def getMuncTrack(
     intervalsArr: Optional[np.ndarray] = None,
     excludeMaskArr: Optional[np.ndarray] = None,
     pooledTrend: Optional[PSplineLogVarianceTrend] = None,
+    priorMeanTrack: Optional[np.ndarray] = None,
     replicateVarianceFactor: float = 1.0,
     EB_pooledNu0: float | None = None,
     covariateTrack: Optional[np.ndarray] = None,
     additiveCovariateModel: Optional[MuncAdditiveCovariateModel] = None,
     replicateIndex: int | None = None,
     countModelVarianceFloor: Optional[np.ndarray] = None,
+    localVarianceTrack: Optional[np.ndarray] = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -10380,8 +9968,7 @@ def getMuncTrack(
     Variance is modeled as a function of a signed mean signal predictor. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
     If ``countModelVarianceFloor`` is supplied, it must be a precomputed
     per-interval transformed-scale count-noise variance for this replicate.
-    MUNC estimates the empirical excess over that term, and the final
-    observation variance is forced to be ``R_count + R_empirical_excess``.
+    The fitted MUNC track is bounded below by finite count-noise entries.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -10390,9 +9977,8 @@ def getMuncTrack(
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
     :param countModelVarianceFloor: Optional transformed-scale observation
-        count-noise variance for this replicate. Finite entries are subtracted
-        from local/global variance targets before shrinkage and added back to
-        the final fitted MUNC track.
+        count-noise variance for this replicate. Finite entries bound the
+        final fitted MUNC track from below.
     :type countModelVarianceFloor: np.ndarray | None
 
     See :class:`consenrich.core.observationParams` for other parameters.
@@ -10410,12 +9996,9 @@ def getMuncTrack(
         else float(varianceCap)
     )
     muncVarianceModelName = _normalizeMuncVarianceModel(muncVarianceModel)
-    muncAR1VarianceFunctionalName = _normalizeMuncAR1VarianceFunctional(
-        muncAR1VarianceFunctional
-    )
-    useInnovationVariance = (
-        muncAR1VarianceFunctionalName == MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
-    )
+    replicateFactor = float(replicateVarianceFactor)
+    if not np.isfinite(replicateFactor) or abs(replicateFactor - 1.0) > 1.0e-8:
+        raise ValueError("replicateVarianceFactor is not supported for MUNC priors")
     sizing = _resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
         dependenceSpanIntervals=dependenceSpanIntervals,
@@ -10438,6 +10021,17 @@ def getMuncTrack(
         countModelVarianceFloor,
         valuesArr.size,
     )
+    if localVarianceTrack is None:
+        raise ValueError("kalman MUNC requires localVarianceTrack")
+    obsVarTrack = np.ascontiguousarray(localVarianceTrack, dtype=np.float32).reshape(-1)
+    if obsVarTrack.shape[0] != valuesArr.size:
+        raise ValueError("localVarianceTrack must match values length")
+    obsVarTrack = _clipVarianceTrack(
+        obsVarTrack,
+        floor=varianceFloor_,
+        cap=varianceCap_,
+        fillNaN=False,
+    )
 
     if excludeMask is None:
         if excludeMaskArr is None:
@@ -10459,18 +10053,6 @@ def getMuncTrack(
             ("intervals", int(valuesArr.size)),
             ("interval size bp", int(intervalSizeBP)),
             ("MUNC variance model", muncVarianceModelName),
-            (
-                "MUNC AR1 variance functional",
-                muncAR1VarianceFunctionalName,
-            ),
-            (
-                "MUNC AR1 max beta",
-                float(MUNC_AR1_MAX_BETA_DEFAULT),
-            ),
-            (
-                "MUNC AR1 pairs reg lambda",
-                float(MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
-            ),
             ("MUNC trend block bp", int(sizing.trendBlockSizeBP)),
             ("sampling block intervals", int(blockSizeIntervals)),
             ("MUNC local window bp", int(sizing.localWindowSizeBP)),
@@ -10502,7 +10084,7 @@ def getMuncTrack(
             ("MUNC variance EB", "enabled" if EB_use else "disabled"),
             (
                 "MUNC delta-method variance",
-                "disabled" if bool(noDMVar) else "enabled",
+                "not used",
             ),
             (
                 "MUNC trend source",
@@ -10528,176 +10110,10 @@ def getMuncTrack(
         level=logging.DEBUG,
     )
 
-    localObsExcludeMaskArr = excludeMaskArr
-    if restrictLocalVariance:
-        if sparseRegionMask is None:
-            logger.warning(
-                "restrictLocalVarianceToSparseBed=True but sparseRegionMask is not provided; "
-                "using the unrestricted rolling local observation-variance estimate.",
-            )
-        else:
-            sparseRegionMaskArr = np.ascontiguousarray(
-                sparseRegionMask,
-                dtype=np.uint8,
-            ).ravel()
-            if sparseRegionMaskArr.shape != excludeMaskArr.shape:
-                raise ValueError(
-                    "sparseRegionMask must match the shape of intervals/values.",
-                )
-            localObsExcludeMaskArr = np.ascontiguousarray(
-                np.logical_or(
-                    excludeMaskArr != 0,
-                    sparseRegionMaskArr == 0,
-                ),
-                dtype=np.uint8,
-            )
-    countNoiseLocalTrack = (
-        _rollingCenteredWindowMean(
-            countModelVarianceFloorArr,
-            localWindowIntervals,
-            localObsExcludeMaskArr,
-        )
-        if countModelVarianceFloorArr is not None
-        else None
-    )
-
-    def _estimateSparseNearestObsTracks() -> (
-        tuple[np.ndarray, np.ndarray, np.ndarray, bool] | None
-    ):
-        if sparseIntervalIndices is None or int(numNearest) <= 0:
-            return None
-
-        sparseIdx = np.asarray(sparseIntervalIndices, dtype=np.intp).ravel()
-        if sparseIdx.size == 0:
-            return None
-
-        sparseIdx = np.unique(sparseIdx)
-        sparseIdx = sparseIdx[(sparseIdx >= 0) & (sparseIdx < valuesArr.size)]
-        if sparseIdx.size == 0:
-            return None
-
-        blockLen = int(max(4, min(localWindowIntervals, valuesArr.size)))
-        if blockLen < 2:
-            return None
-
-        blockStarts = np.empty(sparseIdx.shape, dtype=np.intp)
-        blockSizes = np.empty(sparseIdx.shape, dtype=np.intp)
-        retainedCenters = np.empty(sparseIdx.shape, dtype=np.intp)
-        retainedCount = 0
-        runBreaks = np.concatenate(
-            (
-                np.array([0], dtype=np.intp),
-                np.flatnonzero(np.diff(sparseIdx) > 1).astype(np.intp) + 1,
-                np.array([sparseIdx.size], dtype=np.intp),
-            )
-        )
-        for runPos in range(runBreaks.size - 1):
-            runLo = int(runBreaks[runPos])
-            runHi = int(runBreaks[runPos + 1])
-            runStart = int(sparseIdx[runLo])
-            runEnd = int(sparseIdx[runHi - 1]) + 1
-            runLen = runEnd - runStart
-            if runLen < 4:
-                continue
-            runBlockLen = min(blockLen, runLen)
-            halfLen = runBlockLen // 2
-            for center in sparseIdx[runLo:runHi]:
-                blockStart = int(center) - halfLen
-                if blockStart < runStart:
-                    blockStart = runStart
-                if blockStart + runBlockLen > runEnd:
-                    blockStart = runEnd - runBlockLen
-                retainedCenters[retainedCount] = int(center)
-                blockStarts[retainedCount] = blockStart
-                blockSizes[retainedCount] = runBlockLen
-                retainedCount += 1
-
-        if retainedCount == 0:
-            return None
-        sparseIdx = retainedCenters[:retainedCount]
-        blockStarts = blockStarts[:retainedCount]
-        blockSizes = blockSizes[:retainedCount]
-
-        if np.any(excludeMaskArr):
-            excludeCum = np.concatenate(
-                (
-                    np.array([0], dtype=np.int64),
-                    np.cumsum(excludeMaskArr.astype(np.int64, copy=False)),
-                )
-            )
-            blockEnds = blockStarts + blockSizes
-            validMask = (excludeCum[blockEnds] - excludeCum[blockStarts]) == 0
-            blockStarts = blockStarts[validMask]
-            blockSizes = blockSizes[validMask]
-            sparseIdx = sparseIdx[validMask]
-            if sparseIdx.size == 0:
-                return None
-
-        sparseCountNoiseBlockMean = None
-        sparseNoiseAligned = False
-        if countModelVarianceFloorArr is not None:
-            sparseCountNoiseBlockMean = _finiteIntervalMeans(
-                countModelVarianceFloorArr,
-                blockStarts,
-                blockStarts + blockSizes,
-            )
-            sparseNoiseAligned = True
-
-        sparseMeanTrack, sparseVarTrack = cconsenrich.cSparseNearestMeanVarTrack(
-            valuesArr,
-            np.ascontiguousarray(sparseIdx, dtype=np.intp),
-            np.ascontiguousarray(blockStarts, dtype=np.intp),
-            np.ascontiguousarray(blockSizes, dtype=np.intp),
-            int(numNearest),
-            useInnovationVar=useInnovationVariance,
-            aggregateMeanAbs=False,
-            maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
-            pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
-            countNoiseBlockMean=sparseCountNoiseBlockMean,
-            varianceFloor=varianceFloor_,
-            varianceCap=0.0 if varianceCap_ is None else varianceCap_,
-        )
-        sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float32)
-        sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float32)
-        sparseMeanTrack[~np.isfinite(sparseMeanTrack)] = 0.0
-        sparseVarTrack[~np.isfinite(sparseVarTrack)] = np.nan
-        return sparseMeanTrack, sparseVarTrack, sparseIdx, sparseNoiseAligned
-
-    sparseInterceptTrack: np.ndarray | None = None
-    sparseObsVarTrack: np.ndarray | None = None
-    sparseSupportWeightTrack: np.ndarray | None = None
-    valuesForPriorFitArr = valuesArr
-    sparseObsTracks = _estimateSparseNearestObsTracks()
-    sparseNoiseAligned = False
-    if sparseObsTracks is not None:
-        (
-            sparseInterceptTrack,
-            sparseObsVarTrack,
-            sparseSupportIdx,
-            sparseNoiseAligned,
-        ) = sparseObsTracks
-        if sparseSupportScaleBP is None or float(sparseSupportScaleBP) <= 0.0:
-            ellIntervals = float(localWindowIntervals)
-        else:
-            ellIntervals = max(
-                1.0,
-                float(sparseSupportScaleBP) / float(intervalSizeBP),
-            )
-        sparseSupportWeightTrack = _sparseSupportWeights(
-            sparseSupportIdx,
-            valuesArr.size,
-            ellIntervals,
-            float(sparseSupportPrior),
-        )
-        sparseInterceptTrack = sparseInterceptTrack * sparseSupportWeightTrack
-        valuesForPriorFitArr = valuesArr - sparseInterceptTrack
-        if verbose:
-            logger.info(
-                "Sparse-nearest support: ell=%.2f intervals, median weight=%.4f, max weight=%.4f",
-                ellIntervals,
-                float(np.median(sparseSupportWeightTrack)),
-                float(np.max(sparseSupportWeightTrack)),
-            )
+    if int(numNearest) > 0 or sparseIntervalIndices is not None:
+        raise ValueError("sparse-nearest MUNC is not supported by kalman MUNC")
+    if bool(restrictLocalVariance):
+        raise ValueError("restrictLocalVarianceToSparseBed is not supported by kalman MUNC")
 
     def _finalizeMuncVarianceTrack(
         fittedVarianceTrack: np.ndarray,
@@ -10709,108 +10125,60 @@ def getMuncTrack(
             varianceCap=varianceCap_,
         )
 
-    supportFraction = 1.0
+    supportFraction = float(np.mean(obsVarTrack > varianceFloor_)) if obsVarTrack.size else 0.0
     if pooledTrend is None:
-        _logAsciiBlock(
-            "MUNC trend fit",
-            (
-                ("chromosome", chromosome),
-                ("sampling iterations", int(samplingIters)),
-                ("basis requested", int(trendNumBasis)),
-                ("lambda grid size", int(trendLambdaGridSize)),
-                ("excluded intervals", int(np.count_nonzero(excludeMaskArr))),
-            ),
-        )
-        # Global:
-        # ... Variance as a function of signed mean, globally, as observed in
-        # ... distinct, randomly drawn genomic blocks. Within fixed-size blocks,
-        # ... an AR(1) fit captures local autocorrelation, while the
-        # ... the selected AR(1) variance functional is used as the diagonal
-        # ... observation-variance target.
-        blockMeans, blockVars, _starts, _ends = cconsenrich.cmeanVarPairs(
-            intervalsArr,
-            np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32),
-            blockSizeIntervals,
-            samplingIters,
-            randomSeed,
-            excludeMaskArr,
-            useInnovationVar=useInnovationVariance,
-            maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
-            pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
-        )
-        blockVarsForTrend = np.asarray(blockVars, dtype=np.float64)
-        if countModelVarianceFloorArr is not None:
-            blockNoise = _finiteIntervalMeans(
-                countModelVarianceFloorArr, _starts, _ends
-            )
-            blockVarsForTrend = _subtractMuncCountNoise(
-                blockVarsForTrend,
-                blockNoise,
-                varianceFloor=varianceFloor_,
-                varianceCap=varianceCap_,
-                fillNaN=False,
-            ).astype(np.float64, copy=False)
-        mask = (
-            np.isfinite(blockMeans)
-            & np.isfinite(blockVarsForTrend)
-            & (blockVarsForTrend >= varianceFloor_)
-        )
-        supportFraction = (
-            float(np.sum(mask)) / float(len(blockMeans)) if len(blockMeans) else 0.0
-        )
-        means_Masked = blockMeans[mask]
-        var_Masked = blockVarsForTrend[mask]
-        order = np.argsort(_muncTrendPredictor(means_Masked))
-        means_Sorted = means_Masked[order]
-        var_Sorted = var_Masked[order]
-        opt = fitPSplineLogVarianceTrend(
-            means_Sorted,
-            var_Sorted,
-            eps=eps,
-            trendNumBasis=trendNumBasis,
-            trendMinObsPerBasis=trendMinObsPerBasis,
-            trendMinEdf=trendMinEdf,
-            trendMaxEdf=trendMaxEdf,
-            trendLambdaMin=trendLambdaMin,
-            trendLambdaMax=trendLambdaMax,
-            trendLambdaGridSize=trendLambdaGridSize,
-        )
+        if EB_use:
+            raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
+        means_Sorted = np.asarray(valuesArr, dtype=np.float64).ravel()
+        opt = None
     else:
         _logAsciiBlock(
             "MUNC pooled trend reuse",
             (
                 ("chromosome", chromosome),
                 ("intervals", int(valuesArr.size)),
-                ("replicate variance factor", float(replicateVarianceFactor)),
             ),
         )
         opt = pooledTrend
-        finiteValues = np.asarray(valuesForPriorFitArr, dtype=np.float64).ravel()
+        finiteValues = np.asarray(valuesArr, dtype=np.float64).ravel()
         means_Sorted = finiteValues[np.isfinite(finiteValues)]
         if means_Sorted.size == 0:
             means_Sorted = np.array([0.0], dtype=np.float64)
-    logger.info(
-        _formatPSplineTrendSummary(
-            opt,
-            means_Sorted,
-            eps=varianceFloor_,
-            maxVariance=varianceCap_,
+        logger.info(
+            _formatPSplineTrendSummary(
+                opt,
+                means_Sorted,
+                eps=varianceFloor_,
+                maxVariance=varianceCap_,
+            )
         )
-    )
 
-    meanTrack = np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32)
-    if useEMA:
+    if priorMeanTrack is None:
+        meanTrack = np.ascontiguousarray(valuesArr, dtype=np.float32)
+    else:
+        meanTrack = np.ascontiguousarray(priorMeanTrack, dtype=np.float32).reshape(-1)
+        if meanTrack.shape[0] != valuesArr.size:
+            raise ValueError("priorMeanTrack must match values length")
+    if useEMA and priorMeanTrack is None:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
+    if not EB_use:
+        _logAsciiBlock(
+            "MUNC EB shrinkage skipped",
+            (
+                ("chromosome", chromosome),
+                ("reason", "MUNC variance EB disabled"),
+                ("support fraction", float(supportFraction)),
+            ),
+        )
+        return _finalizeMuncVarianceTrack(obsVarTrack), float(supportFraction)
+    if opt is None:
+        raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
     priorTrack = evalPSplineLogVarianceTrend(
         opt,
         meanTrack,
         eps=varianceFloor_,
         maxVariance=varianceCap_,
     )
-    priorFactor = float(replicateVarianceFactor)
-    if not np.isfinite(priorFactor) or priorFactor <= 0.0:
-        priorFactor = 1.0
-    priorTrack = priorTrack * np.float32(priorFactor)
     priorTrack = _clipVarianceTrack(
         priorTrack,
         floor=varianceFloor_,
@@ -10840,173 +10208,11 @@ def getMuncTrack(
                 float(np.quantile(finiteAdditional, 0.95)),
             )
 
-    if not EB_use:
-        _logAsciiBlock(
-            "MUNC EB shrinkage skipped",
-            (
-                ("chromosome", chromosome),
-                ("reason", "MUNC variance EB disabled"),
-                ("support fraction", float(supportFraction)),
-            ),
-        )
-        return _finalizeMuncVarianceTrack(priorTrack), float(supportFraction)
-
-    # Local:
-    # ... default: selected rolling AR(1) variance over a sliding window
-    # ... optional sparse-bed restriction: invalidate any local window leaving sparse regions
-    # ... sparse-nearest mode: aggregate region mean/variance stats at the nearest sparse blocks
-    fallbackObsVarTrack = cconsenrich.crollingMuncVariance(
-        valuesArr,
-        localWindowIntervals,
-        localObsExcludeMaskArr,
-        maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
-        pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
-        useInnovationVar=useInnovationVariance,
-    ).astype(np.float32, copy=False)
-    fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
-    fallbackObsVarTrack = _subtractMuncCountNoise(
-        fallbackObsVarTrack,
-        countNoiseLocalTrack,
-        varianceFloor=varianceFloor_,
-        varianceCap=varianceCap_,
-        fillNaN=False,
-    )
-
-    if sparseObsVarTrack is not None:
-        sparseObsVarTrack = sparseObsVarTrack.astype(np.float32, copy=False)
-        sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
-        if not sparseNoiseAligned:
-            sparseObsVarTrack = _subtractMuncCountNoise(
-                sparseObsVarTrack,
-                countNoiseLocalTrack,
-                varianceFloor=varianceFloor_,
-                varianceCap=varianceCap_,
-                fillNaN=False,
-            )
-        if sparseSupportWeightTrack is None:
-            sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float32)
-        supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float32)
-        supportWeight = np.clip(supportWeight, 0.0, 1.0)
-
-        obsVarTrack = np.array(fallbackObsVarTrack, dtype=np.float32, copy=True)
-        finSparse = np.isfinite(sparseObsVarTrack)
-        finFallback = np.isfinite(fallbackObsVarTrack)
-        finBoth = finSparse & finFallback
-        obsVarTrack[finBoth] = (
-            supportWeight[finBoth] * sparseObsVarTrack[finBoth]
-            + (1.0 - supportWeight[finBoth]) * fallbackObsVarTrack[finBoth]
-        )
-        sparseOnly = finSparse & ~finFallback
-        obsVarTrack[sparseOnly] = sparseObsVarTrack[sparseOnly]
-    else:
-        obsVarTrack = fallbackObsVarTrack
-
-    # Note, negative values are a flag from `cconsenrich.crollingMuncVariance`
-    # ... -- set as _NaN_ -- and handle later during shrinkage
-    obsVarTrack[obsVarTrack < 0.0] = np.nan
-
-    # Optionally, run a quantile filter over the local variance track.
-    # ...     EB_localQuantile < 0 --> disable
-    # ...     EB_localQuantile == 0 --> median filter
-    # ...     EB_localQuantile > 0 --> use supplied quantile value (x100)
-    # ... NOTE: Useful heuristic for tempering spurious measurements in sparse genomic
-    # ...    regions where estimated noise levels are often artificially deflated.
-    if EB_localQuantile >= 0.0:
-        quantile_ = 0.5 if EB_localQuantile == 0.0 else float(EB_localQuantile)
-        if quantile_ < 0.0:
-            quantile_ = 0.0
-        elif quantile_ > 1.0:
-            quantile_ = 1.0
-        pct = 100.0 * quantile_
-        win = int(localWindowIntervals)
-        if win < 1:
-            win = 1
-        if (win & 1) == 0:
-            win += 1
-
-        # inf sentinel for NaN positions
-        fillVal = np.inf if quantile_ >= 0.5 else -np.inf
-        nanMask = ~np.isfinite(obsVarTrack)
-        if np.any(nanMask):
-            tmp = obsVarTrack.copy()
-            tmp[nanMask] = fillVal
-            ndimage.percentile_filter(
-                tmp,
-                size=win + 2,
-                percentile=pct,
-                mode="nearest",
-                output=tmp,
-            )
-            # immediately after, replace sentinel inf --> NaN
-            tmp[nanMask] = np.nan
-            tmp[~np.isfinite(tmp)] = np.nan
-            obsVarTrack = _clipVarianceTrack(
-                tmp + varianceFloor_,
-                floor=varianceFloor_,
-                cap=varianceCap_,
-                fillNaN=False,
-            )
-        else:
-            ndimage.percentile_filter(
-                obsVarTrack + varianceFloor_,
-                size=win + 2,
-                percentile=pct,
-                mode="nearest",
-                output=obsVarTrack,
-            )
-            obsVarTrack = _clipVarianceTrack(
-                obsVarTrack,
-                floor=varianceFloor_,
-                cap=varianceCap_,
-                fillNaN=False,
-            )
-
-    # df / effective sample size for local variance
-    nuLDiagnostics: dict[str, float] | None = None
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
         logger.info(f"Using fixed/specified Nu_L={Nu_L:.2f}")
     else:
-        nominalNuL = float(max(4, localWindowIntervals - 3))
-        Nu_L = nominalNuL
-        if bool(noDMVar):
-            logger.info(
-                "MUNC delta-method variance disabled; using nominal Nu_L=%.2f",
-                float(Nu_L),
-            )
-        else:
-            betaTrack = cconsenrich.crollingMuncAR1Beta(
-                valuesArr,
-                localWindowIntervals,
-                localObsExcludeMaskArr,
-                maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
-                pairsRegLambda=MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
-            )
-            betaTrack = np.asarray(betaTrack, dtype=np.float32)
-            betaTrack[betaTrack < 0.0] = np.nan
-            Nu_L, nuLDiagnostics = _computeDeltaMethodAR1NuL(
-                betaTrack,
-                localWindowIntervals,
-                maxBeta=MUNC_AR1_MAX_BETA_DEFAULT,
-                muncAR1VarianceFunctional=muncAR1VarianceFunctionalName,
-            )
-            logger.info(
-                "MUNC effective Nu_L delta-method: nominal=%.2f effective=%.2f "
-                "beta_median=%.4g beta_q95=%.4g beta_max=%.4g "
-                "beta_clipped_fraction=%.4f "
-                "nu_eff_q05=%.2f nu_eff_q95=%.2f "
-                "nu_eff_floor_fraction=%.4f nu_eff_ceiling_fraction=%.4f",
-                float(nominalNuL),
-                float(Nu_L),
-                float(nuLDiagnostics.get("beta_median", np.nan)),
-                float(nuLDiagnostics.get("beta_q95", np.nan)),
-                float(nuLDiagnostics.get("beta_max_beta", np.nan)),
-                float(nuLDiagnostics.get("beta_clipped_fraction", np.nan)),
-                float(nuLDiagnostics.get("nu_eff_q05", np.nan)),
-                float(nuLDiagnostics.get("nu_eff_q95", np.nan)),
-                float(nuLDiagnostics.get("nu_eff_floor_fraction", np.nan)),
-                float(nuLDiagnostics.get("nu_eff_ceiling_fraction", np.nan)),
-            )
+        Nu_L = float(max(4, localWindowIntervals - 3))
 
     # --- Determine prior strength ---
     minScale_prior: float | None = None
@@ -11067,42 +10273,15 @@ def getMuncTrack(
         )
         Nu_0 = float(Nu_0_cap)
 
-    ar1NuLBetaMax = float(
-        (nuLDiagnostics or {}).get("beta_max_beta", MUNC_AR1_MAX_BETA_DEFAULT)
-    )
     _logAsciiBlock(
         "MUNC EB shrinkage",
         (
             ("chromosome", chromosome),
             ("Nu_0", float(Nu_0)),
             ("Nu_L", float(Nu_L)),
-            (
-                "Nu_L nominal",
-                (
-                    float(nuLDiagnostics["nominal"])
-                    if nuLDiagnostics is not None
-                    else float(Nu_L)
-                ),
-            ),
             ("posterior sample size", float(Nu_L + Nu_0)),
             ("support fraction", float(supportFraction)),
-            ("local quantile", float(EB_localQuantile)),
-            (
-                "AR1 variance functional",
-                muncAR1VarianceFunctionalName,
-            ),
-            (
-                "AR1 max beta",
-                float(MUNC_AR1_MAX_BETA_DEFAULT),
-            ),
-            (
-                "AR1 pairs reg lambda",
-                float(MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
-            ),
-            (
-                "AR1 Nu_L beta max beta",
-                ar1NuLBetaMax,
-            ),
+            ("MUNC variance model", muncVarianceModelName),
         ),
     )
     logger.info("MUNC EB shrinkage:\n\tNu_0=%.2f\n\tNu_L=%.2f", Nu_0, Nu_L)
@@ -11240,7 +10419,7 @@ def EB_computePriorStrength(
 
     The prior model strength is determined by 'excess' dispersion beyond sampling noise at the local level.
 
-    :param localModelVariances: Local model variance estimates (e.g., rolling MUNC variances :func:`consenrich.cconsenrich.crollingMuncVariance`).
+    :param localModelVariances: Local model variance estimates.
     :type localModelVariances: np.ndarray
     :param globalModelVariances: Global model variance estimates from the signed mean-variance trend fit (:func:`consenrich.core.fitPSplineLogVarianceTrend`).
     :type globalModelVariances: np.ndarray

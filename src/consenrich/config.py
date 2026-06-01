@@ -314,6 +314,26 @@ def _normalizeMuncCovariatesMode(value: Any) -> str:
     return canonicalByKey[key]
 
 
+def _normalizeMuncEBPriorGUncertaintyMode(value: Any) -> str:
+    raw = (
+        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
+        if value is None
+        else value
+    )
+    key = str(raw).strip().replace("-", "").replace("_", "").lower()
+    canonicalByKey = {
+        mode.replace("-", "").replace("_", "").lower(): mode
+        for mode in constants.MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(constants.MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES)
+        raise ValueError(
+            f"Unsupported observationParams.muncEBPrior.gUncertaintyMode {raw!r}. "
+            f"Supported modes: {supported}."
+        )
+    return canonicalByKey[key]
+
+
 def _normalizeMuncCovariateFeatures(
     value: Any,
     *,
@@ -1638,16 +1658,20 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             _cfgDefault(configData, "observationParams.muncVarianceModel"),
         )
     )
-    muncAR1VarianceFunctional = core._normalizeMuncAR1VarianceFunctional(
-        _cfgGetFirst(
-            configData,
-            (
-                "observationParams.muncAR1VarianceFunctional",
-                "observationParams.muncAR1ObservationVarianceFunctional",
-            ),
-            _cfgDefault(configData, "observationParams.muncAR1VarianceFunctional"),
+    if _cfgHas(configData, "observationParams.muncEBPrior.mode"):
+        raise ValueError("`observationParams.muncEBPrior.mode` is not supported.")
+    if _cfgHas(configData, "observationParams.muncGUncertaintyMode"):
+        raise ValueError(
+            "`observationParams.muncGUncertaintyMode` is not supported. "
+            "Use `observationParams.muncEBPrior.gUncertaintyMode`."
         )
-    )
+    if _cfgHas(configData, "observationParams.muncAR1VarianceFunctional") or _cfgHas(
+        configData,
+        "observationParams.muncAR1ObservationVarianceFunctional",
+    ):
+        raise ValueError(
+            "`observationParams.muncAR1VarianceFunctional` is not supported."
+        )
     muncTrendBlockSizeBP = (
         _cfgGet(configData, "observationParams.muncTrendBlockSizeBP", None)
         if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
@@ -1752,131 +1776,262 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             interval_size_bp=countingParams.intervalSizeBP,
             required_features_label="requested MUNC features",
         )
-    observationArgs = core.observationParams(
-        minR=_cfgGet(
+    useReplicateTrendsValue = bool(
+        _cfgGet(
+            configData,
+            "observationParams.useReplicateTrends",
+            constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
+        )
+    )
+    if useReplicateTrendsValue:
+        raise ValueError(
+            "`observationParams.useReplicateTrends` is not supported."
+        )
+    muncEBPriorTileSizeBP = _cfgGet(
+        configData,
+        "observationParams.muncEBPrior.tileSizeBP",
+        _cfgDefault(configData, "observationParams.muncEBPrior.tileSizeBP"),
+    )
+    if muncEBPriorTileSizeBP is not None:
+        muncEBPriorTileSizeBP = int(muncEBPriorTileSizeBP)
+        if muncEBPriorTileSizeBP <= 0:
+            raise ValueError(
+                "`observationParams.muncEBPrior.tileSizeBP` must be positive."
+            )
+    muncEBPriorTileCount = int(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.tileCount",
+            _cfgDefault(configData, "observationParams.muncEBPrior.tileCount"),
+        )
+    )
+    if muncEBPriorTileCount <= 0:
+        raise ValueError("`observationParams.muncEBPrior.tileCount` must be positive.")
+    muncEBPriorStrata = _cfgGet(
+        configData,
+        "observationParams.muncEBPrior.strata",
+        _cfgDefault(configData, "observationParams.muncEBPrior.strata"),
+    )
+    if muncEBPriorStrata is not None:
+        muncEBPriorStrata = int(muncEBPriorStrata)
+        if muncEBPriorStrata <= 0:
+            raise ValueError(
+                "`observationParams.muncEBPrior.strata` must be positive."
+            )
+    muncEBPriorMinTilesPerStratum = int(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.minTilesPerStratum",
+            _cfgDefault(configData, "observationParams.muncEBPrior.minTilesPerStratum"),
+        )
+    )
+    if muncEBPriorMinTilesPerStratum <= 0:
+        raise ValueError(
+            "`observationParams.muncEBPrior.minTilesPerStratum` must be positive."
+        )
+    muncEBPriorSupportMinQ = float(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.supportMinQ",
+            _cfgDefault(configData, "observationParams.muncEBPrior.supportMinQ"),
+        )
+    )
+    muncEBPriorSupportMaxQ = float(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.supportMaxQ",
+            _cfgDefault(configData, "observationParams.muncEBPrior.supportMaxQ"),
+        )
+    )
+    if not (0.0 < muncEBPriorSupportMinQ < muncEBPriorSupportMaxQ < 1.0):
+        raise ValueError(
+            "MUNC EB prior support quantiles must satisfy 0 < min < max < 1."
+        )
+    muncEBPriorSeed = _normalizeNonnegativeInt(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.seed",
+            _cfgDefault(configData, "observationParams.muncEBPrior.seed"),
+        ),
+        "observationParams.muncEBPrior.seed",
+    )
+    muncEBPriorMaxExtrapolatedFraction = float(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.maxExtrapolatedFraction",
+            _cfgDefault(
+                configData,
+                "observationParams.muncEBPrior.maxExtrapolatedFraction",
+            ),
+        )
+    )
+    if not (0.0 <= muncEBPriorMaxExtrapolatedFraction <= 1.0):
+        raise ValueError(
+            "`observationParams.muncEBPrior.maxExtrapolatedFraction` must "
+            "satisfy 0 <= value <= 1."
+        )
+    muncEBPriorWarmupECMIters = int(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.warmupECMIters",
+            _cfgDefault(configData, "observationParams.muncEBPrior.warmupECMIters"),
+        )
+    )
+    if muncEBPriorWarmupECMIters <= 0:
+        raise ValueError(
+            "`observationParams.muncEBPrior.warmupECMIters` must be positive."
+        )
+    muncEBPriorWarmupOuterPasses = int(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.warmupOuterPasses",
+            _cfgDefault(
+                configData,
+                "observationParams.muncEBPrior.warmupOuterPasses",
+            ),
+        )
+    )
+    if muncEBPriorWarmupOuterPasses <= 0:
+        raise ValueError(
+            "`observationParams.muncEBPrior.warmupOuterPasses` must be positive."
+        )
+    muncEBPriorGUncertaintyMode = _normalizeMuncEBPriorGUncertaintyMode(
+        _cfgGet(
+            configData,
+            "observationParams.muncEBPrior.gUncertaintyMode",
+            _cfgDefault(configData, "observationParams.muncEBPrior.gUncertaintyMode"),
+        )
+    )
+    observationValues = {
+        "minR": _cfgGet(
             configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R
         ),
-        maxR=_cfgGet(
+        "maxR": _cfgGet(
             configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R
         ),
-        samplingIters=_cfgGet(
+        "samplingIters": _cfgGet(
             configData,
             "observationParams.samplingIters",
             constants.OBSERVATION_DEFAULT_SAMPLING_ITERS,
         ),
-        EB_use=_cfgGet(
+        "EB_use": _cfgGet(
             configData,
             "observationParams.EB_use",
             constants.OBSERVATION_DEFAULT_EB_USE,
         ),
-        EB_setNu0=_cfgGet(
+        "EB_setNu0": _cfgGet(
             configData,
             "observationParams.EB_setNu0",
             constants.OBSERVATION_DEFAULT_EB_SET_NU0,
         ),
-        EB_setNuL=_cfgGet(
+        "EB_setNuL": _cfgGet(
             configData,
             "observationParams.EB_setNuL",
             constants.OBSERVATION_DEFAULT_EB_SET_NUL,
         ),
-        noDMVar=bool(
-            _cfgGet(
-                configData,
-                "observationParams.noDMVar",
-                constants.OBSERVATION_DEFAULT_NO_DM_VAR,
-            )
-        ),
-        trendNumBasis=int(
+        "trendNumBasis": int(
             _cfgGet(
                 configData,
                 "observationParams.trendNumBasis",
                 constants.OBSERVATION_DEFAULT_TREND_NUM_BASIS,
             )
         ),
-        trendMinObsPerBasis=float(
+        "trendMinObsPerBasis": float(
             _cfgGet(
                 configData,
                 "observationParams.trendMinObsPerBasis",
                 constants.OBSERVATION_DEFAULT_TREND_MIN_OBS_PER_BASIS,
             )
         ),
-        trendMinEdf=float(
+        "trendMinEdf": float(
             _cfgGet(
                 configData,
                 "observationParams.trendMinEdf",
                 constants.OBSERVATION_DEFAULT_TREND_MIN_EDF,
             )
         ),
-        trendMaxEdf=None if trendMaxEdfCfg is None else float(trendMaxEdfCfg),
-        trendLambdaMin=float(
+        "trendMaxEdf": None if trendMaxEdfCfg is None else float(trendMaxEdfCfg),
+        "trendLambdaMin": float(
             _cfgGet(
                 configData,
                 "observationParams.trendLambdaMin",
                 constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MIN,
             )
         ),
-        trendLambdaMax=float(
+        "trendLambdaMax": float(
             _cfgGet(
                 configData,
                 "observationParams.trendLambdaMax",
                 constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MAX,
             )
         ),
-        trendLambdaGridSize=int(
+        "trendLambdaGridSize": int(
             _cfgGet(
                 configData,
                 "observationParams.trendLambdaGridSize",
                 constants.OBSERVATION_DEFAULT_TREND_LAMBDA_GRID_SIZE,
             )
         ),
-        numNearest=numNearestResolved,
-        sparseSupportScaleBP=_cfgGet(
+        "numNearest": numNearestResolved,
+        "sparseSupportScaleBP": _cfgGet(
             configData,
             "observationParams.sparseSupportScaleBP",
             constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP,
         ),
-        sparseSupportPrior=float(
+        "sparseSupportPrior": float(
             _cfgGet(
                 configData,
                 "observationParams.sparseSupportPrior",
                 constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
             )
         ),
-        pad=_cfgGet(
+        "pad": _cfgGet(
             configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD
         ),
-        precisionMultiplierMin=float(
+        "precisionMultiplierMin": float(
             _cfgGet(
                 configData,
                 "observationParams.precisionMultiplierMin",
                 _cfgDefault(configData, "observationParams.precisionMultiplierMin"),
             )
         ),
-        precisionMultiplierMax=float(
+        "precisionMultiplierMax": float(
             _cfgGet(
                 configData,
                 "observationParams.precisionMultiplierMax",
                 _cfgDefault(configData, "observationParams.precisionMultiplierMax"),
             )
         ),
-        useReplicateTrends=bool(
+        "useReplicateTrends": useReplicateTrendsValue,
+        "useCountNoiseFloor": bool(
             _cfgGet(
                 configData,
-                "observationParams.useReplicateTrends",
-                constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
+                "observationParams.useCountNoiseFloor",
+                _cfgDefault(configData, "observationParams.useCountNoiseFloor"),
             )
         ),
-        muncVarianceModel=muncVarianceModel,
-        muncAR1VarianceFunctional=muncAR1VarianceFunctional,
-        muncTrendBlockSizeBP=muncTrendBlockSizeBP,
-        muncLocalWindowSizeBP=muncLocalWindowSizeBP,
-        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
-        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier,
-        restrictLocalVarianceToSparseBed=restrictLocalVarianceResolved,
-        muncCovariatesEnabled=muncCovariatesEnabled,
-        muncCovariatesMode=muncCovariatesMode,
-        muncCovariatesFeatures=muncCovariatesFeatures,
-    )
+        "muncVarianceModel": muncVarianceModel,
+        "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
+        "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
+        "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
+        "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
+        "restrictLocalVarianceToSparseBed": restrictLocalVarianceResolved,
+        "muncEBPriorTileSizeBP": muncEBPriorTileSizeBP,
+        "muncEBPriorTileCount": muncEBPriorTileCount,
+        "muncEBPriorStrata": muncEBPriorStrata,
+        "muncEBPriorMinTilesPerStratum": muncEBPriorMinTilesPerStratum,
+        "muncEBPriorSeed": muncEBPriorSeed,
+        "muncEBPriorSupportMinQ": muncEBPriorSupportMinQ,
+        "muncEBPriorSupportMaxQ": muncEBPriorSupportMaxQ,
+        "muncEBPriorMaxExtrapolatedFraction": muncEBPriorMaxExtrapolatedFraction,
+        "muncEBPriorWarmupECMIters": muncEBPriorWarmupECMIters,
+        "muncEBPriorWarmupOuterPasses": muncEBPriorWarmupOuterPasses,
+        "muncEBPriorGUncertaintyMode": muncEBPriorGUncertaintyMode,
+        "muncCovariatesEnabled": muncCovariatesEnabled,
+        "muncCovariatesMode": muncCovariatesMode,
+        "muncCovariatesFeatures": muncCovariatesFeatures,
+    }
+    observationArgs = core.observationParams(**observationValues)
 
     ECM_useAPN_ = bool(
         _cfgGet(configData, "fitParams.ECM_useAPN", constants.FIT_DEFAULT_USE_APN)

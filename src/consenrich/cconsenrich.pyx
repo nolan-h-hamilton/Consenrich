@@ -826,169 +826,6 @@ cdef inline int _maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, co
     return 0
 
 
-cdef inline double _canonicalAR1BetaFromPairStats(double sumSqXSeq,
-                                                  double sumSqYSeq,
-                                                  double sumXYc,
-                                                  Py_ssize_t blockLength,
-                                                  double maxBeta,
-                                                  double pairsRegLambda) noexcept nogil:
-    cdef double eps
-    cdef double nPairsDouble
-    cdef double beta1
-    cdef double lambdaEff
-    cdef double scaleFloor
-    cdef double ScaleX
-    cdef double ScaleY
-    cdef double denomSym
-
-    if blockLength < 4:
-        return 0.0
-    if sumSqXSeq < 0.0:
-        sumSqXSeq = 0.0
-    if sumSqYSeq < 0.0:
-        sumSqYSeq = 0.0
-
-    nPairsDouble = <double>(blockLength - 1)
-    eps = 1.0e-6 * (sumSqXSeq + sumSqYSeq + 1.0)
-    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0) # pairsRegLambda is effectively the number of pseudo-observations added
-    scaleFloor = 1.0e-4 * (sumSqXSeq + 1.0)
-
-    ScaleX = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
-    ScaleY = (sumSqYSeq * (1.0 + lambdaEff)) + scaleFloor
-    denomSym = sqrt(ScaleX * ScaleY)
-    if denomSym > eps:
-        beta1 = sumXYc / denomSym
-    else:
-        beta1 = 0.0
-
-    if beta1 > maxBeta:
-        beta1 = maxBeta
-    elif beta1 < 0.0:
-        beta1 = 0.0
-    return beta1
-
-
-cdef inline double _canonicalAR1VarianceFromPairStats(double sumSqXSeq,
-                                                      double sumSqYSeq,
-                                                      double sumXYc,
-                                                      Py_ssize_t blockLength,
-                                                      bint useInnovationVar,
-                                                      double maxBeta,
-                                                      double pairsRegLambda) noexcept nogil:
-    cdef double beta1
-    cdef double RSS
-    cdef double pairCountDouble
-    cdef double oneMinusBetaSq
-    cdef double divRSS
-
-    if blockLength < 4:
-        return 0.0
-    if sumSqXSeq < 0.0:
-        sumSqXSeq = 0.0
-    if sumSqYSeq < 0.0:
-        sumSqYSeq = 0.0
-
-    beta1 = _canonicalAR1BetaFromPairStats(
-        sumSqXSeq,
-        sumSqYSeq,
-        sumXYc,
-        blockLength,
-        maxBeta,
-        pairsRegLambda,
-    )
-    RSS = sumSqYSeq + ((beta1 * beta1) * sumSqXSeq) - (2.0 * (beta1 * sumXYc))
-    if RSS < 0.0:
-        RSS = 0.0
-
-    pairCountDouble = <double>(blockLength - 3)
-    oneMinusBetaSq = 1.0 - (beta1 * beta1)
-    if useInnovationVar:
-        divRSS = 1.0
-    else:
-        divRSS = oneMinusBetaSq
-
-    if divRSS <= 1.0e-8:
-        divRSS = 1.0e-8
-    return RSS / pairCountDouble / divRSS
-
-
-cdef inline void _regionMeanVar(double[::1] valuesView,
-                                Py_ssize_t[::1] blockStartIndices,
-                                Py_ssize_t[::1] blockSizes,
-                                float[::1] meanOutView,
-                                float[::1] varOutView,
-                                double zeroPenalty,
-                                double zeroThresh,
-                                bint useInnovationVar,
-                                double maxBeta=<double>0.95,
-                                double pairsRegLambda=<double>1.0) noexcept nogil:
-    # CALLERS: cmeanVarPairs
-
-    cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
-    cdef double sumY
-    cdef double blockLengthDouble
-    cdef double mom1
-    cdef double* blockPtr
-    cdef double nPairsDouble
-    cdef double sumXSeq
-    cdef double sumYSeq
-    cdef double meanX
-    cdef double meanYp
-    cdef double sumSqXSeq
-    cdef double sumSqYSeq
-    cdef double sumXYc
-    cdef double xDev
-    cdef double yDev
-
-    zeroPenalty = zeroPenalty
-    zeroThresh = zeroThresh
-
-    for regionIndex in range(meanOutView.shape[0]):
-        startIndex = blockStartIndices[regionIndex]
-        blockLength = blockSizes[regionIndex]
-        blockPtr = &valuesView[startIndex]
-        blockLengthDouble = <double>blockLength
-
-        # mean over full block
-        sumY = 0.0
-        for elementIndex in range(blockLength):
-            sumY += blockPtr[elementIndex]
-        mom1 = sumY / blockLengthDouble
-        meanOutView[regionIndex] = <float>mom1
-
-        # df = n-3
-        if blockLength < 4:
-            varOutView[regionIndex] = 0.0
-            continue
-
-        nPairsDouble = <double>(blockLength - 1)
-        sumXSeq = sumY - blockPtr[blockLength - 1] # drop last
-        sumYSeq = sumY - blockPtr[0] # drop first
-
-        meanX = sumXSeq / nPairsDouble
-        meanYp = sumYSeq / nPairsDouble
-        sumSqXSeq = 0.0
-        sumSqYSeq = 0.0
-        sumXYc = 0.0
-
-        for elementIndex in range(0, blockLength - 1):
-            xDev = blockPtr[elementIndex] - meanX
-            yDev = blockPtr[elementIndex + 1] - meanYp
-            sumSqXSeq += xDev*xDev
-            sumSqYSeq += yDev*yDev
-            sumXYc += xDev*yDev
-
-        varOutView[regionIndex] = <float>_canonicalAR1VarianceFromPairStats(
-            sumSqXSeq,
-            sumSqYSeq,
-            sumXYc,
-            blockLength,
-            useInnovationVar,
-            maxBeta,
-            pairsRegLambda,
-        )
-
-
 cdef inline double _secondDiffPenaltyDiag(Py_ssize_t n, Py_ssize_t i, double lam) noexcept nogil:
     if n < 3 or lam <= 0.0:
         return 0.0
@@ -2652,350 +2489,112 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     return mask
 
 
-cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
-                          cnp.ndarray[cnp.float32_t, ndim=1] values,
-                          int blockSize,
-                          int iters,
-                          int randSeed,
-                          cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-                          double zeroPenalty=0.0,
-                          double zeroThresh=0.0,
-                          bint useInnovationVar = <bint>True,
-                          double maxBeta = 0.95,
-                          double pairsRegLambda = <double>1.0):
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
-    cdef double[::1] valuesView
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArray
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outMeans
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outVars
-    cdef Py_ssize_t valuesLength
-    cdef Py_ssize_t maxBlockLength
-    cdef list supportList
-    cdef cnp.intp_t scanIndex
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] supportArr
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] starts_
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] ends
-    cdef Py_ssize_t[::1] startsView
-    cdef Py_ssize_t[::1] sizesView
-    cdef float[::1] meansView
-    cdef float[::1] varsView
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyStarts
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyEnds
-    cdef double geomProb
-
-
-    rng = default_rng(randSeed)
-    valuesArray = np.ascontiguousarray(values, dtype=np.float64)
-    valuesView = valuesArray
-    outMeans = np.empty(iters, dtype=np.float32)
-    outVars = np.empty(iters, dtype=np.float32)
-    valuesLength = <Py_ssize_t>valuesArray.size
-    maxBlockLength = <Py_ssize_t>blockSize
-    if valuesLength <= 0 or maxBlockLength <= 0 or iters <= 0:
-        outMeans[:] = 0.0
-        outVars[:] = 0.0
-        emptyStarts = np.empty(0, dtype=np.intp)
-        emptyEnds = np.empty(0, dtype=np.intp)
-        return outMeans, outVars, emptyStarts, emptyEnds
-
-    geomProb = 1.0 / (<double>maxBlockLength)
-    sizesArray = rng.geometric(geomProb, size=iters).astype(np.intp, copy=False)
-    np.maximum(sizesArray, <cnp.intp_t>min(5, valuesLength), out=sizesArray)
-    np.minimum(sizesArray, <cnp.intp_t>min(5*maxBlockLength, valuesLength), out=sizesArray)
-    maxBlockLength = <Py_ssize_t>sizesArray.max()
-    supportList = []
-    scanIndex = 0
-
-    while scanIndex <= valuesLength - maxBlockLength:
-        if excludeIdxMask[scanIndex:scanIndex + maxBlockLength].any():
-            scanIndex = scanIndex + maxBlockLength + 1
-            continue
-        supportList.append(scanIndex)
-        scanIndex = scanIndex + 1
-
-    if len(supportList) == 0:
-        outMeans[:] = 0.0
-        outVars[:] = 0.0
-        emptyStarts = np.empty(0, dtype=np.intp)
-        emptyEnds = np.empty(0, dtype=np.intp)
-        return outMeans, outVars, emptyStarts, emptyEnds
-
-    supportArr = np.asarray(supportList, dtype=np.intp)
-    starts_ = rng.choice(supportArr, size=iters, replace=True).astype(np.intp)
-    ends = starts_ + sizesArray
-
-    startsView = starts_
-    sizesView = sizesArray
-    meansView = outMeans
-    varsView = outVars
-
-    _regionMeanVar(
-        valuesView,
-        startsView,
-        sizesView,
-        meansView,
-        varsView,
-        zeroPenalty,
-        zeroThresh,
-        useInnovationVar,
-        maxBeta,
-        pairsRegLambda,
-    )
-
-    return outMeans, outVars, starts_, ends
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cblockAR1Beta(
-    cnp.ndarray[cnp.float32_t, ndim=1] values,
+cpdef tuple cbroadMuncTileEvidence(
+    cnp.ndarray[cnp.float32_t, ndim=1] seedMean,
+    cnp.ndarray[cnp.float32_t, ndim=2] evidenceMatrix,
     cnp.ndarray[cnp.intp_t, ndim=1] blockStarts,
     cnp.ndarray[cnp.intp_t, ndim=1] blockSizes,
-    double maxBeta=0.95,
-    double pairsRegLambda=1.0,
+    cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
+    cnp.ndarray[cnp.float64_t, ndim=1] weights,
+    double eps=1.0e-12,
 ):
-    r"""Estimate the clipped AR(1) beta for each explicit block."""
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
-    cdef double[::1] valuesView
+    cdef Py_ssize_t intervalCount = seedMean.shape[0]
+    cdef Py_ssize_t sampleCount = evidenceMatrix.shape[0]
+    cdef Py_ssize_t blockCount = blockStarts.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] tilePredictor
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] tileEvidence
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] tileWeight
+    cdef float[::1] seedView = seedMean
+    cdef float[:, ::1] evidenceView = evidenceMatrix
     cdef Py_ssize_t[::1] startsView = blockStarts
     cdef Py_ssize_t[::1] sizesView = blockSizes
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outBeta
-    cdef float[::1] outView
-    cdef Py_ssize_t nBlocks
-    cdef Py_ssize_t valuesLength
-    cdef Py_ssize_t regionIndex
-    cdef Py_ssize_t elementIndex
+    cdef cnp.uint8_t[::1] excludeView = excludeIdxMask
+    cdef double[::1] weightView = weights
+    cdef double[::1] predictorView
+    cdef double[:, ::1] tileEvidenceView
+    cdef double[:, ::1] tileWeightView
+    cdef Py_ssize_t blockIndex
+    cdef Py_ssize_t sampleIndex
+    cdef Py_ssize_t offset
     cdef Py_ssize_t startIndex
     cdef Py_ssize_t blockLength
-    cdef double* blockPtr
-    cdef double sumY
-    cdef double nPairsDouble
-    cdef double sumXSeq
-    cdef double sumYSeq
-    cdef double meanX
-    cdef double meanYp
-    cdef double sumSqXSeq
-    cdef double sumSqYSeq
-    cdef double sumXYc
-    cdef double xDev
-    cdef double yDev
+    cdef Py_ssize_t pos
+    cdef double sumSeed
+    cdef double weight
+    cdef double weightSum
+    cdef double value
+    cdef double signedLog
+    cdef double floorValue = eps
 
-    if blockStarts.shape[0] != blockSizes.shape[0]:
+    if evidenceMatrix.shape[1] != intervalCount:
+        raise ValueError("evidenceMatrix must align with seedMean")
+    if blockSizes.shape[0] != blockCount:
         raise ValueError("blockStarts and blockSizes must align")
+    if excludeIdxMask.shape[0] != intervalCount:
+        raise ValueError("excludeIdxMask must align with seedMean")
+    if weights.shape[0] != intervalCount:
+        raise ValueError("weights must align with seedMean")
+    if floorValue <= 0.0 or not isfinite(floorValue):
+        raise ValueError("eps must be positive and finite")
+    for blockIndex in range(blockCount):
+        startIndex = blockStarts[blockIndex]
+        blockLength = blockSizes[blockIndex]
+        if startIndex < 0 or blockLength <= 0:
+            raise ValueError("blockStarts and blockSizes must define positive ranges")
+        if startIndex + blockLength > intervalCount:
+            raise ValueError("block ranges must fit seedMean")
 
-    nBlocks = <Py_ssize_t>blockStarts.shape[0]
-    outBeta = np.empty(nBlocks, dtype=np.float32)
-    outView = outBeta
-    valuesArray = np.ascontiguousarray(values, dtype=np.float64)
-    valuesView = valuesArray
-    valuesLength = <Py_ssize_t>valuesArray.shape[0]
+    tilePredictor = np.empty(blockCount, dtype=np.float64)
+    tileEvidence = np.empty((sampleCount, blockCount), dtype=np.float64)
+    tileWeight = np.empty((sampleCount, blockCount), dtype=np.float64)
+    predictorView = tilePredictor
+    tileEvidenceView = tileEvidence
+    tileWeightView = tileWeight
 
     with nogil:
-        for regionIndex in range(nBlocks):
-            startIndex = startsView[regionIndex]
-            blockLength = sizesView[regionIndex]
-            if (
-                blockLength < 4
-                or startIndex < 0
-                or startIndex + blockLength > valuesLength
-            ):
-                outView[regionIndex] = <cnp.float32_t>-1.0
-                continue
+        for blockIndex in range(blockCount):
+            startIndex = startsView[blockIndex]
+            blockLength = sizesView[blockIndex]
+            for sampleIndex in range(sampleCount):
+                tileEvidenceView[sampleIndex, blockIndex] = 0.0
+                tileWeightView[sampleIndex, blockIndex] = 0.0
 
-            blockPtr = &valuesView[startIndex]
-            sumY = 0.0
-            for elementIndex in range(blockLength):
-                sumY += blockPtr[elementIndex]
-
-            nPairsDouble = <double>(blockLength - 1)
-            sumXSeq = sumY - blockPtr[blockLength - 1]
-            sumYSeq = sumY - blockPtr[0]
-            meanX = sumXSeq / nPairsDouble
-            meanYp = sumYSeq / nPairsDouble
-
-            sumSqXSeq = 0.0
-            sumSqYSeq = 0.0
-            sumXYc = 0.0
-            for elementIndex in range(blockLength - 1):
-                xDev = blockPtr[elementIndex] - meanX
-                yDev = blockPtr[elementIndex + 1] - meanYp
-                sumSqXSeq += xDev * xDev
-                sumSqYSeq += yDev * yDev
-                sumXYc += xDev * yDev
-
-            outView[regionIndex] = <cnp.float32_t>(
-                _canonicalAR1BetaFromPairStats(
-                    sumSqXSeq,
-                    sumSqYSeq,
-                    sumXYc,
-                    blockLength,
-                    maxBeta,
-                    pairsRegLambda,
-                )
-            )
-
-    return outBeta
-
-
-cpdef tuple cSparseNearestMeanVarTrack(
-    cnp.ndarray[cnp.float32_t, ndim=1] values,
-    cnp.ndarray[cnp.intp_t, ndim=1] sparseCenters,
-    cnp.ndarray[cnp.intp_t, ndim=1] blockStarts,
-    cnp.ndarray[cnp.intp_t, ndim=1] blockSizes,
-    int numNearest,
-    double zeroPenalty=0.0,
-    double zeroThresh=0.0,
-    bint useInnovationVar=True,
-    bint aggregateMeanAbs=True,
-    double maxBeta=0.95,
-    double pairsRegLambda=1.0,
-    object countNoiseBlockMean=None,
-    double varianceFloor=1.0e-6,
-    double varianceCap=0.0,
-):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
-    cdef double[::1] valuesView
-    cdef Py_ssize_t sparseCount
-    cdef Py_ssize_t intervalCount
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] sparseMeans
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] sparseVars
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outMeans
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outVars
-    cdef float[::1] sparseMeansView
-    cdef float[::1] sparseVarsView
-    cdef float[::1] outMeansView
-    cdef float[::1] outVarsView
-    cdef Py_ssize_t[::1] sparseCentersView = sparseCenters
-    cdef Py_ssize_t[::1] blockStartsView = blockStarts
-    cdef Py_ssize_t[::1] blockSizesView = blockSizes
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] countNoiseArray
-    cdef double[::1] countNoiseView
-    cdef bint useCountNoise = <bint>False
-    cdef bint useVarianceCap = <bint>False
-    cdef Py_ssize_t i, left, right, chosenIdx, usedCount
-    cdef Py_ssize_t nearestTarget
-    cdef Py_ssize_t lo, hi, mid, insertPos
-    cdef double sumMean, sumVar, adjustedVar
-    cdef double leftDist, rightDist
-
-    intervalCount = <Py_ssize_t>values.shape[0]
-    sparseCount = <Py_ssize_t>sparseCenters.shape[0]
-    outMeans = np.empty(intervalCount, dtype=np.float32)
-    outVars = np.empty(intervalCount, dtype=np.float32)
-
-    if intervalCount <= 0:
-        return outMeans, outVars
-
-    if (
-        sparseCount <= 0
-        or blockStarts.shape[0] != sparseCount
-        or blockSizes.shape[0] != sparseCount
-        or numNearest <= 0
-    ):
-        outMeans.fill(np.float32(0.0))
-        outVars.fill(np.float32(np.nan))
-        return outMeans, outVars
-
-    valuesArray = np.ascontiguousarray(values, dtype=np.float64)
-    valuesView = valuesArray
-    sparseMeans = np.empty(sparseCount, dtype=np.float32)
-    sparseVars = np.empty(sparseCount, dtype=np.float32)
-    sparseMeansView = sparseMeans
-    sparseVarsView = sparseVars
-    if countNoiseBlockMean is not None:
-        countNoiseArray = np.ascontiguousarray(countNoiseBlockMean, dtype=np.float64)
-        if countNoiseArray.shape[0] != sparseCount:
-            raise ValueError("countNoiseBlockMean must align with sparseCenters")
-        countNoiseView = countNoiseArray
-        useCountNoise = <bint>True
-    if varianceFloor < 1.0e-12:
-        varianceFloor = 1.0e-12
-    if isfinite(varianceCap) and varianceCap > varianceFloor:
-        useVarianceCap = <bint>True
-
-    _regionMeanVar(
-        valuesView,
-        blockStartsView,
-        blockSizesView,
-        sparseMeansView,
-        sparseVarsView,
-        zeroPenalty,
-        zeroThresh,
-        useInnovationVar,
-        maxBeta,
-        pairsRegLambda,
-    )
-
-    if useCountNoise:
-        for i in range(sparseCount):
-            adjustedVar = <double>sparseVarsView[i]
-            if isfinite(adjustedVar) and isfinite(countNoiseView[i]):
-                adjustedVar = adjustedVar - countNoiseView[i]
-                if adjustedVar < varianceFloor:
-                    adjustedVar = varianceFloor
-                if useVarianceCap and adjustedVar > varianceCap:
-                    adjustedVar = varianceCap
-                sparseVarsView[i] = <cnp.float32_t>adjustedVar
-
-    outMeansView = outMeans
-    outVarsView = outVars
-
-    for i in range(intervalCount):
-        lo = 0
-        hi = sparseCount
-        while lo < hi:
-            mid = lo + ((hi - lo) // 2)
-            if sparseCentersView[mid] < i:
-                lo = mid + 1
-            else:
-                hi = mid
-        insertPos = lo
-        left = insertPos - 1
-        right = insertPos
-        nearestTarget = numNearest
-        if nearestTarget > sparseCount:
-            nearestTarget = sparseCount
-
-        usedCount = 0
-        sumMean = 0.0
-        sumVar = 0.0
-
-        while usedCount < nearestTarget and (left >= 0 or right < sparseCount):
-            if left < 0:
-                chosenIdx = right
-                right += 1
-            elif right >= sparseCount:
-                chosenIdx = left
-                left -= 1
-            else:
-                leftDist = <double>(i - sparseCentersView[left])
-                if leftDist < 0.0:
-                    leftDist = -leftDist
-                rightDist = <double>(sparseCentersView[right] - i)
-                if rightDist < 0.0:
-                    rightDist = -rightDist
-                if leftDist <= rightDist:
-                    chosenIdx = left
-                    left -= 1
+            sumSeed = 0.0
+            weightSum = 0.0
+            for offset in range(blockLength):
+                pos = startIndex + offset
+                if excludeView[pos] != 0:
+                    continue
+                weight = weightView[pos]
+                if weight <= 0.0:
+                    continue
+                value = <double>seedView[pos]
+                if value > 0.0:
+                    signedLog = log1p(value)
+                elif value < 0.0:
+                    signedLog = -log1p(-value)
                 else:
-                    chosenIdx = right
-                    right += 1
-
-            if aggregateMeanAbs:
-                sumMean += fabs(<double>sparseMeansView[chosenIdx])
+                    signedLog = 0.0
+                sumSeed += weight * signedLog
+                weightSum += weight
+                for sampleIndex in range(sampleCount):
+                    value = <double>evidenceView[sampleIndex, pos]
+                    if value < floorValue:
+                        value = floorValue
+                    tileEvidenceView[sampleIndex, blockIndex] += weight * value
+            if weightSum > 0.0:
+                predictorView[blockIndex] = sumSeed / weightSum
+                for sampleIndex in range(sampleCount):
+                    tileEvidenceView[sampleIndex, blockIndex] = (
+                        tileEvidenceView[sampleIndex, blockIndex] / weightSum
+                    )
+                    tileWeightView[sampleIndex, blockIndex] = weightSum
             else:
-                sumMean += <double>sparseMeansView[chosenIdx]
-            sumVar += <double>sparseVarsView[chosenIdx]
-            usedCount += 1
+                predictorView[blockIndex] = NAN
+                for sampleIndex in range(sampleCount):
+                    tileEvidenceView[sampleIndex, blockIndex] = NAN
 
-        if usedCount > 0:
-            outMeansView[i] = <cnp.float32_t>(sumMean / <double>usedCount)
-            outVarsView[i] = <cnp.float32_t>(sumVar / <double>usedCount)
-        else:
-            outMeansView[i] = <cnp.float32_t>0.0
-            outVarsView[i] = <cnp.float32_t>np.nan
-
-    return outMeans, outVars
+    return tilePredictor, tileEvidence, tileWeight
 
 
 cdef bint _cEMA(const real_t* xPtr, real_t* outPtr,
@@ -5923,258 +5522,6 @@ cpdef tuple cfixedBackgroundECM(
     return (itersDone, float(previousNLL))
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
-    cnp.ndarray[cnp.float32_t, ndim=1] values,
-    int blockLength,
-    cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
-    bint useInnovationVar = <bint>True,
-):
-    r"""Estimate a rolling AR(1) MUNC variance track for a 1D array of values."""
-
-    cdef Py_ssize_t numIntervals=values.shape[0]
-    cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
-    cdef int halfBlockLength, maskSum
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] varAtStartIndex
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
-    cdef float[::1] valuesView=values
-    cdef cnp.uint8_t[::1] maskView=excludeMask
-    cdef float[::1] varAtView
-    cdef float[::1] varOutView
-    cdef double sumY
-    cdef double sumSqY
-    cdef double sumLagProd
-    cdef double nPairsDouble
-    cdef double sumXSeq
-    cdef double sumYSeq
-    cdef double sumSqXSeq
-    cdef double sumSqYSeq
-    cdef double sumXYc
-    cdef double previousValue
-    cdef double currentValue
-    cdef double leavingValue
-    cdef double enteringValue
-
-    varOut = np.empty(numIntervals,dtype=np.float32)
-
-    if blockLength > numIntervals:
-        blockLength = <int>numIntervals
-
-    if blockLength < 2:
-        varOut[:] = 0.0
-        return varOut
-
-    if blockLength < 4:
-        varOut[:] = 0.0
-        return varOut
-
-    halfBlockLength = (blockLength//2)
-    maxStartIndex = (numIntervals - blockLength)
-    varAtStartIndex = np.empty((maxStartIndex + 1),dtype=np.float32)
-    varAtView = varAtStartIndex
-    varOutView = varOut
-
-    sumY=0.0
-    sumSqY=0.0
-    sumLagProd=0.0
-    maskSum=0
-
-    with nogil:
-        # initialize first
-        for elementIndex in range(blockLength):
-            currentValue=valuesView[elementIndex]
-            sumY += currentValue
-            sumSqY += (currentValue*currentValue)
-            maskSum += <int>maskView[elementIndex]
-            if elementIndex < (blockLength - 1):
-                sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
-
-        # sliding window until last block's start
-        for startIndex in range(maxStartIndex + 1):
-            if maskSum != 0:
-                varAtView[startIndex]=<cnp.float32_t>-1.0
-            else:
-                nPairsDouble = <double>(blockLength - 1)
-                previousValue = valuesView[startIndex]
-                currentValue = valuesView[(startIndex + blockLength - 1)]
-
-                # x[i] = values[startIndex+i] i=0,1,...n-2
-                # y[i] = values[startIndex+i+1] i=0,1,...n-2
-                sumXSeq = sumY - currentValue
-                sumYSeq = sumY - previousValue
-
-                sumSqXSeq = (
-                    (sumSqY - (currentValue * currentValue))
-                    - ((sumXSeq * sumXSeq) / nPairsDouble)
-                )
-                sumSqYSeq = (
-                    (sumSqY - (previousValue * previousValue))
-                    - ((sumYSeq * sumYSeq) / nPairsDouble)
-                )
-                sumXYc = sumLagProd - ((sumXSeq * sumYSeq) / nPairsDouble)
-                varAtView[startIndex] = <cnp.float32_t>(
-                    _canonicalAR1VarianceFromPairStats(
-                        sumSqXSeq,
-                        sumSqYSeq,
-                        sumXYc,
-                        blockLength,
-                        useInnovationVar,
-                        maxBeta,
-                        pairsRegLambda,
-                    )
-                )
-
-            if startIndex < maxStartIndex:
-                # slide window forward --> (previousSum - leavingValue) + enteringValue
-                leavingValue = valuesView[startIndex]
-                enteringValue = valuesView[(startIndex + blockLength)]
-                sumY = (sumY-leavingValue) + enteringValue
-                sumSqY = sumSqY + (-(leavingValue*leavingValue) + (enteringValue*enteringValue))
-                sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
-                maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
-
-        for regionIndex in range(numIntervals):
-            # assign to center of block around regionIndex (as close as possible if near edges)
-            startIndex = regionIndex - halfBlockLength
-            if startIndex < 0:
-                startIndex = 0
-            elif startIndex > maxStartIndex:
-                startIndex = maxStartIndex
-            varOutView[regionIndex] = varAtView[startIndex]
-
-    return varOut
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncAR1Beta(
-    cnp.ndarray[cnp.float32_t, ndim=1] values,
-    int blockLength,
-    cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
-):
-    r"""Estimate the clipped AR(1) beta used by rolling MUNC windows."""
-
-    cdef Py_ssize_t numIntervals=values.shape[0]
-    cdef Py_ssize_t regionIndex, elementIndex, startIndex, maxStartIndex
-    cdef int halfBlockLength, maskSum
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] betaAtStartIndex
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] betaOut
-    cdef float[::1] valuesView=values
-    cdef cnp.uint8_t[::1] maskView=excludeMask
-    cdef float[::1] betaAtView
-    cdef float[::1] betaOutView
-    cdef double sumY
-    cdef double sumSqY
-    cdef double sumLagProd
-    cdef double nPairsDouble
-    cdef double sumXSeq
-    cdef double sumYSeq
-    cdef double sumSqXSeq
-    cdef double sumSqYSeq
-    cdef double sumXYc
-    cdef double previousValue
-    cdef double currentValue
-    cdef double leavingValue
-    cdef double enteringValue
-
-    betaOut = np.empty(numIntervals, dtype=np.float32)
-
-    if blockLength > numIntervals:
-        blockLength = <int>numIntervals
-    if blockLength < 4:
-        betaOut[:] = 0.0
-        return betaOut
-
-    halfBlockLength = blockLength // 2
-    maxStartIndex = numIntervals - blockLength
-    betaAtStartIndex = np.empty((maxStartIndex + 1), dtype=np.float32)
-    betaAtView = betaAtStartIndex
-    betaOutView = betaOut
-
-    sumY = 0.0
-    sumSqY = 0.0
-    sumLagProd = 0.0
-    maskSum = 0
-
-    with nogil:
-        for elementIndex in range(blockLength):
-            currentValue = valuesView[elementIndex]
-            sumY += currentValue
-            sumSqY += currentValue * currentValue
-            maskSum += <int>maskView[elementIndex]
-            if elementIndex < (blockLength - 1):
-                sumLagProd += currentValue * valuesView[elementIndex + 1]
-
-        for startIndex in range(maxStartIndex + 1):
-            if maskSum != 0:
-                betaAtView[startIndex] = <cnp.float32_t>-1.0
-            else:
-                nPairsDouble = <double>(blockLength - 1)
-                previousValue = valuesView[startIndex]
-                currentValue = valuesView[startIndex + blockLength - 1]
-                sumXSeq = sumY - currentValue
-                sumYSeq = sumY - previousValue
-                sumSqXSeq = (
-                    (sumSqY - (currentValue * currentValue))
-                    - ((sumXSeq * sumXSeq) / nPairsDouble)
-                )
-                sumSqYSeq = (
-                    (sumSqY - (previousValue * previousValue))
-                    - ((sumYSeq * sumYSeq) / nPairsDouble)
-                )
-                sumXYc = sumLagProd - ((sumXSeq * sumYSeq) / nPairsDouble)
-                betaAtView[startIndex] = <cnp.float32_t>(
-                    _canonicalAR1BetaFromPairStats(
-                        sumSqXSeq,
-                        sumSqYSeq,
-                        sumXYc,
-                        blockLength,
-                        maxBeta,
-                        pairsRegLambda,
-                    )
-                )
-
-            if startIndex < maxStartIndex:
-                leavingValue = valuesView[startIndex]
-                enteringValue = valuesView[startIndex + blockLength]
-                sumY = (sumY - leavingValue) + enteringValue
-                sumSqY = sumSqY + (-(leavingValue * leavingValue) + (enteringValue * enteringValue))
-                sumLagProd = sumLagProd + (
-                    -(valuesView[startIndex] * valuesView[startIndex + 1])
-                    + (valuesView[startIndex + blockLength - 1] * valuesView[startIndex + blockLength])
-                )
-                maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[startIndex + blockLength])
-
-        for regionIndex in range(numIntervals):
-            startIndex = regionIndex - halfBlockLength
-            if startIndex < 0:
-                startIndex = 0
-            elif startIndex > maxStartIndex:
-                startIndex = maxStartIndex
-            betaOutView[regionIndex] = betaAtView[startIndex]
-
-    return betaOut
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
-    cnp.ndarray[cnp.float32_t, ndim=1] values,
-    int blockLength,
-    cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
-    bint useInnovationVar = <bint>True,
-):
-    r"""Compatibility wrapper for the AR(1) rolling MUNC variance model."""
-    return crollingMuncVariance(
-        values,
-        blockLength,
-        excludeMask,
-        maxBeta=maxBeta,
-        pairsRegLambda=pairsRegLambda,
-        useInnovationVar=useInnovationVar,
-    )
-
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
     bint centerMedian=<bint>(True),  # FFR: in fact, we use the _MEDIAN_ for centering!, change in next 0.x+1.0 release
@@ -6742,7 +6089,7 @@ def cTransformCountVarianceFloor(
     object transformOutputScale=None,
     object transformShape=None,
 ):
-    r"""Posterior-predictive delta-method count-transform variance floor."""
+    r"""Conditional Poisson delta-method count-transform variance floor."""
     cdef object countsObj = np.asarray(normalizedCounts, dtype=np.float64)
     cdef bint squeeze = False
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] counts2
@@ -6771,7 +6118,7 @@ def cTransformCountVarianceFloor(
     cdef double outputScale_ = <double>params[2]
     cdef double shape_ = <double>params[4]
     cdef Py_ssize_t m, n, i, j
-    cdef double count, sf, rawMean, normalizedMean, normalizedVariance, deriv, floorValue
+    cdef double count, sf, lambdaHat, normalizedMean, normalizedVariance, deriv, floorValue
 
     if countsObj.ndim == 1:
         squeeze = True
@@ -6802,9 +6149,9 @@ def cTransformCountVarianceFloor(
                     continue
                 if count < 0.0:
                     count = 0.0
-                rawMean = (count / sf) + 0.5
-                normalizedMean = rawMean * sf
-                normalizedVariance = 2.0 * rawMean * sf * sf
+                lambdaHat = (count / sf) + 0.5
+                normalizedMean = lambdaHat * sf
+                normalizedVariance = lambdaHat * sf * sf
                 deriv = _transformDerivativeAtMean_F64(
                     normalizedMean,
                     modeCode,

@@ -1181,10 +1181,7 @@ def calibrateChromosomeStateUncertainty(
     foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
     fitKwargs["logIndentLevel"] = foldIndentLevel + 1
     if factorModel == segshrink.SEGSHRINK_MODEL:
-        calibrationFixedBackgroundIters = min(
-            max(int(params.calibrationECMIters), 2),
-            10,
-        )
+        calibrationFixedBackgroundIters = max(int(params.calibrationECMIters), 2)
         calibrationOuterIters = min(max(int(params.calibrationOuterIters), 2), 4)
     else:
         calibrationFixedBackgroundIters = max(

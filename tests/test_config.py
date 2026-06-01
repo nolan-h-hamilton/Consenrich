@@ -378,7 +378,7 @@ def _case_readConfigGenericCountTransform(
         readConfig(str(invalidPath))
 
 
-def _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
+def _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
     tmp_path,
     monkeypatch,
 ):
@@ -409,8 +409,8 @@ def _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
     )
 
     momentCounts = counts + 0.5 * scaleFactor
-    normalizedVariance = 2.0 * (
-        (scaleFactor * counts) + (0.5 * scaleFactor * scaleFactor)
+    normalizedVariance = (scaleFactor * counts) + (
+        0.5 * scaleFactor * scaleFactor
     )
     z = momentCounts + inputOffset
     u = z / inputScale
@@ -489,7 +489,7 @@ def _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
 
 
 def test_count_model_variance_floor_transform_delta_method(tmp_path, monkeypatch):
-    _case_countModelVarianceFloorFollowsPosteriorPredictiveDeltaMethod(
+    _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
         tmp_path,
         monkeypatch,
     )
@@ -737,7 +737,9 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     observationParams:
       precisionMultiplierMin: 0.1
       precisionMultiplierMax: 8.0
-      useReplicateTrends: true
+      useCountNoiseFloor: false
+      muncEBPrior:
+        gUncertaintyMode: disabled
     """
 
     configPath = writeConfigFile(tmp_path, "config_process_noise.yaml", configYaml)
@@ -763,7 +765,12 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
     assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
     assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
-    assert configParsed["observationArgs"].useReplicateTrends is True
+    assert configParsed["observationArgs"].useReplicateTrends is False
+    assert configParsed["observationArgs"].useCountNoiseFloor is False
+    assert (
+        configParsed["observationArgs"].muncEBPriorGUncertaintyMode
+        == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED
+    )
     with pytest.raises(TypeError):
         consenrich_core.constructMatrixQ(1.0e-4, offDiagQ=0.0)
     with pytest.raises(TypeError):
@@ -945,6 +952,14 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         parsed["observationArgs"].useReplicateTrends
         is constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS
     )
+    assert (
+        parsed["observationArgs"].useCountNoiseFloor
+        is constants.OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR
+    )
+    assert (
+        parsed["observationArgs"].muncEBPriorGUncertaintyMode
+        == constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
+    )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -958,6 +973,18 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         == constants.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE
     )
     for key in (
+        "observationParams.muncEBPrior.tileSizeBP",
+        "observationParams.muncEBPrior.tileCount",
+        "observationParams.muncEBPrior.strata",
+        "observationParams.muncEBPrior.minTilesPerStratum",
+        "observationParams.muncEBPrior.seed",
+        "observationParams.muncEBPrior.supportMinQ",
+        "observationParams.muncEBPrior.supportMaxQ",
+        "observationParams.muncEBPrior.maxExtrapolatedFraction",
+        "observationParams.muncEBPrior.warmupECMIters",
+        "observationParams.muncEBPrior.warmupOuterPasses",
+        "observationParams.muncEBPrior.gUncertaintyMode",
+        "observationParams.useCountNoiseFloor",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
         "uncertaintyCalibrationParams.deleteBlockTargetSignal",
@@ -982,6 +1009,9 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     )
     assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
+    assert "observationParams.muncEBPrior.mode" not in defaults
+    assert "observationParams.muncAR1VarianceFunctional" not in defaults
+    assert "observationParams.muncGUncertaintyMode" not in defaults
 
 
 def _case_runtime_defaults_are_centralized(
@@ -1057,10 +1087,6 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.muncVarianceModel"]
     )
     assert (
-        parsed["observationArgs"].muncAR1VarianceFunctional
-        == profile["observationParams.muncAR1VarianceFunctional"]
-    )
-    assert (
         parsed["observationArgs"].muncTrendBlockSizeBP
         == profile["observationParams.muncTrendBlockSizeBP"]
     )
@@ -1080,7 +1106,31 @@ def _case_runtime_defaults_are_centralized(
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
         == profile["observationParams.restrictLocalVarianceToSparseBed"]
     )
-    assert parsed["observationArgs"].noDMVar == profile["observationParams.noDMVar"]
+    ebPriorFieldMap = {
+        "muncEBPriorTileSizeBP": "observationParams.muncEBPrior.tileSizeBP",
+        "muncEBPriorTileCount": "observationParams.muncEBPrior.tileCount",
+        "muncEBPriorStrata": "observationParams.muncEBPrior.strata",
+        "muncEBPriorMinTilesPerStratum": (
+            "observationParams.muncEBPrior.minTilesPerStratum"
+        ),
+        "muncEBPriorSeed": "observationParams.muncEBPrior.seed",
+        "muncEBPriorSupportMinQ": "observationParams.muncEBPrior.supportMinQ",
+        "muncEBPriorSupportMaxQ": "observationParams.muncEBPrior.supportMaxQ",
+        "muncEBPriorMaxExtrapolatedFraction": (
+            "observationParams.muncEBPrior.maxExtrapolatedFraction"
+        ),
+        "muncEBPriorWarmupECMIters": (
+            "observationParams.muncEBPrior.warmupECMIters"
+        ),
+        "muncEBPriorWarmupOuterPasses": (
+            "observationParams.muncEBPrior.warmupOuterPasses"
+        ),
+        "muncEBPriorGUncertaintyMode": (
+            "observationParams.muncEBPrior.gUncertaintyMode"
+        ),
+    }
+    for attrName, defaultKey in ebPriorFieldMap.items():
+        assert getattr(parsed["observationArgs"], attrName) == profile[defaultKey]
     assert (
         parsed["observationArgs"].muncCovariatesEnabled
         == profile["observationParams.muncCovariates.enabled"]
@@ -1093,27 +1143,9 @@ def _case_runtime_defaults_are_centralized(
         parsed["observationArgs"].muncCovariatesFeatures
         == profile["observationParams.muncCovariates.features"]
     )
-    assert consenrich_core.observationParams(
-        minR=parsed["observationArgs"].minR,
-        maxR=parsed["observationArgs"].maxR,
-        samplingIters=parsed["observationArgs"].samplingIters,
-        EB_use=parsed["observationArgs"].EB_use,
-        EB_setNu0=parsed["observationArgs"].EB_setNu0,
-        EB_setNuL=parsed["observationArgs"].EB_setNuL,
-        trendNumBasis=parsed["observationArgs"].trendNumBasis,
-        trendMinObsPerBasis=parsed["observationArgs"].trendMinObsPerBasis,
-        trendMinEdf=parsed["observationArgs"].trendMinEdf,
-        trendMaxEdf=parsed["observationArgs"].trendMaxEdf,
-        trendLambdaMin=parsed["observationArgs"].trendLambdaMin,
-        trendLambdaMax=parsed["observationArgs"].trendLambdaMax,
-        trendLambdaGridSize=parsed["observationArgs"].trendLambdaGridSize,
-        numNearest=parsed["observationArgs"].numNearest,
-        sparseSupportScaleBP=parsed["observationArgs"].sparseSupportScaleBP,
-        sparseSupportPrior=parsed["observationArgs"].sparseSupportPrior,
-        pad=parsed["observationArgs"].pad,
-        noDMVar=parsed["observationArgs"].noDMVar,
-    ).muncAR1VarianceFunctional == (
-        constants.OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
+    assert (
+        parsed["observationArgs"].useCountNoiseFloor
+        == profile["observationParams.useCountNoiseFloor"]
     )
     assert (
         parsed["countingArgs"].subtractGlobalMedian
@@ -1778,12 +1810,22 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     genomeParams.name: testGenome
     genomeParams.sparseBedFile: {sparseBedPath}
     observationParams.restrictLocalVarianceToSparseBed: true
-    observationParams.muncVarianceModel: ar1
-    observationParams.muncAR1VarianceFunctional: innovation
+    observationParams.muncVarianceModel: kalman
     observationParams.muncTrendBlockSizeBP: 250
     observationParams.muncLocalWindowSizeBP: 500
     observationParams.muncTrendBlockDependenceMultiplier: 1.5
     observationParams.muncLocalWindowDependenceMultiplier: 2.5
+    observationParams.muncEBPrior.tileSizeBP: 1000
+    observationParams.muncEBPrior.tileCount: 17
+    observationParams.muncEBPrior.strata: 4
+    observationParams.muncEBPrior.minTilesPerStratum: 2
+    observationParams.muncEBPrior.seed: 123
+    observationParams.muncEBPrior.supportMinQ: 0.05
+    observationParams.muncEBPrior.supportMaxQ: 0.95
+    observationParams.muncEBPrior.maxExtrapolatedFraction: 0.12
+    observationParams.muncEBPrior.warmupECMIters: 9
+    observationParams.muncEBPrior.warmupOuterPasses: 2
+    observationParams.muncEBPrior.gUncertaintyMode: disabled
     """
     configExplicitSparsePath = writeConfigFile(
         tmp_path,
@@ -1794,22 +1836,33 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     explicitObservationArgs = parsedExplicitSparse["observationArgs"]
     assert explicitObservationArgs.restrictLocalVarianceToSparseBed is True
     assert (
-        explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_AR1
+        explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_KALMAN
     )
-    assert (
-        explicitObservationArgs.muncAR1VarianceFunctional
-        == constants.MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
-    )
+    assert not hasattr(explicitObservationArgs, "muncAR1VarianceFunctional")
     assert explicitObservationArgs.muncTrendBlockSizeBP == 250
     assert explicitObservationArgs.muncLocalWindowSizeBP == 500
     assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
     assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
+    assert explicitObservationArgs.muncEBPriorTileSizeBP == 1000
+    assert explicitObservationArgs.muncEBPriorTileCount == 17
+    assert explicitObservationArgs.muncEBPriorStrata == 4
+    assert explicitObservationArgs.muncEBPriorMinTilesPerStratum == 2
+    assert explicitObservationArgs.muncEBPriorSeed == 123
+    assert explicitObservationArgs.muncEBPriorSupportMinQ == 0.05
+    assert explicitObservationArgs.muncEBPriorSupportMaxQ == 0.95
+    assert explicitObservationArgs.muncEBPriorMaxExtrapolatedFraction == 0.12
+    assert explicitObservationArgs.muncEBPriorWarmupECMIters == 9
+    assert explicitObservationArgs.muncEBPriorWarmupOuterPasses == 2
+    assert (
+        explicitObservationArgs.muncEBPriorGUncertaintyMode
+        == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED
+    )
 
     configInvalidModel = """
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    observationParams.muncVarianceModel: nope
+    observationParams.muncVarianceModel: ar1
     """
     configInvalidModelPath = writeConfigFile(
         tmp_path,
@@ -1823,15 +1876,71 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    observationParams.muncAR1VarianceFunctional: nope
+    observationParams.muncAR1VarianceFunctional: innovation
     """
     configInvalidFunctionalPath = writeConfigFile(
         tmp_path,
         "config_invalid_munc_ar1_functional.yaml",
         configInvalidFunctional,
     )
-    with pytest.raises(ValueError, match="MUNC AR1 variance functional"):
+    with pytest.raises(ValueError, match="muncAR1VarianceFunctional"):
         readConfig(str(configInvalidFunctionalPath))
+
+    configInvalidGMode = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncEBPrior.gUncertaintyMode: exact
+    """
+    configInvalidGModePath = writeConfigFile(
+        tmp_path,
+        "config_invalid_munc_g_mode.yaml",
+        configInvalidGMode,
+    )
+    with pytest.raises(ValueError, match="muncEBPrior.gUncertaintyMode"):
+        readConfig(str(configInvalidGModePath))
+
+    configTopLevelGMode = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncGUncertaintyMode: disabled
+    """
+    configTopLevelGModePath = writeConfigFile(
+        tmp_path,
+        "config_top_level_munc_g_mode.yaml",
+        configTopLevelGMode,
+    )
+    with pytest.raises(ValueError, match="muncGUncertaintyMode"):
+        readConfig(str(configTopLevelGModePath))
+
+    configEBPriorMode = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncEBPrior.mode: sampled
+    """
+    configEBPriorModePath = writeConfigFile(
+        tmp_path,
+        "config_munc_eb_prior_mode.yaml",
+        configEBPriorMode,
+    )
+    with pytest.raises(ValueError, match="muncEBPrior.mode"):
+        readConfig(str(configEBPriorModePath))
+
+    configReplicateTrend = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.useReplicateTrends: true
+    """
+    configReplicateTrendPath = writeConfigFile(
+        tmp_path,
+        "config_replicate_munc_trend.yaml",
+        configReplicateTrend,
+    )
+    with pytest.raises(ValueError, match="useReplicateTrends"):
+        readConfig(str(configReplicateTrendPath))
 
 
 def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
@@ -2786,7 +2895,9 @@ def test_diagnostic_category_log_helpers(tmp_path):
     assert np.sum(sampledTuncLog["record_type"] == "interval") == 2
 
 
-def test_cli_logging_contracts(tmp_path):
+def test_cli_logging_contracts(tmp_path, monkeypatch):
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
     packageLogger = logging.getLogger("consenrich")
     previousHandlers = list(packageLogger.handlers)
     previousLevel = packageLogger.level
@@ -2803,14 +2914,21 @@ def test_cli_logging_contracts(tmp_path):
         assert resolvedPath == logPath
         consenrich_cli.logger.info("audit-only detail")
         consenrich_cli._logCliMilestone("live milestone %s", "shown")
+        consenrich_cli._logCliPhase("MUNC prior trend", "pairs=%d", 12)
+        consenrich_cli._logCliProgressMilestone("chunk %s", "hidden")
         consenrich_cli.logger.warning("visible warning")
         consoleText = stream.getvalue()
         auditText = logPath.read_text(encoding="utf-8")
         assert "live milestone shown" in consoleText
+        assert "=== Consenrich | MUNC prior trend ===" in consoleText
+        assert "pairs=12" in consoleText
+        assert "chunk hidden" not in consoleText
         assert "visible warning" in consoleText
         assert "audit-only detail" not in consoleText
         assert "audit-only detail" not in auditText
         assert "live milestone shown" in auditText
+        assert "=== Consenrich | MUNC prior trend ===" in auditText
+        assert "chunk hidden" not in auditText
         assert "test_config.test_cli_logging_contracts" in auditText
 
         streamVerbose = io.StringIO()
@@ -2822,8 +2940,34 @@ def test_cli_logging_contracts(tmp_path):
             consoleStream=streamVerbose,
         )
         consenrich_cli.logger.info("verbose detail")
-        assert "verbose detail" in streamVerbose.getvalue()
-        assert "verbose detail" in verbosePath.read_text(encoding="utf-8")
+        consenrich_cli._logCliProgressMilestone("chunk %s", "shown")
+        verboseConsoleText = streamVerbose.getvalue()
+        verboseAuditText = verbosePath.read_text(encoding="utf-8")
+        assert "verbose detail" in verboseConsoleText
+        assert "chunk shown" in verboseConsoleText
+        assert "verbose detail" in verboseAuditText
+        assert "chunk shown" in verboseAuditText
+
+        colorStream = io.StringIO()
+        colorStream.isatty = lambda: True
+        colorPath = tmp_path / "run.color.log"
+        consenrich_cli._configureCliLogging(
+            colorPath,
+            verbose=False,
+            verbose2=False,
+            consoleStream=colorStream,
+        )
+        consenrich_cli._logCliPhase("Outputs")
+        consenrich_cli._logCliMilestone(
+            "Final chr1: finalNLL=12 finalForwardNIS=0.9 "
+            "calibrationFactor=1.2 signChangePerKB=3.4",
+            blue=True,
+        )
+        colorConsoleText = colorStream.getvalue()
+        colorAuditText = colorPath.read_text(encoding="utf-8")
+        assert "\033[34m=== Consenrich | Outputs ===\033[0m" in colorConsoleText
+        assert "\033[34mFinal chr1:" in colorConsoleText
+        assert "\033[" not in colorAuditText
     finally:
         for handler in list(packageLogger.handlers):
             packageLogger.removeHandler(handler)
