@@ -1745,6 +1745,7 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         "tuncMinWindowWeight",
         "tuncPriorRidge",
         "tuncLevelBufferZ",
+        "tuncUseReliabilityWeightedWindows",
         "tuncProcessCovariatesEnabled",
         "tuncProcessCovariatesMode",
         "tuncProcessCovariatesFeatures",
@@ -1849,6 +1850,16 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
                     processArgs,
                     "tuncLevelBufferZ",
                     constants.PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
+                )
+            ),
+        ),
+        (
+            "TUNC reliability weighted windows",
+            yn(
+                getattr(
+                    processArgs,
+                    "tuncUseReliabilityWeightedWindows",
+                    constants.PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
                 )
             ),
         ),
@@ -4569,6 +4580,7 @@ def main():
         if backgroundArr.shape[0] != intervalCount:
             raise RuntimeError("MUNC residual background length mismatch")
         startupSegments: list[tuple[int, int, int, int]] = []
+        startupInitialProcessQ: np.ndarray | None = None
         if bool(observationArgs.EB_use):
             segmentMaxIntervals = max(
                 int(tileIntervals),
@@ -4602,8 +4614,65 @@ def main():
                 int(tileIntervals) * int(intervalSizeBP),
                 int(segmentMaxIntervals) * int(intervalSizeBP),
             )
-        for startIndex, endIndex, tileStartPos, tileEndPos in startupSegments:
+            startupStateModel = core._normalizeStateModel(processArgs.stateModel)
+            startupDeltaF = (
+                1.0
+                if startupStateModel == core.STATE_MODEL_LEVEL
+                else core._resolveFixedDeltaF(deltaF_)
+            )
+            seedStartIndex, seedEndIndex, _seedTileStart, _seedTileEnd = max(
+                startupSegments,
+                key=lambda segment: (int(segment[1]) - int(segment[0]), -int(segment[0])),
+            )
+            seedSegmentSlice = slice(int(seedStartIndex), int(seedEndIndex))
+            startupSeedQStart = time.perf_counter()
+            startupInitialProcessQ, startupQDiagnostics = (
+                core._estimateInitialProcessNoiseFromData(
+                    matrixData=np.ascontiguousarray(
+                        chromArr[:, seedSegmentSlice],
+                        dtype=np.float32,
+                    ),
+                    matrixMunc=np.ascontiguousarray(
+                        seedMuncArr[:, seedSegmentSlice],
+                        dtype=np.float32,
+                    ),
+                    pad=float(pad_),
+                    stateModel=startupStateModel,
+                    minQ=float(minQ_),
+                    maxQ=float(maxQ_),
+                    deltaF=float(startupDeltaF),
+                    tuncMaxScale=float(processArgs.tuncMaxScale),
+                    processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
+                    robustTNu=fitArgs.ECM_robustTNu,
+                    qSeedPriorLevel=float(processArgs.qSeedPriorLevel),
+                )
+            )
+            startupInitialProcessQ = np.ascontiguousarray(
+                startupInitialProcessQ,
+                dtype=np.float32,
+            )
+            logger.info(
+                "MUNC EB prior startup seed Q %s segments=%d source_start=%d "
+                "source_end=%d source_intervals=%d source=%s reason=%s "
+                "q_level=%.6g q_trend=%.6g elapsed=%.3fs",
+                chromosomeName,
+                int(len(startupSegments)),
+                int(seedStartIndex),
+                int(seedEndIndex),
+                int(seedEndIndex) - int(seedStartIndex),
+                startupQDiagnostics["qSeedSource"],
+                startupQDiagnostics["qSeedReason"],
+                float(startupQDiagnostics["qSeedLevelFinal"]),
+                float(startupQDiagnostics["qSeedTrendFinal"]),
+                time.perf_counter() - startupSeedQStart,
+            )
+        def _fitStartupSegment(
+            segmentIndex: int,
+            segment: tuple[int, int, int, int],
+        ):
+            startIndex, endIndex, tileStartPos, tileEndPos = segment
             segmentSlice = slice(int(startIndex), int(endIndex))
+            segmentLength = int(endIndex) - int(startIndex)
             startupResult = core.runConsenrich(
                 np.ascontiguousarray(chromArr[:, segmentSlice], dtype=np.float32),
                 np.ascontiguousarray(seedMuncArr[:, segmentSlice], dtype=np.float32),
@@ -4653,10 +4722,12 @@ def main():
                 initialBackground=(
                     backgroundArr[segmentSlice] if bool(fitArgs.fitBackground) else None
                 ),
+                initialProcessQ=startupInitialProcessQ,
                 logIndentLevel=1,
                 logRunRole="MUNC prior startup",
             )
-            _startupState, startupStateCov, startupResiduals = startupResult[:3]
+            startupStateCov = startupResult[1]
+            startupResiduals = startupResult[2]
             startupBackground = np.asarray(startupResult[5], dtype=np.float32)
             startupPrecision = (
                 startupResult[6]
@@ -4665,17 +4736,17 @@ def main():
             )
             startupLambda = startupPrecision.get("lambdaExp")
             lambdaTrack = (
-                np.ones(int(endIndex) - int(startIndex), dtype=np.float64)
+                np.ones(segmentLength, dtype=np.float64)
                 if startupLambda is None
                 else np.asarray(startupLambda, dtype=np.float64).reshape(-1)
             )
-            if lambdaTrack.shape[0] != int(endIndex) - int(startIndex):
+            if lambdaTrack.shape[0] != segmentLength:
                 raise RuntimeError("startup lambda track length mismatch")
             if (
                 muncEBPriorGUncertaintyMode
                 == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED
             ):
-                gUncertainty = np.zeros(int(endIndex) - int(startIndex), dtype=np.float32)
+                gUncertainty = np.zeros(segmentLength, dtype=np.float32)
             elif (
                 muncEBPriorGUncertaintyMode
                 == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY
@@ -4699,18 +4770,36 @@ def main():
                     f"{muncEBPriorGUncertaintyMode}"
                 )
             residualsArr = np.asarray(startupResiduals, dtype=np.float64)
-            if residualsArr.shape != (
-                int(endIndex) - int(startIndex),
-                residArr.shape[0],
-            ):
+            if residualsArr.shape != (segmentLength, residArr.shape[0]):
                 raise RuntimeError("startup residual shape mismatch")
             stateCovArr = np.asarray(startupStateCov, dtype=np.float64)
-            if (
-                stateCovArr.shape[0] != int(endIndex) - int(startIndex)
-                or stateCovArr.ndim != 3
-            ):
+            if stateCovArr.shape[0] != segmentLength or stateCovArr.ndim != 3:
                 raise RuntimeError("startup state covariance shape mismatch")
             gDiag = np.asarray(gUncertainty, dtype=np.float64).reshape(-1)
+            return (
+                int(segmentIndex),
+                int(startIndex),
+                int(endIndex),
+                int(tileStartPos),
+                int(tileEndPos),
+                lambdaTrack,
+                residualsArr,
+                stateCovArr,
+                gDiag,
+            )
+
+        def _storeStartupEvidence(startupFit) -> None:
+            (
+                _segmentIndex,
+                startIndex,
+                endIndex,
+                tileStartPos,
+                tileEndPos,
+                lambdaTrack,
+                residualsArr,
+                stateCovArr,
+                gDiag,
+            ) = startupFit
             for tilePos in range(int(tileStartPos), int(tileEndPos)):
                 tileStart = int(startsArr[tilePos])
                 tileEnd = int(endsArr[tilePos])
@@ -4730,6 +4819,45 @@ def main():
                     evidenceTile,
                     _MUNC_NUMERIC_VARIANCE_FLOOR,
                 ).astype(np.float32)
+
+        if startupSegments:
+            startupThreadCount = io_helpers._getSmallWorkerCount(
+                int(len(startupSegments)),
+                maxWorkers=4,
+            )
+            useParallelStartup = int(len(startupSegments)) > 1 and startupThreadCount > 1
+            if useParallelStartup:
+                logger.info(
+                    "MUNC EB prior startup %s thread_count=%d segments=%d",
+                    chromosomeName,
+                    int(startupThreadCount),
+                    int(len(startupSegments)),
+                )
+                with ThreadPool(processes=int(startupThreadCount)) as pool:
+                    pendingStartup = {}
+                    nextSubmit = 0
+                    startupTotal = int(len(startupSegments))
+                    startupWindow = int(startupThreadCount)
+                    while nextSubmit < min(startupWindow, startupTotal):
+                        pendingStartup[nextSubmit] = pool.apply_async(
+                            _fitStartupSegment,
+                            (nextSubmit, startupSegments[nextSubmit]),
+                        )
+                        nextSubmit += 1
+                    for resultIndex in range(startupTotal):
+                        startupFit = pendingStartup.pop(resultIndex).get()
+                        _storeStartupEvidence(startupFit)
+                        if nextSubmit < startupTotal:
+                            pendingStartup[nextSubmit] = pool.apply_async(
+                                _fitStartupSegment,
+                                (nextSubmit, startupSegments[nextSubmit]),
+                            )
+                            nextSubmit += 1
+            else:
+                for segmentIndex, startupSegment in enumerate(startupSegments):
+                    _storeStartupEvidence(
+                        _fitStartupSegment(segmentIndex, startupSegment)
+                    )
 
         localEvidenceCachePath = os.path.join(
             pooledMuncCache.name,
@@ -5852,6 +5980,7 @@ def main():
             uncertaintyCalibrationArgs.blockSizeBP,
             intervalSizeBP,
             len(x_),
+            folds=uncertaintyCalibrationArgs.folds,
         )
         stateRoughness = diagnostics.summarizeStateRoughness(
             x_,

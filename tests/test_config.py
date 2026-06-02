@@ -729,6 +729,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
       tuncMinWindowWeight: 2.0
       tuncPriorRidge: 0.002
       tuncLevelBufferZ: 1.25
+      tuncUseReliabilityWeightedWindows: false
       qSeedPriorLevel: 3.0e-8
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
@@ -758,6 +759,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.tuncMinWindowWeight == pytest.approx(2.0)
     assert processArgs.tuncPriorRidge == pytest.approx(0.002)
     assert processArgs.tuncLevelBufferZ == pytest.approx(1.25)
+    assert processArgs.tuncUseReliabilityWeightedWindows is False
     assert processArgs.qSeedPriorLevel == pytest.approx(3.0e-8)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
@@ -949,6 +951,10 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         constants.PROCESS_DEFAULT_TUNC_MAX_SCALE
     )
     assert (
+        parsed["processArgs"].tuncUseReliabilityWeightedWindows
+        is constants.PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    )
+    assert (
         parsed["observationArgs"].useReplicateTrends
         is constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS
     )
@@ -1061,6 +1067,10 @@ def _case_runtime_defaults_are_centralized(
     )
     assert parsed["processArgs"].tuncMinScale == profile["processParams.tuncMinScale"]
     assert parsed["processArgs"].tuncMaxScale == profile["processParams.tuncMaxScale"]
+    assert (
+        parsed["processArgs"].tuncUseReliabilityWeightedWindows
+        == profile["processParams.tuncUseReliabilityWeightedWindows"]
+    )
     assert (
         parsed["processArgs"].processNoiseWarmupECMIters
         == profile["processParams.processNoiseWarmupECMIters"]
@@ -1352,6 +1362,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
       tuncMinWindowWeight: 4.0
       tuncPriorRidge: 0.02
       tuncLevelBufferZ: 0.75
+      tuncUseReliabilityWeightedWindows: false
       qSeedPriorLevel: 4.0e-8
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
@@ -1374,6 +1385,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
         "tuncMinWindowWeight",
         "tuncPriorRidge",
         "tuncLevelBufferZ",
+        "tuncUseReliabilityWeightedWindows",
     }
     monkeypatch.setattr(
         consenrich_cli,
@@ -1392,6 +1404,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     assert kwargs["tuncMinWindowWeight"] == pytest.approx(4.0)
     assert kwargs["tuncPriorRidge"] == pytest.approx(0.02)
     assert kwargs["tuncLevelBufferZ"] == pytest.approx(0.75)
+    assert kwargs["tuncUseReliabilityWeightedWindows"] is False
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)

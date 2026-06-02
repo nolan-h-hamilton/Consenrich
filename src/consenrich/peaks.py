@@ -53,6 +53,7 @@ from .constants import (
     ROCCO_BUDGET_MIN,
     ROCCO_BUDGET_Z_GRID,
     ROCCO_MAX_ITER_DEFAULT,
+    ROCCO_MIN_PEAK_BP,
     ROCCO_NULL_QUANTILE,
     ROCCO_NUM_BOOTSTRAP_DEFAULT,
     ROCCO_THRESHOLD_Z_DEFAULT,
@@ -68,6 +69,7 @@ _ROCCO_THRESHOLD_Z_DEFAULT = ROCCO_THRESHOLD_Z_DEFAULT
 _ROCCO_NUM_BOOTSTRAP_DEFAULT = ROCCO_NUM_BOOTSTRAP_DEFAULT
 _ROCCO_BUDGET_Z_GRID = ROCCO_BUDGET_Z_GRID
 _ROCCO_MAX_ITER_DEFAULT = ROCCO_MAX_ITER_DEFAULT
+_ROCCO_MIN_PEAK_BP = ROCCO_MIN_PEAK_BP
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
 _MATCHING_DEFAULT_METADATA_DETAIL = MATCHING_DEFAULT_METADATA_DETAIL
@@ -4449,6 +4451,8 @@ def _solutionToChromNarrowPeakRows(
     exportDetails: Dict[str, Any] = {
         "num_candidate_segments": 0,
         "num_segments_dropped_median_signal_local_p": 0,
+        "num_segments_dropped_min_peak_bp": 0,
+        "min_peak_bp": int(_ROCCO_MIN_PEAK_BP),
         "median_signal_local_p_multiplier": float(exportFilterUncertaintyMultiplier_),
         "median_signal_local_p_filter_active": bool(
             dropMedianSignalBelowNegativeLocalP and uncertainty_ is not None
@@ -4608,6 +4612,9 @@ def _solutionToChromNarrowPeakRows(
             )
             chromStart = int(intervals[childStartIdx])
             chromEnd = int(ends[childEndIdx])
+            if chromEnd - chromStart < int(_ROCCO_MIN_PEAK_BP):
+                exportDetails["num_segments_dropped_min_peak_bp"] += 1
+                continue
             widthP, widthQ = _massiveSubpeakWidthPValue(
                 float(chromEnd - chromStart),
                 massiveSubpeakWidthPolicy,
@@ -4842,6 +4849,9 @@ def _buildRoccoSummary(
                 "dropped_median_signal_local_p": int(
                     chromMetaAny.get("num_segments_dropped_median_signal_local_p", 0)
                 ),
+                "dropped_min_peak_bp": int(
+                    chromMetaAny.get("num_segments_dropped_min_peak_bp", 0)
+                ),
                 "dwb_peak_scoring": dict(
                     chromMetaAny.get("export_details", {}).get(
                         "dwb_peak_scoring",
@@ -5049,6 +5059,7 @@ def _boundedRoccoMetadata(
                 "num_segments",
                 "num_candidate_segments",
                 "num_segments_dropped_median_signal_local_p",
+                "num_segments_dropped_min_peak_bp",
                 "export_trim_score_floor",
                 "state_diagnostics",
                 "budget_details",
@@ -5217,6 +5228,7 @@ def solveRocco(
             "nested_rocco_budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
             "nested_rocco_diagnostics": bool(verbose),
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
+            "rocco_min_peak_bp": int(_ROCCO_MIN_PEAK_BP),
             "massive_subpeak_cleanup": bool(massiveSubpeakCleanup),
             "massive_subpeak_cleanup_policy": (
                 "robust_log_width_tail_gap_split_or_contract"
@@ -5568,6 +5580,9 @@ def solveRocco(
             "num_candidate_segments": int(exportDetails["num_candidate_segments"]),
             "num_segments_dropped_median_signal_local_p": int(
                 exportDetails["num_segments_dropped_median_signal_local_p"]
+            ),
+            "num_segments_dropped_min_peak_bp": int(
+                exportDetails["num_segments_dropped_min_peak_bp"]
             ),
             "budget_details": dict(result["budget_details"]),
             "gamma_details": dict(work["gamma_details"]),

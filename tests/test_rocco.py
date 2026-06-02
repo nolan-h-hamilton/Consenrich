@@ -1085,8 +1085,8 @@ def _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks():
 
 @pytest.mark.correctness
 def _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps():
-    intervals = np.asarray([0, 25, 1000, 1025], dtype=np.int64)
-    ends = np.asarray([25, 50, 1025, 1050], dtype=np.int64)
+    intervals = np.asarray([0, 100, 1000, 1100], dtype=np.int64)
+    ends = np.asarray([100, 200, 1100, 1200], dtype=np.int64)
     state = np.asarray([3.0, 3.0, 4.0, 4.0], dtype=np.float64)
     scores = state.copy()
     solution = np.ones(state.size, dtype=np.uint8)
@@ -1107,9 +1107,9 @@ def _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps():
 
     assert len(rows) == 2
     assert len(rowMeta) == 2
-    assert [int(rows[0][1]), int(rows[0][2])] == [0, 50]
-    assert [int(rows[1][1]), int(rows[1][2])] == [1000, 1050]
-    assert all(int(row[2]) - int(row[1]) == 50 for row in rows)
+    assert [int(rows[0][1]), int(rows[0][2])] == [0, 200]
+    assert [int(rows[1][1]), int(rows[1][2])] == [1000, 1200]
+    assert all(int(row[2]) - int(row[1]) == 200 for row in rows)
     assert exportDetails["num_coordinate_gap_splits"] == 1
 
 
@@ -1156,8 +1156,8 @@ def _caseMultiscaleCandidateGenerationUsesMultipleScales():
 @pytest.mark.correctness
 def _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide():
     n = 60
-    intervals = np.arange(0, n * 25, 25, dtype=np.int64)
-    ends = intervals + 25
+    intervals = np.arange(0, n * 50, 50, dtype=np.int64)
+    ends = intervals + 50
     state = np.full(n, 0.1, dtype=np.float64)
     state[10:15] = 6.0
     state[42:47] = 5.0
@@ -1262,7 +1262,7 @@ def _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
     solution = np.zeros(n, dtype=np.uint8)
     solution[10:30] = 1
 
-    rows, rowMeta = peaks._solutionToChromNarrowPeakRows(
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
         "chr1",
         intervals,
         ends,
@@ -1272,14 +1272,14 @@ def _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
         prefix="negativeTrimTest",
         nullScale=0.25,
         trimScoreFloor=0.0,
+        returnExportDetails=True,
     )
 
-    assert len(rows) == 1
-    assert [int(rows[0][1]), int(rows[0][2])] == [int(intervals[20]), int(ends[20])]
-    assert rowMeta[0]["trimmed_from_parent"] is False
-    assert rowMeta[0]["split_from_parent"] is True
-    assert rowMeta[0]["untrimmed_start"] == int(intervals[20])
-    assert rowMeta[0]["untrimmed_end"] == int(ends[20])
+    assert rows == []
+    assert rowMeta == []
+    assert exportDetails["min_peak_bp"] == 200
+    assert exportDetails["num_candidate_segments"] == 1
+    assert exportDetails["num_segments_dropped_min_peak_bp"] == 1
 
 
 @pytest.mark.correctness
@@ -1826,6 +1826,7 @@ def _caseSolveRoccoVerboseWritesNullReplayFalseSegmentDiagnostics(tmp_path, capl
         state,
         uncertainty,
         stem="null_replay",
+        step=50,
     )
     outPath = tmp_path / "null_replay_rocco.narrowPeak"
     metaPath = tmp_path / "null_replay_rocco.narrowPeak.json"

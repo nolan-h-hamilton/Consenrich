@@ -211,11 +211,13 @@ def _resolveBlockSizeIntervals(
     blockSizeBP: int | str | None,
     intervalSizeBP: int,
     n: int,
+    folds: int | None = None,
 ) -> int:
     blockLen = diagnostics.resolveUncertaintyBlockSizeIntervals(
         blockSizeBP,
         intervalSizeBP,
         n,
+        folds=folds,
     )
     return int(min(blockLen, max(int(n), 1)))
 
@@ -681,7 +683,7 @@ def _coverageLogPayload(rows: list[dict[str, Any]]) -> str:
         if row.get("coverage_after") is None:
             continue
         parts.append(
-            "target={target:.3g} before={coverage_before:.3f} after={coverage_after:.3f} n={n}".format(
+            "target={target:.3g} after calibration: {coverage_after:.3f} n={n}".format(
                 **row
             )
         )
@@ -1061,7 +1063,13 @@ def calibrateChromosomeStateUncertainty(
     targetSignal = _normalizeDeleteBlockTargetSignal(params.deleteBlockTargetSignal)
     factorModel = _normalizeDeleteBlockFactorModel(params.deleteBlockFactorModel)
     weightMode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
-    blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
+    folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
+    blockLen = _resolveBlockSizeIntervals(
+        params.blockSizeBP,
+        intervalSizeBP,
+        n,
+        folds=folds,
+    )
     holdoutFractionRaw = _firstSet(
         params,
         "holdoutFraction",
@@ -1069,7 +1077,6 @@ def calibrateChromosomeStateUncertainty(
         default=None,
     )
     holdoutCount = _resolveHoldoutCount(m, holdoutFractionRaw)
-    folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
     logger.info(
         "uncertaintyCalibration.start mode=delete_block_state intervals=%s samples=%s folds=%s blockLen=%s holdoutCount=%s varianceMode=%s targetSignal=%s factorModel=%s",
         n,

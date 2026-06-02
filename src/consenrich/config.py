@@ -1475,6 +1475,19 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     )
     if float(tuncLevelBufferZ) < 0.0:
         raise ValueError("`processParams.tuncLevelBufferZ` must be non-negative.")
+    tuncUseReliabilityWeightedWindowsRaw = _cfgGet(
+        configData,
+        "processParams.tuncUseReliabilityWeightedWindows",
+        _cfgDefault(
+            configData,
+            "processParams.tuncUseReliabilityWeightedWindows",
+        ),
+    )
+    if not isinstance(tuncUseReliabilityWeightedWindowsRaw, (bool, np.bool_)):
+        raise ValueError(
+            "`processParams.tuncUseReliabilityWeightedWindows` must be boolean."
+        )
+    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindowsRaw)
     qSeedPriorLevel = _coerceTransformFloat(
         _cfgGet(
             configData,
@@ -1586,6 +1599,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "tuncMinWindowWeight": tuncMinWindowWeight,
             "tuncPriorRidge": tuncPriorRidge,
             "tuncLevelBufferZ": tuncLevelBufferZ,
+            "tuncUseReliabilityWeightedWindows": tuncUseReliabilityWeightedWindows,
             "tuncProcessCovariatesEnabled": tuncProcessCovariatesEnabled,
             "tuncProcessCovariatesMode": tuncProcessCovariatesMode,
             "tuncProcessCovariatesFeatures": tuncProcessCovariatesFeatures,

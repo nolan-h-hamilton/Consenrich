@@ -415,6 +415,303 @@ def test_runtime_munc_count_floor_logging(caplog):
         assert f"munc_count_model_floor={expectedStatus}" in caplog.records[-1].message
 
 
+def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
+    intervalCount = 20
+    intervalSizeBP = 1_000_000
+    sampleCount = 2
+    chromSize = intervalCount * intervalSizeBP
+    chromSizesPath = tmp_path / "chrom.sizes"
+    chromSizesPath.write_text(f"chrTest\t{chromSize}\n", encoding="utf-8")
+    configPath = tmp_path / "config.yaml"
+    configPath.write_text("experimentName: runtimeMuncStartup\n", encoding="utf-8")
+    baseMatrix = np.vstack(
+        (
+            np.arange(intervalCount, dtype=np.float32),
+            np.arange(intervalCount, dtype=np.float32) + np.float32(0.25),
+        )
+    )
+
+    class StopAfterMuncPrior(RuntimeError):
+        pass
+
+    def makeConfig(ebUse):
+        sources = [
+            core.inputSource(
+                path=f"sample{sampleIndex}.bedGraph",
+                sourceKind=core.BEDGRAPH_SOURCE_KIND,
+                role="treatment",
+            )
+            for sampleIndex in range(sampleCount)
+        ]
+        return {
+            "experimentName": "runtimeMuncStartup",
+            "genomeArgs": core.genomeParams(
+                genomeName="testGenome",
+                chromSizesFile=str(chromSizesPath),
+                blacklistFile=None,
+                sparseBedFile=None,
+                genomeCovariateCacheDir=None,
+                chromosomes=["chrTest"],
+                excludeChroms=[],
+                excludeForNorm=[],
+            ),
+            "inputArgs": core.inputParams(
+                bamFiles=[source.path for source in sources],
+                bamFilesControl=None,
+                treatmentSources=sources,
+                controlSources=[],
+            ),
+            "outputArgs": core.outputParams(
+                convertToBigWig=False,
+                roundDigits=4,
+                writeUncertainty=False,
+                writeRunSummary=False,
+            ),
+            "countingArgs": core.countingParams(
+                intervalSizeBP=intervalSizeBP,
+                backgroundBlockSizeBP=intervalSizeBP,
+                scaleFactors=[1.0] * sampleCount,
+                scaleFactorsControl=None,
+                normMethod="CPM",
+                fragmentsGroupNorm=None,
+                fixControl=False,
+                logOffset=1.0,
+                logMult=1.0,
+                transformMethod="identity",
+                subtractGlobalMedian=False,
+            ),
+            "scArgs": core.scParams(),
+            "processArgs": core.processParams(
+                deltaF=1.0,
+                minQ=1.0e-4,
+                maxQ=1.0,
+            ),
+            "observationArgs": core.observationParams(
+                minR=None,
+                maxR=10.0,
+                samplingIters=4,
+                EB_use=ebUse,
+                EB_setNu0=None,
+                EB_setNuL=8,
+                trendNumBasis=4,
+                trendMinObsPerBasis=1.0,
+                trendMinEdf=1.0,
+                trendMaxEdf=4.0,
+                trendLambdaMin=1.0e-4,
+                trendLambdaMax=1.0e4,
+                trendLambdaGridSize=5,
+                numNearest=None,
+                sparseSupportScaleBP=None,
+                sparseSupportPrior=None,
+                pad=1.0e-4,
+                precisionMultiplierMin=0.5,
+                precisionMultiplierMax=2.0,
+                useCountNoiseFloor=False,
+                muncTrendBlockSizeBP=2 * intervalSizeBP,
+                muncLocalWindowSizeBP=4 * intervalSizeBP,
+                muncEBPriorTileSizeBP=2 * intervalSizeBP,
+                muncEBPriorTileCount=intervalCount // 2,
+                muncEBPriorStrata=None,
+                muncEBPriorMinTilesPerStratum=1,
+                muncEBPriorSupportMinQ=0.0,
+                muncEBPriorSupportMaxQ=1.0,
+                muncEBPriorMaxExtrapolatedFraction=0.0,
+                muncEBPriorWarmupECMIters=1,
+                muncEBPriorWarmupOuterPasses=1,
+                muncEBPriorGUncertaintyMode="disabled",
+                muncCovariatesEnabled=False,
+                muncCovariatesFeatures=(),
+            ),
+            "stateArgs": core.stateParams(
+                stateInit=0.0,
+                stateCovarInit=1.0,
+                boundState=False,
+                stateLowerBound=0.0,
+                stateUpperBound=0.0,
+            ),
+            "uncertaintyCalibrationArgs": core.uncertaintyCalibrationParams(
+                enabled=False,
+            ),
+            "samArgs": core.samParams(
+                samThreads=1,
+                samFlagExclude=0,
+                oneReadPerBin=0,
+                chunkSize=1,
+                inferFragmentLength=0,
+            ),
+            "matchingArgs": core.matchingParams(
+                enabled=False,
+                randSeed=1,
+                numBootstrap=0,
+                thresholdZ=3.0,
+                dependenceSpan=None,
+                gamma=0.25,
+                selectionPenalty=None,
+                gammaScale=1.0,
+                nestedRoccoIters=0,
+                nestedRoccoBudgetScale=1.0,
+                exportFilterUncertaintyMultiplier=1.0,
+            ),
+            "fitArgs": core.fitParams(
+                ECM_fixedBackgroundIters=1,
+                ECM_outerIters=1,
+                ECM_minOuterIters=1,
+                ECM_backgroundLengthScaleMultiplier=1.0,
+                fitBackground=False,
+                useNonnegativeBackground=False,
+                backgroundNegativePenaltyMultiplier=None,
+            ),
+        }
+
+    monkeypatch.setattr(
+        consenrichRuntime.sys,
+        "argv",
+        ["consenrich", "--config", str(configPath)],
+    )
+    monkeypatch.setattr(
+        consenrichRuntime,
+        "_configureCliLogging",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        consenrichRuntime,
+        "_initializeDiagnosticLogs",
+        lambda paths: None,
+    )
+    monkeypatch.setattr(
+        consenrichRuntime,
+        "_progress",
+        lambda iterable, **kwargs: iterable,
+    )
+    monkeypatch.setattr(consenrichRuntime.os, "listdir", lambda path: [])
+    monkeypatch.setattr(
+        consenrichRuntime.misc_util,
+        "getChromSizesDict",
+        lambda *args, **kwargs: {"chrTest": chromSize},
+    )
+    monkeypatch.setattr(
+        core,
+        "getChromRangesJoint",
+        lambda *args, **kwargs: (0, chromSize),
+    )
+    monkeypatch.setattr(
+        core,
+        "readSegments",
+        lambda *args, **kwargs: np.ascontiguousarray(baseMatrix, dtype=np.float32),
+    )
+    monkeypatch.setattr(cconsenrich, "cTransformInPlace", lambda *args, **kwargs: None)
+
+    def fakeBroadMuncTileEvidence(
+        seedMeanTrack,
+        evidence,
+        starts,
+        blockLengths,
+        *args,
+        **kwargs,
+    ):
+        startsArr = np.asarray(starts, dtype=np.intp)
+        predictor = startsArr.astype(np.float64) / 2.0
+        evidenceArr = np.asarray(evidence)
+        if evidenceArr.shape[0] == 1:
+            return (
+                predictor,
+                np.zeros((1, startsArr.size), dtype=np.float64),
+                np.ones((1, startsArr.size), dtype=np.float64),
+            )
+        tiledEvidence = np.tile(
+            np.linspace(0.25, 0.75, startsArr.size, dtype=np.float64),
+            (evidenceArr.shape[0], 1),
+        )
+        return (
+            predictor,
+            tiledEvidence,
+            np.full((evidenceArr.shape[0], startsArr.size), 8.0, dtype=np.float64),
+        )
+
+    monkeypatch.setattr(
+        cconsenrich,
+        "cbroadMuncTileEvidence",
+        fakeBroadMuncTileEvidence,
+    )
+
+    def failTrendFit(*args, **kwargs):
+        raise StopAfterMuncPrior()
+
+    monkeypatch.setattr(core, "fitPooledMuncVarianceTrend", failTrendFit)
+
+    startupSpansByFlag = {}
+    startupQCallsByFlag = {}
+    startupQIdsByFlag = {}
+    startupProcessQ = np.diag([2.0e-4, 3.0e-4]).astype(np.float32)
+
+    def fakeStartupProcessQ(matrixData, matrixMunc, **kwargs):
+        data = np.asarray(matrixData, dtype=np.float32)
+        startupQCallsByFlag.setdefault(activeFlag, []).append(
+            (
+                int(round(float(data[0, 0]))),
+                int(data.shape[1]),
+                kwargs["processNoiseCalibration"],
+            )
+        )
+        return startupProcessQ, {
+            "qSeedSource": "test",
+            "qSeedReason": "ok",
+            "qSeedLevelFinal": float(startupProcessQ[0, 0]),
+            "qSeedTrendFinal": float(startupProcessQ[1, 1]),
+        }
+
+    monkeypatch.setattr(
+        core,
+        "_estimateInitialProcessNoiseFromData",
+        fakeStartupProcessQ,
+    )
+
+    def fakeRunConsenrich(matrixData, matrixMunc, *args, **kwargs):
+        assert kwargs["logRunRole"] == "MUNC prior startup"
+        assert np.array_equal(kwargs["initialProcessQ"], startupProcessQ)
+        startupQIdsByFlag.setdefault(activeFlag, set()).add(
+            id(kwargs["initialProcessQ"])
+        )
+        data = np.asarray(matrixData, dtype=np.float32)
+        start = int(round(float(data[0, 0])))
+        startupSpansByFlag.setdefault(activeFlag, []).append(
+            (start, start + data.shape[1])
+        )
+        length = int(data.shape[1])
+        return (
+            np.zeros((length, 2), dtype=np.float32),
+            np.zeros((length, 2, 2), dtype=np.float32),
+            np.full((length, data.shape[0]), 0.5, dtype=np.float32),
+            np.zeros(length, dtype=np.float32),
+            np.zeros(length, dtype=np.int64),
+            np.zeros(length, dtype=np.float32),
+            {"lambdaExp": np.ones(length, dtype=np.float64)},
+        )
+
+    monkeypatch.setattr(core, "runConsenrich", fakeRunConsenrich)
+
+    for activeFlag in (False, True):
+        monkeypatch.setattr(
+            consenrichRuntime,
+            "readConfig",
+            lambda path, flag=activeFlag: makeConfig(flag),
+        )
+        with pytest.raises(StopAfterMuncPrior):
+            consenrichRuntime.main()
+
+    assert startupSpansByFlag.get(False, []) == []
+    assert startupQCallsByFlag.get(False, []) == []
+    assert startupQCallsByFlag[True] == [(0, 4, "seed")]
+    assert len(startupQIdsByFlag[True]) == 1
+    assert sorted(startupSpansByFlag[True]) == [
+        (0, 4),
+        (4, 8),
+        (8, 12),
+        (12, 16),
+        (16, 20),
+    ]
+
+
 def test_munc_eb_prior_g_uncertainty_modes_are_limited():
     assert core._normalizeMuncEBPriorGUncertaintyMode(None) == "proxy"
     assert core._normalizeMuncEBPriorGUncertaintyMode("proxy") == "proxy"
@@ -1884,6 +2181,7 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
         tuncMinWindowWeight=0.0,
         tuncPriorRidge=1.0e-3,
         tuncLevelBufferZ=0.0,
+        tuncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
@@ -1894,6 +2192,7 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
     assert info["processCovariateCount"] == 0
     assert info["tuncPriorDfSource"] == "method_of_moments"
     assert info["tuncLevelBufferZ"] == pytest.approx(0.0)
+    assert info["tuncUseReliabilityWeightedWindows"] is True
     assert info["tuncLevelBufferEnabled"] is False
     assert np.isfinite(info["tuncPriorDf"])
     assert info["tuncPriorDf"] >= 4.0
@@ -1907,6 +2206,95 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
     assert info["qScaleDecompositionMaxLogError"] == pytest.approx(0.0, abs=1.0e-6)
     assert info["preKappaQLevel"] == pytest.approx(float(matrixQ[0, 0]))
     assert info["preKappaQTrend"] == pytest.approx(0.0)
+
+
+@pytest.mark.correctness
+def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
+    intervalCount = 8
+    evidenceTarget = np.asarray([1.0, 16.0, 4.0, 25.0, 9.0, 36.0, 16.0])
+    increments = np.sqrt(evidenceTarget)
+    state = np.concatenate(([0.0], np.cumsum(increments))).reshape(-1, 1)
+    warmupFit = {
+        "stateSmoothed": state.astype(np.float32),
+        "stateCovarSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
+        "lagCovSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
+        "matrixMunc": np.ones((1, intervalCount), dtype=np.float32),
+        "lambdaExp": np.asarray(
+            [100.0, 100.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            dtype=np.float32,
+        ),
+    }
+    captured: list[dict[str, np.ndarray]] = []
+
+    def capturePriorDf(localEvidence, localPrior, nuLocal, weights, **kwargs):
+        captured.append(
+            {
+                "localEvidence": np.asarray(localEvidence, dtype=np.float64).copy(),
+                "nuLocal": np.asarray(nuLocal, dtype=np.float64).copy(),
+                "weights": np.asarray(weights, dtype=np.float64).copy(),
+            }
+        )
+        return (
+            4.0,
+            1.0,
+            {
+                "tuncPriorDfMomentWindowCount": int(np.size(localEvidence)),
+                "tuncPriorDfMomentEffectiveWindowCount": float(np.size(localEvidence)),
+                "tuncPriorDfMomentLogRatioVariance": 0.0,
+                "tuncPriorDfMomentSamplingVariance": 0.0,
+                "tuncPriorDfMomentExcessVariance": 0.0,
+                "tuncPriorDfMomentScale": 1.0,
+                "tuncPriorDfMomentWinsorLower": float("nan"),
+                "tuncPriorDfMomentWinsorUpper": float("nan"),
+                "tuncPriorDfMomentReason": "ok",
+            },
+        )
+
+    monkeypatch.setattr(core, "_estimateTuncPriorDfMethodOfMoments", capturePriorDf)
+
+    def run(useWeighted):
+        _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+            warmupFit=warmupFit,
+            matrixMunc=warmupFit["matrixMunc"],
+            matrixF=np.asarray([[1.0]], dtype=np.float32),
+            seedQ=np.diag([1.0, 1.0]).astype(np.float32),
+            stateModel=core.STATE_MODEL_LEVEL,
+            pad=1.0e-4,
+            minQ=1.0e-4,
+            maxQ=100.0,
+            blockLenIntervals=3,
+            processCovariates=None,
+            tuncLocalWindowMultiplier=1.0,
+            tuncDependenceMultiplier=1.0,
+            tuncMinScale=0.01,
+            tuncMaxScale=100.0,
+            tuncMinWindowWeight=0.0,
+            tuncPriorRidge=1.0e-3,
+            tuncLevelBufferZ=0.0,
+            tuncUseReliabilityWeightedWindows=useWeighted,
+            observationPrecisionMultiplierMin=0.01,
+            observationPrecisionMultiplierMax=200.0,
+        )
+        return info
+
+    weightedInfo = run(True)
+    unitInfo = run(False)
+
+    assert weightedInfo["tuncUseReliabilityWeightedWindows"] is True
+    assert unitInfo["tuncUseReliabilityWeightedWindows"] is False
+    assert len(captured) == 2
+    weightedWindows, unitWindows = captured
+    assert weightedInfo["validTransitionCount"] == unitInfo["validTransitionCount"]
+    assert weightedInfo["windowCount"] == unitInfo["windowCount"]
+    np.testing.assert_allclose(
+        unitWindows["weights"],
+        np.asarray([2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0]),
+    )
+    assert not np.allclose(
+        weightedWindows["localEvidence"],
+        unitWindows["localEvidence"],
+    )
+    assert weightedWindows["nuLocal"][0] < unitWindows["nuLocal"][0]
 
 
 @pytest.mark.correctness
@@ -2107,6 +2495,7 @@ def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
         tuncMinWindowWeight=0.0,
         tuncPriorRidge=1.0e-3,
         tuncLevelBufferZ=1.64,
+        tuncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
@@ -2161,6 +2550,7 @@ def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
         tuncMinWindowWeight=0.0,
         tuncPriorRidge=1.0e-3,
         tuncLevelBufferZ=1.64,
+        tuncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
@@ -2713,7 +3103,16 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
     diagnostics = out[-1]
     assert ecmModes == [(True, False)]
     assert diagnostics["process_noise_warmup_fit"] is None
-    assert diagnostics["process_noise_calibration"]["warmStartProcessNoise"] == 1.0
+    qInfo = diagnostics["process_noise_calibration"]
+    assert qInfo["processNoiseCalibrationStatus"] == "skipped"
+    assert qInfo["processNoiseCalibrationReason"] == "initial_process_q"
+    assert qInfo["warmStartProcessNoise"] == 1.0
+    np.testing.assert_allclose(
+        qInfo["matrixQ0Final"],
+        initialQ,
+        rtol=0.0,
+        atol=0.0,
+    )
     assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is False
 
 
@@ -3764,7 +4163,23 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
     values = np.linspace(0.1, 1.5, intervals.size, dtype=np.float32)
     localVarTrack = np.full(intervals.size, 2.0, dtype=np.float32)
     priorVarTrack = np.full(intervals.size, 10.0, dtype=np.float32)
-    seen: dict[str, float] = {}
+    tinyMask = np.zeros(intervals.size, dtype=bool)
+    tinyMask[-4:] = True
+    localVarTrack[tinyMask] = np.array([2.0e-6, 3.0e-6, 4.0e-6, 5.0e-6])
+    priorVarTrack[tinyMask] = np.array([6.0e-6, 7.0e-6, 8.0e-6, 9.0e-6])
+    countModelVarianceFloor = np.zeros(intervals.size, dtype=np.float32)
+    countModelVarianceFloor[1] = 5.5
+    countModelVarianceFloor[tinyMask] = np.array(
+        [1.5e-6, 2.0e-6, 2.5e-6, 3.0e-6],
+        dtype=np.float32,
+    )
+    localScale = (1.0e-2 * float(np.median(localVarTrack))) + 1.0e-4
+    priorScale = (1.0e-2 * float(np.median(priorVarTrack))) + 1.0e-4
+    expectedCandidateMask = (localVarTrack > localScale) & (
+        priorVarTrack > priorScale
+    )
+    np.testing.assert_array_equal(expectedCandidateMask, ~tinyMask)
+    seen = {}
     pooledTrend = core.PSplineLogVarianceTrend(
         knots=np.empty(0, dtype=np.float64),
         degree=-1,
@@ -3781,6 +4196,8 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
 
     def _fakePriorStrength(local, prior, Nu_local, *args, **kwargs):
         seen["Nu_L"] = float(Nu_local)
+        assert "candidateMask" in kwargs
+        seen["candidateMask"] = np.asarray(kwargs["candidateMask"], dtype=bool)
         np.testing.assert_allclose(local, localVarTrack)
         np.testing.assert_allclose(prior, priorVarTrack)
         return 4.0
@@ -3809,15 +4226,25 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
         EB_use=True,
         pooledTrend=pooledTrend,
         localVarianceTrack=localVarTrack,
+        countModelVarianceFloor=countModelVarianceFloor,
         varianceFloor=0.0,
         varianceCap=20.0,
     )
 
     expectedNuL = 7.0
-    expected = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (expectedNuL + 4.0)
+    weighted = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
+        expectedNuL + 4.0
+    )
+    expected = np.maximum(weighted, countModelVarianceFloor)
 
     assert seen["Nu_L"] == pytest.approx(expectedNuL)
-    assert np.allclose(muncTrack, expected.astype(np.float32))
+    np.testing.assert_array_equal(seen["candidateMask"], expectedCandidateMask)
+    np.testing.assert_allclose(
+        muncTrack[tinyMask],
+        weighted[tinyMask].astype(np.float32),
+    )
+    np.testing.assert_allclose(muncTrack, expected.astype(np.float32))
+    assert np.all(muncTrack >= countModelVarianceFloor)
 
 
 @pytest.mark.correctness
@@ -5659,6 +6086,15 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
     ):
         contract_case(label, func)
+
+
+def test_core_tunc_window_weight_contracts(monkeypatch, contract_case):
+    contract_case(
+        "TUNC reliability window switch",
+        _run_with_monkeypatch,
+        monkeypatch,
+        _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence,
+    )
 
 
 def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):

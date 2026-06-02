@@ -114,6 +114,7 @@ from .constants import (
     PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
     PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
     PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
+    PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
     PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO,
     PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
@@ -366,6 +367,9 @@ class processParams(NamedTuple):
     tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT
     tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE
     tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z
+    tuncUseReliabilityWeightedWindows: bool = (
+        PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    )
     tuncProcessCovariatesEnabled: bool = False
     tuncProcessCovariatesMode: str = "transition"
     tuncProcessCovariatesFeatures: tuple[str, ...] = ()
@@ -3956,9 +3960,13 @@ def _fitTuncProcessNoise(
     tuncMinWindowWeight: float,
     tuncPriorRidge: float,
     tuncLevelBufferZ: float,
+    tuncUseReliabilityWeightedWindows: bool,
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    if not isinstance(tuncUseReliabilityWeightedWindows, (bool, np.bool_)):
+        raise ValueError("tuncUseReliabilityWeightedWindows must be boolean")
+    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindows)
     stateModelMode = _normalizeStateModel(stateModel)
     intervalCount = int(np.asarray(matrixMunc).shape[1])
     transitionCount = max(intervalCount - 1, 0)
@@ -3983,6 +3991,9 @@ def _fitTuncProcessNoise(
             "processQScaleSummary": _metadataTrackSummary(processQScale),
             "priorDesignColumnCount": 0,
             "processCovariateCount": 0,
+            "tuncUseReliabilityWeightedWindows": bool(
+                tuncUseReliabilityWeightedWindows
+            ),
             "baseQClampChanged": False,
             "baseQClampMaxRelativeChange": 0.0,
             "qScaleDecompositionMaxLogError": 0.0,
@@ -4036,6 +4047,9 @@ def _fitTuncProcessNoise(
             "processQScaleSummary": _metadataTrackSummary(processQScale),
             "priorDesignColumnCount": 0,
             "processCovariateCount": 0,
+            "tuncUseReliabilityWeightedWindows": bool(
+                tuncUseReliabilityWeightedWindows
+            ),
             "baseQClampChanged": False,
             "baseQClampMaxRelativeChange": 0.0,
             "qScaleDecompositionMaxLogError": 0.0,
@@ -4258,7 +4272,10 @@ def _fitTuncProcessNoise(
     centers = list(range(0, transitionCount, stride))
     if centers[-1] != transitionCount - 1:
         centers.append(transitionCount - 1)
-    w = np.where(valid, transitionWeights, 0.0)
+    if tuncUseReliabilityWeightedWindows:
+        w = np.where(valid, transitionWeights, 0.0)
+    else:
+        w = valid.astype(np.float64)
     wu = w * np.where(valid, evidence, 0.0)
     wLogG = w * np.log(np.maximum(priorScale, tiny))
     w2 = w * w
@@ -4465,6 +4482,7 @@ def _fitTuncProcessNoise(
         "tuncLevelBufferZ": float(levelBufferZ),
         "tuncDependenceMultiplier": float(tuncDependenceMultiplier),
         "tuncLocalWindowMultiplier": float(tuncLocalWindowMultiplier),
+        "tuncUseReliabilityWeightedWindows": bool(tuncUseReliabilityWeightedWindows),
         "processCovariateCount": int(0 if covariates is None else covariates.shape[1]),
         "priorDesignColumnCount": int(len(priorDesignColumns)),
         "priorDesignColumns": tuple(priorDesignColumns),
@@ -5207,6 +5225,9 @@ def runConsenrich(
     tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
     tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
     tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
+    tuncUseReliabilityWeightedWindows: bool = (
+        PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    ),
     processNoiseWarmupECMIters: int = PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     processNoiseWarmupOuterPasses: int = PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
     processCovariates: np.ndarray | None = None,
@@ -5374,6 +5395,9 @@ def runConsenrich(
         "tuncLevelBufferZ",
         tuncLevelBufferZ,
     )
+    if not isinstance(tuncUseReliabilityWeightedWindows, (bool, np.bool_)):
+        raise ValueError("tuncUseReliabilityWeightedWindows must be boolean")
+    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindows)
     processCovariatesArr = _coerceOptionalProcessCovariates(
         processCovariates,
         intervalCount=intervalCount,
@@ -5464,6 +5488,10 @@ def runConsenrich(
             ("process calibration skip reason", processCalibrationSkipReason or "none"),
             ("TUNC prior df", "method_of_moments"),
             ("TUNC local window multiplier", float(tuncLocalWindowMultiplier)),
+            (
+                "TUNC reliability weighted windows",
+                bool(tuncUseReliabilityWeightedWindows),
+            ),
             (
                 "TUNC process covariates",
                 0 if processCovariatesArr is None else processCovariatesArr.shape[1],
@@ -7136,6 +7164,9 @@ def runConsenrich(
                 tuncMinWindowWeight=float(tuncMinWindowWeight),
                 tuncPriorRidge=float(tuncPriorRidge),
                 tuncLevelBufferZ=float(tuncLevelBufferZ),
+                tuncUseReliabilityWeightedWindows=bool(
+                    tuncUseReliabilityWeightedWindows
+                ),
                 observationPrecisionMultiplierMin=float(
                     observationPrecisionMultiplierMin
                 ),
@@ -10183,6 +10214,7 @@ def getMuncTrack(
         priorTrack,
         floor=varianceFloor_,
         cap=varianceCap_,
+        fillNaN=False,
     )
     if additiveCovariateModel is not None and covariateTrack is not None:
         additionalTrack = evalMuncAdditiveCovariateModel(
@@ -10195,6 +10227,7 @@ def getMuncTrack(
             priorTrack.astype(np.float64, copy=False) + additionalTrack,
             floor=varianceFloor_,
             cap=varianceCap_,
+            fillNaN=False,
         )
         finiteAdditional = additionalTrack[np.isfinite(additionalTrack)]
         if finiteAdditional.size:
@@ -10215,14 +10248,19 @@ def getMuncTrack(
         Nu_L = float(max(4, localWindowIntervals - 3))
 
     # --- Determine prior strength ---
-    minScale_prior: float | None = None
-    minScale_obs: float | None = None
-    finMask_obs2: Optional[np.ndarray] = None
-    finMask_prior2: Optional[np.ndarray] = None
-    finMask_both2: Optional[np.ndarray] = None
-
     specifiedNu0 = _coerceEBPriorStrength(EB_setNu0)
     pooledNu0 = _coerceEBPriorStrength(EB_pooledNu0)
+    priorFinite = priorTrack[np.isfinite(priorTrack)]
+    obsFinite = obsVarTrack[np.isfinite(obsVarTrack)]
+    medPrior = float(np.median(priorFinite)) if priorFinite.size else 0.0
+    medObs = float(np.median(obsFinite)) if obsFinite.size else 0.0
+
+    nu0MinPrior = (1.0e-2 * medPrior) + 1.0e-4
+    nu0MinObs = (1.0e-2 * medObs) + 1.0e-4
+
+    nu0LocalEvidence = np.isfinite(obsVarTrack) & (obsVarTrack > nu0MinObs)
+    nu0PriorEvidence = np.isfinite(priorTrack) & (priorTrack > nu0MinPrior)
+    nu0Evidence = nu0LocalEvidence & nu0PriorEvidence
 
     if specifiedNu0 is not None:
         # check if Nu_0 is specified before computing
@@ -10232,21 +10270,8 @@ def getMuncTrack(
         Nu_0 = pooledNu0
         logger.info(f"Using pooled Nu_0={Nu_0:.2f}")
     else:
-        # finite/non-zero mask _BEFORE_ Nu_0 fit
-        priorFinite = priorTrack[np.isfinite(priorTrack)]
-        obsFinite = obsVarTrack[np.isfinite(obsVarTrack)]
-        medPrior = float(np.median(priorFinite)) if priorFinite.size else 0.0
-        medObs = float(np.median(obsFinite)) if obsFinite.size else 0.0
-
-        minScale_prior = (1.0e-2 * medPrior) + 1.0e-4
-        minScale_obs = (1.0e-2 * medObs) + 1.0e-4
-
-        finMask_obs = np.isfinite(obsVarTrack) & (obsVarTrack > minScale_obs)
-        finMask_prior = np.isfinite(priorTrack) & (priorTrack > minScale_prior)
-        finMask_both = finMask_obs & finMask_prior
-
         # only pass matched finite pairs into EB_computePriorStrength
-        if np.count_nonzero(finMask_both) < 4:
+        if np.count_nonzero(nu0Evidence) < 4:
             logger.warning(
                 f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
             )
@@ -10257,12 +10282,8 @@ def getMuncTrack(
                 priorTrack,
                 Nu_L,
                 thinStride=max(localWindowIntervals, blockSizeIntervals, 1),
+                candidateMask=nu0Evidence,
             )
-
-        # reuse masks during shrinkage (no need to recompute)
-        finMask_obs2 = finMask_obs
-        finMask_prior2 = finMask_prior
-        finMask_both2 = finMask_both
 
     Nu_0_cap = 50.0 * float(Nu_L)
     if np.isfinite(Nu_0_cap) and Nu_0 > Nu_0_cap:
@@ -10286,61 +10307,64 @@ def getMuncTrack(
     )
     logger.info("MUNC EB shrinkage:\n\tNu_0=%.2f\n\tNu_L=%.2f", Nu_0, Nu_L)
     posteriorSampleSize: float = Nu_L + Nu_0
+    if not np.isfinite(posteriorSampleSize) or posteriorSampleSize <= 0.0:
+        raise ValueError(
+            f"MUNC EB posterior sample size is invalid on {chromosome}: {posteriorSampleSize}"
+        )
 
     # --- Shrinkage ---
     posteriorVarTrack = np.array(priorTrack, dtype=np.float32, copy=True)
-
-    # check if bounds/masks already exist (i.e., computed during Nu_0 fit), reuse them
-    # ... otherwise compute them for the first time here
-    if finMask_both2 is None:
-        if minScale_prior is None or minScale_obs is None:
-            priorFinite2 = posteriorVarTrack[np.isfinite(posteriorVarTrack)]
-            obsFinite2 = obsVarTrack[np.isfinite(obsVarTrack)]
-            medPrior2 = float(np.median(priorFinite2)) if priorFinite2.size else 0.0
-            medObs2 = float(np.median(obsFinite2)) if obsFinite2.size else 0.0
-
-            minScale_prior = (1.0e-2 * medPrior2) + 1.0e-4
-            minScale_obs = (1.0e-2 * medObs2) + 1.0e-4
-
-        finMask_obs2 = np.isfinite(obsVarTrack) & (obsVarTrack > minScale_obs)
-        finMask_prior2 = np.isfinite(posteriorVarTrack) & (
-            posteriorVarTrack > minScale_prior
+    finalLocalOk = np.isfinite(obsVarTrack) & (obsVarTrack > 0.0)
+    finalPriorOk = np.isfinite(posteriorVarTrack) & (posteriorVarTrack > 0.0)
+    badLocalCount = int(obsVarTrack.size - np.count_nonzero(finalLocalOk))
+    badPriorCount = int(posteriorVarTrack.size - np.count_nonzero(finalPriorOk))
+    if badLocalCount:
+        raise ValueError(
+            f"local final shrinkage variance track has {badLocalCount} invalid entries on {chromosome}"
         )
-        finMask_both2 = finMask_obs2 & finMask_prior2
+    if badPriorCount:
+        raise ValueError(
+            f"prior final shrinkage variance track has {badPriorCount} invalid entries on {chromosome}"
+        )
+    finalShrinkagePairFraction = 1.0 if posteriorVarTrack.size else 0.0
 
-    # Case: both prior and obs yield meaningful estimates --> proper shrinkage
-    posteriorVarTrack[finMask_both2] = (
+    posteriorVarTrack = (
         (
-            Nu_L * obsVarTrack[finMask_both2].astype(np.float64)
-            + Nu_0 * posteriorVarTrack[finMask_both2].astype(np.float64)
+            Nu_L * obsVarTrack.astype(np.float64)
+            + Nu_0 * posteriorVarTrack.astype(np.float64)
         )
         / posteriorSampleSize
     ).astype(np.float32)
-
-    # Case: prior is missing but obs value is valid --> use the local estimate
-    # ... (shouldn't really happen, but JIC for completeness)
-    finMask_onlyObs2 = finMask_obs2 & ~finMask_prior2
-    if np.count_nonzero(finMask_onlyObs2) > 0:
-        logger.warning(
-            f"{np.count_nonzero(finMask_onlyObs2)} intervals with _only_ local variance information...using local estimate.",
-        )
-        posteriorVarTrack[finMask_onlyObs2] = obsVarTrack[finMask_onlyObs2]
-
-    # Case: Neither present --> assign NaN
-    # ... again, shouldn't happen
-    finMask_neither2 = ~finMask_obs2 & ~finMask_prior2
-    if np.count_nonzero(finMask_neither2) > 0:
-        logger.warning(
-            f"{np.count_nonzero(finMask_neither2)} intervals with _neither_ local nor prior variance information...setting as NaN (!!!)",
-        )
-        posteriorVarTrack[finMask_neither2] = np.nan
 
     posteriorVarTrack = _clipVarianceTrack(
         posteriorVarTrack,
         floor=varianceFloor_,
         cap=varianceCap_,
     )
+    if countModelVarianceFloorArr is None:
+        countFloorHitCount = 0
+    else:
+        countFloorArr = np.asarray(countModelVarianceFloorArr, dtype=np.float64).ravel()
+        countFloorHitCount = int(
+            np.count_nonzero(
+                np.isfinite(countFloorArr)
+                & (countFloorArr > posteriorVarTrack.astype(np.float64))
+            )
+        )
     posteriorVarTrack = _finalizeMuncVarianceTrack(posteriorVarTrack)
+
+    logger.info(
+        "MUNC EB evidence: chromosome=%s localAboveFloorFraction=%.6g "
+        "nu0PairFraction=%.6g finalShrinkagePairFraction=%.6g "
+        "countFloorHitCount=%d",
+        chromosome,
+        float(supportFraction),
+        float(np.count_nonzero(nu0Evidence) / nu0Evidence.size)
+        if nu0Evidence.size
+        else 0.0,
+        float(finalShrinkagePairFraction),
+        countFloorHitCount,
+    )
 
     logger.info(
         _formatMuncVarianceDiagnostics(
@@ -10414,6 +10438,7 @@ def EB_computePriorStrength(
     Nu_local: float,
     thinStride: int = 1,
     localLogVarianceNoise: np.ndarray | None = None,
+    candidateMask: np.ndarray | None = None,
 ) -> float:
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
@@ -10461,6 +10486,11 @@ def EB_computePriorStrength(
         ratioMask &= np.isfinite(localLogVarianceNoiseArr) & (
             localLogVarianceNoiseArr > 0.0
         )
+    if candidateMask is not None:
+        candidateMaskArr = np.asarray(candidateMask, dtype=bool).ravel()
+        if candidateMaskArr.shape != localModelVariancesArr.shape:
+            raise ValueError("candidateMask must align with localModelVariances")
+        ratioMask &= candidateMaskArr
     candidateIdx = np.flatnonzero(ratioMask)
     if candidateIdx.size < max(4, int(np.ceil((0.10) * localModelVariancesArr.size))):
         logger.warning(

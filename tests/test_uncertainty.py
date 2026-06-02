@@ -204,6 +204,34 @@ def _caseOldPredictiveHeldoutModeUnsupported():
             uncertainty._normalizeUncertaintyCalibrationMode(oldMode)
 
 
+def _caseAutoBlockSizeForShortContigs():
+    assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+        None,
+        25,
+        800,
+        folds=2,
+    ) == 400
+    assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+        "auto",
+        25,
+        800,
+        folds=4,
+    ) == 200
+    assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+        None,
+        25,
+        20_000,
+        folds=4,
+    ) == 2_000
+    assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+        50_000,
+        25,
+        800,
+        folds=4,
+    ) == 800
+    assert uncertainty._resolveBlockSizeIntervals(None, 25, 6, folds=4) == 6
+
+
 def _pythonFeatureMatrix(state, stateVar, matrixMunc):
     state = np.asarray(state, dtype=np.float64)
     stateVar = np.maximum(
@@ -967,6 +995,10 @@ def test_uncertainty_factor_model_contract(contract_case):
     contract_case(
         "old predictive held-out calibration unsupported",
         _caseOldPredictiveHeldoutModeUnsupported,
+    )
+    contract_case(
+        "auto block sizing for short contigs",
+        _caseAutoBlockSizeForShortContigs,
     )
 
 
