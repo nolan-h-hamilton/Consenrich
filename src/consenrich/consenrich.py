@@ -145,7 +145,7 @@ MUNC_LAMBDA_LOG_COLUMNS = [
     "value",
 ]
 
-TUNC_KAPPA_LOG_COLUMNS = [
+PUNC_KAPPA_LOG_COLUMNS = [
     "record_type",
     "event",
     "chromosome",
@@ -166,7 +166,7 @@ TUNC_KAPPA_LOG_COLUMNS = [
     "preKappaQTrend",
     "effectiveQLevel",
     "effectiveQTrend",
-    "tuncQScale",
+    "puncQScale",
     "key",
     "value",
 ]
@@ -240,6 +240,12 @@ RUN_SUMMARY_COLUMNS = [
     "final_nll",
     "final_forward_nis",
     "process_q_policy",
+    "process_q_trace_min",
+    "process_q_trace_median",
+    "process_q_trace_max",
+    "observation_r_trace_min",
+    "observation_r_trace_median",
+    "observation_r_trace_max",
     "process_noise_status",
     "process_noise_reason",
     "lambda_lower_bound_hits",
@@ -255,7 +261,7 @@ RUN_SUMMARY_COLUMNS = [
     "delete_block_scale",
     "delete_block_scale_reason",
     "munc_lambda_log",
-    "tunc_kappa_log",
+    "punc_kappa_log",
     "convergence_log",
     "delete_block_calibration_log",
 ]
@@ -263,7 +269,7 @@ RUN_SUMMARY_COLUMNS = [
 
 class DiagnosticLogPaths(NamedTuple):
     munc_lambda: Path
-    tunc_kappa: Path
+    punc_kappa: Path
     convergence: Path
     delete_block_calibration: Path
 
@@ -571,7 +577,7 @@ def _diagnosticLogPaths(experimentName: str) -> DiagnosticLogPaths:
     prefix = f"consenrichOutput_{experimentToken}"
     return DiagnosticLogPaths(
         munc_lambda=Path(f"{prefix}_munc_lambda.v{__version__}.log"),
-        tunc_kappa=Path(f"{prefix}_tunc_kappa.v{__version__}.log"),
+        punc_kappa=Path(f"{prefix}_punc_kappa.v{__version__}.log"),
         convergence=Path(f"{prefix}_convergence.v{__version__}.log"),
         delete_block_calibration=Path(
             f"{prefix}_delete_block_calibration.v{__version__}.log"
@@ -586,7 +592,7 @@ def _runSummaryPath(experimentName: str) -> Path:
 
 def _initializeDiagnosticLogs(paths: DiagnosticLogPaths) -> None:
     logging_utils.init_tsv_log(paths.munc_lambda, MUNC_LAMBDA_LOG_COLUMNS)
-    logging_utils.init_tsv_log(paths.tunc_kappa, TUNC_KAPPA_LOG_COLUMNS)
+    logging_utils.init_tsv_log(paths.punc_kappa, PUNC_KAPPA_LOG_COLUMNS)
     logging_utils.init_tsv_log(paths.convergence, CONVERGENCE_LOG_COLUMNS)
     logging_utils.init_tsv_log(
         paths.delete_block_calibration,
@@ -1295,7 +1301,7 @@ def _appendMuncLambdaDiagnostics(
     return rowsWritten
 
 
-def _appendTuncKappaDiagnostics(
+def _appendPuncKappaDiagnostics(
     frame: pd.DataFrame,
     path: Path,
     *,
@@ -1330,7 +1336,7 @@ def _appendTuncKappaDiagnostics(
     out = pd.DataFrame(
         {
             "record_type": "interval",
-            "event": "tunc_kappa.interval",
+            "event": "punc_kappa.interval",
             "chromosome": outFrame["Chromosome"],
             "start": outFrame["Start"],
             "end": outFrame["End"],
@@ -1358,28 +1364,28 @@ def _appendTuncKappaDiagnostics(
         }
     )
     outputTracks = precisionDiagnostics.get("outputTracks", {})
-    if isinstance(outputTracks, Mapping) and "tuncQScale" in outputTracks:
-        track = np.asarray(outputTracks["tuncQScale"], dtype=np.float64).reshape(-1)
+    if isinstance(outputTracks, Mapping) and "puncQScale" in outputTracks:
+        track = np.asarray(outputTracks["puncQScale"], dtype=np.float64).reshape(-1)
         if track.shape[0] == len(frame):
-            out["tuncQScale"] = track[rowPositions]
+            out["puncQScale"] = track[rowPositions]
         elif track.shape[0] == len(outFrame):
-            out["tuncQScale"] = track
-    rowsWritten = logging_utils.append_tsv_log(path, out, TUNC_KAPPA_LOG_COLUMNS)
+            out["puncQScale"] = track
+    rowsWritten = logging_utils.append_tsv_log(path, out, PUNC_KAPPA_LOG_COLUMNS)
     processNoise = runDiagnostics.get("process_noise_calibration")
     if isinstance(processNoise, Mapping):
         _appendKeyValueDiagnostics(
             path,
-            TUNC_KAPPA_LOG_COLUMNS,
+            PUNC_KAPPA_LOG_COLUMNS,
             recordType="summary",
-            event="tunc_kappa.process_noise_calibration",
+            event="punc_kappa.process_noise_calibration",
             chromosome=chromosome,
             values=processNoise,
         )
     _appendKeyValueDiagnostics(
         path,
-        TUNC_KAPPA_LOG_COLUMNS,
+        PUNC_KAPPA_LOG_COLUMNS,
         recordType="summary",
-        event="tunc_kappa.summary",
+        event="punc_kappa.summary",
         chromosome=chromosome,
         values={
             **sampling,
@@ -1459,6 +1465,8 @@ def _runSummaryRow(
     )
     obsHits = _summaryMapping(precisionHits.get("observation"))
     procHits = _summaryMapping(precisionHits.get("process"))
+    processQ = _summaryMapping(runDiagnostics.get("process_q_diagnostics"))
+    observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
     processNoise = _summaryMapping(runDiagnostics.get("process_noise_calibration"))
     calibration = _summaryMapping(calibrationModel)
     targetCalibration = _summaryMapping(calibration.get("target_calibration"))
@@ -1474,6 +1482,16 @@ def _runSummaryRow(
             runDiagnostics.get("final_forward_nis")
         ),
         "process_q_policy": runDiagnostics.get("process_q_policy"),
+        "process_q_trace_min": _summaryNumber(processQ.get("effectiveQTraceMin")),
+        "process_q_trace_median": _summaryNumber(
+            processQ.get("effectiveQTraceMedian")
+        ),
+        "process_q_trace_max": _summaryNumber(processQ.get("effectiveQTraceMax")),
+        "observation_r_trace_min": _summaryNumber(observationRTrace.get("min")),
+        "observation_r_trace_median": _summaryNumber(
+            observationRTrace.get("median")
+        ),
+        "observation_r_trace_max": _summaryNumber(observationRTrace.get("max")),
         "process_noise_status": processNoise.get("processNoiseCalibrationStatus"),
         "process_noise_reason": processNoise.get("processNoiseCalibrationReason"),
         "lambda_lower_bound_hits": _summaryInt(obsHits.get("lower")),
@@ -1501,7 +1519,7 @@ def _runSummaryRow(
             "uncertainty_track_scale_reason"
         ),
         "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
-        "tunc_kappa_log": str(diagnosticLogPaths.tunc_kappa),
+        "punc_kappa_log": str(diagnosticLogPaths.punc_kappa),
         "convergence_log": str(diagnosticLogPaths.convergence),
         "delete_block_calibration_log": str(
             diagnosticLogPaths.delete_block_calibration
@@ -1529,7 +1547,7 @@ def _genomeRunSummaryRow(
         "elapsed_seconds": float(elapsedSeconds),
         "output_track_count": int(outputTrackCount),
         "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
-        "tunc_kappa_log": str(diagnosticLogPaths.tunc_kappa),
+        "punc_kappa_log": str(diagnosticLogPaths.punc_kappa),
         "convergence_log": str(diagnosticLogPaths.convergence),
         "delete_block_calibration_log": str(
             diagnosticLogPaths.delete_block_calibration
@@ -1737,18 +1755,28 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
     for parameterName in (
         "processNoiseCalibration",
+        "qPriorLevel",
+        "qPriorTrend",
         "qSeedPriorLevel",
-        "tuncLocalWindowMultiplier",
-        "tuncDependenceMultiplier",
-        "tuncMinScale",
-        "tuncMaxScale",
-        "tuncMinWindowWeight",
-        "tuncPriorRidge",
-        "tuncLevelBufferZ",
-        "tuncUseReliabilityWeightedWindows",
-        "tuncProcessCovariatesEnabled",
-        "tuncProcessCovariatesMode",
-        "tuncProcessCovariatesFeatures",
+        "puncLocalWindowMultiplier",
+        "puncDependenceMultiplier",
+        "puncMinScale",
+        "puncMaxScale",
+        "puncMinWindowWeight",
+        "puncPriorDf",
+        "puncPriorRidge",
+        "puncLevelBufferZ",
+        "puncUseReliabilityWeightedWindows",
+        "puncUseWarmupFit",
+        "puncUseTransitionEvidence",
+        "puncUseScaleRebase",
+        "puncUseGlobalScale",
+        "puncUseBoundaryClamps",
+        "puncUsePriorDfMoments",
+        "puncUsePriorShrinkage",
+        "puncProcessCovariatesEnabled",
+        "puncProcessCovariatesMode",
+        "puncProcessCovariatesFeatures",
     ):
         if hasattr(processArgs, parameterName) and _coreRunConsenrichSupports(
             parameterName
@@ -1829,6 +1857,26 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             ),
         ),
         (
+            "q prior level",
+            float(
+                getattr(
+                    processArgs,
+                    "qPriorLevel",
+                    constants.PROCESS_DEFAULT_Q_PRIOR_LEVEL,
+                )
+            ),
+        ),
+        (
+            "q prior trend",
+            float(
+                getattr(
+                    processArgs,
+                    "qPriorTrend",
+                    constants.PROCESS_DEFAULT_Q_PRIOR_TREND,
+                )
+            ),
+        ),
+        (
             "process noise calibration",
             getattr(
                 processArgs,
@@ -1837,29 +1885,29 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             ),
         ),
         (
-            "TUNC scale bounds",
+            "PUNC scale bounds",
             (
-                f"[{float(getattr(processArgs, 'tuncMinScale', constants.PROCESS_DEFAULT_TUNC_MIN_SCALE)):.6g}, "
-                f"{float(getattr(processArgs, 'tuncMaxScale', constants.PROCESS_DEFAULT_TUNC_MAX_SCALE)):.6g}]"
+                f"[{float(getattr(processArgs, 'puncMinScale', constants.PROCESS_DEFAULT_PUNC_MIN_SCALE)):.6g}, "
+                f"{float(getattr(processArgs, 'puncMaxScale', constants.PROCESS_DEFAULT_PUNC_MAX_SCALE)):.6g}]"
             ),
         ),
         (
-            "TUNC level buffer z",
+            "PUNC level buffer z",
             float(
                 getattr(
                     processArgs,
-                    "tuncLevelBufferZ",
-                    constants.PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
+                    "puncLevelBufferZ",
+                    constants.PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
                 )
             ),
         ),
         (
-            "TUNC reliability weighted windows",
+            "PUNC reliability weighted windows",
             yn(
                 getattr(
                     processArgs,
-                    "tuncUseReliabilityWeightedWindows",
-                    constants.PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
+                    "puncUseReliabilityWeightedWindows",
+                    constants.PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
                 )
             ),
         ),
@@ -2120,7 +2168,7 @@ class _ConsoleFormatter(logging.Formatter):
                 message = (
                     f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
                 )
-            message = "\n" + message
+            message = "\n\n" + message
         elif getattr(record, _CONSOLE_BLUE_ATTR, False) and self.colorPhaseHeaders:
             message = f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
         if record.levelno >= logging.WARNING:
@@ -2129,6 +2177,14 @@ class _ConsoleFormatter(logging.Formatter):
             message = message + "\n" + self.formatException(record.exc_info)
         if record.stack_info:
             message = message + "\n" + self.formatStack(record.stack_info)
+        return message
+
+
+class _AuditFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if getattr(record, _CONSOLE_PHASE_ATTR, False):
+            return "\n\n" + message
         return message
 
 
@@ -2216,7 +2272,7 @@ def _configureCliLogging(
         fileHandler.addFilter(
             _ConsoleLogFilter(verbose=bool(verbose), verbose2=bool(verbose2))
         )
-        fileHandler.setFormatter(logging.Formatter(_AUDIT_LOG_FORMAT))
+        fileHandler.setFormatter(_AuditFormatter(_AUDIT_LOG_FORMAT))
         packageLogger.addHandler(fileHandler)
         return logPath
     except Exception as exc:
@@ -2338,6 +2394,16 @@ def _buildArgParser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--match-min-peak-score",
+        type=float,
+        default=constants.MATCHING_DEFAULT_MIN_PEAK_SCORE,
+        dest="matchMinPeakScore",
+        help=(
+            "Minimum narrowPeak signal, column 7, required to keep a ROCCO peak in the "
+            "exported result."
+        ),
+    )
+    parser.add_argument(
         "--match-uncertainty-score-mode",
         type=str,
         choices=constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
@@ -2433,6 +2499,7 @@ def main():
             exportFilterUncertaintyMultiplier=(
                 args.matchExportFilterUncertaintyMultiplier
             ),
+            minPeakScore=args.matchMinPeakScore,
             uncertaintyScoreMode=args.matchUncertaintyScoreMode,
             uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
@@ -2564,9 +2631,9 @@ def main():
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     _logCliMilestone(
-        "Diagnostic logs: munc/lambda=%s tunc/kappa=%s convergence=%s delete-block=%s",
+        "Diagnostic logs: munc/lambda=%s punc/kappa=%s convergence=%s delete-block=%s",
         diagnosticLogPaths.munc_lambda,
-        diagnosticLogPaths.tunc_kappa,
+        diagnosticLogPaths.punc_kappa,
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
     )
@@ -4641,7 +4708,7 @@ def main():
                     minQ=float(minQ_),
                     maxQ=float(maxQ_),
                     deltaF=float(startupDeltaF),
-                    tuncMaxScale=float(processArgs.tuncMaxScale),
+                    puncMaxScale=float(processArgs.puncMaxScale),
                     processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
                     robustTNu=fitArgs.ECM_robustTNu,
                     qSeedPriorLevel=float(processArgs.qSeedPriorLevel),
@@ -5355,7 +5422,7 @@ def main():
     )
     if any(trackName != "slope" for trackName in diagnosticTrackNames):
         logger.info(
-            "MUNC/lambda and TUNC/kappa diagnostic tracks are written to category logs; "
+            "MUNC/lambda and PUNC/kappa diagnostic tracks are written to category logs; "
             "only slope remains a bedGraph diagnostic track."
         )
     for trackName in stateDiagnosticTrackNames:
@@ -5890,9 +5957,9 @@ def main():
                 detail=outputArgs.precisionDiagnosticDetail,
                 maxRowsPerChromosome=outputArgs.maxPrecisionDiagnosticRowsPerChromosome,
             )
-            _appendTuncKappaDiagnostics(
+            _appendPuncKappaDiagnostics(
                 precisionFrame,
-                diagnosticLogPaths.tunc_kappa,
+                diagnosticLogPaths.punc_kappa,
                 chromosome=chromosome,
                 precisionDiagnostics=precisionDiagnostics,
                 runDiagnostics=runDiagnostics,
@@ -6150,6 +6217,10 @@ def main():
         postFitDiagnostics = _summaryMapping(
             runDiagnostics.get("post_process_noise_fit")
         )
+        processQDiagnostics = _summaryMapping(
+            runDiagnostics.get("process_q_diagnostics")
+        )
+        observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
         calibrationFactor = (
             calibrationModel.get("global_factor")
             if isinstance(calibrationModel, Mapping)
@@ -6157,11 +6228,19 @@ def main():
         )
         _logCliMilestone(
             "Final %s: finalNLL=%s finalForwardNIS=%s calibrationFactor=%s "
-            "signChangePerKB=%s",
+            "processQTraceMin=%s processQTraceMedian=%s processQTraceMax=%s "
+            "observationRTraceMin=%s observationRTraceMedian=%s "
+            "observationRTraceMax=%s signChangePerKB=%s",
             chromosome,
             _fmtDiagnosticFloat(runDiagnostics.get("final_nll")),
             _fmtDiagnosticFloat(runDiagnostics.get("final_forward_nis")),
             _fmtDiagnosticFloat(calibrationFactor),
+            _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMin")),
+            _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMedian")),
+            _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMax")),
+            _fmtDiagnosticFloat(observationRTrace.get("min")),
+            _fmtDiagnosticFloat(observationRTrace.get("median")),
+            _fmtDiagnosticFloat(observationRTrace.get("max")),
             _fmtDiagnosticFloat(
                 postFitDiagnostics.get("relative_sign_change_per_kb")
             ),
@@ -6476,6 +6555,7 @@ def main():
                 exportFilterUncertaintyMultiplier=float(
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
+                minPeakScore=matchingArgs.minPeakScore,
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,
@@ -6506,6 +6586,7 @@ def main():
                         exportFilterUncertaintyMultiplier=float(
                             matchingArgs.exportFilterUncertaintyMultiplier
                         ),
+                        minPeakScore=matchingArgs.minPeakScore,
                         uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                         uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                         blacklistBedFile=genomeArgs.blacklistFile,

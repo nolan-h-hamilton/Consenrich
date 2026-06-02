@@ -682,6 +682,66 @@ def _caseRunROCCODropsBlacklistOverlapsAndRecordsMetadata(tmp_path):
 
 
 @pytest.mark.correctness
+def _caseSolveRoccoAppliesMinPeakSignalFilter(tmp_path):
+    n = 128
+    state = np.zeros(n, dtype=np.float64)
+    state[18:26] = 8.0
+    state[58:68] = 5.0
+    state[95:105] = 4.0
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        stem="min_peak_score",
+    )
+    outPath = tmp_path / "min_peak_score_rocco.narrowPeak"
+    metaPath = tmp_path / "min_peak_score_rocco.narrowPeak.json"
+
+    resultPath, summary = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        numBootstrap=16,
+        dependenceSpan=6,
+        randSeed=19,
+        gamma=0.0,
+        nestedRoccoIters=0,
+        massiveSubpeakCleanup=False,
+        minPeakScore=7.0,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+        metadataDetail="full",
+        returnSummary=True,
+    )
+
+    rows = [
+        line.split("\t")
+        for line in outPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    chromMeta = meta["chromosomes"]["chr1"]
+    exportDetails = chromMeta["export_details"]
+
+    assert resultPath == str(outPath)
+    assert rows
+    assert all(float(row[6]) >= 7.0 for row in rows)
+    assert summary["exported_peak_count"] == len(rows)
+    assert summary["exported_peak_count"] == chromMeta["num_segments"]
+    assert summary["settings"]["min_peak_score"] == pytest.approx(7.0)
+    assert meta["settings"]["min_peak_score"] == pytest.approx(7.0)
+    assert exportDetails["min_peak_score"] == pytest.approx(7.0)
+    assert exportDetails["min_peak_score_field"] == "signalValue"
+    assert exportDetails["min_peak_score_narrowpeak_column"] == 7
+    assert exportDetails["min_peak_score_filter_active"] is True
+    assert exportDetails["num_segments_min_peak_score_evaluated"] == (
+        len(rows) + exportDetails["num_segments_dropped_min_peak_score"]
+    )
+    assert exportDetails["num_segments_dropped_min_peak_score"] >= 1
+    assert all("dwb_empirical_q" in peak for peak in chromMeta["peak_details"])
+
+
+@pytest.mark.correctness
 def _caseIntegratedBudgetUsesExcessTailGrid():
     rng = np.random.default_rng(3)
     state = np.zeros(1024, dtype=np.float64)
@@ -2076,6 +2136,93 @@ def _caseNestedROCCOAdaptivePolicySuppressesDiffuseShoulders():
 
 
 @pytest.mark.correctness
+def _caseNestedROCCOChildSummitContracts():
+    scores = np.zeros(160, dtype=np.float64)
+    scores[10:70] = 0.15
+    scores[20:32] = 4.0
+    scores[32:43] = -0.35
+    scores[43:55] = 3.7
+    noise = np.array(
+        [0.0, 0.08, -0.03, 0.05, -0.04, 0.03, -0.02, 0.04, -0.01, 0.02],
+        dtype=np.float64,
+    )
+    scores[90:140] = 2.0 + np.resize(noise, 50)
+    firstPass = np.zeros(160, dtype=np.uint8)
+    firstPass[10:70] = 1
+    firstPass[90:140] = 1
+
+    refined, details = peaks._refineNestedROCCOSolution(
+        scores,
+        firstPass,
+        gamma=0.4,
+        selectionPenalty=1.0,
+        nestedRoccoIters=1,
+        nestedRoccoBudgetScale=1.0,
+        minRegionBins=5,
+    )
+
+    runs = peaks._selectedRunBounds(refined)
+    assert np.all(refined <= firstPass)
+    assert [run for run in runs if 10 <= run[0] and run[1] <= 69] == [
+        (20, 31),
+        (43, 54),
+    ]
+    assert [run for run in runs if 90 <= run[0] and run[1] <= 139] == [(90, 139)]
+    assert all(
+        bool(refined[idx])
+        for idx in (
+            10 + int(np.argmax(scores[10:70])),
+            90 + int(np.argmax(scores[90:140])),
+        )
+    )
+    assert details["history"][0]["num_parent_peaks"] == 2
+    assert details["history"][0]["num_parent_peaks_after"] == 3
+    assert details["history"][0]["num_required_bin_violations"] == 0
+    _assertNestedPolicyMetadataIsUseful(details)
+
+    splitScores = np.array(
+        [
+            3.0,
+            3.0,
+            3.0,
+            -0.1,
+            -0.1,
+            2.8,
+            2.8,
+            2.8,
+            -0.1,
+            -0.1,
+            2.6,
+            2.6,
+            2.6,
+        ],
+        dtype=np.float64,
+    )
+    lowMask, _lowObjective, lowDetails = peaks._solveParentConditionedSubpeaks(
+        splitScores,
+        boundaryCosts=0.05,
+        selectionPenalty=0.0,
+        minRunBins=2,
+        requiredIndex=int(np.argmax(splitScores)),
+    )
+    highMask, _highObjective, highDetails = peaks._solveParentConditionedSubpeaks(
+        splitScores,
+        boundaryCosts=0.05,
+        selectionPenalty=0.0,
+        minRunBins=2,
+        requiredIndex=int(np.argmax(splitScores)),
+        runPenalty=0.4,
+    )
+
+    assert len(peaks._selectedRunBounds(lowMask)) == 3
+    assert len(peaks._selectedRunBounds(highMask)) == 1
+    assert lowDetails["run_penalty_total"] == pytest.approx(0.0)
+    assert highDetails["run_penalty_total"] == pytest.approx(0.4)
+    assert lowDetails["required_selected"] is True
+    assert highDetails["required_selected"] is True
+
+
+@pytest.mark.correctness
 def _caseCheckMatchingEnabledHonorsEnabledFlag():
     matchingArgs = type(
         "MatchingArgs",
@@ -2141,6 +2288,11 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
     contract_case(
         "blacklist export drop",
         _caseRunROCCODropsBlacklistOverlapsAndRecordsMetadata,
+        tmp_path,
+    )
+    contract_case(
+        "min signal export floor",
+        _caseSolveRoccoAppliesMinPeakSignalFilter,
         tmp_path,
     )
 
@@ -2215,6 +2367,7 @@ def test_rocco_nested_refinement_contracts(contract_case):
             "adaptive diffuse shoulder suppressed",
             _caseNestedROCCOAdaptivePolicySuppressesDiffuseShoulders,
         ),
+        ("nested child summits", _caseNestedROCCOChildSummitContracts),
     ):
         contract_case(label, func)
 

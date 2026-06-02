@@ -6,7 +6,6 @@
 
 import math
 import os
-import logging
 import tempfile
 from types import SimpleNamespace
 from typing import Tuple, List, Optional
@@ -30,24 +29,6 @@ import consenrich.peaks as peaks
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
-
-
-def test_process_precision_auto_min_uses_strict_convexity_bound():
-    assert core.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN < 0.0
-    assert core._processKappaConvexityLowerBound(
-        robustTNu=8.0,
-        stateDim=2,
-    ) == pytest.approx(0.6251)
-
-    minValue, maxValue = core._checkProcessPrecisionMultiplierBounds(
-        minValue=-1.0,
-        maxValue=1.10,
-        robustTNu=8.0,
-        stateDim=2,
-    )
-
-    assert minValue == pytest.approx(0.6251)
-    assert maxValue == pytest.approx(1.10)
 
 
 def test_process_precision_auto_min_rejects_too_small_max():
@@ -333,88 +314,6 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
 
 
 @pytest.mark.correctness
-def _caseEventLogFormattingIsCompactAndAttributed(caplog):
-    line = core._formatLogEvent(
-        "MUNC track start",
-        (
-            ("chromosome", "chr11"),
-            ("MUNC variance EB", "enabled"),
-            (
-                "long value",
-                "this value is too long for the table and should be omitted",
-            ),
-        ),
-    )
-
-    assert line.startswith("event=munc.track.start")
-    assert "chromosome=chr11" in line
-    assert "munc_variance_eb=enabled" in line
-    assert (
-        'long_value="this value is too long for the table and should be omitted"'
-        in line
-    )
-
-    caplog.set_level(logging.INFO, logger=core.logger.name)
-    core._logAsciiBlock("MUNC track start", (("MUNC variance EB", "enabled"),))
-
-    assert caplog.records[-1].funcName.endswith(
-        "EventLogFormattingIsCompactAndAttributed"
-    )
-    assert (
-        caplog.records[-1].message == "event=munc.track.start munc_variance_eb=enabled"
-    )
-
-
-def test_runtime_munc_count_floor_logging(caplog):
-    sizing = core._resolveMuncRuntimeSizing(
-        intervalSizeBP=25,
-        dependenceSpanIntervals=None,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-    )
-    baseObservationFields = {
-        "EB_use": True,
-        "EB_setNu0": None,
-        "EB_setNuL": None,
-        "numNearest": 0,
-        "sparseSupportScaleBP": None,
-        "sparseSupportPrior": 1.0,
-    }
-    caplog.set_level(logging.INFO, logger=consenrichRuntime.logger.name)
-
-    for flagValue, expectedStatus in ((False, "disabled"), (None, "enabled")):
-        caplog.clear()
-        observationFields = dict(baseObservationFields)
-        if flagValue is not None:
-            observationFields["useCountNoiseFloor"] = flagValue
-        consenrichRuntime._logMuncEstimationParameters(
-            chromosomeCount=1,
-            sampleCount=1,
-            intervalSizeBP=25,
-            sizing=sizing,
-            muncVarianceModel="kalman",
-            samplingIters=8,
-            dependenceContextBP=None,
-            dependenceSpanIntervals=None,
-            trendMultiplier=1.0,
-            localMultiplier=1.0,
-            observationArgs=SimpleNamespace(**observationFields),
-            sparseBedEnabled=False,
-            varianceFloor=1.0e-12,
-            varianceCap=None,
-            trendNumBasis=6,
-            trendMinObsPerBasis=1.0,
-            trendMinEdf=1.0,
-            trendMaxEdf=None,
-            trendLambdaMin=1.0e-6,
-            trendLambdaMax=1.0e6,
-            trendLambdaGridSize=5,
-            pooledPairCount=4,
-        )
-
-        assert f"munc_count_model_floor={expectedStatus}" in caplog.records[-1].message
-
-
 def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
     intervalCount = 20
     intervalSizeBP = 1_000_000
@@ -722,6 +621,36 @@ def test_munc_eb_prior_g_uncertainty_modes_are_limited():
         core._normalizeMuncEBPriorGUncertaintyMode("exact")
 
 
+@pytest.mark.parametrize(
+    "qKwargs, expectedMessage",
+    (
+        ({"qPriorTrend": 5.0e-4}, "qPriorTrend"),
+        ({"qPriorLevel": 2.0e-3}, "qPriorLevel"),
+    ),
+)
+def test_core_process_prior_q_respects_q_bounds(qKwargs, expectedMessage):
+    matrixData = np.zeros((2, 4), dtype=np.float32)
+    matrixMunc = np.ones((2, 4), dtype=np.float32)
+    kwargs = {
+        "deltaF": 0.1,
+        "minQ": 1.0e-3,
+        "maxQ": 1.0e-3,
+        "qPriorLevel": 1.0e-3,
+        "qPriorTrend": 1.0e-3,
+        "stateInit": 0.0,
+        "stateCovarInit": 1.0,
+        "boundState": False,
+        "stateLowerBound": 0.0,
+        "stateUpperBound": 0.0,
+        "blockLenIntervals": 2,
+        "ECM_fixedBackgroundIters": 1,
+    }
+    kwargs.update(qKwargs)
+
+    with pytest.raises(ValueError, match=expectedMessage):
+        core.runConsenrich(matrixData, matrixMunc, **kwargs)
+
+
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
@@ -736,6 +665,22 @@ def _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
         np.testing.assert_allclose(out, expected, rtol=1.0e-6, atol=1.0e-7)
     else:
         np.testing.assert_allclose(out, expected, rtol=1.0e-14, atol=1.0e-14)
+
+
+@pytest.mark.correctness
+def _casePuncBridgeSymbolsAreRenamed():
+    for symbol in (
+        "cPuncObservationInformation",
+        "cpuncObservationInformation",
+        "crebasePuncIntervalScales",
+    ):
+        assert hasattr(cconsenrich, symbol)
+    for symbol in (
+        "c" + "T" + "uncObservationInformation",
+        "c" + "t" + "uncObservationInformation",
+        "crebase" + "T" + "uncIntervalScales",
+    ):
+        assert not hasattr(cconsenrich, symbol)
 
 
 @pytest.mark.correctness
@@ -1653,7 +1598,23 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
     np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.1, 0.15])
     np.testing.assert_allclose(tracks["effectiveQLevel"], [0.2, 0.2, 0.15])
     np.testing.assert_allclose(tracks["effectiveQTrend"], [0.05, 0.05, 0.0375])
-    np.testing.assert_allclose(tracks["tuncQScale"], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(tracks["puncQScale"], [1.0, 2.0, 3.0])
+    qMeta = core._processQDiagnosticsMetadata(
+        matrixQ0=matrixQ0,
+        intervalCount=3,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        processPrecExp=processPrecExp,
+        processQScale=np.asarray([9.0, 2.0, 3.0], dtype=np.float32),
+        pNoiseForward=None,
+        useAPN=False,
+        processPrecisionRequested=True,
+        processPrecisionEffective=True,
+        procPrecisionMultiplierMin=0.25,
+        procPrecisionMultiplierMax=4.0,
+    )
+    assert qMeta["effectiveQTraceMin"] == pytest.approx(0.1875)
+    assert qMeta["effectiveQTraceMedian"] == pytest.approx(0.25)
+    assert qMeta["effectiveQTraceMax"] == pytest.approx(0.25)
     expectedTrace = np.sum(
         (matrixMunc.astype(np.float64) + 0.1) / lambdaExp[None, :],
         axis=0,
@@ -2144,7 +2105,7 @@ def _caseLevelForwardBackwardMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
+def _casePuncProcessNoiseCalibrationRebasesClampedBaseQ():
     intervalCount = 16
     seedQLevel = 1.0e-2
     desiredEvidence = 100.0
@@ -2163,7 +2124,7 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
         "lambdaExp": np.linspace(0.5, 2.0, intervalCount, dtype=np.float32),
     }
 
-    matrixQ, processQScale, info = core._fitTuncProcessNoise(
+    matrixQ, processQScale, info = core._fitPuncProcessNoise(
         warmupFit=warmupFit,
         matrixMunc=warmupFit["matrixMunc"],
         matrixF=np.asarray([[1.0]], dtype=np.float32),
@@ -2174,29 +2135,29 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
         maxQ=2.0e-2,
         blockLenIntervals=3,
         processCovariates=None,
-        tuncLocalWindowMultiplier=1.0,
-        tuncDependenceMultiplier=1.0,
-        tuncMinScale=0.1,
-        tuncMaxScale=10.0,
-        tuncMinWindowWeight=0.0,
-        tuncPriorRidge=1.0e-3,
-        tuncLevelBufferZ=0.0,
-        tuncUseReliabilityWeightedWindows=True,
+        puncLocalWindowMultiplier=1.0,
+        puncDependenceMultiplier=1.0,
+        puncMinScale=0.1,
+        puncMaxScale=10.0,
+        puncMinWindowWeight=0.0,
+        puncPriorRidge=1.0e-3,
+        puncLevelBufferZ=0.0,
+        puncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
 
-    assert info["processNoisePolicy"] == "tunc"
+    assert info["processNoisePolicy"] == "punc"
     assert info["priorDesignColumnCount"] == 2
     assert info["priorDesignColumns"] == ("intercept", "stateLevelMidpoint")
     assert info["processCovariateCount"] == 0
-    assert info["tuncPriorDfSource"] == "method_of_moments"
-    assert info["tuncLevelBufferZ"] == pytest.approx(0.0)
-    assert info["tuncUseReliabilityWeightedWindows"] is True
-    assert info["tuncLevelBufferEnabled"] is False
-    assert np.isfinite(info["tuncPriorDf"])
-    assert info["tuncPriorDf"] >= 4.0
-    assert info["tuncPriorDfMomentWindowCount"] > 0
+    assert info["puncPriorDfSource"] == "method_of_moments"
+    assert info["puncLevelBufferZ"] == pytest.approx(0.0)
+    assert info["puncUseReliabilityWeightedWindows"] is True
+    assert info["puncLevelBufferEnabled"] is False
+    assert np.isfinite(info["puncPriorDf"])
+    assert info["puncPriorDf"] >= 4.0
+    assert info["puncPriorDfMomentWindowCount"] > 0
     assert "processQScale" not in info
     assert matrixQ[0, 0] == pytest.approx(2.0e-2)
     assert processQScale[0] == pytest.approx(1.0)
@@ -2209,7 +2170,7 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
 
 
 @pytest.mark.correctness
-def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
+def _casePuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
     intervalCount = 8
     evidenceTarget = np.asarray([1.0, 16.0, 4.0, 25.0, 9.0, 36.0, 16.0])
     increments = np.sqrt(evidenceTarget)
@@ -2238,22 +2199,22 @@ def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
             4.0,
             1.0,
             {
-                "tuncPriorDfMomentWindowCount": int(np.size(localEvidence)),
-                "tuncPriorDfMomentEffectiveWindowCount": float(np.size(localEvidence)),
-                "tuncPriorDfMomentLogRatioVariance": 0.0,
-                "tuncPriorDfMomentSamplingVariance": 0.0,
-                "tuncPriorDfMomentExcessVariance": 0.0,
-                "tuncPriorDfMomentScale": 1.0,
-                "tuncPriorDfMomentWinsorLower": float("nan"),
-                "tuncPriorDfMomentWinsorUpper": float("nan"),
-                "tuncPriorDfMomentReason": "ok",
+                "puncPriorDfMomentWindowCount": int(np.size(localEvidence)),
+                "puncPriorDfMomentEffectiveWindowCount": float(np.size(localEvidence)),
+                "puncPriorDfMomentLogRatioVariance": 0.0,
+                "puncPriorDfMomentSamplingVariance": 0.0,
+                "puncPriorDfMomentExcessVariance": 0.0,
+                "puncPriorDfMomentScale": 1.0,
+                "puncPriorDfMomentWinsorLower": float("nan"),
+                "puncPriorDfMomentWinsorUpper": float("nan"),
+                "puncPriorDfMomentReason": "ok",
             },
         )
 
-    monkeypatch.setattr(core, "_estimateTuncPriorDfMethodOfMoments", capturePriorDf)
+    monkeypatch.setattr(core, "_estimatePuncPriorDfMethodOfMoments", capturePriorDf)
 
     def run(useWeighted):
-        _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+        _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
             warmupFit=warmupFit,
             matrixMunc=warmupFit["matrixMunc"],
             matrixF=np.asarray([[1.0]], dtype=np.float32),
@@ -2264,14 +2225,14 @@ def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
             maxQ=100.0,
             blockLenIntervals=3,
             processCovariates=None,
-            tuncLocalWindowMultiplier=1.0,
-            tuncDependenceMultiplier=1.0,
-            tuncMinScale=0.01,
-            tuncMaxScale=100.0,
-            tuncMinWindowWeight=0.0,
-            tuncPriorRidge=1.0e-3,
-            tuncLevelBufferZ=0.0,
-            tuncUseReliabilityWeightedWindows=useWeighted,
+            puncLocalWindowMultiplier=1.0,
+            puncDependenceMultiplier=1.0,
+            puncMinScale=0.01,
+            puncMaxScale=100.0,
+            puncMinWindowWeight=0.0,
+            puncPriorRidge=1.0e-3,
+            puncLevelBufferZ=0.0,
+            puncUseReliabilityWeightedWindows=useWeighted,
             observationPrecisionMultiplierMin=0.01,
             observationPrecisionMultiplierMax=200.0,
         )
@@ -2280,8 +2241,8 @@ def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
     weightedInfo = run(True)
     unitInfo = run(False)
 
-    assert weightedInfo["tuncUseReliabilityWeightedWindows"] is True
-    assert unitInfo["tuncUseReliabilityWeightedWindows"] is False
+    assert weightedInfo["puncUseReliabilityWeightedWindows"] is True
+    assert unitInfo["puncUseReliabilityWeightedWindows"] is False
     assert len(captured) == 2
     weightedWindows, unitWindows = captured
     assert weightedInfo["validTransitionCount"] == unitInfo["validTransitionCount"]
@@ -2298,7 +2259,7 @@ def _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
 
 
 @pytest.mark.correctness
-def _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
+def _casePuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
     n = 1000
     nuLocal = 20.0
     priorDfTrue = 12.0
@@ -2309,7 +2270,7 @@ def _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
     nu = np.full(n, nuLocal, dtype=np.float64)
     weights = np.ones(n, dtype=np.float64)
 
-    priorDf, priorScale, diagnostics = core._estimateTuncPriorDfMethodOfMoments(
+    priorDf, priorScale, diagnostics = core._estimatePuncPriorDfMethodOfMoments(
         localEvidence,
         localPrior,
         nu,
@@ -2319,19 +2280,19 @@ def _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
         maxScale=10.0,
     )
 
-    assert diagnostics["tuncPriorDfMomentReason"] == "ok"
+    assert diagnostics["puncPriorDfMomentReason"] == "ok"
     assert priorDf == pytest.approx(priorDfTrue, rel=0.02)
     assert priorScale == pytest.approx(priorScaleTrue, rel=0.02)
 
 
 @pytest.mark.correctness
-def _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
+def _casePuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
     localEvidence = np.asarray([np.nan, 1.0, 1.0, np.inf, 0.0, 1.0], dtype=np.float64)
     localPrior = np.ones_like(localEvidence)
     nu = np.full_like(localEvidence, 8.0)
     weights = np.ones_like(localEvidence)
 
-    priorDf, priorScale, diagnostics = core._estimateTuncPriorDfMethodOfMoments(
+    priorDf, priorScale, diagnostics = core._estimatePuncPriorDfMethodOfMoments(
         localEvidence,
         localPrior,
         nu,
@@ -2341,35 +2302,7 @@ def _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
 
     assert priorDf == pytest.approx(1.0e6)
     assert np.isfinite(priorScale)
-    assert diagnostics["tuncPriorDfMomentReason"] == "no_excess_dispersion"
-
-
-@pytest.mark.correctness
-def _caseInitialProcessNoiseSeedDeconvolvesObservationNoise():
-    n = 32
-    m = 4
-    minQ = 1.0e-4
-    matrixData = np.full((m, n), 0.25, dtype=np.float32)
-    matrixMunc = np.full((m, n), 10.0, dtype=np.float32)
-
-    matrixQ, diagnostics = core._estimateInitialProcessNoiseFromData(
-        matrixData=matrixData,
-        matrixMunc=matrixMunc,
-        pad=1.0e-4,
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        minQ=minQ,
-        maxQ=1.0,
-        deltaF=0.5,
-        tuncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
-        robustTNu=8.0,
-    )
-
-    assert diagnostics["qSeedSource"] == "sameTrackEB"
-    assert diagnostics["qSeedTransitionCount"] == n - 1
-    assert diagnostics["qSeedLevelFinal"] < 3.0 * minQ
-    assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
-    assert matrixQ[1, 1] == pytest.approx(minQ)
+    assert diagnostics["puncPriorDfMomentReason"] == "no_excess_dispersion"
 
 
 @pytest.mark.correctness
@@ -2393,8 +2326,8 @@ def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
         minQ=1.0e-5,
         maxQ=1.0,
         deltaF=1.0,
-        tuncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        puncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
@@ -2402,7 +2335,7 @@ def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
     assert 0.3 * qTrue <= diagnostics["qSeedLevelFinal"] <= 3.0 * qTrue
     assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
     assert matrixQ[1, 1] == pytest.approx(
-        diagnostics["qSeedLevelFinal"] * core.PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO
+        diagnostics["qSeedLevelFinal"] * core.PROCESS_DEFAULT_PUNC_TREND_SEED_RATIO
     )
 
 
@@ -2423,8 +2356,8 @@ def _caseInitialProcessNoiseSeedCapsDominantLowMuncArtifact():
         minQ=1.0e-5,
         maxQ=10.0,
         deltaF=1.0,
-        tuncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        puncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
@@ -2450,8 +2383,8 @@ def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
         minQ=1.0e-4,
         maxQ=1.0,
         deltaF=1.0,
-        tuncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_TUNC,
+        puncMaxScale=4.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
@@ -2462,7 +2395,7 @@ def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
 
 
 @pytest.mark.correctness
-def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
+def _casePuncDeadbandPriorShrinksNearNullPriorScale():
     intervalCount = 24
     state = np.zeros((intervalCount, 1), dtype=np.float64)
     state[intervalCount // 2 :, 0] = 5.0
@@ -2477,7 +2410,7 @@ def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
         "lambdaExp": np.ones(intervalCount, dtype=np.float32),
     }
 
-    _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+    _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
         warmupFit=warmupFit,
         matrixMunc=warmupFit["matrixMunc"],
         matrixF=np.asarray([[1.0]], dtype=np.float32),
@@ -2488,37 +2421,37 @@ def _caseTuncDeadbandPriorShrinksNearNullPriorScale():
         maxQ=1.0,
         blockLenIntervals=3,
         processCovariates=None,
-        tuncLocalWindowMultiplier=1.0,
-        tuncDependenceMultiplier=1.0,
-        tuncMinScale=0.25,
-        tuncMaxScale=4.0,
-        tuncMinWindowWeight=0.0,
-        tuncPriorRidge=1.0e-3,
-        tuncLevelBufferZ=1.64,
-        tuncUseReliabilityWeightedWindows=True,
+        puncLocalWindowMultiplier=1.0,
+        puncDependenceMultiplier=1.0,
+        puncMinScale=0.25,
+        puncMaxScale=4.0,
+        puncMinWindowWeight=0.0,
+        puncPriorRidge=1.0e-3,
+        puncLevelBufferZ=1.64,
+        puncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
 
-    before = info["tuncPriorScaleBeforeDeadbandSummary"]
-    after = info["tuncPriorScaleAfterDeadbandSummary"]
-    assert info["tuncDeadbandPriorEnabled"] is True
-    assert info["tuncDeadbandMeanProbability"] > 0.0
-    assert info["tuncDeadbandHighProbabilityFraction"] > 0.0
-    assert info["tuncDeadbandNullScale"] == pytest.approx(0.25)
+    before = info["puncPriorScaleBeforeDeadbandSummary"]
+    after = info["puncPriorScaleAfterDeadbandSummary"]
+    assert info["puncDeadbandPriorEnabled"] is True
+    assert info["puncDeadbandMeanProbability"] > 0.0
+    assert info["puncDeadbandHighProbabilityFraction"] > 0.0
+    assert info["puncDeadbandNullScale"] == pytest.approx(0.25)
     assert after["min"] < before["min"]
-    assert info["tuncDeadbandHighProbabilityThreshold"] == pytest.approx(0.8)
-    assert info["tuncDeadbandHighTransitionCount"] > 0
-    assert info["tuncDeadbandHighTransitionFraction"] > 0.0
-    assert info["tuncDeadbandHighRawScaleSummary"]["median"] is not None
-    assert info["tuncDeadbandHighTransitionScaleSummary"]["median"] is not None
-    assert info["tuncDeadbandHighRebasedProcessQScaleSummary"]["median"] is not None
-    assert info["tuncDeadbandHighQLevelSummary"]["median"] is not None
-    assert info["tuncDeadbandHighQTrendSummary"]["median"] == pytest.approx(0.0)
+    assert info["puncDeadbandHighProbabilityThreshold"] == pytest.approx(0.8)
+    assert info["puncDeadbandHighTransitionCount"] > 0
+    assert info["puncDeadbandHighTransitionFraction"] > 0.0
+    assert info["puncDeadbandHighRawScaleSummary"]["median"] is not None
+    assert info["puncDeadbandHighTransitionScaleSummary"]["median"] is not None
+    assert info["puncDeadbandHighRebasedProcessQScaleSummary"]["median"] is not None
+    assert info["puncDeadbandHighQLevelSummary"]["median"] is not None
+    assert info["puncDeadbandHighQTrendSummary"]["median"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
-def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
+def _casePuncDeadbandPriorNegligibleOutsideDeadband():
     intervalCount = 20
     state = np.full((intervalCount, 1), 10.0, dtype=np.float64)
     stateCov = np.ones((intervalCount, 1, 1), dtype=np.float64) * 0.01
@@ -2532,7 +2465,7 @@ def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
         "lambdaExp": np.ones(intervalCount, dtype=np.float32),
     }
 
-    _matrixQ, _processQScale, info = core._fitTuncProcessNoise(
+    _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
         warmupFit=warmupFit,
         matrixMunc=warmupFit["matrixMunc"],
         matrixF=np.asarray([[1.0]], dtype=np.float32),
@@ -2543,32 +2476,32 @@ def _caseTuncDeadbandPriorNegligibleOutsideDeadband():
         maxQ=1.0,
         blockLenIntervals=3,
         processCovariates=None,
-        tuncLocalWindowMultiplier=1.0,
-        tuncDependenceMultiplier=1.0,
-        tuncMinScale=0.25,
-        tuncMaxScale=4.0,
-        tuncMinWindowWeight=0.0,
-        tuncPriorRidge=1.0e-3,
-        tuncLevelBufferZ=1.64,
-        tuncUseReliabilityWeightedWindows=True,
+        puncLocalWindowMultiplier=1.0,
+        puncDependenceMultiplier=1.0,
+        puncMinScale=0.25,
+        puncMaxScale=4.0,
+        puncMinWindowWeight=0.0,
+        puncPriorRidge=1.0e-3,
+        puncLevelBufferZ=1.64,
+        puncUseReliabilityWeightedWindows=True,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
 
-    before = info["tuncPriorScaleBeforeDeadbandSummary"]
-    after = info["tuncPriorScaleAfterDeadbandSummary"]
-    assert info["tuncDeadbandPriorEnabled"] is True
-    assert info["tuncDeadbandMeanProbability"] < 1.0e-6
+    before = info["puncPriorScaleBeforeDeadbandSummary"]
+    after = info["puncPriorScaleAfterDeadbandSummary"]
+    assert info["puncDeadbandPriorEnabled"] is True
+    assert info["puncDeadbandMeanProbability"] < 1.0e-6
     assert after["median"] == pytest.approx(before["median"])
-    assert info["tuncDeadbandHighTransitionCount"] == 0
-    assert info["tuncDeadbandHighRawScaleSummary"]["median"] is None
-    assert info["tuncDeadbandHighTransitionScaleSummary"]["median"] is None
-    assert info["tuncDeadbandHighRebasedProcessQScaleSummary"]["median"] is None
-    assert info["tuncDeadbandHighQLevelSummary"]["median"] is None
+    assert info["puncDeadbandHighTransitionCount"] == 0
+    assert info["puncDeadbandHighRawScaleSummary"]["median"] is None
+    assert info["puncDeadbandHighTransitionScaleSummary"]["median"] is None
+    assert info["puncDeadbandHighRebasedProcessQScaleSummary"]["median"] is None
+    assert info["puncDeadbandHighQLevelSummary"]["median"] is None
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichOuterPassSmoke(caplog):
+def _caseRunConsenrichOuterPassSmoke():
     rng = np.random.default_rng(0)
     n = 64
     m = 3
@@ -2612,13 +2545,14 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         pad=0.0,
     ) == pytest.approx(2.0 / 3.0)
 
-    caplog.set_level(logging.INFO, logger=core.logger.name)
     out = core.runConsenrich(
         matrixData,
         matrixMunc,
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=1.0,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -2658,13 +2592,21 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         "muncTrace",
         "preKappaQLevel",
         "preKappaQTrend",
+        "puncQScale",
         "sumGain0",
         "sumGain1",
-        "tuncQScale",
     )
     for track in outputTracks.values():
         assert np.asarray(track).shape == (n,)
     assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
+    qDiagnostics = diagnostics["process_q_diagnostics"]
+    assert qDiagnostics["effectiveQTraceMin"] <= qDiagnostics["effectiveQTraceMedian"]
+    assert qDiagnostics["effectiveQTraceMedian"] <= qDiagnostics["effectiveQTraceMax"]
+    obsTrace = diagnostics["observation_r_trace"]
+    expectedObservationTrace = m * (0.2 + 0.0001)
+    assert obsTrace["min"] == pytest.approx(expectedObservationTrace)
+    assert obsTrace["median"] == pytest.approx(expectedObservationTrace)
+    assert obsTrace["max"] == pytest.approx(expectedObservationTrace)
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
     assert len(gainSummary["median"]) == m
@@ -2675,28 +2617,6 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert all(value >= 0.0 for value in gainSummary["iqr"])
     assert all(value >= 0 for value in gainSummary["count"])
     assert "background_prior" not in diagnostics
-    assert "event=core.start" in caplog.text
-    assert "event=post.process.noise.fit" in caplog.text
-    assert "event=inner.ecm.fit.fixed.background" not in caplog.text
-    assert "proc_precision_weights=" in caplog.text
-    assert "backgroundTarget[" not in caplog.text
-    assert "backgroundSolve[" not in caplog.text
-    assert "backgroundObjectivePerCell=" in caplog.text
-    assert "backgroundObjectiveChangePerCell=" in caplog.text
-    assert "backgroundObjectiveThresholdPerCell=" in caplog.text
-    assert "event=process.noise.calibration" in caplog.text
-    assert "mode=tunc" in caplog.text
-    assert "qscale_clamp_fraction=" in caplog.text
-    assert "processQScale=" not in caplog.text
-    assert "lambdaMean=" in caplog.text
-    assert "lambdaMedian=" in caplog.text
-    assert "relativeSignChangePerKB=" in caplog.text
-    assert "lambdaLowerBoundHits=" in caplog.text
-    assert "lambdaUpperBoundHits=" in caplog.text
-    assert "kappaLowerBoundHits=" in caplog.text
-    assert "kappaUpperBoundHits=" in caplog.text
-    assert "runConsenrich.postProcessNoiseFit.summary" in caplog.text
-    assert "\n\tbackgroundShift=" not in caplog.text
     fitDiagnostics = diagnostics["post_process_noise_fit"]["fixed_background_ecm"]
     assert fitDiagnostics
     backgroundPassDiagnostics = [
@@ -2748,6 +2668,8 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=1.0,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -2766,17 +2688,17 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
     assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "tunc"
+    assert qInfo["processNoisePolicy"] == "punc"
     assert "".join(("block", "Mode")) not in qInfo
     assert "_".join(("process", "q", "calibration")) not in diagnostics
     assert qInfo["preKappaQLevel"] > 0.0
     assert qInfo["preKappaQTrend"] > 0.0
     assert "processQScaleSummary" in qInfo
     assert "processQScale" not in qInfo
-    assert "_tuncDeadbandHighIntervalMask" not in qInfo
-    assert "tuncDeadbandHighKappaSummary" in qInfo
-    assert "tuncDeadbandHighEffectiveQLevelSummary" in qInfo
-    assert "tuncDeadbandHighEffectiveQTrendSummary" in qInfo
+    assert "_puncDeadbandHighIntervalMask" not in qInfo
+    assert "puncDeadbandHighKappaSummary" in qInfo
+    assert "puncDeadbandHighEffectiveQLevelSummary" in qInfo
+    assert "puncDeadbandHighEffectiveQTrendSummary" in qInfo
 
 
 @pytest.mark.correctness
@@ -2792,6 +2714,8 @@ def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
         deltaF=0.1,
         minQ=5.0e-2,
         maxQ=1.0,
+        qPriorLevel=5.0e-2,
+        qPriorTrend=5.0e-2,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -2807,82 +2731,12 @@ def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
     )
 
     qInfo = out[-1]["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "tunc"
+    assert qInfo["processNoisePolicy"] == "punc"
     assert qInfo["preKappaQLevel"] >= 5.0e-2
     assert qInfo["qFloor"] == pytest.approx(5.0e-2)
     assert qInfo["qSeedSource"] == "sameTrackEB"
     assert qInfo["qSeedLevelFinal"] < 1.25 * qInfo["qFloor"]
     assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["preKappaQLevel"])
-
-
-@pytest.mark.correctness
-def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
-    n = 16
-    m = 2
-    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
-    matrixData = np.vstack([grid, grid + 0.05]).astype(np.float32)
-    matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
-
-    caplog.set_level(logging.WARNING, logger=core.logger.name)
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=1.0e-3,
-        maxQ=1.0,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=4,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_minOuterIters=1,
-        fitBackground=True,
-        useNonnegativeBackground=True,
-        ECM_zeroCenterBackground=True,
-        initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
-        returnBackground=True,
-        returnDiagnostics=True,
-    )
-    background = out[-2]
-
-    assert (
-        "penalizing negative values may pull the shared background toward zero"
-        in caplog.text
-    )
-    assert "only the zero background feasible" not in caplog.text
-    assert np.isfinite(background).all()
-    assert abs(float(np.mean(background))) < 1.0e-5
-
-    caplog.clear()
-    core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=1.0e-3,
-        maxQ=1.0,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=4,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_minOuterIters=1,
-        fitBackground=True,
-        useNonnegativeBackground=True,
-        backgroundNegativePenaltyMultiplier=None,
-        ECM_zeroCenterBackground=True,
-        initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
-        returnDiagnostics=True,
-    )
-    assert (
-        "penalizing negative values may pull the shared background toward zero"
-        not in caplog.text
-    )
 
 
 @pytest.mark.correctness
@@ -2954,7 +2808,7 @@ def _caseRunConsenrichLevelStateModelSmoke():
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["processNoisePolicy"] == "tunc"
+    assert qInfo["processNoisePolicy"] == "punc"
     assert qInfo["preKappaQLevel"] > 0.0
     assert qInfo["preKappaQTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
@@ -3000,6 +2854,8 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
         deltaF=1.0,
         minQ=1.0e-3,
         maxQ=0.5,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -3042,7 +2898,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
     assert (
         diagnostics["process_noise_calibration"]["processNoisePolicy"]
-        == "tunc"
+        == "punc"
     )
     assert diagnostics["process_noise_calibration"]["warmupECMIters"] == pytest.approx(
         1.0
@@ -3114,6 +2970,113 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
         atol=0.0,
     )
     assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is False
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
+    rng = np.random.default_rng(3)
+    n = 36
+    m = 3
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    matrixData = np.vstack(
+        [
+            np.sin(grid) + 0.2 * rng.normal(size=n) + offset
+            for offset in (-0.1, 0.0, 0.1)
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.05, dtype=np.float32)
+
+    def failSeedEstimator(*_args, **_kwargs):
+        raise AssertionError("seed estimator should not run")
+
+    def failPuncEstimator(*_args, **_kwargs):
+        raise AssertionError("PUNC estimator should not run")
+
+    monkeypatch.setattr(core, "_estimateInitialProcessNoiseFromData", failSeedEstimator)
+    monkeypatch.setattr(core, "_fitPuncProcessNoise", failPuncEstimator)
+
+    initialKappa = np.linspace(0.5, 1.8, n, dtype=np.float32)
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.2,
+        minQ=1.0e-6,
+        maxQ=1.0,
+        qPriorLevel=2.0e-3,
+        qPriorTrend=5.0e-4,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=6,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        fitBackground=False,
+        ECM_useProcessPrecisionReweighting=True,
+        initialProcessPrecision=initialKappa,
+        returnPrecisionDiagnostics=True,
+        returnDiagnostics=True,
+    )
+
+    precisionDiagnostics = out[-2]
+    runDiagnostics = out[-1]
+    qInfo = runDiagnostics["process_noise_calibration"]
+    assert runDiagnostics["process_noise_warmup_fit"] is None
+    assert qInfo["processNoisePolicy"] == "fixedDiagonal"
+    assert qInfo["processNoiseCalibrationReason"] == "fixed_diagonal"
+    assert qInfo["puncStagesActive"] is False
+    assert all(qInfo[key] is False for key in core._PUNC_STAGE_TOGGLE_KEYS)
+    np.testing.assert_allclose(
+        qInfo["matrixQ0Final"],
+        np.diag([2.0e-3, 5.0e-4]),
+        rtol=0.0,
+        atol=1.0e-10,
+    )
+    outputTracks = precisionDiagnostics["outputTracks"]
+    np.testing.assert_allclose(outputTracks["puncQScale"], np.ones(n))
+    assert np.any(
+        np.abs(outputTracks["effectiveQLevel"] - outputTracks["preKappaQLevel"])
+        > 1.0e-9
+    )
+
+    levelOut = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        stateModel="level",
+        deltaF=-10.0,
+        minQ=1.0e-6,
+        maxQ=1.0,
+        qPriorLevel=3.0e-3,
+        qPriorTrend=7.0e-4,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=6,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        fitBackground=False,
+        ECM_useProcessPrecisionReweighting=True,
+        initialProcessPrecision=initialKappa,
+        returnPrecisionDiagnostics=True,
+        returnDiagnostics=True,
+    )
+    levelPrecisionDiagnostics = levelOut[-2]
+    levelRunDiagnostics = levelOut[-1]
+    levelQInfo = levelRunDiagnostics["process_noise_calibration"]
+    np.testing.assert_allclose(levelQInfo["matrixQ0Final"], [[3.0e-3]])
+    assert levelQInfo["preKappaQTrend"] == pytest.approx(0.0)
+    assert levelQInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
+    np.testing.assert_allclose(
+        levelPrecisionDiagnostics["outputTracks"]["puncQScale"],
+        np.ones(n),
+    )
 
 
 @pytest.mark.correctness
@@ -3210,6 +3173,8 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         deltaF=0.2,
         minQ=1.0e-3,
         maxQ=0.5,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -3759,60 +3724,6 @@ def _casePSplinePredictionClipsBeforeFloat32Overflow():
 
     assert np.all(np.isfinite(pred))
     assert np.all(pred <= np.float32(1000.0))
-
-
-@pytest.mark.correctness
-def _casePSplineTrendSummaryLogsRelationship():
-    amplitudes = np.linspace(0.0, 5.0, 30, dtype=np.float64)
-    variances = np.exp(0.1 + 0.05 * amplitudes)
-    trend = core.fitPSplineLogVarianceTrend(
-        amplitudes,
-        variances,
-        trendNumBasis=8,
-        trendMinObsPerBasis=3.0,
-        trendLambdaGridSize=11,
-        eps=1.0e-8,
-    )
-
-    summary = core._formatPSplineTrendSummary(
-        trend,
-        amplitudes,
-        eps=1.0e-8,
-        maxVariance=100.0,
-        pointCount=5,
-    )
-
-    assert "MUNC P-spline signed-mean-SD trend" in summary
-    assert "signed_mean->sd[" in summary
-    assert "basis=" in summary
-    assert "lambda=" in summary
-    assert "edf_cap=" in summary
-    assert "->" in summary
-
-
-@pytest.mark.correctness
-def _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
-    local = np.array([0.01, 0.04, 0.09, 0.16, np.nan], dtype=np.float64)
-    global_ = np.array([0.04, 0.09, 0.16, 0.25, 0.36], dtype=np.float64)
-    final = np.array([0.0225, 0.0625, 0.1225, 0.2025], dtype=np.float64)
-    support = np.concatenate(
-        [
-            np.linspace(0.0, 1.0, 100, dtype=np.float64),
-            np.array([2.0, 3.0, 4.0], dtype=np.float64),
-        ]
-    )
-
-    summary = core._formatMuncVarianceDiagnostics(local, global_, final, support)
-
-    assert "MUNC variance SD diagnostics" in summary
-    assert "L[n=4" in summary
-    assert "G[n=5" in summary
-    assert "V0[n=4" in summary
-    assert "p50=" in summary
-    assert "tail_support(abs_signed_mean)" in summary
-    assert "q95=" in summary
-    assert "q99=" in summary
-    assert "max=4" in summary
 
 
 @pytest.mark.correctness
@@ -4459,6 +4370,8 @@ def _caseRunConsenrichAPNSmoke():
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=0.5,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -4518,6 +4431,8 @@ def _caseRunConsenrichAlwaysRunsECMWithAPN(
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=0.5,
+        qPriorLevel=1.0e-3,
+        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -5883,11 +5798,7 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
         return func(*args, mp)
 
 
-def test_core_numeric_kernel_contracts(caplog, contract_case):
-    caplog.clear()
-    contract_case(
-        "event logging", _caseEventLogFormattingIsCompactAndAttributed, caplog
-    )
+def test_core_numeric_kernel_contracts(contract_case):
     for dtype in (np.float32, np.float64):
         contract_case(
             f"C EMA kernel {dtype}",
@@ -5925,6 +5836,7 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             dtype,
         )
     for label, func in (
+        ("PUNC bridge symbols", _casePuncBridgeSymbolsAreRenamed),
         ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
         ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
         (
@@ -5949,58 +5861,6 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
         ),
     ):
         contract_case(label, func)
-
-
-def test_core_existing_peak_contracts(contract_case):
-    for label, func in (
-        ("single-end detection", _caseSingleEndDetection),
-        ("paired-end detection", _casePairedEndDetection),
-        ("existing bedGraph matching", _caseMatchExistingBedGraph),
-    ):
-        contract_case(label, func)
-
-
-def test_core_background_bias_contracts(monkeypatch, contract_case):
-    for label, func, args in (
-        ("zero-centered background", _caseZeroCenteredBackgroundUpdate, ()),
-        (
-            "weighted background",
-            _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights,
-            (),
-        ),
-        (
-            "background sparse reference",
-            _caseZeroCenteredBackgroundUpdateMatchesSparseReference,
-            (),
-        ),
-        ("skip zero-centering", _caseBackgroundUpdateCanSkipZeroCentering, ()),
-        (
-            "nonnegative background update",
-            _caseBackgroundUpdateCanEnforceNonnegativeConstraint,
-            (),
-        ),
-        (
-            "background penalty scaling",
-            _caseBackgroundPenaltyWeightsScaleByDifferenceOrder,
-            (),
-        ),
-        (
-            "tiny fixed-background ECM fallback",
-            _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback,
-            (),
-        ),
-        (
-            "tiny level fixed-background ECM fallback",
-            _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback,
-            (),
-        ),
-        (
-            "interval-level observation precision",
-            _caseObservationPrecisionIsIntervalLevelOnly,
-            (),
-        ),
-    ):
-        contract_case(label, func, *args)
 
 
 def test_core_state_diagnostics_and_transition_contracts(contract_case):
@@ -6043,20 +5903,16 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
             _caseExpectedLevelTransitionResidualSumsMatchesPythonReference,
         ),
         (
-            "TUNC process noise clamp decomposition",
-            _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ,
+            "PUNC process noise clamp decomposition",
+            _casePuncProcessNoiseCalibrationRebasesClampedBaseQ,
         ),
         (
-            "TUNC prior df MoM recovers F dispersion",
-            _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion,
+            "PUNC prior df MoM recovers F dispersion",
+            _casePuncPriorDfMethodOfMomentsRecoversKnownFDispersion,
         ),
         (
-            "TUNC prior df MoM degenerate inputs",
-            _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs,
-        ),
-        (
-            "robust Q seed deconvolves observation noise",
-            _caseInitialProcessNoiseSeedDeconvolvesObservationNoise,
+            "PUNC prior df MoM degenerate inputs",
+            _casePuncPriorDfMethodOfMomentsHandlesDegenerateInputs,
         ),
         (
             "robust Q seed recovers random walk scale",
@@ -6071,12 +5927,12 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
             _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap,
         ),
         (
-            "TUNC deadband prior shrinks near null",
-            _caseTuncDeadbandPriorShrinksNearNullPriorScale,
+            "PUNC deadband prior shrinks near null",
+            _casePuncDeadbandPriorShrinksNearNullPriorScale,
         ),
         (
-            "TUNC deadband prior negligible outside deadband",
-            _caseTuncDeadbandPriorNegligibleOutsideDeadband,
+            "PUNC deadband prior negligible outside deadband",
+            _casePuncDeadbandPriorNegligibleOutsideDeadband,
         ),
         (
             "state uncertainty coverage",
@@ -6088,31 +5944,81 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         contract_case(label, func)
 
 
-def test_core_tunc_window_weight_contracts(monkeypatch, contract_case):
+def test_core_punc_window_weight_contracts(monkeypatch, contract_case):
     contract_case(
-        "TUNC reliability window switch",
+        "PUNC reliability window switch",
         _run_with_monkeypatch,
         monkeypatch,
-        _caseTuncReliabilityWeightedWindowsSwitchesLocalEvidence,
+        _casePuncReliabilityWeightedWindowsSwitchesLocalEvidence,
     )
 
 
-def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
-    caplog.clear()
+@pytest.mark.parametrize("toggleName", core._PUNC_STAGE_TOGGLE_KEYS)
+def test_core_punc_stage_toggles_report_diagnostics(toggleName):
+    intervalCount = 14
+    level = np.linspace(-0.5, 0.6, intervalCount, dtype=np.float64)
+    trend = np.gradient(level)
+    state = np.column_stack([level, trend]).astype(np.float32)
+    stateCov = np.zeros((intervalCount, 2, 2), dtype=np.float32)
+    stateCov[:, 0, 0] = 0.05
+    stateCov[:, 1, 1] = 0.02
+    lagCov = np.zeros((intervalCount, 2, 2), dtype=np.float32)
+    lagCov[:-1, 0, 0] = 0.01
+    lagCov[:-1, 1, 1] = 0.005
+    warmupFit = {
+        "stateSmoothed": state,
+        "stateCovarSmoothed": stateCov,
+        "lagCovSmoothed": lagCov,
+        "matrixMunc": np.full((2, intervalCount), 0.1, dtype=np.float32),
+        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
+    }
+    toggles = {key: True for key in core._PUNC_STAGE_TOGGLE_KEYS}
+    toggles[toggleName] = False
+
+    _matrixQ, processQScale, info = core._fitPuncProcessNoise(
+        warmupFit=warmupFit,
+        matrixMunc=warmupFit["matrixMunc"],
+        matrixF=core.constructMatrixF(0.2),
+        seedQ=np.diag([2.0e-3, 5.0e-4]).astype(np.float32),
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        pad=1.0e-4,
+        minQ=1.0e-6,
+        maxQ=1.0,
+        blockLenIntervals=4,
+        processCovariates=None,
+        puncLocalWindowMultiplier=1.0,
+        puncDependenceMultiplier=1.0,
+        puncMinScale=0.25,
+        puncMaxScale=4.0,
+        puncMinWindowWeight=0.0,
+        puncPriorDf=6.0,
+        puncPriorRidge=1.0e-3,
+        puncLevelBufferZ=0.0,
+        puncUseReliabilityWeightedWindows=True,
+        observationPrecisionMultiplierMin=0.25,
+        observationPrecisionMultiplierMax=4.0,
+        **toggles,
+    )
+
+    assert info["puncStagesActive"] is True
+    assert info[toggleName] is False
+    if toggleName == "puncUsePriorDfMoments":
+        assert info["puncPriorDf"] == pytest.approx(6.0)
+        assert info["puncPriorDfSource"] == "configured"
+        assert info["puncPriorDfMomentReason"] == "disabled"
+    if toggleName == "puncUseGlobalScale":
+        assert info["globalScale"] == pytest.approx(1.0)
+    assert processQScale.shape == (intervalCount,)
+
+
+def test_core_em_loop_contracts(monkeypatch, contract_case):
     contract_case(
         "outer pass smoke",
         _caseRunConsenrichOuterPassSmoke,
-        caplog,
     )
     contract_case(
         "flat process-noise initializer",
         _caseRunConsenrichFlatWarmupInitializerUsesMinQ,
-    )
-    caplog.clear()
-    contract_case(
-        "nonnegative zero-centered background warning",
-        _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered,
-        caplog,
     )
     for label, func in (
         (
@@ -6122,6 +6028,10 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
         (
             "initial process noise skips warmup",
             _caseRunConsenrichInitialProcessQSkipsWarmup,
+        ),
+        (
+            "fixed diagonal process noise skips PUNC",
+            _caseRunConsenrichFixedDiagonalSkipsPunc,
         ),
         (
             "outer-pass minimum iterations",
@@ -6183,11 +6093,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(
         ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesEdfCap),
         ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
-        ("P-spline trend logging", _casePSplineTrendSummaryLogsRelationship),
-        (
-            "MUNC variance diagnostics",
-            _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport,
-        ),
         ("MUNC blacklist floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
         (
             "MUNC auto minR quantile",

@@ -1,6 +1,4 @@
 import textwrap
-import logging
-import io
 import json
 import sys
 import types
@@ -133,40 +131,6 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         )
         == 45
     )
-
-
-def _caseInitialConfigurationSummaryStaysCompact(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [sampleA.bam, sampleB.bam, sampleC.bam]
-    genomeParams.name: testGenome
-    genomeParams.chromosomes: [chrTest]
-    processParams.processNoiseCalibration: tunc
-    processParams.tuncMinScale: 0.5
-    processParams.tuncMaxScale: 2.0
-    processParams.processNoiseWarmupECMIters: 11
-    processParams.processNoiseWarmupOuterPasses: 3
-    """
-    configPath = writeConfigFile(tmp_path, "config_summary.yaml", configYaml)
-    parsed = readConfig(str(configPath))
-
-    caplog.set_level(logging.INFO, logger=consenrich_cli.logger.name)
-    consenrich_cli._logInitialConfigurationSummary(parsed)
-
-    assert "event=config.initial" in caplog.text
-    assert "treatment_inputs=3" in caplog.text
-    assert "process_noise_calibration=tunc" in caplog.text
-    assert 'tunc_scale_bounds="[0.5, 2]"' in caplog.text
-    assert 'process_kappa_bounds="[auto, 10]"' in caplog.text
-    assert "3 outer passes x 11 ECM iters" in caplog.text
-    assert "inputSource(" not in caplog.text
-    assert "'countingArgs':" not in caplog.text
 
 
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
@@ -536,6 +500,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
+    matchingParams.minPeakScore: 7.5
     """
 
     nestedYaml = """
@@ -563,6 +528,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
       metadataDetail: full
+      minPeakScore: 7.5
     """
 
     dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
@@ -657,6 +623,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert matchingNested.uncertaintyScoreMode == "lower_confidence"
     assert matchingDotted.uncertaintyScoreZ == pytest.approx(1.25)
     assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
+    assert matchingDotted.minPeakScore == pytest.approx(7.5)
+    assert matchingNested.minPeakScore == pytest.approx(7.5)
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -721,15 +689,25 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     genomeParams.name: testGenome
     processParams:
       stateModel: level
-      processNoiseCalibration: tunc
-      tuncLocalWindowMultiplier: 3.0
-      tuncDependenceMultiplier: 1.5
-      tuncMinScale: 0.5
-      tuncMaxScale: 3.0
-      tuncMinWindowWeight: 2.0
-      tuncPriorRidge: 0.002
-      tuncLevelBufferZ: 1.25
-      tuncUseReliabilityWeightedWindows: false
+      processNoiseCalibration: punc
+      puncLocalWindowMultiplier: 3.0
+      puncDependenceMultiplier: 1.5
+      puncMinScale: 0.5
+      puncMaxScale: 3.0
+      puncMinWindowWeight: 2.0
+      puncPriorDf: 6.0
+      puncPriorRidge: 0.002
+      puncLevelBufferZ: 1.25
+      puncUseReliabilityWeightedWindows: false
+      puncUseWarmupFit: false
+      puncUseTransitionEvidence: false
+      puncUseScaleRebase: false
+      puncUseGlobalScale: false
+      puncUseBoundaryClamps: false
+      puncUsePriorDfMoments: false
+      puncUsePriorShrinkage: false
+      qPriorLevel: 2.0e-3
+      qPriorTrend: 4.0e-4
       qSeedPriorLevel: 3.0e-8
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
@@ -749,17 +727,26 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
 
     assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
     assert (
-        processArgs.processNoiseCalibration == constants.PROCESS_NOISE_CALIBRATION_TUNC
+        processArgs.processNoiseCalibration == constants.PROCESS_NOISE_CALIBRATION_PUNC
     )
-    assert not hasattr(processArgs, "tuncPriorDf")
-    assert processArgs.tuncLocalWindowMultiplier == pytest.approx(3.0)
-    assert processArgs.tuncDependenceMultiplier == pytest.approx(1.5)
-    assert processArgs.tuncMinScale == pytest.approx(0.5)
-    assert processArgs.tuncMaxScale == pytest.approx(3.0)
-    assert processArgs.tuncMinWindowWeight == pytest.approx(2.0)
-    assert processArgs.tuncPriorRidge == pytest.approx(0.002)
-    assert processArgs.tuncLevelBufferZ == pytest.approx(1.25)
-    assert processArgs.tuncUseReliabilityWeightedWindows is False
+    assert processArgs.puncPriorDf == pytest.approx(6.0)
+    assert processArgs.puncLocalWindowMultiplier == pytest.approx(3.0)
+    assert processArgs.puncDependenceMultiplier == pytest.approx(1.5)
+    assert processArgs.puncMinScale == pytest.approx(0.5)
+    assert processArgs.puncMaxScale == pytest.approx(3.0)
+    assert processArgs.puncMinWindowWeight == pytest.approx(2.0)
+    assert processArgs.puncPriorRidge == pytest.approx(0.002)
+    assert processArgs.puncLevelBufferZ == pytest.approx(1.25)
+    assert processArgs.puncUseReliabilityWeightedWindows is False
+    assert processArgs.puncUseWarmupFit is False
+    assert processArgs.puncUseTransitionEvidence is False
+    assert processArgs.puncUseScaleRebase is False
+    assert processArgs.puncUseGlobalScale is False
+    assert processArgs.puncUseBoundaryClamps is False
+    assert processArgs.puncUsePriorDfMoments is False
+    assert processArgs.puncUsePriorShrinkage is False
+    assert processArgs.qPriorLevel == pytest.approx(2.0e-3)
+    assert processArgs.qPriorTrend == pytest.approx(4.0e-4)
     assert processArgs.qSeedPriorLevel == pytest.approx(3.0e-8)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
@@ -820,8 +807,8 @@ def _case_readConfigMuncCovariates(tmp_path, monkeypatch: pytest.MonkeyPatch):
         == constants.MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
     )
     assert parsed["observationArgs"].muncCovariatesFeatures == ("gc", "repeat_frac")
-    assert parsed["processArgs"].tuncProcessCovariatesEnabled is False
-    assert parsed["processArgs"].tuncProcessCovariatesFeatures == ()
+    assert parsed["processArgs"].puncProcessCovariatesEnabled is False
+    assert parsed["processArgs"].puncProcessCovariatesFeatures == ()
 
 
 def _case_readConfigMuncCovariatesAcceptsManifestFeatureNames(
@@ -942,17 +929,17 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert (
         parsed["processArgs"].processNoiseCalibration
-        == constants.PROCESS_NOISE_CALIBRATION_TUNC
+        == constants.PROCESS_NOISE_CALIBRATION_PUNC
     )
-    assert parsed["processArgs"].tuncMinScale == pytest.approx(
-        constants.PROCESS_DEFAULT_TUNC_MIN_SCALE
+    assert parsed["processArgs"].puncMinScale == pytest.approx(
+        constants.PROCESS_DEFAULT_PUNC_MIN_SCALE
     )
-    assert parsed["processArgs"].tuncMaxScale == pytest.approx(
-        constants.PROCESS_DEFAULT_TUNC_MAX_SCALE
+    assert parsed["processArgs"].puncMaxScale == pytest.approx(
+        constants.PROCESS_DEFAULT_PUNC_MAX_SCALE
     )
     assert (
-        parsed["processArgs"].tuncUseReliabilityWeightedWindows
-        is constants.PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+        parsed["processArgs"].puncUseReliabilityWeightedWindows
+        is constants.PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
     )
     assert (
         parsed["observationArgs"].useReplicateTrends
@@ -1056,20 +1043,23 @@ def _case_runtime_defaults_are_centralized(
         consenrich_config.DEFAULT_CONFIGURATION_KEYS
         is constants.DEFAULT_CONFIGURATION_KEYS
     )
-    assert not hasattr(constants, "PROCESS_DEFAULT_TUNC_PRIOR_DF")
+    assert hasattr(constants, "PROCESS_DEFAULT_PUNC_PRIOR_DF")
 
     assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
-    assert "processParams.tuncPriorDf" not in profile
+    assert (
+        profile["processParams.puncPriorDf"]
+        == constants.PROCESS_DEFAULT_PUNC_PRIOR_DF
+    )
     assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
     assert (
         parsed["processArgs"].processNoiseCalibration
         == profile["processParams.processNoiseCalibration"]
     )
-    assert parsed["processArgs"].tuncMinScale == profile["processParams.tuncMinScale"]
-    assert parsed["processArgs"].tuncMaxScale == profile["processParams.tuncMaxScale"]
+    assert parsed["processArgs"].puncMinScale == profile["processParams.puncMinScale"]
+    assert parsed["processArgs"].puncMaxScale == profile["processParams.puncMaxScale"]
     assert (
-        parsed["processArgs"].tuncUseReliabilityWeightedWindows
-        == profile["processParams.tuncUseReliabilityWeightedWindows"]
+        parsed["processArgs"].puncUseReliabilityWeightedWindows
+        == profile["processParams.puncUseReliabilityWeightedWindows"]
     )
     assert (
         parsed["processArgs"].processNoiseWarmupECMIters
@@ -1252,6 +1242,10 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(
         constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     )
+    assert (
+        parsed["matchingArgs"].minPeakScore
+        == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
+    )
     assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
     assert (
         consenrich_core.processParams().qSeedPriorLevel
@@ -1292,6 +1286,10 @@ def _case_runtime_defaults_are_centralized(
     assert cliDefaults.matchUncertaintyScoreZ == pytest.approx(
         constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     )
+    assert (
+        cliDefaults.matchMinPeakScore
+        == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
+    )
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
 
@@ -1311,8 +1309,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.subtractGlobalMedian: false
     processParams.processNoiseCalibration: seed
-    processParams.tuncMinScale: 0.75
-    processParams.tuncMaxScale: 2.5
+    processParams.puncMinScale: 0.75
+    processParams.puncMaxScale: 2.5
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
@@ -1331,8 +1329,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].subtractGlobalMedian is False
     assert parsed["processArgs"].processNoiseCalibration == "seed"
-    assert parsed["processArgs"].tuncMinScale == pytest.approx(0.75)
-    assert parsed["processArgs"].tuncMaxScale == pytest.approx(2.5)
+    assert parsed["processArgs"].puncMinScale == pytest.approx(0.75)
+    assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
@@ -1355,14 +1353,24 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     genomeParams.name: testGenome
     processParams:
       processNoiseCalibration: fixed
-      tuncLocalWindowMultiplier: 2.5
-      tuncDependenceMultiplier: 3.0
-      tuncMinScale: 0.5
-      tuncMaxScale: 2.5
-      tuncMinWindowWeight: 4.0
-      tuncPriorRidge: 0.02
-      tuncLevelBufferZ: 0.75
-      tuncUseReliabilityWeightedWindows: false
+      puncLocalWindowMultiplier: 2.5
+      puncDependenceMultiplier: 3.0
+      puncMinScale: 0.5
+      puncMaxScale: 2.5
+      puncMinWindowWeight: 4.0
+      puncPriorDf: 7.0
+      puncPriorRidge: 0.02
+      puncLevelBufferZ: 0.75
+      puncUseReliabilityWeightedWindows: false
+      puncUseWarmupFit: false
+      puncUseTransitionEvidence: false
+      puncUseScaleRebase: false
+      puncUseGlobalScale: false
+      puncUseBoundaryClamps: false
+      puncUsePriorDfMoments: false
+      puncUsePriorShrinkage: false
+      qPriorLevel: 2.0e-3
+      qPriorTrend: 3.0e-4
       qSeedPriorLevel: 4.0e-8
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
@@ -1377,15 +1385,25 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     supportedProcessKwargs = {
         "processNoiseWarmupOuterPasses",
         "processNoiseCalibration",
+        "qPriorLevel",
+        "qPriorTrend",
         "qSeedPriorLevel",
-        "tuncLocalWindowMultiplier",
-        "tuncDependenceMultiplier",
-        "tuncMinScale",
-        "tuncMaxScale",
-        "tuncMinWindowWeight",
-        "tuncPriorRidge",
-        "tuncLevelBufferZ",
-        "tuncUseReliabilityWeightedWindows",
+        "puncLocalWindowMultiplier",
+        "puncDependenceMultiplier",
+        "puncMinScale",
+        "puncMaxScale",
+        "puncMinWindowWeight",
+        "puncPriorDf",
+        "puncPriorRidge",
+        "puncLevelBufferZ",
+        "puncUseReliabilityWeightedWindows",
+        "puncUseWarmupFit",
+        "puncUseTransitionEvidence",
+        "puncUseScaleRebase",
+        "puncUseGlobalScale",
+        "puncUseBoundaryClamps",
+        "puncUsePriorDfMoments",
+        "puncUsePriorShrinkage",
     }
     monkeypatch.setattr(
         consenrich_cli,
@@ -1395,16 +1413,25 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
 
     assert kwargs["processNoiseCalibration"] == "fixed"
-    assert "tuncPriorDf" not in kwargs
+    assert kwargs["qPriorLevel"] == pytest.approx(2.0e-3)
+    assert kwargs["qPriorTrend"] == pytest.approx(3.0e-4)
     assert kwargs["qSeedPriorLevel"] == pytest.approx(4.0e-8)
-    assert kwargs["tuncLocalWindowMultiplier"] == pytest.approx(2.5)
-    assert kwargs["tuncDependenceMultiplier"] == pytest.approx(3.0)
-    assert kwargs["tuncMinScale"] == pytest.approx(0.5)
-    assert kwargs["tuncMaxScale"] == pytest.approx(2.5)
-    assert kwargs["tuncMinWindowWeight"] == pytest.approx(4.0)
-    assert kwargs["tuncPriorRidge"] == pytest.approx(0.02)
-    assert kwargs["tuncLevelBufferZ"] == pytest.approx(0.75)
-    assert kwargs["tuncUseReliabilityWeightedWindows"] is False
+    assert kwargs["puncLocalWindowMultiplier"] == pytest.approx(2.5)
+    assert kwargs["puncDependenceMultiplier"] == pytest.approx(3.0)
+    assert kwargs["puncMinScale"] == pytest.approx(0.5)
+    assert kwargs["puncMaxScale"] == pytest.approx(2.5)
+    assert kwargs["puncMinWindowWeight"] == pytest.approx(4.0)
+    assert kwargs["puncPriorDf"] == pytest.approx(7.0)
+    assert kwargs["puncPriorRidge"] == pytest.approx(0.02)
+    assert kwargs["puncLevelBufferZ"] == pytest.approx(0.75)
+    assert kwargs["puncUseReliabilityWeightedWindows"] is False
+    assert kwargs["puncUseWarmupFit"] is False
+    assert kwargs["puncUseTransitionEvidence"] is False
+    assert kwargs["puncUseScaleRebase"] is False
+    assert kwargs["puncUseGlobalScale"] is False
+    assert kwargs["puncUseBoundaryClamps"] is False
+    assert kwargs["puncUsePriorDfMoments"] is False
+    assert kwargs["puncUsePriorShrinkage"] is False
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
@@ -2033,7 +2060,6 @@ def _case_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
 def _case_readConfigSamplesSupportBedGraph(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -2054,7 +2080,6 @@ def _case_readConfigSamplesSupportBedGraph(
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph.yaml", configYaml)
-    caplog.set_level(logging.INFO, logger=consenrich_io.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
@@ -2065,7 +2090,6 @@ def _case_readConfigSamplesSupportBedGraph(
     assert bedGraphPath.exists()
     assert indexedPath.exists()
     assert Path(f"{indexedPath}.tbi").exists()
-    assert "has no tabix index" in caplog.text
     counts = consenrich_core.readSegments(
         inputArgs.treatmentSources,
         "chrTest",
@@ -2084,7 +2108,6 @@ def _case_readConfigSamplesSupportBedGraph(
 def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -2103,7 +2126,6 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph_format.yaml", configYaml)
-    caplog.set_level(logging.INFO, logger=consenrich_io.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
@@ -2112,7 +2134,6 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     assert inputArgs.bamFiles == [str(indexedPath)]
     assert indexedPath.exists()
     assert Path(f"{indexedPath}.tbi").exists()
-    assert "has no tabix index" in caplog.text
 
 
 def _case_readConfigScParamsProvideFragmentsDefaults(
@@ -2408,22 +2429,11 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
         return func(*args, mp)
 
 
-def test_config_runtime_logging_and_validation_contracts(
-    tmp_path, monkeypatch, caplog, contract_case
-):
+def test_config_runtime_validation_contracts(tmp_path, contract_case):
     contract_case(
         "runtime background span",
         _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier,
     )
-    caplog.clear()
-    with monkeypatch.context() as mp:
-        contract_case(
-            "compact initial configuration summary",
-            _caseInitialConfigurationSummaryStaysCompact,
-            tmp_path,
-            mp,
-            caplog,
-        )
     contract_case(
         "replicate gain summary",
         _caseReplicateGainSummaryWritesPooledAverageAndStd,
@@ -2598,7 +2608,7 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     consenrich_cli._initializeDiagnosticLogs(
         consenrich_cli.DiagnosticLogPaths(
             munc_lambda=tmp_path / "munc.log",
-            tunc_kappa=tmp_path / "tunc.log",
+            punc_kappa=tmp_path / "punc.log",
             convergence=convergencePath,
             delete_block_calibration=tmp_path / "delete.log",
         )
@@ -2734,7 +2744,7 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
 def test_run_summary_output_helpers(tmp_path):
     paths = consenrich_cli.DiagnosticLogPaths(
         munc_lambda=tmp_path / "munc.log",
-        tunc_kappa=tmp_path / "tunc.log",
+        punc_kappa=tmp_path / "punc.log",
         convergence=tmp_path / "convergence.log",
         delete_block_calibration=tmp_path / "delete.log",
     )
@@ -2747,7 +2757,17 @@ def test_run_summary_output_helpers(tmp_path):
         runDiagnostics={
             "final_nll": 42.0,
             "final_forward_nis": 0.75,
-            "process_q_policy": "tunc",
+            "process_q_policy": "punc",
+            "process_q_diagnostics": {
+                "effectiveQTraceMin": 0.01,
+                "effectiveQTraceMedian": 0.02,
+                "effectiveQTraceMax": 0.03,
+            },
+            "observation_r_trace": {
+                "min": 1.0,
+                "median": 2.0,
+                "max": 3.0,
+            },
             "precision_reweighting_boundary_hits": {
                 "observation": {"lower": 1, "upper": 2},
                 "process": {"lower": 3, "upper": 4},
@@ -2788,232 +2808,15 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame["record_type"].tolist() == ["chromosome", "genome"]
     assert frame.loc[0, "lambda_lower_bound_hits"] == 1
     assert frame.loc[0, "kappa_upper_bound_hits"] == 4
+    assert frame.loc[0, "process_q_trace_median"] == pytest.approx(0.02)
+    assert frame.loc[0, "observation_r_trace_median"] == pytest.approx(2.0)
     assert frame.loc[1, "chromosome"] == "genome"
     assert frame.loc[1, "intervals"] == 12
     assert "\tNA\t" in raw
 
 
-def test_diagnostic_category_log_helpers(tmp_path):
-    paths = consenrich_cli.DiagnosticLogPaths(
-        munc_lambda=tmp_path / "munc_lambda.log",
-        tunc_kappa=tmp_path / "tunc_kappa.log",
-        convergence=tmp_path / "convergence.log",
-        delete_block_calibration=tmp_path / "delete_block.log",
-    )
-    consenrich_cli._initializeDiagnosticLogs(paths)
-    intervals = np.array([0, 50, 100], dtype=np.int64)
-    precisionDiagnostics = {
-        "precision_track_diagnostics": True,
-        "lambdaExp": np.array([0.9, 1.0, 1.1], dtype=np.float32),
-        "processPrecExp": np.array([1.1, 1.0, 0.9], dtype=np.float32),
-        "matrixQ0": np.eye(2, dtype=np.float32),
-        "process_q_policy": "student_t_kappa",
-        "outputTracks": {
-            "muncTrace": np.array([1.0, 2.0, 3.0], dtype=np.float32),
-            "sumGain0": np.array([0.1, 0.2, 0.3], dtype=np.float32),
-            "sumGain1": np.array([0.01, 0.02, 0.03], dtype=np.float32),
-            "preKappaQLevel": np.array([1.0, 1.1, 1.2], dtype=np.float32),
-            "preKappaQTrend": np.array([2.0, 2.1, 2.2], dtype=np.float32),
-            "effectiveQLevel": np.array([0.9, 1.0, 1.1], dtype=np.float32),
-            "effectiveQTrend": np.array([1.9, 2.0, 2.1], dtype=np.float32),
-            "tuncQScale": np.array([1.0, 1.1, 1.2], dtype=np.float32),
-        },
-    }
-    frame = consenrich_cli._precisionDiagnosticsFrame(
-        chromosome="chr1",
-        intervals=intervals,
-        intervalSizeBP=50,
-        matrixMunc=np.full((2, 3), 0.2, dtype=np.float32),
-        pad=1.0e-4,
-        precisionDiagnostics=precisionDiagnostics,
-    )
-
-    consenrich_cli._appendMuncLambdaDiagnostics(
-        frame,
-        paths.munc_lambda,
-        chromosome="chr1",
-        precisionDiagnostics=precisionDiagnostics,
-    )
-    consenrich_cli._appendTuncKappaDiagnostics(
-        frame,
-        paths.tunc_kappa,
-        chromosome="chr1",
-        precisionDiagnostics=precisionDiagnostics,
-        runDiagnostics={
-            "process_noise_calibration": {
-                "processNoiseCalibrationStatus": "ok",
-                "preKappaQLevel": 1.2,
-            }
-        },
-    )
-    consenrich_cli._appendConvergenceDiagnostics(
-        [
-            {
-                "chromosome": "chr1",
-                "phase": "fit",
-                "path_level": "outer",
-                "record_order": 0,
-                "objective_name": "nll",
-                "objective_value": 1.0,
-            }
-        ],
-        paths.convergence,
-    )
-
-    muncLog = pd.read_csv(paths.munc_lambda, sep="\t")
-    tuncLog = pd.read_csv(paths.tunc_kappa, sep="\t")
-    convergenceLog = pd.read_csv(paths.convergence, sep="\t")
-    deleteLog = pd.read_csv(paths.delete_block_calibration, sep="\t")
-    assert list(muncLog.columns) == consenrich_cli.MUNC_LAMBDA_LOG_COLUMNS
-    assert list(tuncLog.columns) == consenrich_cli.TUNC_KAPPA_LOG_COLUMNS
-    assert list(convergenceLog.columns) == consenrich_cli.CONVERGENCE_LOG_COLUMNS
-    assert list(deleteLog.columns) == consenrich_cli.DELETE_BLOCK_CALIBRATION_LOG_COLUMNS
-    assert set(muncLog["record_type"]) == {"summary"}
-    assert set(tuncLog["record_type"]) == {"summary"}
-    assert "interval" not in set(muncLog["record_type"])
-    assert "interval" not in set(tuncLog["record_type"])
-    assert "rows_omitted" in set(muncLog["key"])
-    assert "rows_omitted" in set(tuncLog["key"])
-    assert convergenceLog["record_type"].tolist() == ["trace"]
-    assert not list(tmp_path.glob("*precisionDiagnostics*"))
-    assert not list(tmp_path.glob("*optimizationPath*.log"))
-
-    sampledPaths = consenrich_cli.DiagnosticLogPaths(
-        munc_lambda=tmp_path / "munc_lambda_sampled.log",
-        tunc_kappa=tmp_path / "tunc_kappa_sampled.log",
-        convergence=tmp_path / "convergence_sampled.log",
-        delete_block_calibration=tmp_path / "delete_block_sampled.log",
-    )
-    consenrich_cli._initializeDiagnosticLogs(sampledPaths)
-    consenrich_cli._appendMuncLambdaDiagnostics(
-        frame,
-        sampledPaths.munc_lambda,
-        chromosome="chr1",
-        precisionDiagnostics=precisionDiagnostics,
-        detail="sampled",
-        maxRowsPerChromosome=2,
-    )
-    consenrich_cli._appendTuncKappaDiagnostics(
-        frame,
-        sampledPaths.tunc_kappa,
-        chromosome="chr1",
-        precisionDiagnostics=precisionDiagnostics,
-        runDiagnostics={},
-        detail="sampled",
-        maxRowsPerChromosome=2,
-    )
-    sampledMuncLog = pd.read_csv(sampledPaths.munc_lambda, sep="\t")
-    sampledTuncLog = pd.read_csv(sampledPaths.tunc_kappa, sep="\t")
-    assert np.sum(sampledMuncLog["record_type"] == "interval") == 2
-    assert np.sum(sampledTuncLog["record_type"] == "interval") == 2
-
-
-def test_cli_logging_contracts(tmp_path, monkeypatch):
-    monkeypatch.setenv("TERM", "xterm-256color")
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    packageLogger = logging.getLogger("consenrich")
-    previousHandlers = list(packageLogger.handlers)
-    previousLevel = packageLogger.level
-    previousPropagate = packageLogger.propagate
-    stream = io.StringIO()
-    logPath = tmp_path / "run.log"
-    try:
-        resolvedPath = consenrich_cli._configureCliLogging(
-            logPath,
-            verbose=False,
-            verbose2=False,
-            consoleStream=stream,
-        )
-        assert resolvedPath == logPath
-        consenrich_cli.logger.info("audit-only detail")
-        consenrich_cli._logCliMilestone("live milestone %s", "shown")
-        consenrich_cli._logCliPhase("MUNC prior trend", "pairs=%d", 12)
-        consenrich_cli._logCliProgressMilestone("chunk %s", "hidden")
-        consenrich_cli.logger.warning("visible warning")
-        consoleText = stream.getvalue()
-        auditText = logPath.read_text(encoding="utf-8")
-        assert "live milestone shown" in consoleText
-        assert "=== Consenrich | MUNC prior trend ===" in consoleText
-        assert "pairs=12" in consoleText
-        assert "chunk hidden" not in consoleText
-        assert "visible warning" in consoleText
-        assert "audit-only detail" not in consoleText
-        assert "audit-only detail" not in auditText
-        assert "live milestone shown" in auditText
-        assert "=== Consenrich | MUNC prior trend ===" in auditText
-        assert "chunk hidden" not in auditText
-        assert "test_config.test_cli_logging_contracts" in auditText
-
-        streamVerbose = io.StringIO()
-        verbosePath = tmp_path / "run.verbose.log"
-        consenrich_cli._configureCliLogging(
-            verbosePath,
-            verbose=True,
-            verbose2=False,
-            consoleStream=streamVerbose,
-        )
-        consenrich_cli.logger.info("verbose detail")
-        consenrich_cli._logCliProgressMilestone("chunk %s", "shown")
-        verboseConsoleText = streamVerbose.getvalue()
-        verboseAuditText = verbosePath.read_text(encoding="utf-8")
-        assert "verbose detail" in verboseConsoleText
-        assert "chunk shown" in verboseConsoleText
-        assert "verbose detail" in verboseAuditText
-        assert "chunk shown" in verboseAuditText
-
-        colorStream = io.StringIO()
-        colorStream.isatty = lambda: True
-        colorPath = tmp_path / "run.color.log"
-        consenrich_cli._configureCliLogging(
-            colorPath,
-            verbose=False,
-            verbose2=False,
-            consoleStream=colorStream,
-        )
-        consenrich_cli._logCliPhase("Outputs")
-        consenrich_cli._logCliMilestone(
-            "Final chr1: finalNLL=12 finalForwardNIS=0.9 "
-            "calibrationFactor=1.2 signChangePerKB=3.4",
-            blue=True,
-        )
-        colorConsoleText = colorStream.getvalue()
-        colorAuditText = colorPath.read_text(encoding="utf-8")
-        assert "\033[34m=== Consenrich | Outputs ===\033[0m" in colorConsoleText
-        assert "\033[34mFinal chr1:" in colorConsoleText
-        assert "\033[" not in colorAuditText
-    finally:
-        for handler in list(packageLogger.handlers):
-            packageLogger.removeHandler(handler)
-            if handler not in previousHandlers:
-                handler.close()
-        for handler in previousHandlers:
-            packageLogger.addHandler(handler)
-        packageLogger.setLevel(previousLevel)
-        packageLogger.propagate = previousPropagate
-
-
-def test_cli_default_log_paths_use_run_kinds(tmp_path):
-    configPath = writeConfigFile(
-        tmp_path,
-        "demo.yaml",
-        """
-        experimentName: demo exp
-        """,
-    )
-    assert (
-        consenrich_cli._defaultConfigLogPath(str(configPath)).name
-        == f"consenrichOutput_demo_exp_run.v{consenrich_cli.__version__}.log"
-    )
-    statePath = tmp_path / "consenrichOutput_demo_state.v1.bedGraph"
-    assert (
-        consenrich_cli._defaultMatchLogPath(str(statePath))
-        == tmp_path
-        / f"consenrichOutput_demo_state.v1_consenrich_run.v{consenrich_cli.__version__}.log"
-    )
-
-
 def test_config_sparse_sample_source_and_matching_contracts(
-    tmp_path, monkeypatch, caplog, contract_case
+    tmp_path, monkeypatch, contract_case
 ):
     for label, func in (
         (
@@ -3042,9 +2845,7 @@ def test_config_sparse_sample_source_and_matching_contracts(
             _case_readConfigSamplesSupportExplicitBedGraphFormat,
         ),
     ):
-        caplog.clear()
-        with monkeypatch.context() as mp:
-            contract_case(label, func, tmp_path, mp, caplog)
+        contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
 
 
 def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):

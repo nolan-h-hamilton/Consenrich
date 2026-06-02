@@ -8,8 +8,9 @@ import json
 import logging
 import math
 import shutil
+from bisect import bisect_right
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -40,6 +41,7 @@ from .constants import (
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MATCHING_DEFAULT_METADATA_DETAIL,
+    MATCHING_DEFAULT_MIN_PEAK_SCORE,
     MATCHING_METADATA_DETAILS,
     MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
@@ -73,6 +75,7 @@ _ROCCO_MIN_PEAK_BP = ROCCO_MIN_PEAK_BP
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
 _MATCHING_DEFAULT_METADATA_DETAIL = MATCHING_DEFAULT_METADATA_DETAIL
+_MATCHING_DEFAULT_MIN_PEAK_SCORE = MATCHING_DEFAULT_MIN_PEAK_SCORE
 _OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
 _NESTED_ROCCO_ITERS_DEFAULT = NESTED_ROCCO_ITERS_DEFAULT
 _NESTED_ROCCO_JACCARD_DEFAULT = NESTED_ROCCO_JACCARD_DEFAULT
@@ -81,6 +84,7 @@ _NESTED_ROCCO_MIN_CHILD_STEPS = NESTED_ROCCO_MIN_CHILD_STEPS
 _NESTED_ROCCO_BUDGET_SCALE_DEFAULT = NESTED_ROCCO_BUDGET_SCALE_DEFAULT
 _NESTED_ROCCO_SUBTASK_MAX_ITER = NESTED_ROCCO_SUBTASK_MAX_ITER
 _NESTED_ROCCO_BUDGET_POLICY = "soft_selection_penalty"
+_NESTED_ROCCO_PARENT_EDGE_COST = 1.0e-12
 _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = (
     EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
 )
@@ -120,6 +124,20 @@ def _validateExportFilterUncertaintyMultiplier(value: float) -> float:
             "`exportFilterUncertaintyMultiplier` must be finite and non-negative"
         )
     return value_
+
+
+def _validateMinPeakScore(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("`minPeakScore` must be a finite number or None")
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("`minPeakScore` must be a finite number or None") from exc
+    if not np.isfinite(score):
+        raise ValueError("`minPeakScore` must be a finite number or None")
+    return score
 
 
 def _normalizeUncertaintyScoreMode(value: str | None) -> str:
@@ -2052,23 +2070,29 @@ def _parentConditionedSubpeakObjective(
     mask: np.ndarray,
     boundaryCosts: np.ndarray,
     selectionPenalty: float,
-) -> Tuple[float, float, float]:
+    runPenalty: float = 0.0,
+) -> Tuple[float, float, float, float]:
     scores_ = np.asarray(scores, dtype=np.float64)
     mask_ = np.asarray(mask, dtype=bool)
     costs_ = np.asarray(boundaryCosts, dtype=np.float64)
+    runPenalty_ = float(runPenalty)
     selected = float(np.sum(scores_[mask_]))
     boundaryPenalty = 0.0
+    runCount = 0
     previous = False
     for i, current in enumerate(mask_.tolist()):
         current_ = bool(current)
         if current_ != previous:
             boundaryPenalty += float(costs_[i])
+            if current_:
+                runCount += 1
         previous = current_
     if previous:
         boundaryPenalty += float(costs_[mask_.size])
-    objective = float(selected - boundaryPenalty)
+    runPenaltyTotal = float(runPenalty_ * float(runCount))
+    objective = float(selected - boundaryPenalty - runPenaltyTotal)
     penalized = float(objective - float(selectionPenalty) * float(np.sum(mask_)))
-    return objective, penalized, float(boundaryPenalty)
+    return objective, penalized, float(boundaryPenalty), float(runPenaltyTotal)
 
 
 def _bhQValues(pValues: npt.ArrayLike) -> np.ndarray:
@@ -3389,6 +3413,7 @@ def _solveParentConditionedSubpeaks(
     selectionPenalty: float,
     minRunBins: int,
     requiredIndex: int | None = None,
+    runPenalty: float = 0.0,
 ) -> Tuple[np.ndarray, float, Dict[str, Any]]:
     scores_ = np.asarray(scores, dtype=np.float64)
     if scores_.ndim != 1 or scores_.size == 0:
@@ -3399,11 +3424,14 @@ def _solveParentConditionedSubpeaks(
     penalty_ = float(selectionPenalty)
     if not np.isfinite(penalty_):
         raise ValueError("`selectionPenalty` must be finite")
+    runPenalty_ = float(runPenalty)
+    if not np.isfinite(runPenalty_) or runPenalty_ < 0.0:
+        raise ValueError("`runPenalty` must be finite and non-negative")
 
     n = int(scores_.size)
-    requiredBin = (
-        None if requiredIndex is None else int(np.clip(int(requiredIndex), 0, n - 1))
-    )
+    requiredBin = None if requiredIndex is None else int(requiredIndex)
+    if requiredBin is not None and (requiredBin < 0 or requiredBin >= n):
+        raise ValueError("`requiredIndex` is outside `scores`")
     minRunBins_ = int(min(max(int(minRunBins), 1), n))
     numStates = int(minRunBins_ + 1)
     negInf = -math.inf
@@ -3481,7 +3509,12 @@ def _solveParentConditionedSubpeaks(
                 newValues,
                 newCounts,
                 1,
-                float(prevValues[0] - transitionCost + adjustedScore),
+                float(
+                    prevValues[0]
+                    - transitionCost
+                    - runPenalty_
+                    + adjustedScore
+                ),
                 int(prevCounts[0] + 1),
                 0,
                 i,
@@ -3535,11 +3568,17 @@ def _solveParentConditionedSubpeaks(
         if prevState < 0:
             break
         state = prevState
-    objective, penalizedObjective, boundaryPenalty = _parentConditionedSubpeakObjective(
+    (
+        objective,
+        penalizedObjective,
+        boundaryPenalty,
+        runPenaltyTotal,
+    ) = _parentConditionedSubpeakObjective(
         scores_,
         mask,
         costs_,
         penalty_,
+        runPenalty_,
     )
     selectedCount = int(np.sum(mask))
     if requiredBin is not None and not bool(mask[requiredBin]):
@@ -3556,6 +3595,8 @@ def _solveParentConditionedSubpeaks(
             "selected_count": int(selectedCount),
             "selected_fraction": float(selectedCount / max(n, 1)),
             "selection_penalty": float(penalty_),
+            "run_penalty": float(runPenalty_),
+            "run_penalty_total": float(runPenaltyTotal),
             "boundary_cost_min": float(np.min(costs_)),
             "boundary_cost_max": float(np.max(costs_)),
             "boundary_penalty": float(boundaryPenalty),
@@ -3646,6 +3687,7 @@ def _refineNestedROCCOSolution(
     current = np.asarray(solution, dtype=np.uint8).ravel() > 0
     if current.size != scores_.size:
         raise ValueError("`solution` must match `scores` length")
+    inputSelection = current.copy()
     intervals_: np.ndarray | None = None
     ends_: np.ndarray | None = None
     if intervals is not None or ends is not None:
@@ -3676,7 +3718,111 @@ def _refineNestedROCCOSolution(
         None if diagnosticDetailPath is None else str(diagnosticDetailPath)
     )
 
-    history: List[Dict[str, float | int | str]] = []
+    history: List[Dict[str, Any]] = []
+    hierarchy: List[Dict[str, Any]] = []
+    layers: List[Dict[str, Any]] = []
+    nodeById: Dict[int, Dict[str, Any]] = {}
+    rootIds: List[int] = []
+    leafIds: set[int] = set()
+    frontierIds: List[int] = []
+    nextNodeId = 1
+
+    def _rangeStartEnd(start: int, end: int) -> Tuple[int, int]:
+        if intervals_ is not None and ends_ is not None:
+            return int(intervals_[start]), int(ends_[end])
+        return int(start), int(end + 1)
+
+    def _addNode(layer: int, parentId: int | None, start: int, end: int) -> int:
+        nonlocal nextNodeId
+        nodeId = int(nextNodeId)
+        nextNodeId += 1
+        requiredLocal = int(np.argmax(rawScores_[start : end + 1]))
+        rangeStart, rangeEnd = _rangeStartEnd(start, end)
+        node = {
+            "id": int(nodeId),
+            "layer": int(layer),
+            "parent_id": None if parentId is None else int(parentId),
+            "start_idx": int(start),
+            "end_idx": int(end),
+            "range_start": int(rangeStart),
+            "range_end": int(rangeEnd),
+            "length_bins": int(end - start + 1),
+            "selected_count": int(end - start + 1),
+            "required_idx": int(start + requiredLocal),
+            "summit_idx": int(start + requiredLocal),
+            "raw_score_max": float(rawScores_[start + requiredLocal]),
+            "score_sum": float(np.sum(scores_[start : end + 1])),
+            "child_ids": [],
+            "direct_child_count": 0,
+            "child_count": 1,
+            "leaf_count": 1,
+            "candidate_child_count": 1,
+            "child_widths_bins": [],
+            "split_gain": 0.0,
+            "split_gate": False,
+            "decision": "leaf",
+            "objective": None,
+            "penalized_objective": None,
+            "parent_penalized_objective": None,
+            "boundary_penalty": None,
+            "run_penalty": None,
+            "run_penalty_total": None,
+            "selection_penalty": None,
+            "min_child_bins": int(minRegionBins_),
+        }
+        nodeById[nodeId] = node
+        hierarchy.append(node)
+        return int(nodeId)
+
+    def _flatSelection(ids: set[int]) -> np.ndarray:
+        out = np.zeros_like(inputSelection, dtype=bool)
+        for nodeId in ids:
+            node = nodeById[int(nodeId)]
+            out[int(node["start_idx"]) : int(node["end_idx"]) + 1] = True
+        return out
+
+    def _refreshLayers() -> None:
+        layers.clear()
+        if not hierarchy:
+            return
+        maxLayer = int(max(int(node["layer"]) for node in hierarchy))
+        for layerIdx in range(maxLayer + 1):
+            layerNodes = [
+                node for node in hierarchy if int(node["layer"]) == int(layerIdx)
+            ]
+            layers.append(
+                {
+                    "layer": int(layerIdx),
+                    "node_count": int(len(layerNodes)),
+                    "root_count": int(
+                        sum(node["parent_id"] is None for node in layerNodes)
+                    ),
+                    "parent_count": int(len(layerNodes)),
+                    "split_count": int(
+                        sum(node["decision"] == "split" for node in layerNodes)
+                    ),
+                    "unsplit_count": int(
+                        sum(node["decision"] != "split" for node in layerNodes)
+                    ),
+                    "leaf_count": int(
+                        sum(int(node["id"]) in leafIds for node in layerNodes)
+                    ),
+                    "child_count": int(
+                        sum(int(node["child_count"]) for node in layerNodes)
+                    ),
+                    "selected_count": int(
+                        sum(int(node["selected_count"]) for node in layerNodes)
+                    ),
+                }
+            )
+
+    for start, end in _selectedRunBounds(current):
+        nodeId = _addNode(0, None, int(start), int(end))
+        rootIds.append(int(nodeId))
+        leafIds.add(int(nodeId))
+        frontierIds.append(int(nodeId))
+    _refreshLayers()
+
     details: Dict[str, Any] = {
         "enabled": bool(maxIters > 0),
         "requested_iters": int(maxIters),
@@ -3691,6 +3837,7 @@ def _refineNestedROCCOSolution(
         "score_shift": float(selectionPenalty_),
         "subproblem_mode": "parent_conditioned_min_run_dp",
         "subproblem_max_iter": int(subproblemMaxIter),
+        "parent_edge_boundary_cost": float(_NESTED_ROCCO_PARENT_EDGE_COST),
         "min_region_bins": int(minRegionBins_),
         "min_region_bp": None if minRegionBP_ is None else int(minRegionBP_),
         "min_child_bins": int(minRegionBins_),
@@ -3698,6 +3845,10 @@ def _refineNestedROCCOSolution(
         "diagnostic_detail_path": diagnosticDetailPath_,
         "initial_selected_count": int(np.sum(current)),
         "final_selected_count": int(np.sum(current)),
+        "root_ids": rootIds,
+        "leaf_node_ids": sorted(int(nodeId) for nodeId in leafIds),
+        "hierarchy": hierarchy,
+        "layers": layers,
         "history": history,
     }
     if maxIters == 0:
@@ -3718,9 +3869,12 @@ def _refineNestedROCCOSolution(
 
     for iterIdx in range(maxIters):
         previous = current
-        newMask = np.zeros_like(previous, dtype=bool)
-        runs = _selectedRunBounds(previous)
+        parentNodeIds = list(frontierIds)
+        frontierIds = []
         skippedShort = 0
+        splitParents = 0
+        refinedParents = 0
+        retainedParents = 0
         iterBudgetScale = budgetScale if iterIdx == 0 else 1.0
         expandedShortChildRuns = 0
         expandedShortChildBins = 0
@@ -3737,18 +3891,24 @@ def _refineNestedROCCOSolution(
                 "nested ROCCO%s iter=%d start parent_regions=%d selected=%d budget_scale=%.4g local_gamma=%.6g selection_penalty=%.6g",
                 label_,
                 int(iterIdx + 1),
-                int(len(runs)),
+                int(len(parentNodeIds)),
                 int(np.sum(previous)),
                 float(iterBudgetScale),
                 float(localGamma),
                 float(selectionPenalty_),
             )
-        for regionIdx, (start, end) in enumerate(runs, start=1):
+        for regionIdx, parentId in enumerate(parentNodeIds, start=1):
+            parentNode = nodeById[int(parentId)]
+            start = int(parentNode["start_idx"])
+            end = int(parentNode["end_idx"])
             regionLengthBP = _selectedRunLengthBP(start, end, intervals_, ends_)
             if (minRegionBP_ is not None and regionLengthBP < minRegionBP_) or (
                 minRegionBP_ is None and (end - start + 1) < minRegionBins_
             ):
-                newMask[start : end + 1] = previous[start : end + 1]
+                parentNode["decision"] = "skipped_short"
+                parentNode["child_count"] = 1
+                parentNode["leaf_count"] = 1
+                retainedParents += 1
                 skippedShort += 1
                 if diagnostics_:
                     _writeSubproblemDiagnostic(
@@ -3757,10 +3917,16 @@ def _refineNestedROCCOSolution(
                             "status": "skipped_short",
                             "chromosome": diagnosticLabel,
                             "iter": int(iterIdx + 1),
+                            "layer": int(iterIdx + 1),
                             "region": int(regionIdx),
+                            "parent_id": int(parentId),
                             "bins": int(end - start + 1),
                             "bp": int(regionLengthBP),
                             "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
+                            "child_count": 1,
+                            "split_gain": 0.0,
+                            "split_gate": False,
+                            "decision": "skipped_short",
                         }
                     )
                 continue
@@ -3780,86 +3946,163 @@ def _refineNestedROCCOSolution(
             )
             localRawScores = rawScores_[start : end + 1]
             requiredLocal = int(np.argmax(localRawScores))
-            localBudgetPenalty = float("nan")
-            localPenaltyDetails: Dict[str, float] = {
-                "base_penalty": float(selectionPenalty_),
-                "extra_penalty": 0.0,
-                "positive_score_scale": 0.0,
-                "positive_score_spread": 0.0,
-                "budget_scale": float(iterBudgetScale),
-            }
+            localScoreFloor = 0.0
+            localSolverScores = localScores
+            if iterIdx > 0:
+                localScoreFloor = float(np.quantile(localScores, 0.25))
+                localSolverScores = np.asarray(
+                    localScores - localScoreFloor,
+                    dtype=np.float64,
+                )
+            localPenaltyDetails: Dict[str, float]
+            localSelectionPenalty, localPenaltyDetails = _nestedSoftSelectionPenalty(
+                localSolverScores,
+                0.0 if iterIdx > 0 else selectionPenalty_,
+                iterBudgetScale,
+            )
+            localBudgetPenalty = float(localSelectionPenalty)
             if iterBudgetScale < 1.0:
-                localSelectionPenalty, localPenaltyDetails = (
-                    _nestedSoftSelectionPenalty(
-                        localScores,
-                        selectionPenalty_,
-                        iterBudgetScale,
-                    )
-                )
-                localBudgetPenalty = float(localSelectionPenalty)
-                localMask, _localObjective, localDetails = (
-                    _solveParentConditionedSubpeaks(
-                        localScores,
-                        boundaryCosts=localGamma,
-                        selectionPenalty=localSelectionPenalty,
-                        minRunBins=localMinChildBins,
-                        requiredIndex=requiredLocal,
-                    )
-                )
                 localMode = "parent_conditioned_min_run_soft_budget"
                 softBudgetPenaltyRegions += 1
             else:
-                localSelectionPenalty, localPenaltyDetails = (
-                    _nestedSoftSelectionPenalty(
-                        localScores,
-                        selectionPenalty_,
-                        iterBudgetScale,
-                    )
-                )
-                localBudgetPenalty = float(localSelectionPenalty)
-                localMask, _localObjective, localDetails = (
-                    _solveParentConditionedSubpeaks(
-                        localScores,
-                        boundaryCosts=localGamma,
-                        selectionPenalty=localSelectionPenalty,
-                        minRunBins=localMinChildBins,
-                        requiredIndex=requiredLocal,
-                    )
-                )
                 localMode = "parent_conditioned_min_run_dp"
-            localEmptySolution = False
+            nLocal = int(end - start + 1)
+            internalBoundaryCost = float(
+                max(float(localGamma), 1000.0 * _NESTED_ROCCO_PARENT_EDGE_COST)
+            )
+            localBoundaryCosts = np.full(
+                nLocal + 1,
+                internalBoundaryCost,
+                dtype=np.float64,
+            )
+            localBoundaryCosts[0] = float(_NESTED_ROCCO_PARENT_EDGE_COST)
+            localBoundaryCosts[-1] = float(_NESTED_ROCCO_PARENT_EDGE_COST)
+            localSelection, _localObjective, localDetails = (
+                _solveParentConditionedSubpeaks(
+                    localSolverScores,
+                    boundaryCosts=localBoundaryCosts,
+                    selectionPenalty=localSelectionPenalty,
+                    minRunBins=localMinChildBins,
+                    requiredIndex=requiredLocal,
+                    runPenalty=internalBoundaryCost,
+                )
+            )
             localRequiredFallbackUsed = bool(
                 localDetails.get("required_fallback_window", False)
             )
             penaltyExtra = float(localPenaltyDetails["extra_penalty"])
             localPenaltyExtraTotal += penaltyExtra
             localPenaltyExtraMax = float(max(localPenaltyExtraMax, penaltyExtra))
-            if not bool(np.any(localMask)):
-                localEmptySolution = True
+            if not bool(np.any(localSelection)):
                 emptyLocalSolutions += 1
-                parentErasureViolations += 1
-                localMask = previous[start : end + 1].copy()
-            if not bool(localMask[requiredLocal]):
+                raise RuntimeError("parent-conditioned subpeak solve selected no bins")
+            if not bool(localSelection[requiredLocal]):
                 requiredBinViolations += 1
+                raise RuntimeError(
+                    "parent-conditioned subpeak solve violated required bin"
+                )
             if localRequiredFallbackUsed:
                 requiredFallbackWindows += 1
-            newMask[start : end + 1] = localMask
-            if diagnostics_:
-                if intervals_ is not None and ends_ is not None:
-                    regionStartBP = int(intervals_[start])
-                    regionEndBP = int(ends_[end])
+            localRuns = _selectedRunBounds(localSelection)
+            candidateChildCount = int(len(localRuns))
+            childWidths = [int(right - left + 1) for left, right in localRuns]
+            childWidthsOk = bool(
+                candidateChildCount >= 1
+                and all(width >= int(localMinChildBins) for width in childWidths)
+            )
+            retainedSelection = np.ones(nLocal, dtype=bool)
+            (
+                _parentObjective,
+                retainedPenalized,
+                _parentBoundaryPenalty,
+                _parentRunPenalty,
+            ) = (
+                _parentConditionedSubpeakObjective(
+                    localSolverScores,
+                    retainedSelection,
+                    localBoundaryCosts,
+                    localSelectionPenalty,
+                    runPenalty=internalBoundaryCost,
+                )
+            )
+            splitGain = float(
+                float(localDetails["penalized_objective"]) - float(retainedPenalized)
+            )
+            changedSelection = not bool(
+                np.array_equal(localSelection, retainedSelection)
+            )
+            splitGate = bool(
+                candidateChildCount >= 2 and childWidthsOk and splitGain > 0.0
+            )
+            refineGate = bool(
+                candidateChildCount == 1
+                and childWidthsOk
+                and changedSelection
+                and splitGain > 0.0
+            )
+            decision = (
+                "split"
+                if splitGate
+                else ("shrink" if refineGate else "keep_parent")
+            )
+            parentNode["decision"] = str(decision)
+            parentNode["candidate_child_count"] = int(candidateChildCount)
+            parentNode["child_widths_bins"] = [int(width) for width in childWidths]
+            parentNode["split_gain"] = float(splitGain)
+            parentNode["split_gate"] = bool(splitGate)
+            parentNode["objective"] = float(_localObjective)
+            parentNode["penalized_objective"] = float(
+                localDetails["penalized_objective"]
+            )
+            parentNode["parent_penalized_objective"] = float(retainedPenalized)
+            parentNode["boundary_penalty"] = float(localDetails["boundary_penalty"])
+            parentNode["run_penalty"] = float(localDetails["run_penalty"])
+            parentNode["run_penalty_total"] = float(localDetails["run_penalty_total"])
+            parentNode["selection_penalty"] = float(localSelectionPenalty)
+            parentNode["local_score_floor"] = float(localScoreFloor)
+            parentNode["min_child_bins"] = int(localMinChildBins)
+            if splitGate or refineGate:
+                childIds: List[int] = []
+                for localLeft, localRight in localRuns:
+                    childId = _addNode(
+                        int(iterIdx + 1),
+                        int(parentId),
+                        int(start + localLeft),
+                        int(start + localRight),
+                    )
+                    childIds.append(int(childId))
+                    leafIds.add(int(childId))
+                    frontierIds.append(int(childId))
+                leafIds.remove(int(parentId))
+                parentNode["child_ids"] = childIds
+                parentNode["direct_child_count"] = int(len(childIds))
+                parentNode["child_count"] = int(len(childIds))
+                parentNode["leaf_count"] = int(len(childIds))
+                if splitGate:
+                    splitParents += 1
                 else:
-                    regionStartBP = int(start)
-                    regionEndBP = int(end + 1)
-                selectedLocal = int(np.sum(localMask))
-                selectedNonPositive = int(np.sum(localMask & (localRawScores <= 0.0)))
+                    refinedParents += 1
+            else:
+                parentNode["child_ids"] = []
+                parentNode["direct_child_count"] = 0
+                parentNode["child_count"] = 1
+                parentNode["leaf_count"] = 1
+                retainedParents += 1
+            if diagnostics_:
+                regionStartBP, regionEndBP = _rangeStartEnd(start, end)
+                selectedLocal = int(np.sum(localSelection))
+                selectedNonPositive = int(
+                    np.sum(localSelection & (localRawScores <= 0.0))
+                )
                 _writeSubproblemDiagnostic(
                     {
                         "event": "subproblem",
                         "status": "solved",
                         "chromosome": diagnosticLabel,
                         "iter": int(iterIdx + 1),
+                        "layer": int(iterIdx + 1),
                         "region": int(regionIdx),
+                        "parent_id": int(parentId),
                         "mode": str(localMode),
                         "bins": int(end - start + 1),
                         "bp": int(regionLengthBP),
@@ -3873,8 +4116,8 @@ def _refineNestedROCCOSolution(
                         "soft_budget_target": int(localSoftBudgetTarget),
                         "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
                         "required_local": int(requiredLocal),
-                        "required_selected": bool(localMask[requiredLocal]),
-                        "empty_solution": bool(localEmptySolution),
+                        "required_selected": bool(localSelection[requiredLocal]),
+                        "empty_solution": False,
                         "required_fallback": bool(localRequiredFallbackUsed),
                         "objective": float(_localObjective),
                         "penalized": float(localDetails["penalized_objective"]),
@@ -3883,16 +4126,28 @@ def _refineNestedROCCOSolution(
                         "soft_penalty_extra": float(
                             localPenaltyDetails["extra_penalty"]
                         ),
+                        "run_penalty": float(localDetails["run_penalty"]),
+                        "run_penalty_total": float(
+                            localDetails["run_penalty_total"]
+                        ),
+                        "local_score_floor": float(localScoreFloor),
                         "score_min": float(np.min(localRawScores)),
                         "score_max": float(np.max(localRawScores)),
                         "score_mean": float(np.mean(localRawScores)),
+                        "child_count": int(parentNode["child_count"]),
+                        "candidate_child_count": int(candidateChildCount),
+                        "split_gain": float(splitGain),
+                        "split_gate": bool(splitGate),
+                        "decision": str(decision),
                     }
                 )
 
-        newMask &= previous
-        jaccard = _maskJaccard(previous, newMask)
+        newSelection = _flatSelection(leafIds)
+        if bool(np.any(newSelection & ~inputSelection)):
+            raise RuntimeError("nested ROCCO selection left the input solution")
+        jaccard = _maskJaccard(previous, newSelection)
         selectedBefore = int(np.sum(previous))
-        selectedAfter = int(np.sum(newMask))
+        selectedAfter = int(np.sum(newSelection))
         objectivePrevious = _roccoObjectiveForSolution(
             scores_,
             previous.astype(np.uint8),
@@ -3900,18 +4155,28 @@ def _refineNestedROCCOSolution(
         )
         objectiveAfter = _roccoObjectiveForSolution(
             scores_,
-            newMask.astype(np.uint8),
+            newSelection.astype(np.uint8),
             parentGamma,
         )
-        runsAfter = _selectedRunBounds(newMask)
-        peakCountMonotonicityViolations = int(max(len(runs) - len(runsAfter), 0))
+        previousRuns = _selectedRunBounds(previous)
+        runsAfter = _selectedRunBounds(newSelection)
+        peakCountMonotonicityViolations = int(
+            max(len(previousRuns) - len(runsAfter), 0)
+        )
         coverageExpansionViolations = int(max(selectedAfter - selectedBefore, 0))
+        _refreshLayers()
+        details["leaf_node_ids"] = sorted(int(nodeId) for nodeId in leafIds)
         history.append(
             {
                 "iter": int(iterIdx + 1),
-                "num_parent_peaks": int(len(runs)),
+                "layer": int(iterIdx + 1),
+                "num_parent_peaks": int(len(parentNodeIds)),
                 "num_parent_peaks_after": int(len(runsAfter)),
-                "num_input_regions": int(len(runs)),
+                "num_input_regions": int(len(parentNodeIds)),
+                "num_next_parent_nodes": int(len(frontierIds)),
+                "num_split_parent_nodes": int(splitParents),
+                "num_refined_parent_nodes": int(refinedParents),
+                "num_retained_parent_nodes": int(retainedParents),
                 "num_skipped_short_regions": int(skippedShort),
                 "num_budget_constrained_regions": int(softBudgetPenaltyRegions),
                 "num_soft_budget_penalty_regions": int(softBudgetPenaltyRegions),
@@ -3927,7 +4192,7 @@ def _refineNestedROCCOSolution(
                 "num_short_child_runs_expanded": int(expandedShortChildRuns),
                 "num_short_child_bins_added": int(expandedShortChildBins),
                 "local_penalty_extra_mean": float(
-                    localPenaltyExtraTotal / max(len(runs) - skippedShort, 1)
+                    localPenaltyExtraTotal / max(len(parentNodeIds) - skippedShort, 1)
                 ),
                 "local_penalty_extra_max": float(localPenaltyExtraMax),
                 "budget_scale": float(iterBudgetScale),
@@ -3948,7 +4213,7 @@ def _refineNestedROCCOSolution(
                 int(iterIdx + 1),
                 int(selectedBefore),
                 int(selectedAfter),
-                int(len(runs)),
+                int(len(parentNodeIds)),
                 int(len(runsAfter)),
                 int(skippedShort),
                 int(softBudgetPenaltyRegions),
@@ -3959,21 +4224,32 @@ def _refineNestedROCCOSolution(
                 int(peakCountMonotonicityViolations),
                 int(coverageExpansionViolations),
                 int(expandedShortChildRuns),
-                float(localPenaltyExtraTotal / max(len(runs) - skippedShort, 1)),
+                float(
+                    localPenaltyExtraTotal / max(len(parentNodeIds) - skippedShort, 1)
+                ),
                 float(objectiveAfter),
                 float(objectiveAfter - objectivePrevious),
                 float(jaccard),
             )
 
         details["completed_iters"] = int(iterIdx + 1)
-        current = newMask
+        current = newSelection
         details["final_selected_count"] = int(selectedAfter)
 
-        if np.array_equal(newMask, previous):
+        if np.array_equal(newSelection, previous):
             details["stop_reason"] = "mask_equal"
             if diagnostics_:
                 logger.info(
                     "nested ROCCO%s stop iter=%d reason=mask_equal",
+                    label_,
+                    int(iterIdx + 1),
+                )
+            break
+        if not frontierIds:
+            details["stop_reason"] = "no_splits"
+            if diagnostics_:
+                logger.info(
+                    "nested ROCCO%s stop iter=%d reason=no_splits",
                     label_,
                     int(iterIdx + 1),
                 )
@@ -4394,6 +4670,381 @@ def _trimChildSegmentAroundSummit(
     return trimmedStart, trimmedEnd, trimmed
 
 
+def _coerceHierarchyNodeId(node: Mapping[str, Any]) -> str:
+    for key in ("peak_id", "peakId", "node_id", "nodeId", "id"):
+        value = node.get(key)
+        if value is not None:
+            return str(value)
+    raise ValueError("Nested hierarchy nodes require a peak id")
+
+
+def _coerceHierarchyIdx(node: Mapping[str, Any], snakeKey: str, camelKey: str) -> int:
+    if snakeKey in node:
+        return int(node[snakeKey])
+    if camelKey in node:
+        return int(node[camelKey])
+    raise ValueError(f"Nested hierarchy nodes require `{snakeKey}`")
+
+
+def _coerceRoccoNestedHierarchy(
+    nestedHierarchy: Any,
+) -> Dict[str, Any] | None:
+    if nestedHierarchy is None:
+        return None
+    if isinstance(nestedHierarchy, Mapping):
+        if "nodes" in nestedHierarchy:
+            sourceNodes = nestedHierarchy["nodes"]
+        elif "roots" in nestedHierarchy:
+            sourceNodes = nestedHierarchy["roots"]
+        else:
+            sourceNodes = [nestedHierarchy]
+    elif isinstance(nestedHierarchy, (list, tuple)):
+        sourceNodes = nestedHierarchy
+    else:
+        raise ValueError("`nestedHierarchy` must be a mapping or sequence")
+    if not isinstance(sourceNodes, (list, tuple)):
+        raise ValueError("Nested hierarchy `nodes` must be a sequence")
+
+    flatNodes: List[Dict[str, Any]] = []
+    seenNodeIds: set[str] = set()
+
+    def addNode(nodeAny: Any, parentId: str | None, layer: int) -> None:
+        if not isinstance(nodeAny, Mapping):
+            raise ValueError("Nested hierarchy nodes must be mappings")
+        node = dict(nodeAny)
+        peakId = _coerceHierarchyNodeId(node)
+        if peakId in seenNodeIds:
+            raise ValueError(f"Duplicate nested hierarchy peak id: {peakId}")
+        seenNodeIds.add(peakId)
+        startIdx = _coerceHierarchyIdx(node, "start_idx", "startIdx")
+        endIdx = _coerceHierarchyIdx(node, "end_idx", "endIdx")
+        if startIdx > endIdx:
+            raise ValueError("Nested hierarchy node start_idx exceeds end_idx")
+        suppliedParent = node.get(
+            "parent_peak_id",
+            node.get(
+                "parentPeakId",
+                node.get("parent_id", node.get("parentId", parentId)),
+            ),
+        )
+        if suppliedParent is not None and parentId is not None:
+            suppliedParent = str(suppliedParent)
+            if suppliedParent != parentId:
+                raise ValueError("Nested hierarchy parent ids disagree")
+        parentPeakId = None if suppliedParent is None else str(suppliedParent)
+        suppliedLayer = node.get("layer")
+        layerSupplied = suppliedLayer is not None
+        layer_ = int(layer if suppliedLayer is None else suppliedLayer)
+        if layer_ < 0:
+            raise ValueError("Nested hierarchy layer must be non-negative")
+        if parentId is not None and suppliedLayer is not None and layer_ != layer:
+            raise ValueError("Nested hierarchy layer disagrees with tree depth")
+        flatNodes.append(
+            {
+                "peak_id": peakId,
+                "parent_peak_id": parentPeakId,
+                "root_peak_id": node.get("root_peak_id", node.get("rootPeakId")),
+                "layer": int(layer_),
+                "start_idx": int(startIdx),
+                "end_idx": int(endIdx),
+                "start": (
+                    None
+                    if node.get("start") is None
+                    else int(node.get("start"))
+                ),
+                "end": None if node.get("end") is None else int(node.get("end")),
+                "children": [],
+                "layer_supplied": bool(layerSupplied),
+            }
+        )
+        children = node.get("children", [])
+        if children is None:
+            children = []
+        if not isinstance(children, (list, tuple)):
+            raise ValueError("Nested hierarchy node children must be a sequence")
+        for child in children:
+            addNode(child, peakId, layer_ + 1)
+
+    for sourceNode in sourceNodes:
+        addNode(sourceNode, None, 0)
+
+    nodesById = {str(node["peak_id"]): node for node in flatNodes}
+    childrenById: Dict[str, List[Dict[str, Any]]] = {
+        str(node["peak_id"]): [] for node in flatNodes
+    }
+    roots: List[Dict[str, Any]] = []
+    for node in flatNodes:
+        parentId = node["parent_peak_id"]
+        if parentId is None:
+            roots.append(node)
+            continue
+        if parentId not in nodesById:
+            raise ValueError(f"Unknown nested hierarchy parent id: {parentId}")
+        parent = nodesById[parentId]
+        if int(parent["start_idx"]) > int(node["start_idx"]) or int(
+            node["end_idx"]
+        ) > int(parent["end_idx"]):
+            raise ValueError("Nested hierarchy child is outside its parent")
+        childrenById[parentId].append(node)
+        parent["children"].append(node)
+    if flatNodes and not roots:
+        raise ValueError("Nested hierarchy requires at least one root")
+
+    def assignRoot(node: Dict[str, Any], rootPeakId: str, layer: int) -> None:
+        if bool(node["layer_supplied"]) and int(node["layer"]) != int(layer):
+            raise ValueError("Nested hierarchy layer disagrees with parent links")
+        node["root_peak_id"] = str(rootPeakId)
+        node["layer"] = int(layer)
+        for child in node["children"]:
+            assignRoot(child, rootPeakId, layer + 1)
+
+    for root in roots:
+        assignRoot(root, str(root["peak_id"]), 0)
+    for node in flatNodes:
+        node.pop("layer_supplied", None)
+
+    def validateSiblings(nodes: List[Dict[str, Any]]) -> None:
+        lastEnd = -1
+        for node in nodes:
+            startIdx = int(node["start_idx"])
+            endIdx = int(node["end_idx"])
+            if startIdx <= lastEnd:
+                raise ValueError("Nested hierarchy siblings overlap")
+            lastEnd = endIdx
+
+    for nodeChildren in childrenById.values():
+        nodeChildren.sort(
+            key=lambda child: (int(child["start_idx"]), int(child["end_idx"]))
+        )
+        validateSiblings(nodeChildren)
+    roots.sort(key=lambda root: (int(root["start_idx"]), int(root["end_idx"])))
+    validateSiblings(roots)
+    for node in flatNodes:
+        node["child_starts"] = [int(child["start_idx"]) for child in node["children"]]
+    return {
+        "nodes": flatNodes,
+        "roots": roots,
+        "root_starts": [int(root["start_idx"]) for root in roots],
+        "nodes_by_id": nodesById,
+        "children_by_id": childrenById,
+    }
+
+
+def _resolveRoccoExportHierarchy(
+    nestedHierarchy: Any = None,
+    nestedDetails: Mapping[str, Any] | None = None,
+) -> Dict[str, Any] | None:
+    if nestedHierarchy is not None:
+        return _coerceRoccoNestedHierarchy(nestedHierarchy)
+    if nestedDetails is None:
+        return None
+    for key in ("nestedHierarchy", "nested_hierarchy", "hierarchy"):
+        if key in nestedDetails:
+            return _coerceRoccoNestedHierarchy(nestedDetails[key])
+    return None
+
+
+def _summarizeRoccoHierarchy(
+    hierarchy: Mapping[str, Any] | None,
+    rowMeta: Sequence[Mapping[str, Any]] = (),
+) -> Dict[str, Any]:
+    if hierarchy is None:
+        return {}
+    nodes = list(hierarchy.get("nodes", []))
+    roots = list(hierarchy.get("roots", []))
+    layerCounts: Dict[str, int] = {}
+    for node in nodes:
+        layerKey = str(int(node["layer"]))
+        layerCounts[layerKey] = int(layerCounts.get(layerKey, 0) + 1)
+    exportedLayerCounts: Dict[str, int] = {}
+    exportedRoots: set[str] = set()
+    exportedParents: set[str] = set()
+    exportedWithoutParent = 0
+    for peak in rowMeta:
+        if "layer" in peak:
+            layerKey = str(int(peak["layer"]))
+            exportedLayerCounts[layerKey] = int(
+                exportedLayerCounts.get(layerKey, 0) + 1
+            )
+        rootPeakId = peak.get("root_peak_id")
+        if rootPeakId is not None:
+            exportedRoots.add(str(rootPeakId))
+        parentPeakId = peak.get("parent_peak_id")
+        if parentPeakId is None:
+            exportedWithoutParent += 1
+        else:
+            exportedParents.add(str(parentPeakId))
+    parentNodeIds = {
+        str(node["peak_id"])
+        for node in nodes
+        if node.get("parent_peak_id") is None or len(node.get("children", [])) > 0
+    }
+    supportParentIds = {str(root["peak_id"]) for root in roots}
+    return {
+        "supplied": True,
+        "node_count": int(len(nodes)),
+        "root_count": int(len(roots)),
+        "layer_counts": layerCounts,
+        "exported_layer_counts": exportedLayerCounts,
+        "exported_with_parent": int(len(rowMeta) - exportedWithoutParent),
+        "exported_without_parent": int(exportedWithoutParent),
+        "parent_node_count": int(len(parentNodeIds)),
+        "parent_node_retained": int(len(parentNodeIds & exportedParents)),
+        "parent_node_dropped": int(len(parentNodeIds - exportedParents)),
+        "support_parent_count": int(len(supportParentIds)),
+        "support_parent_retained": int(len(supportParentIds & exportedRoots)),
+        "support_parent_dropped": int(len(supportParentIds - exportedRoots)),
+    }
+
+
+def _findRoccoHierarchyParentForPeak(
+    hierarchy: Mapping[str, Any],
+    peak: Mapping[str, Any],
+) -> Dict[str, Any]:
+    peakStartIdx = int(peak["start_idx"])
+    peakEndIdx = int(peak["end_idx"])
+    roots = list(hierarchy.get("roots", []))
+    rootStarts = list(hierarchy.get("root_starts", []))
+    rootIndex = int(bisect_right(rootStarts, peakStartIdx) - 1)
+    if rootIndex < 0:
+        raise ValueError("Exported peak is outside supplied nested hierarchy")
+    containingRoot = roots[rootIndex]
+    if int(containingRoot["start_idx"]) > peakStartIdx or peakEndIdx > int(
+        containingRoot["end_idx"]
+    ):
+        raise ValueError("Exported peak is outside supplied nested hierarchy")
+
+    strictParent = containingRoot
+    node = containingRoot
+    while True:
+        children = list(node.get("children", []))
+        childStarts = list(node.get("child_starts", []))
+        childIndex = int(bisect_right(childStarts, peakStartIdx) - 1)
+        if childIndex < 0:
+            break
+        nextNode = children[childIndex]
+        if int(nextNode["start_idx"]) > peakStartIdx or peakEndIdx > int(
+            nextNode["end_idx"]
+        ):
+            break
+        if int(nextNode["start_idx"]) < peakStartIdx or peakEndIdx < int(
+            nextNode["end_idx"]
+        ):
+            strictParent = nextNode
+        node = nextNode
+    return strictParent
+
+
+def _annotateRoccoPeakHierarchy(
+    rowMeta: List[Dict[str, Any]],
+    hierarchy: Mapping[str, Any] | None,
+) -> Dict[str, Any]:
+    if hierarchy is None:
+        return {}
+    assignments: List[Tuple[int, Dict[str, Any]]] = []
+    for rowIndex, peak in enumerate(rowMeta):
+        parent = _findRoccoHierarchyParentForPeak(hierarchy, peak)
+        assignments.append((rowIndex, parent))
+    siblingGroups: Dict[str, List[int]] = {}
+    for rowIndex, parent in assignments:
+        parentPeakId = str(parent["peak_id"])
+        siblingGroups.setdefault(parentPeakId, []).append(rowIndex)
+    for siblingIndexes in siblingGroups.values():
+        siblingIndexes.sort(
+            key=lambda idx: (
+                int(rowMeta[idx]["start_idx"]),
+                int(rowMeta[idx]["end_idx"]),
+                str(rowMeta[idx]["name"]),
+            )
+        )
+    ordinalByRowIndex: Dict[int, int] = {}
+    for siblingIndexes in siblingGroups.values():
+        for ordinal, siblingIndex in enumerate(siblingIndexes, start=1):
+            ordinalByRowIndex[int(siblingIndex)] = int(ordinal)
+    for rowIndex, parent in assignments:
+        parentPeakId = str(parent["peak_id"])
+        siblings = siblingGroups[parentPeakId]
+        rowMeta[rowIndex].update(
+            {
+                "root_peak_id": str(parent["root_peak_id"]),
+                "parent_peak_id": parentPeakId,
+                "layer": int(parent["layer"]) + 1,
+                "child_ordinal": int(ordinalByRowIndex[rowIndex]),
+                "sibling_count": int(len(siblings)),
+                "parent_start_idx": int(parent["start_idx"]),
+                "parent_end_idx": int(parent["end_idx"]),
+            }
+        )
+    return _summarizeRoccoHierarchy(hierarchy, rowMeta)
+
+
+def _buildRoccoNestedHierarchy(
+    chromosome: str,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    parentSolution: np.ndarray,
+    childSolution: np.ndarray,
+    prefix: str,
+) -> Dict[str, Any]:
+    parentSolution_ = np.asarray(parentSolution, dtype=np.uint8).ravel()
+    childSolution_ = np.asarray(childSolution, dtype=np.uint8).ravel()
+    if parentSolution_.size != childSolution_.size:
+        raise ValueError("Parent and child solutions must match length")
+    parentRuns = _selectedRunBounds(parentSolution_ > 0)
+    childRuns = _selectedRunBounds(childSolution_ > 0)
+    nodes: List[Dict[str, Any]] = []
+    childAssigned = [False] * len(childRuns)
+    childCursor = 0
+    for parentOrdinal, (parentStart, parentEnd) in enumerate(parentRuns, start=1):
+        parentPeakId = f"{prefix}_{chromosome}_parent_{parentOrdinal}"
+        children: List[Dict[str, Any]] = []
+        while childCursor < len(childRuns) and childRuns[childCursor][1] < parentStart:
+            childCursor += 1
+        localCursor = childCursor
+        childOrdinal = 1
+        while localCursor < len(childRuns):
+            childStart, childEnd = childRuns[localCursor]
+            if childStart > parentEnd:
+                break
+            if parentStart <= childStart and childEnd <= parentEnd:
+                childAssigned[localCursor] = True
+                children.append(
+                    {
+                        "peak_id": (
+                            f"{prefix}_{chromosome}_parent_{parentOrdinal}"
+                            f"_child_{childOrdinal}"
+                        ),
+                        "parent_peak_id": parentPeakId,
+                        "root_peak_id": parentPeakId,
+                        "layer": 1,
+                        "start_idx": int(childStart),
+                        "end_idx": int(childEnd),
+                        "start": int(intervals[childStart]),
+                        "end": int(ends[childEnd]),
+                    }
+                )
+                childOrdinal += 1
+            localCursor += 1
+        nodes.append(
+            {
+                "peak_id": parentPeakId,
+                "root_peak_id": parentPeakId,
+                "layer": 0,
+                "start_idx": int(parentStart),
+                "end_idx": int(parentEnd),
+                "start": int(intervals[parentStart]),
+                "end": int(ends[parentEnd]),
+                "children": children,
+            }
+        )
+    if not all(childAssigned):
+        raise RuntimeError("Final nested ROCCO child run is outside all support parents")
+    return {
+        "source": "first_pass_parent_final_child_runs",
+        "nodes": nodes,
+    }
+
+
 def _solutionToChromNarrowPeakRows(
     chromosome: str,
     intervals: np.ndarray,
@@ -4419,6 +5070,8 @@ def _solutionToChromNarrowPeakRows(
     ),
     scoreFloor: float = 250.0,
     scoreCeil: float = 1000.0,
+    nestedHierarchy: Any = None,
+    nestedDetails: Mapping[str, Any] | None = None,
     returnExportDetails: bool = False,
 ) -> (
     Tuple[List[List[str | int | float]], List[Dict[str, Any]]]
@@ -4431,6 +5084,7 @@ def _solutionToChromNarrowPeakRows(
     state_ = np.asarray(state, dtype=np.float64).ravel()
     scores_ = np.asarray(scores, dtype=np.float64).ravel()
     solution_ = np.asarray(solution, dtype=np.uint8).ravel()
+    hierarchy = _resolveRoccoExportHierarchy(nestedHierarchy, nestedDetails)
     if (
         intervals.size != state_.size
         or ends.size != state_.size
@@ -4721,6 +5375,9 @@ def _solutionToChromNarrowPeakRows(
     if len(rowsRaw) == 0:
         if returnExportDetails:
             exportDetails["num_segments_kept"] = 0
+            hierarchySummary = _annotateRoccoPeakHierarchy(rowsMeta, hierarchy)
+            if hierarchySummary:
+                exportDetails["nested_hierarchy_summary"] = hierarchySummary
             return [], [], exportDetails
         return [], []
 
@@ -4748,6 +5405,9 @@ def _solutionToChromNarrowPeakRows(
             ]
         )
     exportDetails["num_segments_kept"] = int(len(outRows))
+    hierarchySummary = _annotateRoccoPeakHierarchy(rowsMeta, hierarchy)
+    if hierarchySummary:
+        exportDetails["nested_hierarchy_summary"] = hierarchySummary
     if returnExportDetails:
         return outRows, rowsMeta, exportDetails
     return outRows, rowsMeta
@@ -4839,6 +5499,9 @@ def _buildRoccoSummary(
                     "stop_reason": nestedSummary["stop_reason"],
                     "last_jaccard": nestedSummary["last_jaccard"],
                 }
+            hierarchySummary = chromMetaAny.get("nested_hierarchy_summary", {})
+            if not isinstance(hierarchySummary, Mapping):
+                hierarchySummary = {}
             perChrom[str(chromosome)] = {
                 "exported_peak_count": peakCount,
                 "total_peak_bp": int(totalBP),
@@ -4852,6 +5515,9 @@ def _buildRoccoSummary(
                 "dropped_min_peak_bp": int(
                     chromMetaAny.get("num_segments_dropped_min_peak_bp", 0)
                 ),
+                "dropped_min_peak_score": int(
+                    chromMetaAny.get("num_segments_dropped_min_peak_score", 0)
+                ),
                 "dwb_peak_scoring": dict(
                     chromMetaAny.get("export_details", {}).get(
                         "dwb_peak_scoring",
@@ -4861,6 +5527,7 @@ def _buildRoccoSummary(
                     else {}
                 ),
                 "nested_rocco": nestedSummary,
+                "nested_hierarchy": dict(hierarchySummary),
             }
     blacklist = meta.get("blacklist_filter", {})
     if not isinstance(blacklist, Mapping):
@@ -4907,6 +5574,7 @@ def _buildRoccoSummary(
             "num_bootstrap": int(settings.get("num_bootstrap", 0)),
             "threshold_z": float(settings.get("threshold_z", 0.0)),
             "rand_seed": int(settings.get("rand_seed", 0)),
+            "min_peak_score": settings.get("min_peak_score"),
         },
         "files": inventory,
     }
@@ -4953,7 +5621,12 @@ def _compactRoccoMetadata(meta: Mapping[str, Any]) -> Dict[str, Any]:
     compact["metadata_detail"] = "compact"
     settings = dict(compact.get("settings", {}))
     settings["metadata_detail"] = "compact"
-    settings["metadata_omits"] = ["candidate_details", "peak_details"]
+    settings["metadata_omits"] = [
+        "candidate_details",
+        "peak_details",
+        "nested_hierarchy",
+        "nested_rocco_details.hierarchy",
+    ]
     compact["settings"] = settings
     chromCompact: Dict[str, Any] = {}
     chromosomes = meta.get("chromosomes", {})
@@ -4964,6 +5637,16 @@ def _compactRoccoMetadata(meta: Mapping[str, Any]) -> Dict[str, Any]:
             chromMeta = dict(chromMetaAny)
             candidateDetails = chromMeta.pop("candidate_details", [])
             peakDetails = chromMeta.pop("peak_details", [])
+            nestedHierarchy = chromMeta.pop("nested_hierarchy", {})
+            nestedRoccoDetails = chromMeta.get("nested_rocco_details")
+            if isinstance(nestedRoccoDetails, Mapping):
+                nestedRoccoDetails_ = dict(nestedRoccoDetails)
+                nestedRoccoHierarchy = nestedRoccoDetails_.pop("hierarchy", [])
+                if isinstance(nestedRoccoHierarchy, list):
+                    nestedRoccoDetails_["hierarchy_nodes_omitted"] = int(
+                        len(nestedRoccoHierarchy)
+                    )
+                chromMeta["nested_rocco_details"] = nestedRoccoDetails_
             exportDetails = dict(chromMeta.get("export_details", {}))
             exportCandidateDetails = exportDetails.pop("candidate_details", [])
             candidateCount = max(
@@ -4974,9 +5657,30 @@ def _compactRoccoMetadata(meta: Mapping[str, Any]) -> Dict[str, Any]:
             )
             peakCount = len(peakDetails) if isinstance(peakDetails, list) else 0
             exportDetails["candidate_details_omitted"] = int(candidateCount)
+            hierarchySummaryAny = chromMeta.get(
+                "nested_hierarchy_summary",
+                exportDetails.get("nested_hierarchy_summary", {}),
+            )
+            hierarchySummary = (
+                dict(hierarchySummaryAny)
+                if isinstance(hierarchySummaryAny, Mapping)
+                else {}
+            )
+            if hierarchySummary:
+                exportDetails["nested_hierarchy_summary"] = hierarchySummary
             chromMeta["export_details"] = exportDetails
             chromMeta["candidate_details_omitted"] = int(candidateCount)
             chromMeta["peak_details_omitted"] = int(peakCount)
+            if hierarchySummary:
+                chromMeta["nested_hierarchy_summary"] = hierarchySummary
+            if isinstance(nestedHierarchy, Mapping):
+                nestedNodes = nestedHierarchy.get("nodes", [])
+                chromMeta["nested_hierarchy_nodes_omitted"] = int(
+                    hierarchySummary.get(
+                        "node_count",
+                        len(nestedNodes) if isinstance(nestedNodes, list) else 0,
+                    )
+                )
             chromCompact[str(chromosome)] = chromMeta
     compact["chromosomes"] = chromCompact
     return compact
@@ -5018,6 +5722,8 @@ def _boundedRoccoMetadata(
     settings["metadata_omits"] = [
         "candidate_details",
         "peak_details",
+        "nested_hierarchy",
+        "nested_rocco_details",
         "nested_details",
         "large_sequence_values",
     ]
@@ -5060,11 +5766,13 @@ def _boundedRoccoMetadata(
                 "num_candidate_segments",
                 "num_segments_dropped_median_signal_local_p",
                 "num_segments_dropped_min_peak_bp",
+                "num_segments_dropped_min_peak_score",
                 "export_trim_score_floor",
                 "state_diagnostics",
                 "budget_details",
                 "gamma_details",
                 "solve_details",
+                "nested_hierarchy_summary",
                 "null_replay_false_segment_diagnostics",
             ):
                 if key in chromMetaAny:
@@ -5149,6 +5857,7 @@ def solveRocco(
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
+    minPeakScore: float | None = _MATCHING_DEFAULT_MIN_PEAK_SCORE,
     uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     randSeed: int = 42,
@@ -5166,6 +5875,7 @@ def solveRocco(
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
         exportFilterUncertaintyMultiplier
     )
+    minPeakScore_ = _validateMinPeakScore(minPeakScore)
     uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
     uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
     metadataDetail_ = _normalizeRoccoMetadataDetail(metadataDetail)
@@ -5250,6 +5960,9 @@ def solveRocco(
             "export_filter_uncertainty_multiplier": float(
                 exportFilterUncertaintyMultiplier_
             ),
+            "min_peak_score": None if minPeakScore_ is None else float(minPeakScore_),
+            "min_peak_score_field": "signalValue",
+            "min_peak_score_narrowpeak_column": 7,
             "export_filter_uses_uncertainty_bedgraph": True,
             "uncertainty_score_mode": str(uncertaintyScoreMode_),
             "uncertainty_score_z": float(uncertaintyScoreZ_),
@@ -5396,6 +6109,15 @@ def solveRocco(
         solveDetails["nested_rocco_budget_policy"] = _NESTED_ROCCO_BUDGET_POLICY
         solveDetails["nested_rocco_stop_reason"] = str(nestedDetails["stop_reason"])
         exportTrimScoreFloor = 0.0
+        roccoPrefix = "consenrichROCCO"
+        nestedHierarchy = _buildRoccoNestedHierarchy(
+            str(chromosome),
+            intervals,
+            ends,
+            firstPassSolution,
+            solution,
+            roccoPrefix,
+        )
         rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
             str(chromosome),
             intervals,
@@ -5403,7 +6125,7 @@ def solveRocco(
             state,
             np.asarray(scoreTrack, dtype=np.float64),
             solution,
-            prefix="consenrichROCCO",
+            prefix=roccoPrefix,
             nullScale=float(nullScale),
             uncertainty=uncertainty,
             trimScoreFloor=float(exportTrimScoreFloor),
@@ -5411,6 +6133,7 @@ def solveRocco(
             subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
             minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
             exportFilterUncertaintyMultiplier=float(exportFilterUncertaintyMultiplier_),
+            nestedHierarchy=nestedHierarchy,
             returnExportDetails=True,
         )
         initialPeakWidthsBP.extend(
@@ -5429,6 +6152,7 @@ def solveRocco(
             "final_objective": float(finalObjective),
             "solve_details": solveDetails,
             "nested_details": nestedDetails,
+            "nested_hierarchy": nestedHierarchy,
             "first_pass_solution": firstPassSolution,
             "solution": solution,
             "export_trim_score_floor": float(exportTrimScoreFloor),
@@ -5460,6 +6184,7 @@ def solveRocco(
         uncertainty = result["uncertainty"]
         solution = np.asarray(result["solution"], dtype=np.uint8)
         solveDetails = dict(result["solve_details"])
+        nestedHierarchy = result["nested_hierarchy"]
         exportTrimScoreFloor = float(result["export_trim_score_floor"])
         if bool(massiveWidthPolicy.get("active", False)):
             rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
@@ -5483,6 +6208,7 @@ def solveRocco(
                 exportFilterUncertaintyMultiplier=float(
                     exportFilterUncertaintyMultiplier_
                 ),
+                nestedHierarchy=nestedHierarchy,
                 returnExportDetails=True,
             )
         else:
@@ -5508,6 +6234,26 @@ def solveRocco(
         for row, peak in zip(rows, peakMeta):
             row[7] = _negativeLog10Probability(peak.get("dwb_empirical_p"))
             row[8] = _negativeLog10Probability(peak.get("dwb_empirical_q"))
+        exportDetails["min_peak_score"] = (
+            None if minPeakScore_ is None else float(minPeakScore_)
+        )
+        exportDetails["min_peak_score_field"] = "signalValue"
+        exportDetails["min_peak_score_narrowpeak_column"] = 7
+        exportDetails["min_peak_score_filter_active"] = minPeakScore_ is not None
+        exportDetails["num_segments_min_peak_score_evaluated"] = int(len(rows))
+        exportDetails["num_segments_dropped_min_peak_score"] = 0
+        if minPeakScore_ is not None:
+            retainedRows: List[List[str | int | float]] = []
+            retainedPeakMeta: List[Dict[str, Any]] = []
+            for row, peak in zip(rows, peakMeta):
+                if float(row[6]) >= minPeakScore_:
+                    retainedRows.append(row)
+                    retainedPeakMeta.append(peak)
+            exportDetails["num_segments_dropped_min_peak_score"] = int(
+                len(rows) - len(retainedRows)
+            )
+            rows = retainedRows
+            peakMeta = retainedPeakMeta
         nullReplayDiagnostics = dict(
             exportDetails.get("null_replay_false_segment_diagnostics", {})
         )
@@ -5552,6 +6298,10 @@ def solveRocco(
             exportDetails.get("num_segments_kept", len(rows) + int(blacklistDropped))
         )
         exportDetails["num_segments_kept"] = int(len(rows))
+        hierarchy = _resolveRoccoExportHierarchy(nestedHierarchy)
+        hierarchySummary = _summarizeRoccoHierarchy(hierarchy, peakMeta)
+        if hierarchySummary:
+            exportDetails["nested_hierarchy_summary"] = hierarchySummary
         allRows.extend(rows)
 
         firstPassSolution = np.asarray(result["first_pass_solution"], dtype=np.uint8)
@@ -5584,10 +6334,17 @@ def solveRocco(
             "num_segments_dropped_min_peak_bp": int(
                 exportDetails["num_segments_dropped_min_peak_bp"]
             ),
+            "num_segments_dropped_min_peak_score": int(
+                exportDetails["num_segments_dropped_min_peak_score"]
+            ),
             "budget_details": dict(result["budget_details"]),
             "gamma_details": dict(work["gamma_details"]),
             "solve_details": solveDetails,
             "nested_rocco_details": result["nested_details"],
+            "nested_hierarchy": nestedHierarchy,
+            "nested_hierarchy_summary": dict(
+                exportDetails.get("nested_hierarchy_summary", {})
+            ),
             "null_replay_false_segment_diagnostics": nullReplayDiagnostics,
             "export_trim_score_floor": float(exportTrimScoreFloor),
             "export_details": exportDetails,
@@ -5671,6 +6428,7 @@ _ROCCO_CUTOFF_REPORT_FIELDS: Tuple[str, ...] = (
     "nestedRoccoIters",
     "nestedRoccoBudgetScale",
     "exportFilterUncertaintyMultiplier",
+    "minPeakScore",
     "uncertaintyScoreMode",
     "uncertaintyScoreZ",
     "numBootstrap",
@@ -5819,6 +6577,7 @@ def _cutoffSummaryRow(
         "exportFilterUncertaintyMultiplier": _cutoffValueText(
             settings["exportFilterUncertaintyMultiplier"]
         ),
+        "minPeakScore": _cutoffValueText(settings["minPeakScore"]),
         "uncertaintyScoreMode": _cutoffValueText(settings["uncertaintyScoreMode"]),
         "uncertaintyScoreZ": _cutoffValueText(settings["uncertaintyScoreZ"]),
         "numBootstrap": _cutoffValueText(settings["numBootstrap"]),
@@ -5852,6 +6611,7 @@ def solveRoccoCutoffReport(
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
+    minPeakScore: float | None = _MATCHING_DEFAULT_MIN_PEAK_SCORE,
     uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     randSeed: int = 42,
@@ -5860,6 +6620,7 @@ def solveRoccoCutoffReport(
     baselineNarrowPeakFile: str | None = None,
     baselineSummary: Mapping[str, Any] | None = None,
 ) -> str:
+    minPeakScore_ = _validateMinPeakScore(minPeakScore)
     stateBase = Path(stateBedGraphFile)
     chromosomesTuple = None if chromosomes is None else tuple(chromosomes)
     reportDir = (
@@ -5880,6 +6641,7 @@ def solveRoccoCutoffReport(
         "nestedRoccoBudgetScale": float(nestedRoccoBudgetScale),
         "massiveSubpeakCleanup": bool(massiveSubpeakCleanup),
         "exportFilterUncertaintyMultiplier": float(exportFilterUncertaintyMultiplier),
+        "minPeakScore": minPeakScore_,
         "uncertaintyScoreMode": str(uncertaintyScoreMode),
         "uncertaintyScoreZ": float(uncertaintyScoreZ),
         "randSeed": int(randSeed),
@@ -5925,6 +6687,7 @@ def solveRoccoCutoffReport(
                 exportFilterUncertaintyMultiplier=float(
                     settings["exportFilterUncertaintyMultiplier"]
                 ),
+                minPeakScore=settings["minPeakScore"],
                 uncertaintyScoreMode=str(settings["uncertaintyScoreMode"]),
                 uncertaintyScoreZ=float(settings["uncertaintyScoreZ"]),
                 randSeed=int(settings["randSeed"]),

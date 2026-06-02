@@ -63,6 +63,7 @@ from .constants import (
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
     INPUT_DEFAULT_ROLE,
     MATCHING_DEFAULT_METADATA_DETAIL,
+    MATCHING_DEFAULT_MIN_PEAK_SCORE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED,
@@ -106,16 +107,26 @@ from .constants import (
     OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
     PROCESS_DEFAULT_DELTA_F,
     PROCESS_DEFAULT_NOISE_CALIBRATION,
+    PROCESS_DEFAULT_Q_PRIOR_LEVEL,
+    PROCESS_DEFAULT_Q_PRIOR_TREND,
     PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
-    PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER,
-    PROCESS_DEFAULT_TUNC_LOCAL_WINDOW_MULTIPLIER,
-    PROCESS_DEFAULT_TUNC_MAX_SCALE,
-    PROCESS_DEFAULT_TUNC_MIN_SCALE,
-    PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
-    PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
-    PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
-    PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
-    PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO,
+    PROCESS_DEFAULT_PUNC_DEPENDENCE_MULTIPLIER,
+    PROCESS_DEFAULT_PUNC_LOCAL_WINDOW_MULTIPLIER,
+    PROCESS_DEFAULT_PUNC_MAX_SCALE,
+    PROCESS_DEFAULT_PUNC_MIN_SCALE,
+    PROCESS_DEFAULT_PUNC_MIN_WINDOW_WEIGHT,
+    PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
+    PROCESS_DEFAULT_PUNC_PRIOR_DF,
+    PROCESS_DEFAULT_PUNC_PRIOR_RIDGE,
+    PROCESS_DEFAULT_PUNC_USE_BOUNDARY_CLAMPS,
+    PROCESS_DEFAULT_PUNC_USE_GLOBAL_SCALE,
+    PROCESS_DEFAULT_PUNC_USE_PRIOR_DF_MOMENTS,
+    PROCESS_DEFAULT_PUNC_USE_PRIOR_SHRINKAGE,
+    PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
+    PROCESS_DEFAULT_PUNC_USE_SCALE_REBASE,
+    PROCESS_DEFAULT_PUNC_USE_TRANSITION_EVIDENCE,
+    PROCESS_DEFAULT_PUNC_USE_WARMUP_FIT,
+    PROCESS_DEFAULT_PUNC_TREND_SEED_RATIO,
     PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
     PROCESS_DEFAULT_MIN_Q,
@@ -123,9 +134,10 @@ from .constants import (
     PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX,
     PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
     PROCESS_NOISE_CALIBRATION_FIXED,
+    PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
     PROCESS_NOISE_CALIBRATION_MODES,
     PROCESS_NOISE_CALIBRATION_SEED,
-    PROCESS_NOISE_CALIBRATION_TUNC,
+    PROCESS_NOISE_CALIBRATION_PUNC,
     PROCESS_DEFAULT_STATE_MODEL,
     SAM_DEFAULT_BAM_INPUT_MODE,
     SAM_DEFAULT_COUNT_MODE,
@@ -240,8 +252,17 @@ _QINIT_PRECISION_CAP_QUANTILE = 0.95
 _QINIT_PRECISION_CAP_MULTIPLIER = 20.0
 _QINIT_PRIOR_LOG_SD = math.log(4.0)
 _QINIT_DEFAULT_T_NU = 8.0
-_TUNC_DEADBAND_PRIOR_WEIGHT = 0.5
-_TUNC_DEADBAND_HIGH_PROBABILITY = 0.8
+_PUNC_DEADBAND_PRIOR_WEIGHT = 0.5
+_PUNC_DEADBAND_HIGH_PROBABILITY = 0.8
+_PUNC_STAGE_TOGGLE_KEYS = (
+    "puncUseWarmupFit",
+    "puncUseTransitionEvidence",
+    "puncUseScaleRebase",
+    "puncUseGlobalScale",
+    "puncUseBoundaryClamps",
+    "puncUsePriorDfMoments",
+    "puncUsePriorShrinkage",
+)
 
 
 def _makeECMProgressBar(
@@ -315,27 +336,27 @@ class processParams(NamedTuple):
     :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
     :param processNoiseCalibration: Process-noise calibration mode:
-        ``"tunc"``, ``"seed"``, or ``"fixed"``.
+        ``"punc"``, ``"seed"``, or ``"fixed"``.
     :type processNoiseCalibration: str
-    :param tuncLocalWindowMultiplier: Multiplier converting ``blockLenIntervals``
-        into TUNC transition-window length.
-    :type tuncLocalWindowMultiplier: float
-    :param tuncDependenceMultiplier: Effective-sample-size divisor for
+    :param puncLocalWindowMultiplier: Multiplier converting ``blockLenIntervals``
+        into PUNC transition-window length.
+    :type puncLocalWindowMultiplier: float
+    :param puncDependenceMultiplier: Effective-sample-size divisor for
         overlapping/dependent transition evidence.
-    :type tuncDependenceMultiplier: float
-    :param tuncMinScale: Lower clamp for local TUNC process-Q scales.
-    :type tuncMinScale: float
-    :param tuncMaxScale: Upper clamp for local TUNC process-Q scales.
-    :type tuncMaxScale: float
-    :param tuncMinWindowWeight: Minimum total reliability weight for a TUNC
+    :type puncDependenceMultiplier: float
+    :param puncMinScale: Lower clamp for local PUNC process-Q scales.
+    :type puncMinScale: float
+    :param puncMaxScale: Upper clamp for local PUNC process-Q scales.
+    :type puncMaxScale: float
+    :param puncMinWindowWeight: Minimum total reliability weight for a PUNC
         window to contribute local evidence.
-    :type tuncMinWindowWeight: float
-    :param tuncPriorRidge: Ridge penalty for the TUNC process prior fit.
-    :type tuncPriorRidge: float
-    :param tuncLevelBufferZ: Posterior-SD buffer applied to the TUNC
+    :type puncMinWindowWeight: float
+    :param puncPriorRidge: Ridge penalty for the PUNC process prior fit.
+    :type puncPriorRidge: float
+    :param puncLevelBufferZ: Posterior-SD buffer applied to the PUNC
         state-level prior covariate. Values near zero flatten the prior trend;
         ``0`` recovers the unbuffered prior.
-    :type tuncLevelBufferZ: float
+    :type puncLevelBufferZ: float
     :param processNoiseWarmupECMIters: Maximum fixed-background ECM iterations
         per nuisance pass used by process-noise warm-up calibration.
     :type processNoiseWarmupECMIters: int
@@ -358,21 +379,31 @@ class processParams(NamedTuple):
     deltaF: float = PROCESS_DEFAULT_DELTA_F
     minQ: float = PROCESS_DEFAULT_MIN_Q
     maxQ: float = PROCESS_DEFAULT_MAX_Q
+    qPriorLevel: float = PROCESS_DEFAULT_Q_PRIOR_LEVEL
+    qPriorTrend: float = PROCESS_DEFAULT_Q_PRIOR_TREND
     qSeedPriorLevel: float = PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL
     processNoiseCalibration: str = PROCESS_DEFAULT_NOISE_CALIBRATION
-    tuncLocalWindowMultiplier: float = PROCESS_DEFAULT_TUNC_LOCAL_WINDOW_MULTIPLIER
-    tuncDependenceMultiplier: float = PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER
-    tuncMinScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE
-    tuncMaxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE
-    tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT
-    tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE
-    tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z
-    tuncUseReliabilityWeightedWindows: bool = (
-        PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    puncLocalWindowMultiplier: float = PROCESS_DEFAULT_PUNC_LOCAL_WINDOW_MULTIPLIER
+    puncDependenceMultiplier: float = PROCESS_DEFAULT_PUNC_DEPENDENCE_MULTIPLIER
+    puncMinScale: float = PROCESS_DEFAULT_PUNC_MIN_SCALE
+    puncMaxScale: float = PROCESS_DEFAULT_PUNC_MAX_SCALE
+    puncMinWindowWeight: float = PROCESS_DEFAULT_PUNC_MIN_WINDOW_WEIGHT
+    puncPriorDf: float = PROCESS_DEFAULT_PUNC_PRIOR_DF
+    puncPriorRidge: float = PROCESS_DEFAULT_PUNC_PRIOR_RIDGE
+    puncLevelBufferZ: float = PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z
+    puncUseReliabilityWeightedWindows: bool = (
+        PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
     )
-    tuncProcessCovariatesEnabled: bool = False
-    tuncProcessCovariatesMode: str = "transition"
-    tuncProcessCovariatesFeatures: tuple[str, ...] = ()
+    puncUseWarmupFit: bool = PROCESS_DEFAULT_PUNC_USE_WARMUP_FIT
+    puncUseTransitionEvidence: bool = PROCESS_DEFAULT_PUNC_USE_TRANSITION_EVIDENCE
+    puncUseScaleRebase: bool = PROCESS_DEFAULT_PUNC_USE_SCALE_REBASE
+    puncUseGlobalScale: bool = PROCESS_DEFAULT_PUNC_USE_GLOBAL_SCALE
+    puncUseBoundaryClamps: bool = PROCESS_DEFAULT_PUNC_USE_BOUNDARY_CLAMPS
+    puncUsePriorDfMoments: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_DF_MOMENTS
+    puncUsePriorShrinkage: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_SHRINKAGE
+    puncProcessCovariatesEnabled: bool = False
+    puncProcessCovariatesMode: str = "transition"
+    puncProcessCovariatesFeatures: tuple[str, ...] = ()
     processNoiseWarmupECMIters: int = PROCESS_DEFAULT_WARMUP_ECM_ITERS
     processNoiseWarmupOuterPasses: int = PROCESS_DEFAULT_WARMUP_OUTER_PASSES
     precisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN
@@ -1034,6 +1065,7 @@ class matchingParams(NamedTuple):
     uncertaintyScoreMode: str = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
     uncertaintyScoreZ: float = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
+    minPeakScore: Optional[float] = MATCHING_DEFAULT_MIN_PEAK_SCORE
 
 
 class outputParams(NamedTuple):
@@ -1061,7 +1093,7 @@ class outputParams(NamedTuple):
         bedGraph and optional bigWig outputs. Supported names include ``slope``,
         ``baseQLevel``, ``baseQTrend``, ``preKappaQLevel``,
         ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``,
-        ``tuncQScale``, ``muncTrace``, ``sumGain0``, and ``sumGain1``.
+        ``puncQScale``, ``muncTrace``, ``sumGain0``, and ``sumGain1``.
     :type diagnosticTracks: tuple[str, ...]
     :param writeRunSummary: If True, write one high-level run summary TSV.
     :type writeRunSummary: bool
@@ -2555,7 +2587,7 @@ def _processQTrackArrays(
         "preKappaQTrend": preKappaQTrend,
         "effectiveQLevel": effectiveQLevel,
         "effectiveQTrend": effectiveQTrend,
-        "tuncQScale": qScale,
+        "puncQScale": qScale,
         "preKappaQ": preKappaQ,
         "effectiveQ": effectiveQ,
     }
@@ -2595,6 +2627,9 @@ def _processQDiagnosticsMetadata(
     preTrendSummary = _metadataTrackSummary(qTracks["preKappaQTrend"])
     levelSummary = _metadataTrackSummary(qTracks["effectiveQLevel"])
     trendSummary = _metadataTrackSummary(qTracks["effectiveQTrend"])
+    qTraceSummary = _metadataTrackSummary(
+        np.trace(qTracks["effectiveQ"], axis1=1, axis2=2)
+    )
     return {
         "policy": _processQPolicy(
             useAPN=bool(useAPN),
@@ -2612,13 +2647,17 @@ def _processQDiagnosticsMetadata(
         "preKappaQTrend": preTrendSummary,
         "effectiveQLevel": levelSummary,
         "effectiveQTrend": trendSummary,
-        "tuncQScale": _metadataTrackSummary(qTracks["tuncQScale"]),
+        "effectiveQTrace": qTraceSummary,
+        "puncQScale": _metadataTrackSummary(qTracks["puncQScale"]),
         "effectiveQLevelMedian": levelSummary["median"],
         "effectiveQTrendMedian": trendSummary["median"],
+        "effectiveQTraceMedian": qTraceSummary["median"],
         "effectiveQLevelMin": levelSummary["min"],
         "effectiveQTrendMin": trendSummary["min"],
+        "effectiveQTraceMin": qTraceSummary["min"],
         "effectiveQLevelMax": levelSummary["max"],
         "effectiveQTrendMax": trendSummary["max"],
+        "effectiveQTraceMax": qTraceSummary["max"],
     }
 
 
@@ -3201,6 +3240,8 @@ def _staticProcessNoiseCalibrationDiagnostics(
         "validTransitionCount": 0,
         "qScaleClampFraction": 0.0,
     }
+    diagnostics.update({key: False for key in _PUNC_STAGE_TOGGLE_KEYS})
+    diagnostics["puncStagesActive"] = False
     diagnostics.update(boundary)
     diagnostics.update(dict(support))
     return diagnostics
@@ -3584,7 +3625,7 @@ def _coerceOptionalProcessCovariates(
     return np.ascontiguousarray(out, dtype=np.float64)
 
 
-def _expectedTransitionEvidenceForTunc(
+def _expectedTransitionEvidenceForPunc(
     *,
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
@@ -3598,7 +3639,7 @@ def _expectedTransitionEvidenceForTunc(
     q = np.asarray(seedQ, dtype=np.float64)
     if q.ndim != 2 or q.shape[0] < dim or q.shape[1] < dim:
         raise ValueError(
-            "seed process Q must cover the active state dimension for TUNC"
+            "seed process Q must cover the active state dimension for PUNC"
         )
     qDim = np.ascontiguousarray(q[:dim, :dim], dtype=np.float64)
     if hasattr(cconsenrich, "cExpectedTransitionProcessEvidence"):
@@ -3619,11 +3660,11 @@ def _expectedTransitionEvidenceForTunc(
     try:
         qInv = np.linalg.inv(qDim)
     except np.linalg.LinAlgError as ex:
-        raise ValueError("seed process Q must be nonsingular for TUNC") from ex
+        raise ValueError("seed process Q must be nonsingular for PUNC") from ex
     evidence = np.empty(transitionCount, dtype=np.float64)
     if dim == 1:
         if m.ndim != 2 or m.shape[1] < 1 or p.shape[1:3] != (1, 1):
-            raise ValueError("level TUNC moments must use scalar state arrays")
+            raise ValueError("level PUNC moments must use scalar state arrays")
         qInv00 = float(qInv[0, 0])
         for k in range(transitionCount):
             x0 = float(m[k, 0])
@@ -3639,7 +3680,7 @@ def _expectedTransitionEvidenceForTunc(
         return evidence
 
     if m.ndim != 2 or m.shape[1] < 2 or p.shape[1] < 2 or p.shape[2] < 2:
-        raise ValueError("levelTrend TUNC moments must use two-state arrays")
+        raise ValueError("levelTrend PUNC moments must use two-state arrays")
     f = np.asarray(matrixF, dtype=np.float64)[:2, :2]
     ft = f.T
     for k in range(transitionCount):
@@ -3658,7 +3699,7 @@ def _expectedTransitionEvidenceForTunc(
     return evidence
 
 
-def _tuncObservationInformation(
+def _puncObservationInformation(
     *,
     matrixMunc: np.ndarray,
     pad: float,
@@ -3666,14 +3707,14 @@ def _tuncObservationInformation(
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
 ) -> np.ndarray:
-    tuncInfoFunction = getattr(
+    puncInfoFunction = getattr(
         cconsenrich,
-        "cTuncObservationInformation",
-        getattr(cconsenrich, "ctuncObservationInformation", None),
+        "cPuncObservationInformation",
+        getattr(cconsenrich, "cpuncObservationInformation", None),
     )
-    if tuncInfoFunction is not None:
+    if puncInfoFunction is not None:
         return np.asarray(
-            tuncInfoFunction(
+            puncInfoFunction(
                 matrixMunc,
                 float(pad),
                 lambdaExp,
@@ -3737,7 +3778,7 @@ def _weightedSampleVariance(values: np.ndarray, weights: np.ndarray) -> float:
     return float(np.sum(w * np.square(x - mean)) / denom)
 
 
-def _estimateTuncPriorDfMethodOfMoments(
+def _estimatePuncPriorDfMethodOfMoments(
     localEvidence: np.ndarray,
     localPrior: np.ndarray,
     nuLocal: np.ndarray,
@@ -3747,8 +3788,8 @@ def _estimateTuncPriorDfMethodOfMoments(
     maxPriorDf: float = 1.0e6,
     minWindows: int = 8,
     winsorTail: float = 0.01,
-    minScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE,
-    maxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE,
+    minScale: float = PROCESS_DEFAULT_PUNC_MIN_SCALE,
+    maxScale: float = PROCESS_DEFAULT_PUNC_MAX_SCALE,
 ) -> tuple[float, float, dict[str, Any]]:
     evidence = np.asarray(localEvidence, dtype=np.float64).reshape(-1)
     prior = np.asarray(localPrior, dtype=np.float64).reshape(-1)
@@ -3770,18 +3811,18 @@ def _estimateTuncPriorDfMethodOfMoments(
         & (w > 0.0)
     )
     diagnostics: dict[str, Any] = {
-        "tuncPriorDfMomentWindowCount": int(np.count_nonzero(valid)),
-        "tuncPriorDfMomentEffectiveWindowCount": 0.0,
-        "tuncPriorDfMomentLogRatioVariance": float("nan"),
-        "tuncPriorDfMomentSamplingVariance": float("nan"),
-        "tuncPriorDfMomentExcessVariance": float("nan"),
-        "tuncPriorDfMomentScale": 1.0,
-        "tuncPriorDfMomentWinsorLower": float("nan"),
-        "tuncPriorDfMomentWinsorUpper": float("nan"),
-        "tuncPriorDfMomentReason": "ok",
+        "puncPriorDfMomentWindowCount": int(np.count_nonzero(valid)),
+        "puncPriorDfMomentEffectiveWindowCount": 0.0,
+        "puncPriorDfMomentLogRatioVariance": float("nan"),
+        "puncPriorDfMomentSamplingVariance": float("nan"),
+        "puncPriorDfMomentExcessVariance": float("nan"),
+        "puncPriorDfMomentScale": 1.0,
+        "puncPriorDfMomentWinsorLower": float("nan"),
+        "puncPriorDfMomentWinsorUpper": float("nan"),
+        "puncPriorDfMomentReason": "ok",
     }
     if np.count_nonzero(valid) < int(minWindows):
-        diagnostics["tuncPriorDfMomentReason"] = "insufficient_windows"
+        diagnostics["puncPriorDfMomentReason"] = "insufficient_windows"
         return float(maxPriorDf), 1.0, diagnostics
 
     evidence = evidence[valid]
@@ -3791,9 +3832,9 @@ def _estimateTuncPriorDfMethodOfMoments(
     sumW = float(np.sum(w))
     sumW2 = float(np.sum(w * w))
     effectiveWindowCount = (sumW * sumW / sumW2) if sumW > 0.0 and sumW2 > 0.0 else 0.0
-    diagnostics["tuncPriorDfMomentEffectiveWindowCount"] = float(effectiveWindowCount)
+    diagnostics["puncPriorDfMomentEffectiveWindowCount"] = float(effectiveWindowCount)
     if effectiveWindowCount < float(minWindows):
-        diagnostics["tuncPriorDfMomentReason"] = "insufficient_effective_windows"
+        diagnostics["puncPriorDfMomentReason"] = "insufficient_effective_windows"
         return float(maxPriorDf), 1.0, diagnostics
 
     logRatio = np.log(np.maximum(evidence, np.finfo(np.float64).tiny)) - np.log(
@@ -3811,37 +3852,37 @@ def _estimateTuncPriorDfMethodOfMoments(
         )
         if np.isfinite(lo) and np.isfinite(hi) and lo < hi:
             np.clip(centeredLogRatio, float(lo), float(hi), out=centeredLogRatio)
-            diagnostics["tuncPriorDfMomentWinsorLower"] = float(lo)
-            diagnostics["tuncPriorDfMomentWinsorUpper"] = float(hi)
+            diagnostics["puncPriorDfMomentWinsorLower"] = float(lo)
+            diagnostics["puncPriorDfMomentWinsorUpper"] = float(hi)
 
     observedVariance = _weightedSampleVariance(centeredLogRatio, w)
     samplingVarianceArr = np.asarray(trigamma(nu / 2.0), dtype=np.float64)
     samplingMask = np.isfinite(samplingVarianceArr) & (samplingVarianceArr >= 0.0)
     if not np.any(samplingMask):
-        diagnostics["tuncPriorDfMomentReason"] = "nonfinite_sampling_variance"
+        diagnostics["puncPriorDfMomentReason"] = "nonfinite_sampling_variance"
         return float(maxPriorDf), 1.0, diagnostics
     samplingVariance = float(
         np.sum(w[samplingMask] * samplingVarianceArr[samplingMask])
         / np.sum(w[samplingMask])
     )
     excessVariance = float(observedVariance - samplingVariance)
-    diagnostics["tuncPriorDfMomentLogRatioVariance"] = float(observedVariance)
-    diagnostics["tuncPriorDfMomentSamplingVariance"] = float(samplingVariance)
-    diagnostics["tuncPriorDfMomentExcessVariance"] = float(excessVariance)
+    diagnostics["puncPriorDfMomentLogRatioVariance"] = float(observedVariance)
+    diagnostics["puncPriorDfMomentSamplingVariance"] = float(samplingVariance)
+    diagnostics["puncPriorDfMomentExcessVariance"] = float(excessVariance)
 
     if not np.isfinite(observedVariance) or not np.isfinite(excessVariance):
-        diagnostics["tuncPriorDfMomentReason"] = "nonfinite_log_ratio_variance"
+        diagnostics["puncPriorDfMomentReason"] = "nonfinite_log_ratio_variance"
         return float(maxPriorDf), 1.0, diagnostics
     if excessVariance <= 1.0e-12:
         priorDf = float(maxPriorDf)
         priorBias = 0.0
-        diagnostics["tuncPriorDfMomentReason"] = "no_excess_dispersion"
+        diagnostics["puncPriorDfMomentReason"] = "no_excess_dispersion"
     else:
         priorDf = float(2.0 * itrigamma(max(excessVariance, 1.0e-12)))
         if not np.isfinite(priorDf) or priorDf <= 0.0:
             priorDf = float(maxPriorDf)
             priorBias = 0.0
-            diagnostics["tuncPriorDfMomentReason"] = "invalid_inverse_trigamma"
+            diagnostics["puncPriorDfMomentReason"] = "invalid_inverse_trigamma"
         else:
             priorDf = float(np.clip(priorDf, float(minPriorDf), float(maxPriorDf)))
             priorBias = (
@@ -3854,7 +3895,7 @@ def _estimateTuncPriorDfMethodOfMoments(
     scale = float(
         np.exp(np.clip(logScale, math.log(float(minScale)), math.log(float(maxScale))))
     )
-    diagnostics["tuncPriorDfMomentScale"] = float(scale)
+    diagnostics["puncPriorDfMomentScale"] = float(scale)
     return float(priorDf), float(scale), diagnostics
 
 
@@ -3886,15 +3927,15 @@ def _activeProcessQDiagonal(
     return np.diag(q[:dim, :dim]).astype(np.float64, copy=True)
 
 
-def _rebaseTuncIntervalScales(
+def _rebasePuncIntervalScales(
     *,
     seedQ: np.ndarray,
     baseQ: np.ndarray,
     rawScale: np.ndarray,
     stateModel: str,
 ) -> tuple[np.ndarray, float, float]:
-    if hasattr(cconsenrich, "crebaseTuncIntervalScales"):
-        scale, maxErr, medErr = cconsenrich.crebaseTuncIntervalScales(
+    if hasattr(cconsenrich, "crebasePuncIntervalScales"):
+        scale, maxErr, medErr = cconsenrich.crebasePuncIntervalScales(
             seedQ,
             baseQ,
             rawScale,
@@ -3941,7 +3982,7 @@ def _rebaseTuncIntervalScales(
     )
 
 
-def _fitTuncProcessNoise(
+def _fitPuncProcessNoise(
     *,
     warmupFit: Mapping[str, Any],
     matrixMunc: np.ndarray,
@@ -3953,20 +3994,44 @@ def _fitTuncProcessNoise(
     maxQ: float,
     blockLenIntervals: int,
     processCovariates: np.ndarray | None,
-    tuncLocalWindowMultiplier: float,
-    tuncDependenceMultiplier: float,
-    tuncMinScale: float,
-    tuncMaxScale: float,
-    tuncMinWindowWeight: float,
-    tuncPriorRidge: float,
-    tuncLevelBufferZ: float,
-    tuncUseReliabilityWeightedWindows: bool,
-    observationPrecisionMultiplierMin: float,
-    observationPrecisionMultiplierMax: float,
+    puncLocalWindowMultiplier: float,
+    puncDependenceMultiplier: float,
+    puncMinScale: float,
+    puncMaxScale: float,
+    puncMinWindowWeight: float,
+    puncPriorDf: float = PROCESS_DEFAULT_PUNC_PRIOR_DF,
+    puncPriorRidge: float = PROCESS_DEFAULT_PUNC_PRIOR_RIDGE,
+    puncLevelBufferZ: float = PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
+    puncUseReliabilityWeightedWindows: bool = (
+        PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    ),
+    puncUseWarmupFit: bool = PROCESS_DEFAULT_PUNC_USE_WARMUP_FIT,
+    puncUseTransitionEvidence: bool = PROCESS_DEFAULT_PUNC_USE_TRANSITION_EVIDENCE,
+    puncUseScaleRebase: bool = PROCESS_DEFAULT_PUNC_USE_SCALE_REBASE,
+    puncUseGlobalScale: bool = PROCESS_DEFAULT_PUNC_USE_GLOBAL_SCALE,
+    puncUseBoundaryClamps: bool = PROCESS_DEFAULT_PUNC_USE_BOUNDARY_CLAMPS,
+    puncUsePriorDfMoments: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_DF_MOMENTS,
+    puncUsePriorShrinkage: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_SHRINKAGE,
+    observationPrecisionMultiplierMin: float = 1.0,
+    observationPrecisionMultiplierMax: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-    if not isinstance(tuncUseReliabilityWeightedWindows, (bool, np.bool_)):
-        raise ValueError("tuncUseReliabilityWeightedWindows must be boolean")
-    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindows)
+    if not isinstance(puncUseReliabilityWeightedWindows, (bool, np.bool_)):
+        raise ValueError("puncUseReliabilityWeightedWindows must be boolean")
+    puncUseReliabilityWeightedWindows = bool(puncUseReliabilityWeightedWindows)
+    puncToggleValues = {
+        "puncUseWarmupFit": puncUseWarmupFit,
+        "puncUseTransitionEvidence": puncUseTransitionEvidence,
+        "puncUseScaleRebase": puncUseScaleRebase,
+        "puncUseGlobalScale": puncUseGlobalScale,
+        "puncUseBoundaryClamps": puncUseBoundaryClamps,
+        "puncUsePriorDfMoments": puncUsePriorDfMoments,
+        "puncUsePriorShrinkage": puncUsePriorShrinkage,
+    }
+    for puncToggleName, puncToggleValue in puncToggleValues.items():
+        if not isinstance(puncToggleValue, (bool, np.bool_)):
+            raise ValueError(f"{puncToggleName} must be boolean")
+    puncToggles = {key: bool(value) for key, value in puncToggleValues.items()}
+    puncPriorDf = _checkFinitePositive("puncPriorDf", puncPriorDf)
     stateModelMode = _normalizeStateModel(stateModel)
     intervalCount = int(np.asarray(matrixMunc).shape[1])
     transitionCount = max(intervalCount - 1, 0)
@@ -3981,7 +4046,7 @@ def _fitTuncProcessNoise(
     processQScale = np.ones(intervalCount, dtype=np.float32)
     if transitionCount <= 0:
         info = {
-            "processNoisePolicy": PROCESS_NOISE_CALIBRATION_TUNC,
+            "processNoisePolicy": PROCESS_NOISE_CALIBRATION_PUNC,
             "processNoiseCalibrationStatus": "skipped",
             "processNoiseCalibrationReason": "too_few_intervals",
             "globalScale": 1.0,
@@ -3991,9 +4056,11 @@ def _fitTuncProcessNoise(
             "processQScaleSummary": _metadataTrackSummary(processQScale),
             "priorDesignColumnCount": 0,
             "processCovariateCount": 0,
-            "tuncUseReliabilityWeightedWindows": bool(
-                tuncUseReliabilityWeightedWindows
+            "puncUseReliabilityWeightedWindows": bool(
+                puncUseReliabilityWeightedWindows
             ),
+            **puncToggles,
+            "puncStagesActive": True,
             "baseQClampChanged": False,
             "baseQClampMaxRelativeChange": 0.0,
             "qScaleDecompositionMaxLogError": 0.0,
@@ -4005,7 +4072,7 @@ def _fitTuncProcessNoise(
         info["matrixQ0Final"] = seedQClamped.astype(float).tolist()
         return seedQClamped, processQScale, info
 
-    evidence = _expectedTransitionEvidenceForTunc(
+    evidence = _expectedTransitionEvidenceForPunc(
         stateSmoothed=np.asarray(warmupFit["stateSmoothed"]),
         stateCovarSmoothed=np.asarray(warmupFit["stateCovarSmoothed"]),
         lagCovSmoothed=np.asarray(warmupFit["lagCovSmoothed"]),
@@ -4013,7 +4080,7 @@ def _fitTuncProcessNoise(
         seedQ=seedQClamped,
         stateModel=stateModelMode,
     )
-    infoByInterval = _tuncObservationInformation(
+    infoByInterval = _puncObservationInformation(
         matrixMunc=np.asarray(warmupFit.get("matrixMunc", matrixMunc)),
         pad=float(pad),
         lambdaExp=warmupFit.get("lambdaExp"),
@@ -4035,9 +4102,12 @@ def _fitTuncProcessNoise(
         & np.isfinite(transitionWeights)
         & (transitionWeights > 0.0)
     )
+    if not puncToggles["puncUseTransitionEvidence"]:
+        evidence = np.ones_like(evidence, dtype=np.float64)
+        valid = np.isfinite(transitionWeights) & (transitionWeights > 0.0)
     if not np.any(valid):
         info = {
-            "processNoisePolicy": PROCESS_NOISE_CALIBRATION_TUNC,
+            "processNoisePolicy": PROCESS_NOISE_CALIBRATION_PUNC,
             "processNoiseCalibrationStatus": "skipped",
             "processNoiseCalibrationReason": "no_valid_transition_evidence",
             "globalScale": 1.0,
@@ -4047,9 +4117,11 @@ def _fitTuncProcessNoise(
             "processQScaleSummary": _metadataTrackSummary(processQScale),
             "priorDesignColumnCount": 0,
             "processCovariateCount": 0,
-            "tuncUseReliabilityWeightedWindows": bool(
-                tuncUseReliabilityWeightedWindows
+            "puncUseReliabilityWeightedWindows": bool(
+                puncUseReliabilityWeightedWindows
             ),
+            **puncToggles,
+            "puncStagesActive": True,
             "baseQClampChanged": False,
             "baseQClampMaxRelativeChange": 0.0,
             "qScaleDecompositionMaxLogError": 0.0,
@@ -4062,13 +4134,17 @@ def _fitTuncProcessNoise(
         return seedQClamped, processQScale, info
 
     tiny = 1.0e-12
-    minScale = float(max(tuncMinScale, tiny))
-    maxScale = float(max(tuncMaxScale, minScale))
+    if puncToggles["puncUseBoundaryClamps"]:
+        minScale = float(max(puncMinScale, tiny))
+        maxScale = float(max(puncMaxScale, minScale))
+    else:
+        minScale = tiny
+        maxScale = float(1.0 / tiny)
     y = np.log(np.maximum(evidence, tiny))
     state = np.asarray(warmupFit["stateSmoothed"], dtype=np.float64)
     levelMidRaw = 0.5 * (state[:-1, 0] + state[1:, 0])
     levelMid = levelMidRaw
-    levelBufferZ = float(max(tuncLevelBufferZ, 0.0))
+    levelBufferZ = float(max(puncLevelBufferZ, 0.0))
     levelMidSd = np.zeros(transitionCount, dtype=np.float64)
     if levelBufferZ > 0.0:
         stateCov = np.asarray(warmupFit["stateCovarSmoothed"], dtype=np.float64)
@@ -4134,7 +4210,7 @@ def _fitTuncProcessNoise(
     sqrtW = np.sqrt(transitionWeights[fitMask])
     Xw = X[fitMask, :] * sqrtW[:, None]
     yw = y[fitMask] * sqrtW
-    ridge = np.eye(X.shape[1], dtype=np.float64) * float(tuncPriorRidge)
+    ridge = np.eye(X.shape[1], dtype=np.float64) * float(puncPriorRidge)
     ridge[0, 0] = 0.0
     try:
         beta = np.linalg.solve(Xw.T @ Xw + ridge, Xw.T @ yw)
@@ -4168,7 +4244,7 @@ def _fitTuncProcessNoise(
             1.0,
         )
         deadbandWeight = np.clip(
-            float(_TUNC_DEADBAND_PRIOR_WEIGHT) * deadbandProbability,
+            float(_PUNC_DEADBAND_PRIOR_WEIGHT) * deadbandProbability,
             0.0,
             1.0,
         )
@@ -4188,75 +4264,75 @@ def _fitTuncProcessNoise(
         )
         priorScale = priorScale / max(deadbandGeom, tiny)
     levelBufferDiagnostics: dict[str, Any] = {
-        "tuncLevelBufferZ": float(levelBufferZ),
-        "tuncLevelBufferEnabled": bool(levelBufferZ > 0.0),
-        "tuncBufferedLevelZeroFraction": 0.0,
-        "tuncBufferedLevelMedianShrinkage": 1.0,
-        "tuncLevelMidpointRawSummary": _metadataTrackSummary(levelMidRaw),
-        "tuncLevelMidpointBufferedSummary": _metadataTrackSummary(levelMid),
-        "tuncLevelMidpointSdSummary": _metadataTrackSummary(levelMidSd),
-        "tuncDeadbandPriorEnabled": bool(deadbandEnabled),
-        "tuncDeadbandZ": float(levelBufferZ),
-        "tuncDeadbandMeanProbability": 0.0,
-        "tuncDeadbandHighProbabilityFraction": 0.0,
-        "tuncDeadbandNullScale": float(minScale),
-        "tuncPriorScaleBeforeDeadbandSummary": _metadataTrackSummary(
+        "puncLevelBufferZ": float(levelBufferZ),
+        "puncLevelBufferEnabled": bool(levelBufferZ > 0.0),
+        "puncBufferedLevelZeroFraction": 0.0,
+        "puncBufferedLevelMedianShrinkage": 1.0,
+        "puncLevelMidpointRawSummary": _metadataTrackSummary(levelMidRaw),
+        "puncLevelMidpointBufferedSummary": _metadataTrackSummary(levelMid),
+        "puncLevelMidpointSdSummary": _metadataTrackSummary(levelMidSd),
+        "puncDeadbandPriorEnabled": bool(deadbandEnabled),
+        "puncDeadbandZ": float(levelBufferZ),
+        "puncDeadbandMeanProbability": 0.0,
+        "puncDeadbandHighProbabilityFraction": 0.0,
+        "puncDeadbandNullScale": float(minScale),
+        "puncPriorScaleBeforeDeadbandSummary": _metadataTrackSummary(
             priorScaleBeforeDeadband
         ),
-        "tuncPriorScaleAfterDeadbandSummary": _metadataTrackSummary(priorScale),
+        "puncPriorScaleAfterDeadbandSummary": _metadataTrackSummary(priorScale),
     }
     if np.any(valid):
         validWeights = transitionWeights[valid]
         rawAbs = np.abs(levelMidRaw[valid])
         bufferedAbs = np.abs(levelMid[valid])
         zeroIndicator = (bufferedAbs <= tiny).astype(np.float64)
-        levelBufferDiagnostics["tuncBufferedLevelZeroFraction"] = float(
+        levelBufferDiagnostics["puncBufferedLevelZeroFraction"] = float(
             np.average(zeroIndicator, weights=validWeights)
         )
         shrinkMask = rawAbs > tiny
         if np.any(shrinkMask):
             shrink = bufferedAbs[shrinkMask] / rawAbs[shrinkMask]
             shrinkWeights = validWeights[shrinkMask]
-            levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"] = float(
+            levelBufferDiagnostics["puncBufferedLevelMedianShrinkage"] = float(
                 _weightedQuantile(shrink, shrinkWeights, np.asarray([0.5]))[0]
             )
         if deadbandEnabled:
             deadbandValid = deadbandProbability[valid]
-            levelBufferDiagnostics["tuncDeadbandMeanProbability"] = float(
+            levelBufferDiagnostics["puncDeadbandMeanProbability"] = float(
                 np.average(deadbandValid, weights=validWeights)
             )
-            levelBufferDiagnostics["tuncDeadbandHighProbabilityFraction"] = float(
+            levelBufferDiagnostics["puncDeadbandHighProbabilityFraction"] = float(
                 np.average(
-                    (deadbandValid >= float(_TUNC_DEADBAND_HIGH_PROBABILITY)).astype(
+                    (deadbandValid >= float(_PUNC_DEADBAND_HIGH_PROBABILITY)).astype(
                         np.float64
                     ),
                     weights=validWeights,
                 )
             )
     _logEvent(
-        "process_noise.tunc_level_buffer",
+        "process_noise.punc_level_buffer",
         (
             ("z", float(levelBufferZ)),
             ("enabled", bool(levelBufferZ > 0.0)),
             (
                 "zero_fraction",
-                levelBufferDiagnostics["tuncBufferedLevelZeroFraction"],
+                levelBufferDiagnostics["puncBufferedLevelZeroFraction"],
             ),
             (
                 "median_shrinkage",
-                levelBufferDiagnostics["tuncBufferedLevelMedianShrinkage"],
+                levelBufferDiagnostics["puncBufferedLevelMedianShrinkage"],
             ),
         ),
     )
     _logEvent(
-        "process_noise.tunc_deadband_prior",
+        "process_noise.punc_deadband_prior",
         (
             ("enabled", bool(deadbandEnabled)),
             ("z", float(levelBufferZ)),
-            ("mean_probability", levelBufferDiagnostics["tuncDeadbandMeanProbability"]),
+            ("mean_probability", levelBufferDiagnostics["puncDeadbandMeanProbability"]),
             (
                 "high_probability_fraction",
-                levelBufferDiagnostics["tuncDeadbandHighProbabilityFraction"],
+                levelBufferDiagnostics["puncDeadbandHighProbabilityFraction"],
             ),
             ("null_scale", float(minScale)),
         ),
@@ -4264,7 +4340,7 @@ def _fitTuncProcessNoise(
 
     windowLength = max(
         3,
-        int(round(max(1, int(blockLenIntervals)) * float(tuncLocalWindowMultiplier))),
+        int(round(max(1, int(blockLenIntervals)) * float(puncLocalWindowMultiplier))),
     )
     windowLength = min(windowLength, transitionCount)
     halfWindow = max(1, windowLength // 2)
@@ -4272,7 +4348,7 @@ def _fitTuncProcessNoise(
     centers = list(range(0, transitionCount, stride))
     if centers[-1] != transitionCount - 1:
         centers.append(transitionCount - 1)
-    if tuncUseReliabilityWeightedWindows:
+    if puncUseReliabilityWeightedWindows:
         w = np.where(valid, transitionWeights, 0.0)
     else:
         w = valid.astype(np.float64)
@@ -4288,8 +4364,8 @@ def _fitTuncProcessNoise(
     priorDf = 1.0e6
     priorDfScale = 1.0
     priorDfDiagnostics: dict[str, Any] = {}
-    dependence = float(max(tuncDependenceMultiplier, tiny))
-    minWindowWeight = float(max(tuncMinWindowWeight, 0.0))
+    dependence = float(max(puncDependenceMultiplier, tiny))
+    minWindowWeight = float(max(puncMinWindowWeight, 0.0))
     windowStats: list[tuple[int, int, float, float, float, float]] = []
     for center in centers:
         start = max(0, int(center) - halfWindow)
@@ -4308,8 +4384,8 @@ def _fitTuncProcessNoise(
         nuLocal = max(0.0, float(stateDimForNu) * effN / dependence)
         windowStats.append((start, end, sumW, localEvidence, localPrior, nuLocal))
 
-    if windowStats:
-        priorDf, priorDfScale, priorDfDiagnostics = _estimateTuncPriorDfMethodOfMoments(
+    if puncToggles["puncUsePriorDfMoments"] and windowStats:
+        priorDf, priorDfScale, priorDfDiagnostics = _estimatePuncPriorDfMethodOfMoments(
             np.asarray([row[3] for row in windowStats], dtype=np.float64),
             np.asarray([row[4] for row in windowStats], dtype=np.float64),
             np.asarray([row[5] for row in windowStats], dtype=np.float64),
@@ -4318,48 +4394,54 @@ def _fitTuncProcessNoise(
             maxScale=maxScale,
         )
     else:
+        priorDf = float(puncPriorDf)
+        priorDfScale = 1.0
         priorDfDiagnostics = {
-            "tuncPriorDfMomentWindowCount": 0,
-            "tuncPriorDfMomentEffectiveWindowCount": 0.0,
-            "tuncPriorDfMomentLogRatioVariance": float("nan"),
-            "tuncPriorDfMomentSamplingVariance": float("nan"),
-            "tuncPriorDfMomentExcessVariance": float("nan"),
-            "tuncPriorDfMomentScale": 1.0,
-            "tuncPriorDfMomentWinsorLower": float("nan"),
-            "tuncPriorDfMomentWinsorUpper": float("nan"),
-            "tuncPriorDfMomentReason": "insufficient_windows",
+            "puncPriorDfMomentWindowCount": 0,
+            "puncPriorDfMomentEffectiveWindowCount": 0.0,
+            "puncPriorDfMomentLogRatioVariance": float("nan"),
+            "puncPriorDfMomentSamplingVariance": float("nan"),
+            "puncPriorDfMomentExcessVariance": float("nan"),
+            "puncPriorDfMomentScale": 1.0,
+            "puncPriorDfMomentWinsorLower": float("nan"),
+            "puncPriorDfMomentWinsorUpper": float("nan"),
+            "puncPriorDfMomentReason": (
+                "disabled"
+                if not puncToggles["puncUsePriorDfMoments"]
+                else "insufficient_windows"
+            ),
         }
 
     _logEvent(
-        "process_noise.tunc_prior_df_moments",
+        "process_noise.punc_prior_df_moments",
         (
             ("prior_df", float(priorDf)),
             ("prior_scale", float(priorDfScale)),
-            ("reason", priorDfDiagnostics.get("tuncPriorDfMomentReason", "ok")),
+            ("reason", priorDfDiagnostics.get("puncPriorDfMomentReason", "ok")),
             (
                 "windows",
-                int(priorDfDiagnostics.get("tuncPriorDfMomentWindowCount", 0)),
+                int(priorDfDiagnostics.get("puncPriorDfMomentWindowCount", 0)),
             ),
             (
                 "effective_windows",
                 float(
                     priorDfDiagnostics.get(
-                        "tuncPriorDfMomentEffectiveWindowCount",
+                        "puncPriorDfMomentEffectiveWindowCount",
                         0.0,
                     )
                 ),
             ),
             (
                 "log_ratio_var",
-                priorDfDiagnostics.get("tuncPriorDfMomentLogRatioVariance", np.nan),
+                priorDfDiagnostics.get("puncPriorDfMomentLogRatioVariance", np.nan),
             ),
             (
                 "sampling_var",
-                priorDfDiagnostics.get("tuncPriorDfMomentSamplingVariance", np.nan),
+                priorDfDiagnostics.get("puncPriorDfMomentSamplingVariance", np.nan),
             ),
             (
                 "excess_var",
-                priorDfDiagnostics.get("tuncPriorDfMomentExcessVariance", np.nan),
+                priorDfDiagnostics.get("puncPriorDfMomentExcessVariance", np.nan),
             ),
         ),
     )
@@ -4367,11 +4449,20 @@ def _fitTuncProcessNoise(
     windowCount = 0
     for start, end, sumW, localEvidence, localPrior, nuLocal in windowStats:
         targetPrior = float(priorDfScale) * float(localPrior)
-        scale = (nuLocal * localEvidence + priorDf * targetPrior) / max(
-            nuLocal + priorDf,
-            tiny,
-        )
-        scale = float(np.clip(scale, minScale, maxScale))
+        if puncToggles["puncUsePriorShrinkage"]:
+            scale = (nuLocal * localEvidence + priorDf * targetPrior) / max(
+                nuLocal + priorDf,
+                tiny,
+            )
+        else:
+            scale = float(localEvidence)
+        if puncToggles["puncUseBoundaryClamps"]:
+            scale = float(np.clip(scale, minScale, maxScale))
+        elif not np.isfinite(scale) or scale <= 0.0:
+            raise ValueError(
+                "PUNC local scale must stay finite and positive when "
+                "puncUseBoundaryClamps=False"
+            )
         paintWeight = max(sumW, tiny)
         diffWeight[start] += paintWeight
         diffWeight[end] -= paintWeight
@@ -4386,33 +4477,61 @@ def _fitTuncProcessNoise(
         out=np.log(np.maximum(priorScale, tiny)),
         where=paintWeightByTransition > 0.0,
     )
-    rawScale = np.exp(np.clip(painted, math.log(minScale), math.log(maxScale)))
-    globalScale = _weightedGeometricMean(
-        rawScale[valid], transitionWeights[valid], floor=tiny
-    )
-    globalScale = float(np.clip(globalScale, minScale, maxScale))
-    transitionScale = np.clip(rawScale / max(globalScale, tiny), minScale, maxScale)
+    if puncToggles["puncUseBoundaryClamps"]:
+        rawScale = np.exp(np.clip(painted, math.log(minScale), math.log(maxScale)))
+    else:
+        rawScale = np.exp(np.clip(painted, -30.0, 30.0))
+    if puncToggles["puncUseGlobalScale"]:
+        globalScale = _weightedGeometricMean(
+            rawScale[valid], transitionWeights[valid], floor=tiny
+        )
+        if puncToggles["puncUseBoundaryClamps"]:
+            globalScale = float(np.clip(globalScale, minScale, maxScale))
+        else:
+            globalScale = float(globalScale)
+    else:
+        globalScale = 1.0
+    transitionScale = rawScale / max(globalScale, tiny)
+    if puncToggles["puncUseBoundaryClamps"]:
+        transitionScale = np.clip(transitionScale, minScale, maxScale)
     unclampedBaseQ0 = np.asarray(seedQClamped, dtype=np.float64) * globalScale
-    matrixQ0Tunc = _clampProcessNoiseMatrix(
-        unclampedBaseQ0,
-        stateModel=stateModelMode,
-        minQ=float(minQ),
-        maxQ=float(maxQ),
-    )
-    rebasedTransitionScale, decompMaxLogError, decompMedianLogError = (
-        _rebaseTuncIntervalScales(
-            seedQ=seedQClamped,
-            baseQ=matrixQ0Tunc,
-            rawScale=rawScale,
+    if puncToggles["puncUseBoundaryClamps"]:
+        matrixQ0Punc = _clampProcessNoiseMatrix(
+            unclampedBaseQ0,
+            stateModel=stateModelMode,
+            minQ=float(minQ),
+            maxQ=float(maxQ),
+        )
+    else:
+        activeDiag = _activeProcessQDiagonal(
+            unclampedBaseQ0,
             stateModel=stateModelMode,
         )
-    )
+        if not np.all(np.isfinite(activeDiag)) or np.any(activeDiag <= 0.0):
+            raise ValueError(
+                "PUNC base process Q must stay finite and positive when "
+                "puncUseBoundaryClamps=False"
+            )
+        matrixQ0Punc = np.ascontiguousarray(unclampedBaseQ0, dtype=np.float32)
+    if puncToggles["puncUseScaleRebase"]:
+        rebasedTransitionScale, decompMaxLogError, decompMedianLogError = (
+            _rebasePuncIntervalScales(
+                seedQ=seedQClamped,
+                baseQ=matrixQ0Punc,
+                rawScale=rawScale,
+                stateModel=stateModelMode,
+            )
+        )
+    else:
+        rebasedTransitionScale = np.asarray(transitionScale, dtype=np.float32)
+        decompMaxLogError = 0.0
+        decompMedianLogError = 0.0
     processQScale[1:] = rebasedTransitionScale
     processQScale[0] = 1.0
     deadbandHighMask = (
         valid
         & deadbandEnabled
-        & (deadbandProbability >= float(_TUNC_DEADBAND_HIGH_PROBABILITY))
+        & (deadbandProbability >= float(_PUNC_DEADBAND_HIGH_PROBABILITY))
     )
     highTransitionCount = int(np.count_nonzero(deadbandHighMask))
     validTransitionCount = int(np.count_nonzero(valid))
@@ -4428,13 +4547,13 @@ def _fitTuncProcessNoise(
     )
     highIntervalMask = np.zeros(intervalCount, dtype=bool)
     highIntervalMask[1:] = deadbandHighMask
-    levelQTrack = float(matrixQ0Tunc[0, 0]) * rebasedTransitionScale
+    levelQTrack = float(matrixQ0Punc[0, 0]) * rebasedTransitionScale
     if stateModelMode == STATE_MODEL_LEVEL:
         trendQTrack = np.zeros_like(levelQTrack, dtype=np.float64)
     else:
-        trendQTrack = float(matrixQ0Tunc[1, 1]) * rebasedTransitionScale
+        trendQTrack = float(matrixQ0Punc[1, 1]) * rebasedTransitionScale
     baseDiagTarget = _activeProcessQDiagonal(unclampedBaseQ0, stateModel=stateModelMode)
-    baseDiagActual = _activeProcessQDiagonal(matrixQ0Tunc, stateModel=stateModelMode)
+    baseDiagActual = _activeProcessQDiagonal(matrixQ0Punc, stateModel=stateModelMode)
     baseMask = (
         np.isfinite(baseDiagTarget)
         & np.isfinite(baseDiagActual)
@@ -4454,7 +4573,7 @@ def _fitTuncProcessNoise(
         )
     )
     boundary = _processNoiseQBoundaryDiagnostics(
-        matrixQ0Tunc,
+        matrixQ0Punc,
         stateModelMode,
         minQ=float(minQ),
         maxQ=float(maxQ),
@@ -4467,7 +4586,7 @@ def _fitTuncProcessNoise(
         else trendQ / max(levelQ, float(boundary["qFloor"]))
     )
     diagnostics = {
-        "processNoisePolicy": PROCESS_NOISE_CALIBRATION_TUNC,
+        "processNoisePolicy": PROCESS_NOISE_CALIBRATION_PUNC,
         "processNoiseCalibrationStatus": "estimated",
         "processNoiseCalibrationReason": "ok",
         "globalScale": float(globalScale),
@@ -4476,13 +4595,19 @@ def _fitTuncProcessNoise(
         "windowCount": int(windowCount),
         "windowLength": int(windowLength),
         "qScaleClampFraction": float(clampFraction),
-        "tuncPriorDf": float(priorDf),
-        "tuncPriorDfSource": "method_of_moments",
-        "tuncPriorScale": float(priorDfScale),
-        "tuncLevelBufferZ": float(levelBufferZ),
-        "tuncDependenceMultiplier": float(tuncDependenceMultiplier),
-        "tuncLocalWindowMultiplier": float(tuncLocalWindowMultiplier),
-        "tuncUseReliabilityWeightedWindows": bool(tuncUseReliabilityWeightedWindows),
+        "puncPriorDf": float(priorDf),
+        "puncPriorDfSource": (
+            "method_of_moments"
+            if puncToggles["puncUsePriorDfMoments"] and windowStats
+            else "configured"
+        ),
+        "puncPriorScale": float(priorDfScale),
+        "puncLevelBufferZ": float(levelBufferZ),
+        "puncDependenceMultiplier": float(puncDependenceMultiplier),
+        "puncLocalWindowMultiplier": float(puncLocalWindowMultiplier),
+        "puncUseReliabilityWeightedWindows": bool(puncUseReliabilityWeightedWindows),
+        **puncToggles,
+        "puncStagesActive": True,
         "processCovariateCount": int(0 if covariates is None else covariates.shape[1]),
         "priorDesignColumnCount": int(len(priorDesignColumns)),
         "priorDesignColumns": tuple(priorDesignColumns),
@@ -4499,37 +4624,37 @@ def _fitTuncProcessNoise(
         "qScaleDecompositionMaxLogError": float(decompMaxLogError),
         "qScaleDecompositionMedianLogError": float(decompMedianLogError),
         "processQScaleSummary": _metadataTrackSummary(processQScale),
-        "tuncDeadbandHighProbabilityThreshold": float(_TUNC_DEADBAND_HIGH_PROBABILITY),
-        "tuncDeadbandHighTransitionCount": int(highTransitionCount),
-        "tuncDeadbandHighTransitionFraction": float(highTransitionFraction),
-        "tuncDeadbandHighTransitionWeight": float(highTransitionWeight),
-        "tuncDeadbandHighRawScaleSummary": _metadataTrackSummaryWhere(
+        "puncDeadbandHighProbabilityThreshold": float(_PUNC_DEADBAND_HIGH_PROBABILITY),
+        "puncDeadbandHighTransitionCount": int(highTransitionCount),
+        "puncDeadbandHighTransitionFraction": float(highTransitionFraction),
+        "puncDeadbandHighTransitionWeight": float(highTransitionWeight),
+        "puncDeadbandHighRawScaleSummary": _metadataTrackSummaryWhere(
             rawScale,
             deadbandHighMask,
         ),
-        "tuncDeadbandHighTransitionScaleSummary": _metadataTrackSummaryWhere(
+        "puncDeadbandHighTransitionScaleSummary": _metadataTrackSummaryWhere(
             transitionScale,
             deadbandHighMask,
         ),
-        "tuncDeadbandHighRebasedProcessQScaleSummary": _metadataTrackSummaryWhere(
+        "puncDeadbandHighRebasedProcessQScaleSummary": _metadataTrackSummaryWhere(
             rebasedTransitionScale,
             deadbandHighMask,
         ),
-        "tuncDeadbandHighQLevelSummary": _metadataTrackSummaryWhere(
+        "puncDeadbandHighQLevelSummary": _metadataTrackSummaryWhere(
             levelQTrack,
             deadbandHighMask,
         ),
-        "tuncDeadbandHighQTrendSummary": _metadataTrackSummaryWhere(
+        "puncDeadbandHighQTrendSummary": _metadataTrackSummaryWhere(
             trendQTrack,
             deadbandHighMask,
         ),
-        "matrixQ0Final": matrixQ0Tunc.astype(float).tolist(),
-        "_tuncDeadbandHighIntervalMask": highIntervalMask,
+        "matrixQ0Final": matrixQ0Punc.astype(float).tolist(),
+        "_puncDeadbandHighIntervalMask": highIntervalMask,
     }
     diagnostics.update(levelBufferDiagnostics)
     diagnostics.update(priorDfDiagnostics)
     diagnostics.update(boundary)
-    return matrixQ0Tunc, processQScale, diagnostics
+    return matrixQ0Punc, processQScale, diagnostics
 
 
 def _resolveProcessNoiseFloor(minQ: float) -> float:
@@ -4573,10 +4698,10 @@ def _clampProcessNoiseMatrix(
     qCap = _resolveProcessNoiseCap(maxQ, minQ=qFloor)
     q0 = np.asarray(matrixQ0, dtype=np.float64)
     levelVariance = _clampProcessNoise(float(q0[0, 0]), qFloor=qFloor, qCap=qCap)
+    if stateModelMode == STATE_MODEL_LEVEL:
+        return np.asarray([[levelVariance]], dtype=np.float32)
     trendVariance = (
-        levelVariance
-        if stateModelMode == STATE_MODEL_LEVEL
-        else _clampProcessNoise(float(q0[1, 1]), qFloor=qFloor, qCap=qCap)
+        _clampProcessNoise(float(q0[1, 1]), qFloor=qFloor, qCap=qCap)
     )
     return constructMatrixQ(
         minDiagQ=qFloor,
@@ -4928,7 +5053,7 @@ def _estimateInitialProcessNoiseFromData(
     minQ: float,
     maxQ: float,
     deltaF: float,
-    tuncMaxScale: float,
+    puncMaxScale: float,
     processNoiseCalibration: str,
     robustTNu: float | None,
     qSeedPriorLevel: float = PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
@@ -5000,15 +5125,15 @@ def _estimateInitialProcessNoiseFromData(
     qBeforeGuardrail = qPosteriorMedian
     guardrailApplied = False
     calibrationMode = _normalizeProcessNoiseCalibrationMode(processNoiseCalibration)
-    tuncScale = float(tuncMaxScale)
+    puncScale = float(puncMaxScale)
     if (
-        calibrationMode == PROCESS_NOISE_CALIBRATION_TUNC
-        and np.isfinite(tuncScale)
-        and tuncScale > 0.0
+        calibrationMode == PROCESS_NOISE_CALIBRATION_PUNC
+        and np.isfinite(puncScale)
+        and puncScale > 0.0
         and np.isfinite(qTransition90)
         and qTransition90 > 0.0
     ):
-        guarded = max(qPosteriorMedian, qTransition90 / tuncScale)
+        guarded = max(qPosteriorMedian, qTransition90 / puncScale)
         guardrailApplied = bool(
             np.isfinite(qPosteriorMedian) and guarded > qPosteriorMedian * 1.000001
         )
@@ -5036,7 +5161,7 @@ def _estimateInitialProcessNoiseFromData(
     if stateModelMode == STATE_MODEL_LEVEL_TREND:
         deltaF_ = max(float(deltaF), 1.0e-12)
         qTrendRaw = (
-            qInit * float(PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO) / (deltaF_ * deltaF_)
+            qInit * float(PROCESS_DEFAULT_PUNC_TREND_SEED_RATIO) / (deltaF_ * deltaF_)
         )
         qTrendInit = _clampProcessNoise(
             qTrendRaw,
@@ -5058,12 +5183,12 @@ def _estimateInitialProcessNoiseFromData(
         if np.isfinite(qBeforeGuardrail) and qBeforeGuardrail > 0.0
         else False
     )
-    qSeedTuncCoverageQ90 = (
-        qTransition90 / max(qInit * tuncScale, np.finfo(np.float64).tiny)
-        if calibrationMode == PROCESS_NOISE_CALIBRATION_TUNC
+    qSeedPuncCoverageQ90 = (
+        qTransition90 / max(qInit * puncScale, np.finfo(np.float64).tiny)
+        if calibrationMode == PROCESS_NOISE_CALIBRATION_PUNC
         and np.isfinite(qTransition90)
-        and np.isfinite(tuncScale)
-        and tuncScale > 0.0
+        and np.isfinite(puncScale)
+        and puncScale > 0.0
         else float("nan")
     )
     diagnostics = {
@@ -5085,7 +5210,7 @@ def _estimateInitialProcessNoiseFromData(
         "qSeedPosteriorQ05Level": float(estimate.get("posteriorQ05Level", np.nan)),
         "qSeedPosteriorQ95Level": float(estimate.get("posteriorQ95Level", np.nan)),
         "qSeedTransitionQ90": float(qTransition90),
-        "qSeedTuncCoverageQ90": float(qSeedTuncCoverageQ90),
+        "qSeedPuncCoverageQ90": float(qSeedPuncCoverageQ90),
         "qSeedGuardrailApplied": bool(guardrailApplied),
         "qSeedLevelPreClamp": float(qBeforeGuardrail),
         "qSeedTrendPreClamp": float(qTrendRaw),
@@ -5217,17 +5342,27 @@ def runConsenrich(
     returnBackground: bool = False,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
     processNoiseCalibration: str = PROCESS_DEFAULT_NOISE_CALIBRATION,
+    qPriorLevel: float = PROCESS_DEFAULT_Q_PRIOR_LEVEL,
+    qPriorTrend: float = PROCESS_DEFAULT_Q_PRIOR_TREND,
     qSeedPriorLevel: float = PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
-    tuncLocalWindowMultiplier: float = PROCESS_DEFAULT_TUNC_LOCAL_WINDOW_MULTIPLIER,
-    tuncDependenceMultiplier: float = PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER,
-    tuncMinScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE,
-    tuncMaxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE,
-    tuncMinWindowWeight: float = PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
-    tuncPriorRidge: float = PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
-    tuncLevelBufferZ: float = PROCESS_DEFAULT_TUNC_LEVEL_BUFFER_Z,
-    tuncUseReliabilityWeightedWindows: bool = (
-        PROCESS_DEFAULT_TUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+    puncLocalWindowMultiplier: float = PROCESS_DEFAULT_PUNC_LOCAL_WINDOW_MULTIPLIER,
+    puncDependenceMultiplier: float = PROCESS_DEFAULT_PUNC_DEPENDENCE_MULTIPLIER,
+    puncMinScale: float = PROCESS_DEFAULT_PUNC_MIN_SCALE,
+    puncMaxScale: float = PROCESS_DEFAULT_PUNC_MAX_SCALE,
+    puncMinWindowWeight: float = PROCESS_DEFAULT_PUNC_MIN_WINDOW_WEIGHT,
+    puncPriorDf: float = PROCESS_DEFAULT_PUNC_PRIOR_DF,
+    puncPriorRidge: float = PROCESS_DEFAULT_PUNC_PRIOR_RIDGE,
+    puncLevelBufferZ: float = PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
+    puncUseReliabilityWeightedWindows: bool = (
+        PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
     ),
+    puncUseWarmupFit: bool = PROCESS_DEFAULT_PUNC_USE_WARMUP_FIT,
+    puncUseTransitionEvidence: bool = PROCESS_DEFAULT_PUNC_USE_TRANSITION_EVIDENCE,
+    puncUseScaleRebase: bool = PROCESS_DEFAULT_PUNC_USE_SCALE_REBASE,
+    puncUseGlobalScale: bool = PROCESS_DEFAULT_PUNC_USE_GLOBAL_SCALE,
+    puncUseBoundaryClamps: bool = PROCESS_DEFAULT_PUNC_USE_BOUNDARY_CLAMPS,
+    puncUsePriorDfMoments: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_DF_MOMENTS,
+    puncUsePriorShrinkage: bool = PROCESS_DEFAULT_PUNC_USE_PRIOR_SHRINKAGE,
     processNoiseWarmupECMIters: int = PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     processNoiseWarmupOuterPasses: int = PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
     processCovariates: np.ndarray | None = None,
@@ -5364,40 +5499,71 @@ def runConsenrich(
     if np.isnan(maxQ):
         raise ValueError("`maxQ` must not be NaN")
     maxQForAPN = np.inf if maxQ < 0.0 else max(maxQ, minQ)
-    qSeedPriorLevel = _checkFinitePositive("qSeedPriorLevel", qSeedPriorLevel)
-    if np.isfinite(maxQForAPN) and qSeedPriorLevel > maxQForAPN:
-        raise ValueError("`qSeedPriorLevel` must not exceed `maxQ`")
     processNoiseCalibrationMode = _normalizeProcessNoiseCalibrationMode(
         processNoiseCalibration
     )
-    if processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_TUNC and ECM_useAPN:
+
+    def _checkPriorProcessQ(name: str, value: float) -> float:
+        out = _checkFinitePositive(name, value)
+        if out < float(minQ):
+            raise ValueError(f"`{name}` must be greater than or equal to `minQ`")
+        if np.isfinite(maxQForAPN) and out > maxQForAPN:
+            raise ValueError(f"`{name}` must not exceed `maxQ`")
+        return float(out)
+
+    qPriorLevel = _checkPriorProcessQ("qPriorLevel", qPriorLevel)
+    qPriorTrend = _checkPriorProcessQ("qPriorTrend", qPriorTrend)
+    qSeedPriorLevel = _checkFinitePositive("qSeedPriorLevel", qSeedPriorLevel)
+    if np.isfinite(maxQForAPN) and qSeedPriorLevel > maxQForAPN:
+        raise ValueError("`qSeedPriorLevel` must not exceed `maxQ`")
+    if processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_PUNC and ECM_useAPN:
         raise ValueError(
-            "processNoiseCalibration='tunc' is mutually exclusive with ECM_useAPN=True"
+            "processNoiseCalibration='punc' is mutually exclusive with ECM_useAPN=True"
         )
-    tuncLocalWindowMultiplier = _checkFinitePositive(
-        "tuncLocalWindowMultiplier",
-        tuncLocalWindowMultiplier,
+    puncLocalWindowMultiplier = _checkFinitePositive(
+        "puncLocalWindowMultiplier",
+        puncLocalWindowMultiplier,
     )
-    tuncDependenceMultiplier = _checkFinitePositive(
-        "tuncDependenceMultiplier",
-        tuncDependenceMultiplier,
+    puncDependenceMultiplier = _checkFinitePositive(
+        "puncDependenceMultiplier",
+        puncDependenceMultiplier,
     )
-    tuncMinScale = _checkFinitePositive("tuncMinScale", tuncMinScale)
-    tuncMaxScale = _checkFinitePositive("tuncMaxScale", tuncMaxScale)
-    if float(tuncMaxScale) < float(tuncMinScale):
-        raise ValueError("tuncMaxScale must be greater than or equal to tuncMinScale")
-    tuncMinWindowWeight = _checkFiniteNonnegative(
-        "tuncMinWindowWeight",
-        tuncMinWindowWeight,
+    puncMinScale = _checkFinitePositive("puncMinScale", puncMinScale)
+    puncMaxScale = _checkFinitePositive("puncMaxScale", puncMaxScale)
+    if float(puncMaxScale) < float(puncMinScale):
+        raise ValueError("puncMaxScale must be greater than or equal to puncMinScale")
+    puncMinWindowWeight = _checkFiniteNonnegative(
+        "puncMinWindowWeight",
+        puncMinWindowWeight,
     )
-    tuncPriorRidge = _checkFiniteNonnegative("tuncPriorRidge", tuncPriorRidge)
-    tuncLevelBufferZ = _checkFiniteNonnegative(
-        "tuncLevelBufferZ",
-        tuncLevelBufferZ,
+    puncPriorDf = _checkFinitePositive("puncPriorDf", puncPriorDf)
+    puncPriorRidge = _checkFiniteNonnegative("puncPriorRidge", puncPriorRidge)
+    puncLevelBufferZ = _checkFiniteNonnegative(
+        "puncLevelBufferZ",
+        puncLevelBufferZ,
     )
-    if not isinstance(tuncUseReliabilityWeightedWindows, (bool, np.bool_)):
-        raise ValueError("tuncUseReliabilityWeightedWindows must be boolean")
-    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindows)
+    if not isinstance(puncUseReliabilityWeightedWindows, (bool, np.bool_)):
+        raise ValueError("puncUseReliabilityWeightedWindows must be boolean")
+    puncUseReliabilityWeightedWindows = bool(puncUseReliabilityWeightedWindows)
+    puncToggleValues = {
+        "puncUseWarmupFit": puncUseWarmupFit,
+        "puncUseTransitionEvidence": puncUseTransitionEvidence,
+        "puncUseScaleRebase": puncUseScaleRebase,
+        "puncUseGlobalScale": puncUseGlobalScale,
+        "puncUseBoundaryClamps": puncUseBoundaryClamps,
+        "puncUsePriorDfMoments": puncUsePriorDfMoments,
+        "puncUsePriorShrinkage": puncUsePriorShrinkage,
+    }
+    for puncToggleName, puncToggleValue in puncToggleValues.items():
+        if not isinstance(puncToggleValue, (bool, np.bool_)):
+            raise ValueError(f"{puncToggleName} must be boolean")
+    puncUseWarmupFit = bool(puncUseWarmupFit)
+    puncUseTransitionEvidence = bool(puncUseTransitionEvidence)
+    puncUseScaleRebase = bool(puncUseScaleRebase)
+    puncUseGlobalScale = bool(puncUseGlobalScale)
+    puncUseBoundaryClamps = bool(puncUseBoundaryClamps)
+    puncUsePriorDfMoments = bool(puncUsePriorDfMoments)
+    puncUsePriorShrinkage = bool(puncUsePriorShrinkage)
     processCovariatesArr = _coerceOptionalProcessCovariates(
         processCovariates,
         intervalCount=intervalCount,
@@ -5406,6 +5572,7 @@ def runConsenrich(
     processCalibrationSkipReason = (
         None
         if initialProcessQArr is not None
+        or processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
         else qCalibrationSupport.get("processNoiseCalibrationSkipReason")
     )
     processNoiseWarmupECMIters = max(1, int(processNoiseWarmupECMIters))
@@ -5486,14 +5653,17 @@ def runConsenrich(
                 int(qCalibrationSupport["activeAdjacentTransitionCount"]),
             ),
             ("process calibration skip reason", processCalibrationSkipReason or "none"),
-            ("TUNC prior df", "method_of_moments"),
-            ("TUNC local window multiplier", float(tuncLocalWindowMultiplier)),
             (
-                "TUNC reliability weighted windows",
-                bool(tuncUseReliabilityWeightedWindows),
+                "PUNC prior df",
+                "method_of_moments" if puncUsePriorDfMoments else float(puncPriorDf),
+            ),
+            ("PUNC local window multiplier", float(puncLocalWindowMultiplier)),
+            (
+                "PUNC reliability weighted windows",
+                bool(puncUseReliabilityWeightedWindows),
             ),
             (
-                "TUNC process covariates",
+                "PUNC process covariates",
                 0 if processCovariatesArr is None else processCovariatesArr.shape[1],
             ),
             ("background model fit", bool(fitBackground)),
@@ -5571,12 +5741,21 @@ def runConsenrich(
             minQ=float(minQ),
             maxQ=float(maxQ),
             deltaF=float(deltaFLocal),
-            tuncMaxScale=float(tuncMaxScale),
+            puncMaxScale=float(puncMaxScale),
             processNoiseCalibration=processNoiseCalibrationMode,
             robustTNu=ECM_robustTNu,
             qSeedPriorLevel=float(qSeedPriorLevel),
         )
         return matrixQ0Estimated
+
+    def buildFixedDiagonalMatrixQ0() -> np.ndarray:
+        return constructMatrixQ(
+            minDiagQ=float(minQ),
+            Q00=float(qPriorLevel),
+            Q01=0.0,
+            Q10=0.0,
+            Q11=float(qPriorTrend),
+        ).astype(np.float32, copy=False)
 
     def _runForwardBackward(
         *,
@@ -7045,11 +7224,12 @@ def runConsenrich(
     )
 
     matrixF = buildMatrixF(float(deltaF_fit))
-    matrixQ0 = (
-        np.ascontiguousarray(initialProcessQArr, dtype=np.float32).copy()
-        if initialProcessQArr is not None
-        else buildMatrixQ0(float(deltaF_fit))
-    )
+    if initialProcessQArr is not None:
+        matrixQ0 = np.ascontiguousarray(initialProcessQArr, dtype=np.float32).copy()
+    elif processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL:
+        matrixQ0 = buildFixedDiagonalMatrixQ0()
+    else:
+        matrixQ0 = buildMatrixQ0(float(deltaF_fit))
     matrixQ0 = _clampProcessNoiseMatrix(
         matrixQ0,
         stateModel=stateModelMode,
@@ -7079,6 +7259,7 @@ def runConsenrich(
         processNoiseCalibrationMode
         in {
             PROCESS_NOISE_CALIBRATION_SEED,
+            PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
             PROCESS_NOISE_CALIBRATION_FIXED,
         }
         or processCalibrationSkipReason is not None
@@ -7086,6 +7267,8 @@ def runConsenrich(
         skipReason = (
             str(processCalibrationSkipReason)
             if processCalibrationSkipReason is not None
+            else "fixed_diagonal"
+            if processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
             else processNoiseCalibrationMode
         )
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
@@ -7103,50 +7286,98 @@ def runConsenrich(
         warmupIters = int(processNoiseWarmupECMIters)
         warmupOuterIters = int(processNoiseWarmupOuterPasses)
         stageStart = time.perf_counter()
-        _logAsciiBlock(
-            "process noise warmup",
+        if puncUseWarmupFit:
+            _logAsciiBlock(
+                "process noise warmup",
+                (
+                    ("run label", logRunLabel),
+                    ("fit phase", "PUNC warmup fit"),
+                    ("purpose", "PUNC transition evidence warmup"),
+                    ("tracks", int(trackCount)),
+                    ("intervals", int(intervalCount)),
+                    ("outer passes", int(warmupOuterIters)),
+                    ("ECM max iterations", int(warmupIters)),
+                    ("proc precision weights", False),
+                    ("APN enabled", False),
+                ),
+                indentLevel=logIndentLevel + 1,
+                level=logCoreBlockLevel,
+            )
+            fitProcessNoiseWarmup = _fitOuter(
+                matrixDataLocal=matrixData,
+                matrixMuncLocal=matrixMunc,
+                matrixFLocal=matrixF,
+                matrixQ0Local=matrixQ0,
+                ecmItersLocal=warmupIters,
+                ecmRtolLocal=float(ECM_fixedBackgroundRtol),
+                outerItersLocal=int(warmupOuterIters),
+                minOuterItersLocal=1,
+                useProcPrecReweightOverride=False,
+                useAPNOverride=False,
+                initialBackgroundLocal=postQInitialBackground,
+                initialLambdaLocal=postQInitialLambda,
+                phaseLabel="PUNC warmup fit",
+                phaseIndentLevel=logIndentLevel + 1,
+                logAlternatingECMIterations=False,
+            )
+            postQInitialBackground = np.asarray(
+                fitProcessNoiseWarmup["background"],
+                dtype=np.float32,
+            )
+            postQInitialLambda = (
+                np.asarray(fitProcessNoiseWarmup["lambdaExp"], dtype=np.float32)
+                if fitProcessNoiseWarmup.get("lambdaExp") is not None
+                else initialObservationPrecisionArr
+            )
+        else:
+            evidenceBackground = (
+                np.zeros(intervalCount, dtype=np.float32)
+                if postQInitialBackground is None
+                else np.asarray(postQInitialBackground, dtype=np.float32)
+            )
+            adjustedEvidenceData = np.ascontiguousarray(
+                matrixData - evidenceBackground[None, :],
+                dtype=np.float32,
+            )
             (
-                ("run label", logRunLabel),
-                ("fit phase", "TUNC warmup fit"),
-                ("purpose", "TUNC transition evidence warmup"),
-                ("tracks", int(trackCount)),
-                ("intervals", int(intervalCount)),
-                ("outer passes", int(warmupOuterIters)),
-                ("ECM max iterations", int(warmupIters)),
-                ("proc precision weights", False),
-                ("APN enabled", False),
-            ),
-            indentLevel=logIndentLevel + 1,
-            level=logCoreBlockLevel,
-        )
-        fitProcessNoiseWarmup = _fitOuter(
-            matrixDataLocal=matrixData,
-            matrixMuncLocal=matrixMunc,
-            matrixFLocal=matrixF,
-            matrixQ0Local=matrixQ0,
-            ecmItersLocal=warmupIters,
-            ecmRtolLocal=float(ECM_fixedBackgroundRtol),
-            outerItersLocal=int(warmupOuterIters),
-            minOuterItersLocal=1,
-            useProcPrecReweightOverride=False,
-            useAPNOverride=False,
-            initialBackgroundLocal=postQInitialBackground,
-            initialLambdaLocal=postQInitialLambda,
-            phaseLabel="TUNC warmup fit",
-            phaseIndentLevel=logIndentLevel + 1,
-            logAlternatingECMIterations=False,
-        )
-        postQInitialBackground = np.asarray(
-            fitProcessNoiseWarmup["background"],
-            dtype=np.float32,
-        )
-        postQInitialLambda = (
-            np.asarray(fitProcessNoiseWarmup["lambdaExp"], dtype=np.float32)
-            if fitProcessNoiseWarmup.get("lambdaExp") is not None
-            else initialObservationPrecisionArr
-        )
+                _phiHatWarmup,
+                warmupNLL,
+                stateForwardWarmup,
+                stateCovarForwardWarmup,
+                pNoiseForwardWarmup,
+                stateSmoothedWarmup,
+                stateCovarSmoothedWarmup,
+                lagCovSmoothedWarmup,
+                postFitResidualsWarmup,
+                warmupNIS,
+            ) = _runForwardBackward(
+                matrixDataLocal=adjustedEvidenceData,
+                matrixMuncLocal=matrixMunc,
+                matrixFLocal=matrixF,
+                matrixQ0Local=matrixQ0,
+                lambdaExp=postQInitialLambda,
+                processPrecExp=None,
+                processQScaleLocal=None,
+                useProcPrecReweightLocal=False,
+                useAPNLocal=False,
+            )
+            fitProcessNoiseWarmup = {
+                "matrixMunc": matrixMunc,
+                "background": evidenceBackground,
+                "lambdaExp": postQInitialLambda,
+                "processPrecExp": None,
+                "stateForward": stateForwardWarmup,
+                "stateCovarForward": stateCovarForwardWarmup,
+                "pNoiseForward": pNoiseForwardWarmup,
+                "stateSmoothed": stateSmoothedWarmup,
+                "stateCovarSmoothed": stateCovarSmoothedWarmup,
+                "lagCovSmoothed": lagCovSmoothedWarmup,
+                "postFitResiduals": postFitResidualsWarmup,
+                "NIS": warmupNIS,
+                "sumNLL": float(warmupNLL),
+            }
         matrixQ0, processQScaleFinal, processNoiseCalibrationInfo = (
-            _fitTuncProcessNoise(
+            _fitPuncProcessNoise(
                 warmupFit=fitProcessNoiseWarmup,
                 matrixMunc=matrixMunc,
                 matrixF=matrixF,
@@ -7157,16 +7388,24 @@ def runConsenrich(
                 maxQ=float(maxQ),
                 blockLenIntervals=int(blockLenIntervals),
                 processCovariates=processCovariatesArr,
-                tuncLocalWindowMultiplier=float(tuncLocalWindowMultiplier),
-                tuncDependenceMultiplier=float(tuncDependenceMultiplier),
-                tuncMinScale=float(tuncMinScale),
-                tuncMaxScale=float(tuncMaxScale),
-                tuncMinWindowWeight=float(tuncMinWindowWeight),
-                tuncPriorRidge=float(tuncPriorRidge),
-                tuncLevelBufferZ=float(tuncLevelBufferZ),
-                tuncUseReliabilityWeightedWindows=bool(
-                    tuncUseReliabilityWeightedWindows
+                puncLocalWindowMultiplier=float(puncLocalWindowMultiplier),
+                puncDependenceMultiplier=float(puncDependenceMultiplier),
+                puncMinScale=float(puncMinScale),
+                puncMaxScale=float(puncMaxScale),
+                puncMinWindowWeight=float(puncMinWindowWeight),
+                puncPriorDf=float(puncPriorDf),
+                puncPriorRidge=float(puncPriorRidge),
+                puncLevelBufferZ=float(puncLevelBufferZ),
+                puncUseReliabilityWeightedWindows=bool(
+                    puncUseReliabilityWeightedWindows
                 ),
+                puncUseWarmupFit=bool(puncUseWarmupFit),
+                puncUseTransitionEvidence=bool(puncUseTransitionEvidence),
+                puncUseScaleRebase=bool(puncUseScaleRebase),
+                puncUseGlobalScale=bool(puncUseGlobalScale),
+                puncUseBoundaryClamps=bool(puncUseBoundaryClamps),
+                puncUsePriorDfMoments=bool(puncUsePriorDfMoments),
+                puncUsePriorShrinkage=bool(puncUsePriorShrinkage),
                 observationPrecisionMultiplierMin=float(
                     observationPrecisionMultiplierMin
                 ),
@@ -7178,8 +7417,12 @@ def runConsenrich(
         processNoiseCalibrationInfo["warmupElapsedSeconds"] = float(
             time.perf_counter() - stageStart
         )
-        processNoiseCalibrationInfo["warmupECMIters"] = float(warmupIters)
-        processNoiseCalibrationInfo["warmupOuterPasses"] = float(warmupOuterIters)
+        processNoiseCalibrationInfo["warmupECMIters"] = (
+            float(warmupIters) if puncUseWarmupFit else 0.0
+        )
+        processNoiseCalibrationInfo["warmupOuterPasses"] = (
+            float(warmupOuterIters) if puncUseWarmupFit else 0.0
+        )
     if processNoiseCalibrationInfo is None:
         raise RuntimeError("process-noise calibration did not produce diagnostics")
     if qSeedDiagnostics:
@@ -7188,6 +7431,9 @@ def runConsenrich(
     processNoiseCalibrationInfo["resolvedMinQ"] = float(minQ)
     processNoiseCalibrationInfo["resolvedMaxQ"] = float(maxQForAPN)
     processNoiseCalibrationInfo["transitionCount"] = float(max(intervalCount - 1, 0))
+    processNoiseCalibrationInfo["processQScaleSummary"] = _metadataTrackSummary(
+        processQScaleFinal
+    )
     _logEvent(
         "process_noise.calibration",
         (
@@ -7287,6 +7533,22 @@ def runConsenrich(
         obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
         obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
     )
+    finalMunc = np.asarray(fitFinal["matrixMunc"], dtype=np.float64)
+    finalObservationVariance = np.maximum(finalMunc + float(pad), 1.0e-12)
+    if bool(ECM_useObsPrecisionReweighting) and fitFinal.get("lambdaExp") is not None:
+        finalObsPrecision = np.clip(
+            np.asarray(fitFinal["lambdaExp"], dtype=np.float64).reshape(-1),
+            float(observationPrecisionMultiplierMin),
+            float(observationPrecisionMultiplierMax),
+        )
+        if finalObsPrecision.shape != (intervalCount,):
+            raise ValueError("lambdaExp length must match interval count")
+    else:
+        finalObsPrecision = np.ones(intervalCount, dtype=np.float64)
+    finalObsPrecision = np.maximum(finalObsPrecision, np.finfo(np.float64).tiny)
+    observationRTraceSummary = _metadataTrackSummary(
+        np.sum(finalObservationVariance, axis=0)
+    )
     processQDiagnostics = _processQDiagnosticsMetadata(
         matrixQ0=np.asarray(matrixQ0, dtype=np.float32),
         intervalCount=int(intervalCount),
@@ -7305,7 +7567,7 @@ def runConsenrich(
         procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
     )
     highIntervalMaskSource = processNoiseCalibrationInfo.get(
-        "_tuncDeadbandHighIntervalMask"
+        "_puncDeadbandHighIntervalMask"
     )
     if highIntervalMaskSource is not None:
         highIntervalMask = np.asarray(highIntervalMaskSource, dtype=bool).reshape(-1)
@@ -7339,16 +7601,16 @@ def runConsenrich(
             else:
                 kappaTrack = np.ones(intervalCount, dtype=np.float64)
             if kappaTrack.shape == (intervalCount,):
-                processNoiseCalibrationInfo["tuncDeadbandHighKappaSummary"] = (
+                processNoiseCalibrationInfo["puncDeadbandHighKappaSummary"] = (
                     _metadataTrackSummaryWhere(kappaTrack, highIntervalMask)
                 )
-            processNoiseCalibrationInfo["tuncDeadbandHighEffectiveQLevelSummary"] = (
+            processNoiseCalibrationInfo["puncDeadbandHighEffectiveQLevelSummary"] = (
                 _metadataTrackSummaryWhere(
                     finalQTracks["effectiveQLevel"],
                     highIntervalMask,
                 )
             )
-            processNoiseCalibrationInfo["tuncDeadbandHighEffectiveQTrendSummary"] = (
+            processNoiseCalibrationInfo["puncDeadbandHighEffectiveQTrendSummary"] = (
                 _metadataTrackSummaryWhere(
                     finalQTracks["effectiveQTrend"],
                     highIntervalMask,
@@ -7492,6 +7754,7 @@ def runConsenrich(
         "adaptive_process_noise_effective": bool(ECM_useAPN),
         "process_q_policy": processQDiagnostics["policy"],
         "process_q_diagnostics": processQDiagnostics,
+        "observation_r_trace": observationRTraceSummary,
     }
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
@@ -9465,7 +9728,7 @@ def _perIntervalOutputDiagnosticTracks(
         "preKappaQTrend": preKappaQTrend.astype(np.float32, copy=False),
         "effectiveQLevel": effectiveQLevel.astype(np.float32, copy=False),
         "effectiveQTrend": effectiveQTrend.astype(np.float32, copy=False),
-        "tuncQScale": qTracks["tuncQScale"].astype(np.float32, copy=False),
+        "puncQScale": qTracks["puncQScale"].astype(np.float32, copy=False),
         "muncTrace": muncTrace.astype(np.float32, copy=False),
         "sumGain0": sumGain0.astype(np.float32, copy=False),
         "sumGain1": sumGain1.astype(np.float32, copy=False),

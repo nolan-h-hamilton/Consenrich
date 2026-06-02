@@ -616,7 +616,7 @@ cpdef tuple cExpectedTransitionProcessEvidence(
     object seedQ,
     object matrixF=None,
 ):
-    r"""Return per-transition standardized process evidence for TUNC.
+    r"""Return per-transition standardized process evidence for PUNC.
 
     For transition ``i``, the scalar is
     ``trace(inv(seedQ) * E[w_i w_i.T]) / stateDim``.
@@ -6170,14 +6170,14 @@ def cTransformCountVarianceFloor(
     return out
 
 
-def cTuncObservationInformation(
+def cPuncObservationInformation(
     object matrixMunc,
     double pad,
     object lambdaExp=None,
     double observationPrecisionMultiplierMin=1.0,
     double observationPrecisionMultiplierMax=1.0,
 ):
-    r"""Interval information reduction for TUNC with a nogil inner loop."""
+    r"""Interval information reduction for PUNC with a nogil inner loop."""
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] munc = np.ascontiguousarray(matrixMunc, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] lam
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] info
@@ -6477,14 +6477,14 @@ def cbackgroundWeightedStats(object residualMatrix, object invVarMatrix):
     return weightArr, rhsArr
 
 
-def ctuncObservationInformation(
+def cpuncObservationInformation(
     object matrixMunc,
     double pad,
     object lambdaExp=None,
     double observationPrecisionMultiplierMin=1.0,
     double observationPrecisionMultiplierMax=1.0,
 ):
-    return cTuncObservationInformation(
+    return cPuncObservationInformation(
         matrixMunc,
         pad,
         lambdaExp=lambdaExp,
@@ -6493,7 +6493,7 @@ def ctuncObservationInformation(
     )
 
 
-def crebaseTuncIntervalScales(object seedQ, object baseQ, object rawScale, object stateModel):
+def crebasePuncIntervalScales(object seedQ, object baseQ, object rawScale, object stateModel):
     r"""Rebase transition scalar Q scales from seed-Q units to final base-Q units."""
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] seedArr = np.ascontiguousarray(seedQ, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] baseArr = np.ascontiguousarray(baseQ, dtype=np.float64)

@@ -143,7 +143,7 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
         "prekappaqtrend": "preKappaQTrend",
         "effectiveqlevel": "effectiveQLevel",
         "effectiveqtrend": "effectiveQTrend",
-        "tuncqscale": "tuncQScale",
+        "puncqscale": "puncQScale",
         "munctrace": "muncTrace",
         "rtrace": "muncTrace",
         "sumgain0": "sumGain0",
@@ -351,32 +351,32 @@ def _normalizeProcessNoiseCalibration(value: Any) -> str:
     return _sharedNormalizeProcessNoiseCalibration(value)
 
 
-def _normalizeTuncCovariatesMode(value: Any) -> str:
-    raw = constants.PROCESS_DEFAULT_TUNC_COVARIATES_MODE if value is None else value
+def _normalizePuncCovariatesMode(value: Any) -> str:
+    raw = constants.PROCESS_DEFAULT_PUNC_COVARIATES_MODE if value is None else value
     key = str(raw).strip().replace("-", "").replace("_", "").lower()
     canonicalByKey = {
         mode.replace("-", "").replace("_", "").lower(): mode
-        for mode in constants.TUNC_SUPPORTED_COVARIATE_MODES
+        for mode in constants.PUNC_SUPPORTED_COVARIATE_MODES
     }
     if key not in canonicalByKey:
-        supported = ", ".join(constants.TUNC_SUPPORTED_COVARIATE_MODES)
+        supported = ", ".join(constants.PUNC_SUPPORTED_COVARIATE_MODES)
         raise ValueError(
-            f"Unsupported processParams.tuncProcessCovariates.mode {raw!r}. "
+            f"Unsupported processParams.puncProcessCovariates.mode {raw!r}. "
             f"Supported modes: {supported}."
         )
     return canonicalByKey[key]
 
 
-def _normalizeTuncCovariateFeatures(
+def _normalizePuncCovariateFeatures(
     value: Any,
     *,
     availableFeatures: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
     return resolve_genome_covariate_feature_config(
         value,
-        default_features=constants.PROCESS_DEFAULT_TUNC_COVARIATE_FEATURES,
+        default_features=constants.PROCESS_DEFAULT_PUNC_COVARIATE_FEATURES,
         available_features=availableFeatures,
-        config_name="processParams.tuncProcessCovariates.features",
+        config_name="processParams.puncProcessCovariates.features",
     )
 
 
@@ -1405,89 +1405,125 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             _cfgDefault(configData, "processParams.processNoiseCalibration"),
         )
     )
-    tuncLocalWindowMultiplier = _coerceTransformFloat(
+    puncLocalWindowMultiplier = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncLocalWindowMultiplier",
-            _cfgDefault(configData, "processParams.tuncLocalWindowMultiplier"),
+            "processParams.puncLocalWindowMultiplier",
+            _cfgDefault(configData, "processParams.puncLocalWindowMultiplier"),
         ),
-        name="processParams.tuncLocalWindowMultiplier",
+        name="processParams.puncLocalWindowMultiplier",
         positive=True,
     )
-    tuncDependenceMultiplier = _coerceTransformFloat(
+    puncDependenceMultiplier = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncDependenceMultiplier",
-            _cfgDefault(configData, "processParams.tuncDependenceMultiplier"),
+            "processParams.puncDependenceMultiplier",
+            _cfgDefault(configData, "processParams.puncDependenceMultiplier"),
         ),
-        name="processParams.tuncDependenceMultiplier",
+        name="processParams.puncDependenceMultiplier",
         positive=True,
     )
-    tuncMinScale = _coerceTransformFloat(
+    puncMinScale = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncMinScale",
-            _cfgDefault(configData, "processParams.tuncMinScale"),
+            "processParams.puncMinScale",
+            _cfgDefault(configData, "processParams.puncMinScale"),
         ),
-        name="processParams.tuncMinScale",
+        name="processParams.puncMinScale",
         positive=True,
     )
-    tuncMaxScale = _coerceTransformFloat(
+    puncMaxScale = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncMaxScale",
-            _cfgDefault(configData, "processParams.tuncMaxScale"),
+            "processParams.puncMaxScale",
+            _cfgDefault(configData, "processParams.puncMaxScale"),
         ),
-        name="processParams.tuncMaxScale",
+        name="processParams.puncMaxScale",
         positive=True,
     )
-    if float(tuncMaxScale) < float(tuncMinScale):
+    if float(puncMaxScale) < float(puncMinScale):
         raise ValueError(
-            "`processParams.tuncMaxScale` must be greater than or equal to "
-            "`processParams.tuncMinScale`."
+            "`processParams.puncMaxScale` must be greater than or equal to "
+            "`processParams.puncMinScale`."
         )
-    tuncMinWindowWeight = _coerceTransformFloat(
+    puncMinWindowWeight = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncMinWindowWeight",
-            _cfgDefault(configData, "processParams.tuncMinWindowWeight"),
+            "processParams.puncMinWindowWeight",
+            _cfgDefault(configData, "processParams.puncMinWindowWeight"),
         ),
-        name="processParams.tuncMinWindowWeight",
+        name="processParams.puncMinWindowWeight",
         positive=True,
     )
-    tuncPriorRidge = _coerceTransformFloat(
+    puncPriorDf = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncPriorRidge",
-            _cfgDefault(configData, "processParams.tuncPriorRidge"),
+            "processParams.puncPriorDf",
+            _cfgDefault(configData, "processParams.puncPriorDf"),
         ),
-        name="processParams.tuncPriorRidge",
+        name="processParams.puncPriorDf",
+        positive=True,
     )
-    if float(tuncPriorRidge) < 0.0:
-        raise ValueError("`processParams.tuncPriorRidge` must be non-negative.")
-    tuncLevelBufferZ = _coerceTransformFloat(
+    puncPriorRidge = _coerceTransformFloat(
         _cfgGet(
             configData,
-            "processParams.tuncLevelBufferZ",
-            _cfgDefault(configData, "processParams.tuncLevelBufferZ"),
+            "processParams.puncPriorRidge",
+            _cfgDefault(configData, "processParams.puncPriorRidge"),
         ),
-        name="processParams.tuncLevelBufferZ",
+        name="processParams.puncPriorRidge",
     )
-    if float(tuncLevelBufferZ) < 0.0:
-        raise ValueError("`processParams.tuncLevelBufferZ` must be non-negative.")
-    tuncUseReliabilityWeightedWindowsRaw = _cfgGet(
-        configData,
-        "processParams.tuncUseReliabilityWeightedWindows",
-        _cfgDefault(
+    if float(puncPriorRidge) < 0.0:
+        raise ValueError("`processParams.puncPriorRidge` must be non-negative.")
+    puncLevelBufferZ = _coerceTransformFloat(
+        _cfgGet(
             configData,
-            "processParams.tuncUseReliabilityWeightedWindows",
+            "processParams.puncLevelBufferZ",
+            _cfgDefault(configData, "processParams.puncLevelBufferZ"),
         ),
+        name="processParams.puncLevelBufferZ",
     )
-    if not isinstance(tuncUseReliabilityWeightedWindowsRaw, (bool, np.bool_)):
-        raise ValueError(
-            "`processParams.tuncUseReliabilityWeightedWindows` must be boolean."
+    if float(puncLevelBufferZ) < 0.0:
+        raise ValueError("`processParams.puncLevelBufferZ` must be non-negative.")
+    def coerceProcessBool(configName: str) -> bool:
+        rawBool = _cfgGet(
+            configData,
+            configName,
+            _cfgDefault(configData, configName),
         )
-    tuncUseReliabilityWeightedWindows = bool(tuncUseReliabilityWeightedWindowsRaw)
+        if not isinstance(rawBool, (bool, np.bool_)):
+            raise ValueError(f"`{configName}` must be boolean.")
+        return bool(rawBool)
+
+    puncUseReliabilityWeightedWindows = coerceProcessBool(
+        "processParams.puncUseReliabilityWeightedWindows"
+    )
+    puncUseWarmupFit = coerceProcessBool("processParams.puncUseWarmupFit")
+    puncUseTransitionEvidence = coerceProcessBool(
+        "processParams.puncUseTransitionEvidence"
+    )
+    puncUseScaleRebase = coerceProcessBool("processParams.puncUseScaleRebase")
+    puncUseGlobalScale = coerceProcessBool("processParams.puncUseGlobalScale")
+    puncUseBoundaryClamps = coerceProcessBool("processParams.puncUseBoundaryClamps")
+    puncUsePriorDfMoments = coerceProcessBool("processParams.puncUsePriorDfMoments")
+    puncUsePriorShrinkage = coerceProcessBool("processParams.puncUsePriorShrinkage")
+    qPriorLevel = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.qPriorLevel",
+            _cfgDefault(configData, "processParams.qPriorLevel"),
+        ),
+        name="processParams.qPriorLevel",
+        positive=True,
+    )
+    qPriorTrend = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.qPriorTrend",
+            _cfgDefault(configData, "processParams.qPriorTrend"),
+        ),
+        name="processParams.qPriorTrend",
+        positive=True,
+    )
     qSeedPriorLevel = _coerceTransformFloat(
         _cfgGet(
             configData,
@@ -1497,24 +1533,24 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         name="processParams.qSeedPriorLevel",
         positive=True,
     )
-    tuncProcessCovariatesEnabled = bool(
+    puncProcessCovariatesEnabled = bool(
         _cfgGet(
             configData,
-            "processParams.tuncProcessCovariates.enabled",
-            _cfgDefault(configData, "processParams.tuncProcessCovariates.enabled"),
+            "processParams.puncProcessCovariates.enabled",
+            _cfgDefault(configData, "processParams.puncProcessCovariates.enabled"),
         )
     )
-    tuncProcessCovariatesMode = _normalizeTuncCovariatesMode(
+    puncProcessCovariatesMode = _normalizePuncCovariatesMode(
         _cfgGet(
             configData,
-            "processParams.tuncProcessCovariates.mode",
-            _cfgDefault(configData, "processParams.tuncProcessCovariates.mode"),
+            "processParams.puncProcessCovariates.mode",
+            _cfgDefault(configData, "processParams.puncProcessCovariates.mode"),
         )
     )
-    tuncProcessCovariatesFeaturesRaw = _cfgGet(
+    puncProcessCovariatesFeaturesRaw = _cfgGet(
         configData,
-        "processParams.tuncProcessCovariates.features",
-        _cfgDefault(configData, "processParams.tuncProcessCovariates.features"),
+        "processParams.puncProcessCovariates.features",
+        _cfgDefault(configData, "processParams.puncProcessCovariates.features"),
     )
     processNoiseWarmupECMIters = int(
         _cfgGet(
@@ -1539,34 +1575,34 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "`processParams.processNoiseWarmupOuterPasses` must be a positive integer."
         )
     processGenomeCovariateValidation = None
-    if tuncProcessCovariatesEnabled:
+    if puncProcessCovariatesEnabled:
         if not genomeParams.genomeCovariateCacheDir:
             raise ValueError(
                 "`genomeParams.genomeCovariateCacheDir` is required when "
-                "`processParams.tuncProcessCovariates.enabled` is true."
+                "`processParams.puncProcessCovariates.enabled` is true."
             )
         processGenomeCovariateValidation = validate_genome_covariate_cache(
             genomeParams.genomeCovariateCacheDir,
             interval_size_bp=countingParams.intervalSizeBP,
         )
-    tuncProcessCovariatesFeatures = _normalizeTuncCovariateFeatures(
-        tuncProcessCovariatesFeaturesRaw,
+    puncProcessCovariatesFeatures = _normalizePuncCovariateFeatures(
+        puncProcessCovariatesFeaturesRaw,
         availableFeatures=(
             processGenomeCovariateValidation.features
             if processGenomeCovariateValidation is not None
             else None
         ),
     )
-    if tuncProcessCovariatesEnabled and not tuncProcessCovariatesFeatures:
+    if puncProcessCovariatesEnabled and not puncProcessCovariatesFeatures:
         raise ValueError(
-            "`processParams.tuncProcessCovariates.features` must select at least "
-            "one feature when TUNC process covariates are enabled."
+            "`processParams.puncProcessCovariates.features` must select at least "
+            "one feature when PUNC process covariates are enabled."
         )
-    if tuncProcessCovariatesEnabled and processGenomeCovariateValidation is not None:
+    if puncProcessCovariatesEnabled and processGenomeCovariateValidation is not None:
         processGenomeCovariateValidation.validate_request(
-            required_features=tuncProcessCovariatesFeatures,
+            required_features=puncProcessCovariatesFeatures,
             interval_size_bp=countingParams.intervalSizeBP,
-            required_features_label="requested TUNC process features",
+            required_features_label="requested PUNC process features",
         )
     processArgs = _buildProcessArgs(
         {
@@ -1590,19 +1626,29 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 "processParams.maxQ",
                 _cfgDefault(configData, "processParams.maxQ"),
             ),
+            "qPriorLevel": qPriorLevel,
+            "qPriorTrend": qPriorTrend,
             "qSeedPriorLevel": qSeedPriorLevel,
             "processNoiseCalibration": processNoiseCalibration,
-            "tuncLocalWindowMultiplier": tuncLocalWindowMultiplier,
-            "tuncDependenceMultiplier": tuncDependenceMultiplier,
-            "tuncMinScale": tuncMinScale,
-            "tuncMaxScale": tuncMaxScale,
-            "tuncMinWindowWeight": tuncMinWindowWeight,
-            "tuncPriorRidge": tuncPriorRidge,
-            "tuncLevelBufferZ": tuncLevelBufferZ,
-            "tuncUseReliabilityWeightedWindows": tuncUseReliabilityWeightedWindows,
-            "tuncProcessCovariatesEnabled": tuncProcessCovariatesEnabled,
-            "tuncProcessCovariatesMode": tuncProcessCovariatesMode,
-            "tuncProcessCovariatesFeatures": tuncProcessCovariatesFeatures,
+            "puncLocalWindowMultiplier": puncLocalWindowMultiplier,
+            "puncDependenceMultiplier": puncDependenceMultiplier,
+            "puncMinScale": puncMinScale,
+            "puncMaxScale": puncMaxScale,
+            "puncMinWindowWeight": puncMinWindowWeight,
+            "puncPriorDf": puncPriorDf,
+            "puncPriorRidge": puncPriorRidge,
+            "puncLevelBufferZ": puncLevelBufferZ,
+            "puncUseReliabilityWeightedWindows": puncUseReliabilityWeightedWindows,
+            "puncUseWarmupFit": puncUseWarmupFit,
+            "puncUseTransitionEvidence": puncUseTransitionEvidence,
+            "puncUseScaleRebase": puncUseScaleRebase,
+            "puncUseGlobalScale": puncUseGlobalScale,
+            "puncUseBoundaryClamps": puncUseBoundaryClamps,
+            "puncUsePriorDfMoments": puncUsePriorDfMoments,
+            "puncUsePriorShrinkage": puncUsePriorShrinkage,
+            "puncProcessCovariatesEnabled": puncProcessCovariatesEnabled,
+            "puncProcessCovariatesMode": puncProcessCovariatesMode,
+            "puncProcessCovariatesFeatures": puncProcessCovariatesFeatures,
             "processNoiseWarmupECMIters": processNoiseWarmupECMIters,
             "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
             "precisionMultiplierMin": float(
@@ -2224,6 +2270,21 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         ),
     )
 
+    minPeakScore = _cfgGet(
+        configData,
+        "matchingParams.minPeakScore",
+        constants.MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    )
+    if minPeakScore is not None:
+        if isinstance(minPeakScore, bool):
+            raise ValueError("matchingParams.minPeakScore must be numeric")
+        try:
+            minPeakScore = float(minPeakScore)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("matchingParams.minPeakScore must be numeric") from exc
+        if not np.isfinite(minPeakScore):
+            raise ValueError("matchingParams.minPeakScore must be finite")
+
     matchingArgs = core.matchingParams(
         enabled=bool(
             _cfgGet(
@@ -2311,6 +2372,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_METADATA_DETAIL,
             )
         ),
+        minPeakScore=minPeakScore,
     )
 
     return {

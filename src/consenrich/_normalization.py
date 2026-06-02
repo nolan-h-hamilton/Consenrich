@@ -195,8 +195,10 @@ def normalize_process_noise_calibration(value: Any) -> str:
     raw = constants.PROCESS_DEFAULT_NOISE_CALIBRATION if value is None else value
     key = str(raw).strip().replace("-", "_").lower()
     aliases = {
-        "tunc": constants.PROCESS_NOISE_CALIBRATION_TUNC,
+        "punc": constants.PROCESS_NOISE_CALIBRATION_PUNC,
         "seed": constants.PROCESS_NOISE_CALIBRATION_SEED,
+        "fixeddiagonal": constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
+        "fixed_diagonal": constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
         "fixed": constants.PROCESS_NOISE_CALIBRATION_FIXED,
         "none": constants.PROCESS_NOISE_CALIBRATION_SEED,
         "warm_start": constants.PROCESS_NOISE_CALIBRATION_FIXED,

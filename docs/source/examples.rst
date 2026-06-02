@@ -418,15 +418,15 @@ Want stronger (weaker) shrinkage to the smooth prior process model?
   the data.
 * ``processParams.minQ``: Decrease the level-noise floor to permit smoother
   state estimates. Increase it only when the fitted state is too stiff.
-* ``processParams.processNoiseCalibration``: Default is ``tunc``. Use ``seed``
+* ``processParams.processNoiseCalibration``: Default is ``punc``. Use ``seed``
   to fit the robust global seed without local process-Q scaling, or ``fixed``
   to keep the seeded process noise fixed.
-* ``processParams.tuncMinScale`` and ``processParams.tuncMaxScale``: Narrow
-  these bounds when local TUNC process-Q scaling should be more conservative.
+* ``processParams.puncMinScale`` and ``processParams.puncMaxScale``: Narrow
+  these bounds when local PUNC process-Q scaling should be more conservative.
 * ``outputParams.diagnosticTracks``: Use ``preKappaQLevel``,
   ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``, and
-  ``tuncQScale`` for process-Q diagnostics. ``tuncQScale[0]`` is fixed to 1;
-  the transition into interval ``i`` uses ``tuncQScale[i]``.
+  ``puncQScale`` for process-Q diagnostics. ``puncQScale[0]`` is fixed to 1;
+  the transition into interval ``i`` uses ``puncQScale[i]``.
 
 Want broader (narrower) signal resolution?
 
