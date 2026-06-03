@@ -606,9 +606,7 @@ def _jsonDiagnosticValue(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return value.astype(float).tolist()
     if isinstance(value, Mapping):
-        return {
-            str(key): _jsonDiagnosticValue(item) for key, item in value.items()
-        }
+        return {str(key): _jsonDiagnosticValue(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_jsonDiagnosticValue(item) for item in value]
     if isinstance(value, (float, np.floating)):
@@ -669,14 +667,18 @@ def _selectPrecisionDiagnosticIntervalRows(
     else:
         raise ValueError(f"Unsupported precision diagnostic detail {detail!r}")
     selected = frame.iloc[positions].copy() if positions.size else frame.iloc[[]].copy()
-    return selected, positions, {
-        "detail": detail_,
-        "rows_total": totalRows,
-        "rows_written": int(positions.size),
-        "rows_omitted": int(max(totalRows - int(positions.size), 0)),
-        "max_rows_per_chromosome": int(maxRowsPerChromosome),
-        "sampled": bool(int(positions.size) < totalRows),
-    }
+    return (
+        selected,
+        positions,
+        {
+            "detail": detail_,
+            "rows_total": totalRows,
+            "rows_written": int(positions.size),
+            "rows_omitted": int(max(totalRows - int(positions.size), 0)),
+            "max_rows_per_chromosome": int(maxRowsPerChromosome),
+            "sampled": bool(int(positions.size) < totalRows),
+        },
+    )
 
 
 def _genomeOptimizationPathPrefix(experimentName: str) -> str:
@@ -1090,7 +1092,9 @@ def _precisionDiagnosticsFrame(
                 f"processPrecExp length mismatch for {chromosome}: expected {n}, got {kappaArr.size}"
             )
     if not np.all(np.isfinite(kappaArr)):
-        raise RuntimeError(f"processPrecExp contains non-finite values for {chromosome}")
+        raise RuntimeError(
+            f"processPrecExp contains non-finite values for {chromosome}"
+        )
     kappaArr = np.maximum(kappaArr, np.finfo(np.float64).tiny)
 
     q = np.asarray(matrixQ0, dtype=np.float64)
@@ -1478,19 +1482,13 @@ def _runSummaryRow(
         "elapsed_seconds": float(elapsedSeconds),
         "output_track_count": int(outputTrackCount),
         "final_nll": _summaryNumber(runDiagnostics.get("final_nll")),
-        "final_forward_nis": _summaryNumber(
-            runDiagnostics.get("final_forward_nis")
-        ),
+        "final_forward_nis": _summaryNumber(runDiagnostics.get("final_forward_nis")),
         "process_q_policy": runDiagnostics.get("process_q_policy"),
         "process_q_trace_min": _summaryNumber(processQ.get("effectiveQTraceMin")),
-        "process_q_trace_median": _summaryNumber(
-            processQ.get("effectiveQTraceMedian")
-        ),
+        "process_q_trace_median": _summaryNumber(processQ.get("effectiveQTraceMedian")),
         "process_q_trace_max": _summaryNumber(processQ.get("effectiveQTraceMax")),
         "observation_r_trace_min": _summaryNumber(observationRTrace.get("min")),
-        "observation_r_trace_median": _summaryNumber(
-            observationRTrace.get("median")
-        ),
+        "observation_r_trace_median": _summaryNumber(observationRTrace.get("median")),
         "observation_r_trace_max": _summaryNumber(observationRTrace.get("max")),
         "process_noise_status": processNoise.get("processNoiseCalibrationStatus"),
         "process_noise_reason": processNoise.get("processNoiseCalibrationReason"),
@@ -1507,9 +1505,7 @@ def _runSummaryRow(
         "state_roughness_block_q90": _summaryNumber(
             stateRoughness.get("block_mean_abs_diff_q90")
         ),
-        "delete_block_global_factor": _summaryNumber(
-            calibration.get("global_factor")
-        ),
+        "delete_block_global_factor": _summaryNumber(calibration.get("global_factor")),
         "delete_block_rows_valid": _summaryInt(calibration.get("rows_valid")),
         "delete_block_rows_fit": _summaryInt(calibration.get("rows_fit")),
         "delete_block_scale": _summaryNumber(
@@ -1796,9 +1792,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     matchingArgs = config["matchingArgs"]
     fitArgs = config["fitArgs"]
     processKappaMin = float(processArgs.precisionMultiplierMin)
-    processKappaMinLabel = (
-        "auto" if processKappaMin < 0.0 else f"{processKappaMin:.6g}"
-    )
+    processKappaMinLabel = "auto" if processKappaMin < 0.0 else f"{processKappaMin:.6g}"
 
     def yn(value: Any) -> str:
         return "yes" if bool(value) else "no"
@@ -2165,9 +2159,7 @@ class _ConsoleFormatter(logging.Formatter):
         message = record.getMessage()
         if getattr(record, _CONSOLE_PHASE_ATTR, False):
             if self.colorPhaseHeaders:
-                message = (
-                    f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
-                )
+                message = f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
             message = "\n\n" + message
         elif getattr(record, _CONSOLE_BLUE_ATTR, False) and self.colorPhaseHeaders:
             message = f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
@@ -3475,7 +3467,9 @@ def main():
             for budgetIndex in np.argsort(-tileBudgets):
                 if budgetDelta == 0:
                     break
-                removable = min(int(tileBudgets[int(budgetIndex)] - 1), int(-budgetDelta))
+                removable = min(
+                    int(tileBudgets[int(budgetIndex)] - 1), int(-budgetDelta)
+                )
                 if removable <= 0:
                     continue
                 tileBudgets[int(budgetIndex)] -= int(removable)
@@ -3732,24 +3726,26 @@ def main():
                 if useCountNoiseFloor:
                     if countModelVarianceFloorMat is None:
                         raise RuntimeError("count floor matrix missing")
-                    countModelVarianceFloorMat[j_, :] = _combineCountModelVarianceFloors(
-                        _countModelVarianceFloorForScaledCounts(
-                            pairMatrix[0, :],
-                            treatScaleFactors[j_],
-                            countingArgs,
-                            countModelSource=_sourceUsesCountModelFloor(
-                                treatmentSources[j_]
+                    countModelVarianceFloorMat[j_, :] = (
+                        _combineCountModelVarianceFloors(
+                            _countModelVarianceFloorForScaledCounts(
+                                pairMatrix[0, :],
+                                treatScaleFactors[j_],
+                                countingArgs,
+                                countModelSource=_sourceUsesCountModelFloor(
+                                    treatmentSources[j_]
+                                ),
                             ),
-                        ),
-                        _countModelVarianceFloorForScaledCounts(
-                            pairMatrix[1, :],
-                            controlScaleFactors[j_],
-                            countingArgs,
-                            countModelSource=_sourceUsesCountModelFloor(
-                                controlSources[j_]
+                            _countModelVarianceFloorForScaledCounts(
+                                pairMatrix[1, :],
+                                controlScaleFactors[j_],
+                                countingArgs,
+                                countModelSource=_sourceUsesCountModelFloor(
+                                    controlSources[j_]
+                                ),
                             ),
-                        ),
-                    ).astype(np.float32, copy=False)
+                        ).astype(np.float32, copy=False)
+                    )
                 cconsenrich.cTransformWithInputInto(
                     pairMatrix[0, :],
                     pairMatrix[1, :],
@@ -4480,14 +4476,16 @@ def main():
             _MUNC_NUMERIC_VARIANCE_FLOOR,
         ).astype(np.float32)
 
-        defaultTileBP = max(50_000, 10 * int(muncSizing.localWindowSizeBP))
+        defaultTileBP = max(5_000, 2 * int(muncSizing.localWindowSizeBP))
         priorTileBP = (
             defaultTileBP
             if muncEBPriorTileSizeBP is None
             else int(muncEBPriorTileSizeBP)
         )
         if priorTileBP <= 0:
-            raise ValueError("observationParams.muncEBPrior.tileSizeBP must be positive")
+            raise ValueError(
+                "observationParams.muncEBPrior.tileSizeBP must be positive"
+            )
         tileIntervals = max(
             2,
             int(math.ceil(float(priorTileBP) / float(intervalSizeBP))),
@@ -4528,7 +4526,9 @@ def main():
             (tileWeightAll > 0.0) & np.isfinite(tilePredictorArrAll)
         )
         if finiteTileIdx.size == 0:
-            raise RuntimeError(f"MUNC EB prior has no valid broad tiles for {chromosomeName}")
+            raise RuntimeError(
+                f"MUNC EB prior has no valid broad tiles for {chromosomeName}"
+            )
         priorTileCount = min(
             int(muncEBPriorTileBudgetByChromosome[int(c_)]),
             int(finiteTileIdx.size),
@@ -4613,10 +4613,9 @@ def main():
             [muncEBPriorSupportMinQ, muncEBPriorSupportMaxQ],
         )
         sampledPredictor = tilePredictorArrAll[sampledIdx]
-        if (
-            float(np.min(sampledPredictor)) > float(qLo)
-            or float(np.max(sampledPredictor)) < float(qHi)
-        ):
+        if float(np.min(sampledPredictor)) > float(qLo) or float(
+            np.max(sampledPredictor)
+        ) < float(qHi):
             raise RuntimeError(
                 "MUNC EB prior sampled tiles do not span requested signal support"
             )
@@ -4651,7 +4650,9 @@ def main():
         if bool(observationArgs.EB_use):
             segmentMaxIntervals = max(
                 int(tileIntervals),
-                int(math.ceil(5_000_000.0 / float(intervalSizeBP))),
+                int(
+                    math.ceil(10_000_000.0 / float(intervalSizeBP))
+                ),  # FFR: check against contig len
             )
             segmentStart = int(startsArr[0])
             segmentEnd = int(endsArr[0])
@@ -4661,7 +4662,10 @@ def main():
                 tileEnd = int(endsArr[tileIndex])
                 gap = tileStart - segmentEnd
                 mergedLength = tileEnd - segmentStart
-                if gap <= 2 * int(tileIntervals) and mergedLength <= segmentMaxIntervals:
+                if (
+                    gap <= 2 * int(tileIntervals)
+                    and mergedLength <= segmentMaxIntervals
+                ):
                     segmentEnd = tileEnd
                     continue
                 startupSegments.append(
@@ -4689,7 +4693,10 @@ def main():
             )
             seedStartIndex, seedEndIndex, _seedTileStart, _seedTileEnd = max(
                 startupSegments,
-                key=lambda segment: (int(segment[1]) - int(segment[0]), -int(segment[0])),
+                key=lambda segment: (
+                    int(segment[1]) - int(segment[0]),
+                    -int(segment[0]),
+                ),
             )
             seedSegmentSlice = slice(int(seedStartIndex), int(seedEndIndex))
             startupSeedQStart = time.perf_counter()
@@ -4733,6 +4740,7 @@ def main():
                 float(startupQDiagnostics["qSeedTrendFinal"]),
                 time.perf_counter() - startupSeedQStart,
             )
+
         def _fitStartupSegment(
             segmentIndex: int,
             segment: tuple[int, int, int, int],
@@ -4819,7 +4827,9 @@ def main():
                 == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY
             ):
                 gUncertainty = core._diagonalBackgroundUncertainty(
-                    np.ascontiguousarray(seedMuncArr[:, segmentSlice], dtype=np.float32),
+                    np.ascontiguousarray(
+                        seedMuncArr[:, segmentSlice], dtype=np.float32
+                    ),
                     blockLenIntervals=priorBlockLenIntervals,
                     pad=pad_,
                     lambdaExp=startupLambda,
@@ -4870,7 +4880,9 @@ def main():
             for tilePos in range(int(tileStartPos), int(tileEndPos)):
                 tileStart = int(startsArr[tilePos])
                 tileEnd = int(endsArr[tilePos])
-                localSlice = slice(tileStart - int(startIndex), tileEnd - int(startIndex))
+                localSlice = slice(
+                    tileStart - int(startIndex), tileEnd - int(startIndex)
+                )
                 tileSlice = slice(tileStart, tileEnd)
                 evidenceTile = (
                     lambdaTrack[None, localSlice]
@@ -4892,7 +4904,9 @@ def main():
                 int(len(startupSegments)),
                 maxWorkers=4,
             )
-            useParallelStartup = int(len(startupSegments)) > 1 and startupThreadCount > 1
+            useParallelStartup = (
+                int(len(startupSegments)) > 1 and startupThreadCount > 1
+            )
             if useParallelStartup:
                 logger.info(
                     "MUNC EB prior startup %s thread_count=%d segments=%d",
@@ -6205,7 +6219,9 @@ def main():
                         "intervals": np.asarray(intervals, dtype=np.int64).copy(),
                         "fullP": np.asarray(P00_, dtype=np.float64).copy(),
                         "model": dict(calibrationResult.model),
-                        "factor": np.asarray(calibrationResult.factor, dtype=np.float64),
+                        "factor": np.asarray(
+                            calibrationResult.factor, dtype=np.float64
+                        ),
                         "calibrated": np.asarray(
                             calibrationResult.calibratedUncertainty,
                             dtype=np.float32,
@@ -6241,9 +6257,7 @@ def main():
             _fmtDiagnosticFloat(observationRTrace.get("min")),
             _fmtDiagnosticFloat(observationRTrace.get("median")),
             _fmtDiagnosticFloat(observationRTrace.get("max")),
-            _fmtDiagnosticFloat(
-                postFitDiagnostics.get("relative_sign_change_per_kb")
-            ),
+            _fmtDiagnosticFloat(postFitDiagnostics.get("relative_sign_change_per_kb")),
             blue=True,
         )
 
@@ -6386,7 +6400,9 @@ def main():
 
     if segShrinkGenomeRequested:
         if not segShrinkDeferredUncertainty:
-            raise ValueError("segShrink uncertainty calibration has no processed contigs")
+            raise ValueError(
+                "segShrink uncertainty calibration has no processed contigs"
+            )
         from consenrich import segshrink as segshrink_module
 
         _logCliProgressMilestone(
@@ -6422,15 +6438,17 @@ def main():
                 lineterminator="\n",
             )
             summaryRowIndex = item.get("summaryRowIndex")
-            if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(runSummaryRows):
+            if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(
+                runSummaryRows
+            ):
                 runSummaryRows[summaryRowIndex]["delete_block_global_factor"] = (
                     _summaryNumber(item["model"].get("global_factor"))
                 )
                 runSummaryRows[summaryRowIndex]["delete_block_rows_valid"] = (
                     _summaryInt(item["model"].get("rows_valid"))
                 )
-                runSummaryRows[summaryRowIndex]["delete_block_rows_fit"] = (
-                    _summaryInt(item["model"].get("rows_fit"))
+                runSummaryRows[summaryRowIndex]["delete_block_rows_fit"] = _summaryInt(
+                    item["model"].get("rows_fit")
                 )
             if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
                 _appendKeyValueDiagnostics(
