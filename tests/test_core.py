@@ -18,6 +18,7 @@ import scipy.stats as stats
 import scipy.signal as spySig  # renamed to avoid conflict with any `signal` variables
 
 import consenrich.core as core
+import consenrich.constants as constants
 import consenrich.consenrich as consenrichRuntime
 import consenrich.ccounts as ccounts
 import consenrich.cconsenrich as cconsenrich
@@ -314,7 +315,7 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
 
 
 @pytest.mark.correctness
-def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
+def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
     intervalCount = 20
     intervalSizeBP = 1_000_000
     sampleCount = 2
@@ -322,7 +323,7 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
     chromSizesPath = tmp_path / "chrom.sizes"
     chromSizesPath.write_text(f"chrTest\t{chromSize}\n", encoding="utf-8")
     configPath = tmp_path / "config.yaml"
-    configPath.write_text("experimentName: runtimeMuncStartup\n", encoding="utf-8")
+    configPath.write_text("experimentName: runtimeMuncDenseSeed\n", encoding="utf-8")
     baseMatrix = np.vstack(
         (
             np.arange(intervalCount, dtype=np.float32),
@@ -333,7 +334,12 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
     class StopAfterMuncPrior(RuntimeError):
         pass
 
-    def makeConfig(ebUse):
+    def makeConfig(
+        ebUse,
+        *,
+        seedWeightEnabled=constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED,
+        seedWeightStudentT=constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T,
+    ):
         sources = [
             core.inputSource(
                 path=f"sample{sampleIndex}.bedGraph",
@@ -343,7 +349,7 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
             for sampleIndex in range(sampleCount)
         ]
         return {
-            "experimentName": "runtimeMuncStartup",
+            "experimentName": "runtimeMuncDenseSeed",
             "genomeArgs": core.genomeParams(
                 genomeName="testGenome",
                 chromSizesFile=str(chromSizesPath),
@@ -381,6 +387,7 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
             ),
             "scArgs": core.scParams(),
             "processArgs": core.processParams(
+                stateModel=core.STATE_MODEL_LEVEL,
                 deltaF=1.0,
                 minQ=1.0e-4,
                 maxQ=1.0,
@@ -406,20 +413,21 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
                 precisionMultiplierMin=0.5,
                 precisionMultiplierMax=2.0,
                 useCountNoiseFloor=False,
-                muncTrendBlockSizeBP=2 * intervalSizeBP,
+                muncTrendBlockSizeBP=5 * intervalSizeBP,
                 muncLocalWindowSizeBP=4 * intervalSizeBP,
-                muncEBPriorTileSizeBP=2 * intervalSizeBP,
-                muncEBPriorTileCount=intervalCount // 2,
+                muncTrendBlockDependenceMultiplier=1.0,
                 muncEBPriorStrata=None,
-                muncEBPriorMinTilesPerStratum=1,
                 muncEBPriorSupportMinQ=0.0,
                 muncEBPriorSupportMaxQ=1.0,
                 muncEBPriorMaxExtrapolatedFraction=0.0,
-                muncEBPriorWarmupECMIters=1,
-                muncEBPriorWarmupOuterPasses=1,
                 muncEBPriorGUncertaintyMode="disabled",
                 muncCovariatesEnabled=False,
                 muncCovariatesFeatures=(),
+                muncSeedWeightEnabled=seedWeightEnabled,
+                muncSeedWeightPasses=2,
+                muncSeedWeightStudentT=seedWeightStudentT,
+                muncSeedProcessMinQ=2.0e-5,
+                muncSeedProcessMaxQ=7.0e-4,
             ),
             "stateArgs": core.stateParams(
                 stateInit=0.0,
@@ -500,115 +508,252 @@ def test_runtime_munc_eb_prior_startup_segments(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(cconsenrich, "cTransformInPlace", lambda *args, **kwargs: None)
 
-    def fakeBroadMuncTileEvidence(
-        seedMeanTrack,
-        evidence,
-        starts,
-        blockLengths,
-        *args,
-        **kwargs,
-    ):
-        startsArr = np.asarray(starts, dtype=np.intp)
-        predictor = startsArr.astype(np.float64) / 2.0
-        evidenceArr = np.asarray(evidence)
-        if evidenceArr.shape[0] == 1:
-            return (
-                predictor,
-                np.zeros((1, startsArr.size), dtype=np.float64),
-                np.ones((1, startsArr.size), dtype=np.float64),
-            )
-        tiledEvidence = np.tile(
-            np.linspace(0.25, 0.75, startsArr.size, dtype=np.float64),
-            (evidenceArr.shape[0], 1),
-        )
-        return (
-            predictor,
-            tiledEvidence,
-            np.full((evidenceArr.shape[0], startsArr.size), 8.0, dtype=np.float64),
-        )
-
-    monkeypatch.setattr(
-        cconsenrich,
-        "cbroadMuncTileEvidence",
-        fakeBroadMuncTileEvidence,
-    )
-
-    def failTrendFit(*args, **kwargs):
+    def failTrendFit(blockMeans, blockVariances, sampleIndex, **kwargs):
+        pooledFitCallsByFlag[activeFlag] = {
+            "blockMeans": np.asarray(blockMeans, dtype=np.float64).copy(),
+            "blockVariances": np.asarray(blockVariances, dtype=np.float64).copy(),
+            "sampleIndex": np.asarray(sampleIndex, dtype=np.int64).copy(),
+            "weights": np.asarray(kwargs["weights"], dtype=np.float64).copy(),
+        }
         raise StopAfterMuncPrior()
 
     monkeypatch.setattr(core, "fitPooledMuncVarianceTrend", failTrendFit)
 
-    startupSpansByFlag = {}
-    startupQCallsByFlag = {}
-    startupQIdsByFlag = {}
-    startupProcessQ = np.diag([2.0e-4, 3.0e-4]).astype(np.float32)
+    seedQCallsByFlag = {}
+    seedMomentCallsByFlag = {}
+    pooledFitCallsByFlag = {}
+    activeSeedUseWeightsByFlag = {}
+    seedProcessQ = np.diag([2.0e-4, 3.0e-4]).astype(np.float32)
 
-    def fakeStartupProcessQ(matrixData, matrixMunc, **kwargs):
+    def fakeSeedProcessQ(matrixData, matrixMunc, **kwargs):
         data = np.asarray(matrixData, dtype=np.float32)
-        startupQCallsByFlag.setdefault(activeFlag, []).append(
+        seedQCallsByFlag.setdefault(activeFlag, []).append(
             (
                 int(round(float(data[0, 0]))),
                 int(data.shape[1]),
                 kwargs["processNoiseCalibration"],
+                float(kwargs["minQ"]),
+                float(kwargs["maxQ"]),
             )
         )
-        return startupProcessQ, {
+        return seedProcessQ, {
             "qSeedSource": "test",
             "qSeedReason": "ok",
-            "qSeedLevelFinal": float(startupProcessQ[0, 0]),
-            "qSeedTrendFinal": float(startupProcessQ[1, 1]),
+            "qSeedLevelFinal": float(seedProcessQ[0, 0]),
+            "qSeedTrendFinal": float(seedProcessQ[1, 1]),
         }
 
     monkeypatch.setattr(
         core,
         "_estimateInitialProcessNoiseFromData",
-        fakeStartupProcessQ,
+        fakeSeedProcessQ,
     )
 
-    def fakeRunConsenrich(matrixData, matrixMunc, *args, **kwargs):
-        assert kwargs["logRunRole"] == "MUNC prior startup"
-        assert np.array_equal(kwargs["initialProcessQ"], startupProcessQ)
-        startupQIdsByFlag.setdefault(activeFlag, set()).add(
-            id(kwargs["initialProcessQ"])
-        )
+    def fakeMuncObservationMomentSeedPass(
+        matrixData,
+        matrixMunc,
+        stateMean,
+        stateVariance,
+        **kwargs,
+    ):
         data = np.asarray(matrixData, dtype=np.float32)
-        start = int(round(float(data[0, 0])))
-        startupSpansByFlag.setdefault(activeFlag, []).append(
-            (start, start + data.shape[1])
-        )
-        length = int(data.shape[1])
-        return (
-            np.zeros((length, 2), dtype=np.float32),
-            np.zeros((length, 2, 2), dtype=np.float32),
-            np.full((length, data.shape[0]), 0.5, dtype=np.float32),
-            np.zeros(length, dtype=np.float32),
-            np.zeros(length, dtype=np.int64),
-            np.zeros(length, dtype=np.float32),
-            {"lambdaExp": np.ones(length, dtype=np.float64)},
+        munc = np.asarray(matrixMunc, dtype=np.float32)
+        state = np.asarray(stateMean, dtype=np.float32)
+        stateVar = np.asarray(stateVariance, dtype=np.float32)
+        assert data.shape == (sampleCount, intervalCount)
+        assert munc.shape == data.shape
+        assert state.shape == (intervalCount,)
+        assert stateVar.shape == (intervalCount,)
+        passCalls = seedMomentCallsByFlag.setdefault(activeFlag, [])
+        passIndex = len(passCalls)
+        updateWeights = bool(kwargs["updateWeights"])
+        expectedUseWeights = activeSeedUseWeightsByFlag[activeFlag]
+        omegaIn = np.asarray(kwargs["omegaIn"], dtype=np.float32)
+        rhoIn = np.asarray(kwargs["rhoIn"], dtype=np.float32)
+        if passIndex == 0:
+            assert updateWeights is True
+            np.testing.assert_allclose(omegaIn, np.ones(intervalCount, dtype=np.float32))
+            np.testing.assert_allclose(rhoIn, np.ones(data.shape, dtype=np.float32))
+        elif passIndex < 2:
+            assert updateWeights is True
+            if expectedUseWeights:
+                np.testing.assert_allclose(omegaIn, passCalls[-1]["omegaOut"])
+                np.testing.assert_allclose(rhoIn, passCalls[-1]["rhoOut"])
+            else:
+                np.testing.assert_allclose(
+                    omegaIn,
+                    np.ones(intervalCount, dtype=np.float32),
+                )
+                np.testing.assert_allclose(rhoIn, np.ones(data.shape, dtype=np.float32))
+        else:
+            assert updateWeights is False
+            if expectedUseWeights:
+                np.testing.assert_allclose(omegaIn, passCalls[-1]["omegaOut"])
+                np.testing.assert_allclose(rhoIn, passCalls[-1]["rhoOut"])
+            else:
+                np.testing.assert_allclose(
+                    omegaIn,
+                    np.ones(intervalCount, dtype=np.float32),
+                )
+                np.testing.assert_allclose(rhoIn, np.ones(data.shape, dtype=np.float32))
+        assert kwargs["useSeedWeights"] is expectedUseWeights
+        assert kwargs["studentTdf"] == pytest.approx(
+            constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF
         )
 
-    monkeypatch.setattr(core, "runConsenrich", fakeRunConsenrich)
+        background = np.asarray(kwargs["background"], dtype=np.float32).reshape(1, -1)
+        gVariance = np.asarray(kwargs["gVariance"], dtype=np.float32).reshape(1, -1)
+        moment = (
+            np.square(data.astype(np.float64) - background - state.reshape(1, -1))
+            + stateVar.reshape(1, -1)
+            + gVariance
+        ).astype(np.float32)
+        local = np.maximum(moment - np.float32(kwargs["pad"]), 1.0e-6).astype(
+            np.float32
+        )
+        seedMunc = local.copy()
+        omegaOut = np.full(
+            intervalCount,
+            0.50 + 0.10 * min(passIndex, 2),
+            dtype=np.float32,
+        )
+        rhoOut = np.full(data.shape, 1.20 + 0.10 * min(passIndex, 2), dtype=np.float32)
+        rhoPattern = np.tile(
+            np.asarray(
+                [
+                    4.0,
+                    0.25,
+                    0.25,
+                    0.25,
+                    0.25,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                ],
+                dtype=np.float32,
+            ),
+            intervalCount // 10,
+        )
+        rhoOut *= rhoPattern.reshape(1, -1)
+        passCalls.append(
+            {
+                "updateWeights": updateWeights,
+                "useSeedWeights": kwargs["useSeedWeights"],
+                "omegaOut": omegaOut.copy(),
+                "rhoOut": rhoOut.copy(),
+            }
+        )
+        return moment, rhoOut, omegaOut.copy(), omegaOut, local, seedMunc
 
-    for activeFlag in (False, True):
+    monkeypatch.setattr(
+        cconsenrich,
+        "cMuncObservationMomentSeedPass",
+        fakeMuncObservationMomentSeedPass,
+        raising=False,
+    )
+
+    def fakeMuncSmoothDenseLocalEvidence(
+        localEvidence,
+        windowIntervals,
+        *,
+        excludeMask=None,
+        eps=1.0e-12,
+    ):
+        evidence = np.asarray(localEvidence, dtype=np.float32)
+        window = max(1, int(windowIntervals))
+        mask = (
+            np.zeros(evidence.shape[1], dtype=np.uint8)
+            if excludeMask is None
+            else np.asarray(excludeMask, dtype=np.uint8).reshape(-1)
+        )
+        out = np.empty_like(evidence)
+        half = window // 2
+        for rowIndex in range(evidence.shape[0]):
+            for intervalIndex in range(evidence.shape[1]):
+                left = max(0, intervalIndex - half)
+                right = left + window
+                if right > evidence.shape[1]:
+                    right = evidence.shape[1]
+                    left = max(0, right - window)
+                allowed = mask[left:right] == 0
+                if np.any(allowed):
+                    value = float(np.mean(evidence[rowIndex, left:right][allowed]))
+                else:
+                    value = float(evidence[rowIndex, intervalIndex])
+                out[rowIndex, intervalIndex] = max(value, float(eps))
+        return np.ascontiguousarray(out, dtype=np.float32)
+
+    monkeypatch.setattr(
+        cconsenrich,
+        "cMuncSmoothDenseLocalEvidence",
+        fakeMuncSmoothDenseLocalEvidence,
+        raising=False,
+    )
+
+    runtimeCases = (
+        ("ebOff", False, True, True),
+        ("ebOn", True, True, True),
+        ("studentTOff", True, True, False),
+        ("seedWeightsOff", True, False, True),
+    )
+    for activeFlag, ebUse, seedWeightEnabled, seedWeightStudentT in runtimeCases:
+        activeSeedUseWeightsByFlag[activeFlag] = bool(
+            seedWeightEnabled and seedWeightStudentT
+        )
         monkeypatch.setattr(
             consenrichRuntime,
             "readConfig",
-            lambda path, flag=activeFlag: makeConfig(flag),
+            lambda path,
+            flag=ebUse,
+            enabled=seedWeightEnabled,
+            studentT=seedWeightStudentT: makeConfig(
+                flag,
+                seedWeightEnabled=enabled,
+                seedWeightStudentT=studentT,
+            ),
         )
         with pytest.raises(StopAfterMuncPrior):
             consenrichRuntime.main()
 
-    assert startupSpansByFlag.get(False, []) == []
-    assert startupQCallsByFlag.get(False, []) == []
-    assert startupQCallsByFlag[True] == [(0, 4, "seed")]
-    assert len(startupQIdsByFlag[True]) == 1
-    assert sorted(startupSpansByFlag[True]) == [
-        (0, 4),
-        (4, 8),
-        (8, 12),
-        (12, 16),
-        (16, 20),
-    ]
+    for activeFlag, _ebUse, _seedWeightEnabled, _seedWeightStudentT in runtimeCases:
+        assert seedQCallsByFlag[activeFlag] == [(0, 20, "seed", 2.0e-5, 7.0e-4)]
+        assert [call["updateWeights"] for call in seedMomentCallsByFlag[activeFlag]] == [
+            True,
+            True,
+            False,
+        ]
+        fitCall = pooledFitCallsByFlag[activeFlag]
+        expectedBlockCount = intervalCount // 5
+        assert fitCall["blockMeans"].shape == (sampleCount * expectedBlockCount,)
+        assert fitCall["blockVariances"].shape == fitCall["blockMeans"].shape
+        np.testing.assert_array_equal(
+            np.bincount(fitCall["sampleIndex"], minlength=sampleCount),
+            np.full(sampleCount, expectedBlockCount, dtype=np.int64),
+        )
+        expectedNuEff = (
+            np.asarray([4.0, 5.0, 4.0, 5.0], dtype=np.float64)
+            if activeSeedUseWeightsByFlag[activeFlag]
+            else np.full(expectedBlockCount, 5.0, dtype=np.float64)
+        )
+        expectedWeights = np.tile(
+            1.0 / core.trigamma(expectedNuEff / 2.0),
+            sampleCount,
+        )
+        np.testing.assert_allclose(fitCall["weights"], expectedWeights, rtol=1.0e-6)
+    assert all(
+        call["useSeedWeights"] is True for call in seedMomentCallsByFlag["ebOff"]
+    )
+    assert all(call["useSeedWeights"] is True for call in seedMomentCallsByFlag["ebOn"])
+    assert all(
+        call["useSeedWeights"] is False
+        for call in seedMomentCallsByFlag["studentTOff"]
+    )
+    assert all(
+        call["useSeedWeights"] is False
+        for call in seedMomentCallsByFlag["seedWeightsOff"]
+    )
 
 
 def test_munc_eb_prior_g_uncertainty_modes_are_limited():
@@ -681,6 +826,187 @@ def _casePuncBridgeSymbolsAreRenamed():
         "crebase" + "T" + "uncIntervalScales",
     ):
         assert not hasattr(cconsenrich, symbol)
+
+
+@pytest.mark.correctness
+def _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64():
+    matrix = np.asarray(
+        [[0.10, 0.20, 0.40], [0.30, 0.50, 0.70]],
+        dtype=np.float64,
+    )
+    lambdaExp = np.asarray([0.01, 2.0, 20.0], dtype=np.float64)
+    lambdaClipped = np.asarray([0.5, 2.0, 4.0], dtype=np.float64)
+    expected = np.sum(lambdaClipped[None, :] / (matrix + 0.05), axis=0)
+
+    for dtype in (np.float32, np.float64):
+        out = cconsenrich.cPuncObservationInformation(
+            matrix.astype(dtype),
+            0.05,
+            lambdaExp,
+            0.5,
+            4.0,
+        )
+        np.testing.assert_allclose(out, expected, rtol=2.0e-7, atol=2.0e-7)
+
+    unitOut = cconsenrich.cPuncObservationInformation(
+        matrix.astype(np.float32),
+        0.05,
+        None,
+        0.5,
+        4.0,
+    )
+    np.testing.assert_allclose(
+        unitOut,
+        np.sum(1.0 / (matrix + 0.05), axis=0),
+        rtol=2.0e-7,
+        atol=2.0e-7,
+    )
+    with pytest.raises(ValueError, match="lambdaExp length"):
+        cconsenrich.cPuncObservationInformation(
+            matrix.astype(np.float32),
+            0.05,
+            np.ones(2, dtype=np.float64),
+            0.5,
+            4.0,
+        )
+
+
+@pytest.mark.correctness
+def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
+    seedKernel = getattr(cconsenrich, "cMuncObservationMomentSeedPass", None)
+    if seedKernel is None:
+        pytest.skip("cMuncObservationMomentSeedPass is not exposed by the loaded extension")
+
+    matrixData = np.asarray(
+        [[1.0, 2.0, 4.0], [1.5, 1.0, 5.0]],
+        dtype=np.float32,
+    )
+    matrixMunc = np.asarray(
+        [[0.4, 0.6, 0.8], [0.5, 0.7, 0.9]],
+        dtype=np.float32,
+    )
+    stateMean = np.asarray([1.25, 1.5, 3.0], dtype=np.float32)
+    stateVariance = np.asarray([0.05, 0.10, 0.20], dtype=np.float32)
+    gVariance = np.asarray([0.00, 0.20, 0.40], dtype=np.float32)
+    countFloor = np.asarray(
+        [[0.01, 0.10, 0.20], [0.02, 0.15, 0.25]],
+        dtype=np.float32,
+    )
+    background = np.asarray([0.05, -0.10, 0.20], dtype=np.float32)
+    pad = 0.05
+    nu = 5.0
+    omegaMin = 0.10
+    omegaMax = 0.80
+    varianceFloor = 1.0e-4
+    varianceCap = 2.0
+
+    def expectedArrays(enabled, studentT, useG, useCountFloor):
+        gTrack = gVariance.astype(np.float64) if useG else np.zeros(stateMean.size)
+        moment = (
+            np.square(
+                matrixData.astype(np.float64)
+                - background.astype(np.float64)[None, :]
+                - stateMean[None, :]
+            )
+            + stateVariance.astype(np.float64)[None, :]
+            + gTrack[None, :]
+        )
+        count = countFloor.astype(np.float64) if useCountFloor else np.zeros_like(moment)
+        baseVariance = matrixMunc.astype(np.float64) + pad
+        if enabled and studentT:
+            rho = (nu + 1.0) / (nu + moment / baseVariance)
+            dbar = np.mean(moment / baseVariance, axis=0)
+            omegaRaw = (nu + 1.0) / (nu + dbar)
+            omega = np.clip(omegaRaw, omegaMin, omegaMax)
+            local = omega[None, :] * rho * moment - pad - count
+        else:
+            rho = np.ones(matrixData.shape, dtype=np.float64)
+            omegaRaw = np.ones(stateMean.size, dtype=np.float64)
+            omega = np.ones(stateMean.size, dtype=np.float64)
+            local = moment - pad - count
+        total = local + count
+        local = np.clip(local, varianceFloor, varianceCap)
+        total = local + count
+        total = np.clip(total, varianceFloor, varianceCap)
+        return moment, rho, omegaRaw, omega, local, total
+
+    out = seedKernel(
+        matrixData,
+        matrixMunc,
+        stateMean,
+        stateVariance,
+        background=background,
+        gVariance=gVariance,
+        countFloor=countFloor,
+        pad=pad,
+        studentTdf=nu,
+        useSeedWeights=True,
+        updateWeights=True,
+        omegaMin=omegaMin,
+        omegaMax=omegaMax,
+        varianceFloor=varianceFloor,
+        varianceCap=varianceCap,
+        enabled=True,
+        studentT=True,
+        dOmega=nu,
+    )
+    for observed, expected in zip(
+        out,
+        expectedArrays(True, True, True, True),
+    ):
+        np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
+    np.testing.assert_allclose(
+        np.asarray(out[5], dtype=np.float64),
+        np.asarray(out[4], dtype=np.float64) + countFloor,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+
+    for branchKwargs, branchExpected in (
+        ({"enabled": True, "studentT": False}, expectedArrays(True, False, False, False)),
+        ({"enabled": False, "studentT": True}, expectedArrays(False, True, False, False)),
+    ):
+        branchOut = seedKernel(
+            matrixData,
+            matrixMunc,
+            stateMean,
+            stateVariance,
+            background=background,
+            pad=pad,
+            studentTdf=nu,
+            useSeedWeights=True,
+            updateWeights=True,
+            omegaMin=omegaMin,
+            omegaMax=omegaMax,
+            varianceFloor=varianceFloor,
+            varianceCap=varianceCap,
+            dOmega=nu,
+            **branchKwargs,
+        )
+        for observed, expected in zip(branchOut, branchExpected):
+            np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
+
+
+@pytest.mark.correctness
+def _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows():
+    smoothKernel = getattr(cconsenrich, "cMuncSmoothDenseLocalEvidence", None)
+    if smoothKernel is None:
+        pytest.skip("cMuncSmoothDenseLocalEvidence is not exposed by the loaded extension")
+
+    localEvidence = np.asarray(
+        [[1.0, 100.0, 3.0, 5.0, 7.0], [2.0, 4.0, 8.0, 16.0, 32.0]],
+        dtype=np.float32,
+    )
+    excludeMask = np.asarray([0, 1, 0, 0, 0], dtype=np.uint8)
+    observed = smoothKernel(localEvidence, 3, excludeMask=excludeMask, eps=1.0e-4)
+    expected = np.asarray(
+        [
+            [2.0, 2.0, 4.0, 5.0, 5.0],
+            [5.0, 5.0, 12.0, 56.0 / 3.0, 56.0 / 3.0],
+        ],
+        dtype=np.float32,
+    )
+    np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
 
 
 @pytest.mark.correctness
@@ -1243,7 +1569,7 @@ def _caseZeroCenteredBackgroundUpdate():
     ).astype(np.float32)
     invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
 
-    background = core._solveZeroCenteredBackground(
+    background = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=8,
@@ -1301,7 +1627,7 @@ def _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights():
         ]
     )
 
-    background = core._solveZeroCenteredBackground(
+    background = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=7,
@@ -1346,7 +1672,7 @@ def _caseZeroCenteredBackgroundUpdateMatchesSparseReference():
     )
     invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
 
-    background = core._solveZeroCenteredBackground(
+    background = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=8,
@@ -1391,13 +1717,13 @@ def _caseBackgroundUpdateCanSkipZeroCentering():
     ).astype(np.float32)
     invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
 
-    centered = core._solveZeroCenteredBackground(
+    centered = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=8,
         backgroundSmoothness=1.0,
     )
-    uncentered = core._solveZeroCenteredBackground(
+    uncentered = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=8,
@@ -1440,7 +1766,7 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
     ).astype(np.float32)
     invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
 
-    unconstrained = core._solveZeroCenteredBackground(
+    unconstrained = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=4,
@@ -1448,7 +1774,7 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         zeroCenter=False,
         useNonnegative=False,
     )
-    constrained = core._solveZeroCenteredBackground(
+    constrained = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=4,
@@ -1456,7 +1782,7 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         zeroCenter=False,
         useNonnegative=True,
     )
-    disabled = core._solveZeroCenteredBackground(
+    disabled = core.solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
         invVarMatrix=invVarMatrix,
         blockLenIntervals=4,
@@ -1485,7 +1811,7 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         ]
     ).astype(np.float32)
     stiffInvVarMatrix = np.ones_like(stiffResidualMatrix, dtype=np.float32)
-    stiffUnconstrained = core._solveZeroCenteredBackground(
+    stiffUnconstrained = core.solveZeroCenteredBackground(
         residualMatrix=stiffResidualMatrix,
         invVarMatrix=stiffInvVarMatrix,
         blockLenIntervals=80,
@@ -1494,7 +1820,7 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         useNonnegative=False,
     ).astype(np.float64)
     stiffClipped = np.maximum(stiffUnconstrained, 0.0)
-    stiffConstrained = core._solveZeroCenteredBackground(
+    stiffConstrained = core.solveZeroCenteredBackground(
         residualMatrix=stiffResidualMatrix,
         invVarMatrix=stiffInvVarMatrix,
         blockLenIntervals=80,
@@ -1836,6 +2162,183 @@ def _caseObservationPrecisionIsIntervalLevelOnly():
             ECM_fixedBackgroundIters=1,
             initialObservationPrecision=np.ones((1, n), dtype=np.float32),
         )
+
+
+def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
+    n = 8
+    m = 2
+    grid = np.linspace(-0.5, 0.8, n, dtype=np.float32)
+    matrixData = np.vstack(
+        [
+            grid
+            + np.asarray(
+                [0.0, 0.2, -0.1, 0.4, 0.0, -0.3, 0.1, 0.6],
+                dtype=np.float32,
+            ),
+            grid
+            + np.asarray(
+                [0.1, -0.2, 0.2, -0.1, 0.3, 0.1, -0.4, 0.2],
+                dtype=np.float32,
+            ),
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.vstack(
+        [
+            np.linspace(0.05, 0.20, n),
+            np.linspace(0.12, 0.30, n),
+        ]
+    ).astype(np.float32)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+    nu = 5.0
+    pad = 0.01
+
+    if levelOnly:
+        matrixQ0 = np.asarray([[0.04]], dtype=np.float32)
+        out = cconsenrich.cfixedBackgroundECMLevel(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixMunc,
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            ECM_fixedBackgroundIters=1,
+            ECM_fixedBackgroundRtol=0.0,
+            pad=pad,
+            ECM_robustTNu=nu,
+            obsPrecisionMultiplierMin=0.1,
+            obsPrecisionMultiplierMax=10.0,
+            procPrecisionMultiplierMin=0.1,
+            procPrecisionMultiplierMax=10.0,
+            ECM_useObsPrecisionReweighting=True,
+            ECM_useProcessPrecisionReweighting=True,
+            returnIntermediates=True,
+            returnDiagnostics=True,
+            t_innerIters=1,
+            logIterations=False,
+        )
+        matrixF = np.asarray([[1.0]], dtype=np.float64)
+        stateDim = 1
+    else:
+        matrixF = core.constructMatrixF(0.3).astype(np.float32)
+        matrixQ0 = core.constructMatrixQ(
+            minDiagQ=1.0e-5,
+            Q00=0.04,
+            Q01=0.0,
+            Q10=0.0,
+            Q11=0.02,
+        ).astype(np.float32)
+        out = cconsenrich.cfixedBackgroundECM(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixMunc,
+            matrixF=matrixF,
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            ECM_fixedBackgroundIters=1,
+            ECM_fixedBackgroundRtol=0.0,
+            pad=pad,
+            ECM_robustTNu=nu,
+            obsPrecisionMultiplierMin=0.1,
+            obsPrecisionMultiplierMax=10.0,
+            procPrecisionMultiplierMin=0.1,
+            procPrecisionMultiplierMax=10.0,
+            ECM_useObsPrecisionReweighting=True,
+            ECM_useProcessPrecisionReweighting=True,
+            returnIntermediates=True,
+            returnDiagnostics=True,
+            t_innerIters=1,
+            logIterations=False,
+        )
+        stateDim = 2
+
+    stateSmoothed = np.asarray(out[2], dtype=np.float64)
+    stateCovarSmoothed = np.asarray(out[3], dtype=np.float64)
+    lagCovSmoothed = np.asarray(out[4], dtype=np.float64)
+    lambdaExp = np.asarray(out[6], dtype=np.float64)
+    processPrecExp = np.asarray(out[7], dtype=np.float64)
+
+    expectedLambda = []
+    for k in range(n):
+        obsU2 = 0.0
+        p00 = max(float(stateCovarSmoothed[k, 0, 0]), 0.0)
+        for j in range(m):
+            obsU2 += (
+                (float(matrixData[j, k]) - float(stateSmoothed[k, 0])) ** 2 + p00
+            ) / (float(matrixMunc[j, k]) + pad)
+        expectedLambda.append((nu + m) / (nu + obsU2))
+    expectedLambda = np.clip(expectedLambda, 0.1, 10.0)
+
+    expectedProcess = [1.0]
+    qInv = np.linalg.inv(np.asarray(matrixQ0[:stateDim, :stateDim], dtype=np.float64))
+    f = np.asarray(matrixF[:stateDim, :stateDim], dtype=np.float64)
+    for k in range(n - 1):
+        x = stateSmoothed[k, :stateDim]
+        y = stateSmoothed[k + 1, :stateDim]
+        covX = stateCovarSmoothed[k, :stateDim, :stateDim]
+        covY = stateCovarSmoothed[k + 1, :stateDim, :stateDim]
+        cross = lagCovSmoothed[k, :stateDim, :stateDim]
+        exx = covX + np.outer(x, x)
+        eyy = covY + np.outer(y, y)
+        exy = cross + np.outer(x, y)
+        innovationMoment = eyy - (exy.T @ f.T) - (f @ exy) + (f @ exx @ f.T)
+        diagonal = np.diag_indices(stateDim)
+        innovationMoment[diagonal] = np.maximum(innovationMoment[diagonal], 0.0)
+        delta = float(np.sum(qInv * innovationMoment.T))
+        expectedProcess.append((nu + stateDim) / (nu + max(delta, 0.0)))
+    expectedProcess = np.clip(expectedProcess, 0.1, 10.0)
+
+    np.testing.assert_allclose(lambdaExp, expectedLambda, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(
+        processPrecExp,
+        expectedProcess,
+        rtol=2.0e-6,
+        atol=2.0e-6,
+    )
+
+    if levelOnly:
+        disabled = cconsenrich.cfixedBackgroundECMLevel(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixMunc,
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            ECM_fixedBackgroundIters=1,
+            ECM_useObsPrecisionReweighting=False,
+            ECM_useProcessPrecisionReweighting=False,
+            returnIntermediates=True,
+            t_innerIters=1,
+            logIterations=False,
+        )
+    else:
+        disabled = cconsenrich.cfixedBackgroundECM(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixMunc,
+            matrixF=matrixF.astype(np.float32),
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            ECM_fixedBackgroundIters=1,
+            ECM_useObsPrecisionReweighting=False,
+            ECM_useProcessPrecisionReweighting=False,
+            returnIntermediates=True,
+            t_innerIters=1,
+            logIterations=False,
+        )
+    assert disabled[6] is None
+    assert disabled[7] is None
+
+
+@pytest.mark.correctness
+def _caseCFixedBackgroundPrecisionUpdatesMatchStudentTEquations():
+    _checkCFixedBackgroundPrecisionUpdates(True)
+    _checkCFixedBackgroundPrecisionUpdates(False)
 
 
 @pytest.mark.correctness
@@ -2607,6 +3110,22 @@ def _caseRunConsenrichOuterPassSmoke():
     assert obsTrace["min"] == pytest.approx(expectedObservationTrace)
     assert obsTrace["median"] == pytest.approx(expectedObservationTrace)
     assert obsTrace["max"] == pytest.approx(expectedObservationTrace)
+    lambdaTrack = np.asarray(precisionDiagnostics["lambdaExp"], dtype=np.float64)
+    processPrecisionTrack = np.asarray(
+        precisionDiagnostics["processPrecExp"],
+        dtype=np.float64,
+    )
+    assert lambdaTrack.shape == (n,)
+    assert processPrecisionTrack.shape == (n,)
+    np.testing.assert_allclose(
+        outputTracks["muncTrace"],
+        expectedObservationTrace / lambdaTrack,
+        rtol=2.0e-6,
+        atol=2.0e-6,
+    )
+    warmupDiagnostics = diagnostics["process_noise_warmup_fit"]
+    assert warmupDiagnostics is not None
+    assert warmupDiagnostics["fixed_background_ecm"]
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
     assert len(gainSummary["median"]) == m
@@ -3249,6 +3768,25 @@ def _caseSparseSupportWeightsUseExponentialDistanceDecay():
 
     assert np.allclose(weights, expected)
     assert weights[2] > weights[1] > weights[0]
+
+    duplicateWeights = core._sparseSupportWeights(
+        np.array([-5, 2, 2, 99], dtype=np.intp),
+        intervalCount=6,
+        ellIntervals=2.0,
+        supportPrior=1.0,
+    )
+    np.testing.assert_allclose(duplicateWeights, expected.astype(np.float32))
+
+    hardSupport = core._sparseSupportWeights(
+        np.array([2], dtype=np.intp),
+        intervalCount=6,
+        ellIntervals=0.0,
+        supportPrior=1.0,
+    )
+    np.testing.assert_array_equal(
+        hardSupport,
+        np.asarray([0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+    )
 
 
 @pytest.mark.correctness
@@ -4146,13 +4684,13 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
     weighted = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
         expectedNuL + 4.0
     )
-    expected = np.maximum(weighted, countModelVarianceFloor)
+    expected = weighted + countModelVarianceFloor
 
     assert seen["Nu_L"] == pytest.approx(expectedNuL)
     np.testing.assert_array_equal(seen["candidateMask"], expectedCandidateMask)
     np.testing.assert_allclose(
         muncTrack[tinyMask],
-        weighted[tinyMask].astype(np.float32),
+        expected[tinyMask].astype(np.float32),
     )
     np.testing.assert_allclose(muncTrack, expected.astype(np.float32))
     assert np.all(muncTrack >= countModelVarianceFloor)
@@ -4180,19 +4718,11 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
         finiteCount=8,
         diagnostics={},
     )
-    seen = {"priorMean": False}
-
-    realEval = core.evalPSplineLogVarianceTrend
-
-    def _fakeEval(trend, predictor, **kwargs):
-        predictorArr = np.asarray(predictor, dtype=np.float32)
-        if predictorArr.shape == priorMeanTrack.shape:
-            np.testing.assert_allclose(predictorArr, priorMeanTrack)
-            seen["priorMean"] = True
-            return priorVarTrack.copy()
-        return realEval(trend, predictor, **kwargs)
-
-    monkeypatch.setattr(core, "evalPSplineLogVarianceTrend", _fakeEval)
+    monkeypatch.setattr(
+        core,
+        "evalPSplineLogVarianceTrend",
+        lambda *args, **kwargs: pytest.fail("prior variance should be reused"),
+    )
     monkeypatch.setattr(
         core,
         "fitPSplineLogVarianceTrend",
@@ -4217,6 +4747,7 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
         EB_use=True,
         pooledTrend=pooledTrend,
         priorMeanTrack=priorMeanTrack,
+        priorVarianceTrack=priorVarTrack,
         EB_pooledNu0=4.0,
         localVarianceTrack=localVarTrack,
         varianceFloor=0.0,
@@ -4224,8 +4755,78 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
     )
 
     expected = (10.0 * localVarTrack + 4.0 * priorVarTrack) / 14.0
-    assert seen["priorMean"]
     assert np.allclose(muncTrack, expected.astype(np.float32))
+
+
+@pytest.mark.correctness
+def _caseGetMuncTrackSmoothsPriorMeanWithEMA(monkeypatch: pytest.MonkeyPatch):
+    intervals = np.arange(0, 300, 25, dtype=np.uint32)
+    values = np.linspace(-2.0, 2.0, intervals.size, dtype=np.float32)
+    smoothedValues = np.linspace(0.25, 1.25, intervals.size, dtype=np.float32)
+    localVarTrack = np.full(intervals.size, 4.0, dtype=np.float32)
+    priorVarTrack = np.linspace(1.0, 2.0, intervals.size, dtype=np.float32)
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(1.0)], dtype=np.float64),
+        xMin=-2.0,
+        xMax=2.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=8,
+        diagnostics={},
+    )
+    evalInputs = []
+
+    def fakeEMA(arr, alpha):
+        assert np.asarray(arr).shape == values.shape
+        assert 0.0 < float(alpha) <= 1.0
+        return smoothedValues.copy()
+
+    def fakeEval(_trend, predictor, **kwargs):
+        predictorArr = np.asarray(predictor, dtype=np.float32).reshape(-1)
+        evalInputs.append(predictorArr.copy())
+        return priorVarTrack.copy()
+
+    monkeypatch.setattr(cconsenrich, "cEMA", fakeEMA)
+    monkeypatch.setattr(core, "evalPSplineLogVarianceTrend", fakeEval)
+    monkeypatch.setattr(
+        core,
+        "fitPSplineLogVarianceTrend",
+        lambda *args, **kwargs: pytest.fail("pooled trend should be reused"),
+    )
+    monkeypatch.setattr(
+        core,
+        "EB_computePriorStrength",
+        lambda *args, **kwargs: pytest.fail("pooled Nu_0 should be reused"),
+    )
+
+    muncTrack, supportFraction = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+        samplingIters=64,
+        EB_use=True,
+        EB_setNuL=6,
+        EB_pooledNu0=4.0,
+        pooledTrend=pooledTrend,
+        localVarianceTrack=localVarTrack,
+        varianceFloor=0.0,
+        varianceCap=20.0,
+    )
+
+    expected = ((6.0 * localVarTrack) + (4.0 * priorVarTrack)) / 10.0
+    assert supportFraction == pytest.approx(1.0)
+    assert any(
+        item.shape == smoothedValues.shape and np.allclose(item, smoothedValues)
+        for item in evalInputs
+    )
+    np.testing.assert_allclose(muncTrack, expected.astype(np.float32))
 
 
 @pytest.mark.correctness
@@ -4260,40 +4861,6 @@ def _caseGetMuncTrackRejectsReplicateVarianceFactor():
 
 
 @pytest.mark.correctness
-def _caseBroadMuncTileEvidenceAggregatesSeedAndSamples():
-    seedMean = np.asarray([0.0, 1.0, 3.0, -1.0], dtype=np.float32)
-    evidence = np.asarray(
-        [
-            [1.0, 2.0, 3.0, 4.0],
-            [4.0, 3.0, 2.0, 1.0],
-        ],
-        dtype=np.float32,
-    )
-    starts = np.asarray([0, 2], dtype=np.intp)
-    sizes = np.asarray([2, 2], dtype=np.intp)
-    exclude = np.asarray([0, 1, 0, 0], dtype=np.uint8)
-    weights = np.asarray([1.0, 1.0, 0.5, 1.5], dtype=np.float64)
-
-    predictor, tileEvidence, tileWeight = cconsenrich.cbroadMuncTileEvidence(
-        seedMean,
-        evidence,
-        starts,
-        sizes,
-        exclude,
-        weights,
-        eps=0.5,
-    )
-
-    expectedPredictor = np.asarray(
-        [0.0, (0.5 * np.log1p(3.0) - 1.5 * np.log1p(1.0)) / 2.0],
-        dtype=np.float64,
-    )
-    np.testing.assert_allclose(predictor, expectedPredictor)
-    np.testing.assert_allclose(tileEvidence, np.asarray([[1.0, 3.75], [4.0, 1.25]]))
-    np.testing.assert_allclose(tileWeight, np.asarray([[1.0, 2.0], [1.0, 2.0]]))
-
-
-@pytest.mark.correctness
 def test_core_pooled_prior_strength_uses_block_log_variance_noise():
     n = 100
     logRatio = np.linspace(-1.0, 1.0, n, dtype=np.float64)
@@ -4313,6 +4880,22 @@ def test_core_pooled_prior_strength_uses_block_log_variance_noise():
     )
 
     assert noiseAwareNu0 > nominalNu0
+    assert core.EB_computePooledPriorStrength(
+        np.ones(3, dtype=np.float64),
+        np.ones(3, dtype=np.float64),
+        Nu_local=100.0,
+    ) == pytest.approx(4.0)
+
+    thinLocalVariances = np.exp(np.linspace(-0.2, 0.2, 8, dtype=np.float64))
+    assert core.EB_computePooledPriorStrength(
+        thinLocalVariances,
+        np.ones(8, dtype=np.float64),
+        Nu_local=100.0,
+        sampleIndex=np.zeros(8, dtype=np.int64),
+        chromosomeIndex=np.zeros(8, dtype=np.int64),
+        blockStarts=np.zeros(8, dtype=np.int64),
+        thinBinSize=10,
+    ) == pytest.approx(4.0)
 
 
 @pytest.mark.correctness
@@ -5837,6 +6420,18 @@ def test_core_numeric_kernel_contracts(contract_case):
         )
     for label, func in (
         ("PUNC bridge symbols", _casePuncBridgeSymbolsAreRenamed),
+        (
+            "PUNC info kernel",
+            _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64,
+        ),
+        (
+            "MUNC seed moment kernel",
+            _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors,
+        ),
+        (
+            "MUNC dense evidence smoothing",
+            _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows,
+        ),
         ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
         ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
         (
@@ -5858,6 +6453,10 @@ def test_core_numeric_kernel_contracts(contract_case):
         (
             "level forward-backward kernel",
             _caseLevelForwardBackwardMatchesPythonReference,
+        ),
+        (
+            "fixed ECM precision equations",
+            _caseCFixedBackgroundPrecisionUpdatesMatchStudentTEquations,
         ),
     ):
         contract_case(label, func)
@@ -6077,7 +6676,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(
             "MUNC sparse local variance rejection",
             _caseGetMuncTrackRejectsSparseLocalVariancePaths,
         ),
-        ("broad-tile MUNC evidence", _caseBroadMuncTileEvidenceAggregatesSeedAndSamples),
         (
             "MUNC additive covariate model",
             _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
@@ -6112,6 +6710,11 @@ def test_core_pspline_sparse_support_and_trend_contracts(
     contract_case(
         "MUNC supplied pooled trend",
         _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean,
+        monkeypatch,
+    )
+    contract_case(
+        "MUNC EMA prior mean",
+        _caseGetMuncTrackSmoothsPriorMeanWithEMA,
         monkeypatch,
     )
     contract_case(

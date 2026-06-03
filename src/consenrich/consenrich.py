@@ -1189,12 +1189,13 @@ def _precisionDiagnosticsFrame(
     q00 = effectiveQ00
     q11 = effectiveQ11
 
-    munc = np.asarray(matrixMunc, dtype=np.float64)
+    munc = np.asarray(matrixMunc)
     if munc.ndim != 2 or munc.shape[1] != n:
         raise RuntimeError(
             f"matrixMunc shape mismatch for {chromosome}: expected second dimension {n}, got {munc.shape}"
         )
-    medianDiagR = np.nanmedian(munc + float(pad), axis=0)
+    medianDiagR = np.asarray(np.nanmedian(munc, axis=0), dtype=np.float64)
+    medianDiagR += float(pad)
     medianEffectiveDiagR = medianDiagR / lambdaArr
     starts = np.asarray(intervals, dtype=np.int64).reshape(-1)
 
@@ -1841,6 +1842,13 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             f"[{float(processArgs.minQ):.6g}, {float(processArgs.maxQ):.6g}]",
         ),
         (
+            "MUNC seed process Q bounds",
+            (
+                f"[{float(observationArgs.muncSeedProcessMinQ):.6g}, "
+                f"{float(observationArgs.muncSeedProcessMaxQ):.6g}]"
+            ),
+        ),
+        (
             "q seed prior level",
             float(
                 getattr(
@@ -2016,6 +2024,7 @@ def _logMuncEstimationParameters(
     trendLambdaMax: float,
     trendLambdaGridSize: int,
     pooledPairCount: int,
+    seedPassCount: int,
     logger_: logging.Logger = logger,
 ) -> None:
     restrictLocalVariance = bool(
@@ -2047,6 +2056,14 @@ def _logMuncEstimationParameters(
             ("local span multiplier", float(localMultiplier)),
             ("MUNC trend mode", "pooled"),
             ("MUNC pooled trend pairs", int(pooledPairCount)),
+            ("MUNC seed passes", int(seedPassCount)),
+            (
+                "MUNC seed process Q bounds",
+                (
+                    f"[{float(observationArgs.muncSeedProcessMinQ):.6g}, "
+                    f"{float(observationArgs.muncSeedProcessMaxQ):.6g}]"
+                ),
+            ),
             (
                 "MUNC variance EB",
                 "enabled" if bool(observationArgs.EB_use) else "disabled",
@@ -2077,16 +2094,6 @@ def _logMuncEstimationParameters(
                         )
                     )
                     else "disabled"
-                ),
-            ),
-            (
-                "MUNC EB prior tiles",
-                _formatOptionalLogValue(
-                    getattr(
-                        observationArgs,
-                        "muncEBPriorTileCount",
-                        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT,
-                    )
                 ),
             ),
             ("EB Nu0 override", _formatOptionalLogValue(observationArgs.EB_setNu0)),
@@ -2623,7 +2630,7 @@ def main():
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     _logCliMilestone(
-        "Diagnostic logs: munc/lambda=%s punc/kappa=%s convergence=%s delete-block=%s",
+        "Diagnostic logs: munc/omega=%s punc/kappa=%s convergence=%s delete-block=%s",
         diagnosticLogPaths.munc_lambda,
         diagnosticLogPaths.punc_kappa,
         diagnosticLogPaths.convergence,
@@ -3326,7 +3333,7 @@ def main():
     pooledSampleIndexParts: list[np.ndarray] = []
     pooledChromIndexParts: list[np.ndarray] = []
     pooledBlockStartsParts: list[np.ndarray] = []
-    pooledWeightsParts: list[np.ndarray] = []
+    pooledTrendWeightsParts: list[np.ndarray] = []
     useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
     if useReplicateTrends:
         raise ValueError("observationParams.useReplicateTrends is not supported")
@@ -3337,75 +3344,6 @@ def main():
             constants.OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
         )
     )
-    muncEBPriorTileSizeBP = getattr(
-        observationArgs,
-        "muncEBPriorTileSizeBP",
-        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP,
-    )
-    muncEBPriorTileCount = int(
-        getattr(
-            observationArgs,
-            "muncEBPriorTileCount",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT,
-        )
-    )
-    if muncEBPriorTileCount <= 0:
-        raise ValueError("observationParams.muncEBPrior.tileCount must be positive")
-    muncEBPriorStrata = getattr(
-        observationArgs,
-        "muncEBPriorStrata",
-        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRATA,
-    )
-    if muncEBPriorStrata is not None and int(muncEBPriorStrata) <= 0:
-        raise ValueError("observationParams.muncEBPrior.strata must be positive")
-    muncEBPriorMinTilesPerStratum = int(
-        getattr(
-            observationArgs,
-            "muncEBPriorMinTilesPerStratum",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM,
-        )
-    )
-    if muncEBPriorMinTilesPerStratum <= 0:
-        raise ValueError(
-            "observationParams.muncEBPrior.minTilesPerStratum must be positive"
-        )
-    muncEBPriorSeed = int(
-        getattr(
-            observationArgs,
-            "muncEBPriorSeed",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SEED,
-        )
-    )
-    muncEBPriorSupportMinQ = float(
-        getattr(
-            observationArgs,
-            "muncEBPriorSupportMinQ",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MIN_Q,
-        )
-    )
-    muncEBPriorSupportMaxQ = float(
-        getattr(
-            observationArgs,
-            "muncEBPriorSupportMaxQ",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MAX_Q,
-        )
-    )
-    if not (0.0 <= muncEBPriorSupportMinQ < muncEBPriorSupportMaxQ <= 1.0):
-        raise ValueError(
-            "observationParams.muncEBPrior support quantiles must satisfy "
-            "0 <= supportMinQ < supportMaxQ <= 1"
-        )
-    muncEBPriorMaxExtrapolatedFraction = float(
-        getattr(
-            observationArgs,
-            "muncEBPriorMaxExtrapolatedFraction",
-            constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
-        )
-    )
-    if not (0.0 <= muncEBPriorMaxExtrapolatedFraction <= 1.0):
-        raise ValueError(
-            "observationParams.muncEBPrior.maxExtrapolatedFraction must lie in [0, 1]"
-        )
     muncEBPriorWarmupECMIters = int(
         getattr(
             observationArgs,
@@ -3428,6 +3366,42 @@ def main():
         raise ValueError(
             "observationParams.muncEBPrior.warmupOuterPasses must be positive"
         )
+    muncSeedWeightPasses_ = int(
+        getattr(
+            observationArgs,
+            "muncSeedWeightPasses",
+            constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES,
+        )
+    )
+    if muncSeedWeightPasses_ < constants.OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES:
+        raise ValueError(
+            "observationParams.muncSeedWeight.passes must be at least "
+            f"{constants.OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES}"
+        )
+    muncSeedProcessMinQ_ = float(
+        getattr(
+            observationArgs,
+            "muncSeedProcessMinQ",
+            constants.OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MIN_Q,
+        )
+    )
+    if not np.isfinite(muncSeedProcessMinQ_) or muncSeedProcessMinQ_ <= 0.0:
+        raise ValueError(
+            "observationParams.muncSeedProcess.minQ must be finite and positive"
+        )
+    muncSeedProcessMaxQ_ = float(
+        getattr(
+            observationArgs,
+            "muncSeedProcessMaxQ",
+            constants.OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q,
+        )
+    )
+    if np.isnan(muncSeedProcessMaxQ_):
+        raise ValueError("observationParams.muncSeedProcess.maxQ must not be NaN")
+    if muncSeedProcessMaxQ_ >= 0.0 and muncSeedProcessMaxQ_ < muncSeedProcessMinQ_:
+        raise ValueError(
+            "observationParams.muncSeedProcess.maxQ must be negative or at least minQ"
+        )
     muncEBPriorGUncertaintyMode = core._normalizeMuncEBPriorGUncertaintyMode(
         getattr(
             observationArgs,
@@ -3435,46 +3409,6 @@ def main():
             constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
         )
     )
-    muncEBPriorTileBudgetByChromosome = np.zeros(len(chromosomePlans), dtype=np.int64)
-    if chromosomePlans:
-        chromosomeIntervalCounts = np.asarray(
-            [max(0, int(plan["numIntervals"])) for plan in chromosomePlans],
-            dtype=np.float64,
-        )
-        totalChromosomeIntervals = float(np.sum(chromosomeIntervalCounts))
-        if totalChromosomeIntervals <= 0.0:
-            raise RuntimeError("MUNC EB prior has no configured intervals")
-        activeChromosomeCount = int(np.count_nonzero(chromosomeIntervalCounts > 0.0))
-        if int(muncEBPriorTileCount) < activeChromosomeCount:
-            raise ValueError(
-                "observationParams.muncEBPrior.tileCount must be at least the "
-                "number of configured chromosomes"
-            )
-        rawTileBudgets = (
-            float(muncEBPriorTileCount)
-            * chromosomeIntervalCounts
-            / totalChromosomeIntervals
-        )
-        tileBudgets = np.floor(rawTileBudgets).astype(np.int64)
-        activeBudgetMask = chromosomeIntervalCounts > 0.0
-        tileBudgets[(tileBudgets <= 0) & activeBudgetMask] = 1
-        budgetDelta = int(muncEBPriorTileCount) - int(np.sum(tileBudgets))
-        if budgetDelta > 0:
-            order = np.argsort(-(rawTileBudgets - np.floor(rawTileBudgets)))
-            for budgetIndex in order[:budgetDelta]:
-                tileBudgets[int(budgetIndex)] += 1
-        elif budgetDelta < 0:
-            for budgetIndex in np.argsort(-tileBudgets):
-                if budgetDelta == 0:
-                    break
-                removable = min(
-                    int(tileBudgets[int(budgetIndex)] - 1), int(-budgetDelta)
-                )
-                if removable <= 0:
-                    continue
-                tileBudgets[int(budgetIndex)] -= int(removable)
-                budgetDelta += int(removable)
-        muncEBPriorTileBudgetByChromosome = tileBudgets.astype(np.int64, copy=False)
     muncCovariatesEnabled = bool(
         getattr(
             observationArgs,
@@ -4111,18 +4045,6 @@ def main():
                 int(blockLenIntervals),
             )
 
-        if not hasattr(core, "_solveZeroCenteredBackground"):
-            logger.warning(
-                "MUNC residualization prepass: no core background helper is available; "
-                "using zero g0 for %s.",
-                chromosome,
-            )
-            return (
-                np.zeros(intervalCount, dtype=np.float32),
-                "zero_no_core_background_helper",
-                int(blockLenIntervals),
-            )
-
         arr = np.asarray(chromMat, dtype=np.float32)
         finiteMask = np.isfinite(arr)
         residualMatrix = np.where(
@@ -4131,7 +4053,7 @@ def main():
             0.0,
         ).astype(np.float32, copy=False)
         invVarMatrix = _coarseMuncResidualizationInvVar(arr)
-        backgroundArr = core._solveZeroCenteredBackground(
+        backgroundArr = core.solveZeroCenteredBackground(
             residualMatrix=np.ascontiguousarray(residualMatrix, dtype=np.float32),
             invVarMatrix=invVarMatrix,
             blockLenIntervals=int(blockLenIntervals),
@@ -4150,7 +4072,7 @@ def main():
             )
         return (
             np.ascontiguousarray(backgroundArr, dtype=np.float32),
-            "core._solveZeroCenteredBackground_coarse_weights",
+            "core.solveZeroCenteredBackground_coarse_weights",
             int(blockLenIntervals),
         )
 
@@ -4426,9 +4348,7 @@ def main():
         c_: int,
         intervals: np.ndarray,
         chromMat: np.ndarray,
-        residMat: np.ndarray,
         seedMuncMat: np.ndarray,
-        muncResidualBackground: np.ndarray,
         *,
         inputLabel: str = "raw",
         diagnosticRawMat: np.ndarray | None = None,
@@ -4446,500 +4366,641 @@ def main():
         )
         blacklistExcludeMask = _getChromBlacklistMask(chromosomeName, intervals)
         chromArr = np.asarray(chromMat, dtype=np.float32)
-        seedMuncArr = np.asarray(seedMuncMat, dtype=np.float64)
-        residArr = np.asarray(residMat, dtype=np.float64)
-        if chromArr.shape != seedMuncArr.shape or seedMuncArr.shape != residArr.shape:
+        seedMuncArr = np.array(seedMuncMat, dtype=np.float32, copy=True)
+        residArr = np.ascontiguousarray(chromArr, dtype=np.float32)
+        if chromArr.shape != seedMuncArr.shape:
             raise RuntimeError("seed smoother matrices must align")
         intervalCount = int(residArr.shape[1])
+        if intervalCount < 2:
+            raise RuntimeError(
+                f"MUNC seed ECM needs at least two intervals for {chromosomeName}"
+            )
+        if not np.all(np.isfinite(seedMuncArr)):
+            raise RuntimeError(
+                f"seed MUNC contains non-finite entries for {chromosomeName}"
+            )
         if blacklistExcludeMask.shape[0] != intervalCount:
             raise RuntimeError("MUNC blacklist mask length mismatch")
-        countFloorArr = (
-            np.zeros_like(seedMuncArr, dtype=np.float64)
-            if countModelVarianceFloorMat is None
-            else np.asarray(countModelVarianceFloorMat, dtype=np.float64)
-        )
-        if countFloorArr.shape != seedMuncArr.shape:
-            raise RuntimeError("count-model floor matrix must align with MUNC evidence")
-        countFloorFinite = np.isfinite(countFloorArr)
-        countFloorWork = np.where(countFloorFinite, countFloorArr, 0.0)
-        seedWeights = 1.0 / np.maximum(seedMuncArr + float(pad_), 1.0e-12)
-        seedWeightSum = np.sum(seedWeights, axis=0, dtype=np.float64)
-        seedMeanTrack = np.zeros(residArr.shape[1], dtype=np.float64)
-        np.divide(
-            np.sum(seedWeights * residArr, axis=0, dtype=np.float64),
-            seedWeightSum,
-            out=seedMeanTrack,
-            where=seedWeightSum > 0.0,
-        )
-        localEvidenceMatrix = np.maximum(
-            seedMuncArr - countFloorWork,
-            _MUNC_NUMERIC_VARIANCE_FLOOR,
-        ).astype(np.float32)
+        countFloorWork = None
+        if countModelVarianceFloorMat is not None:
+            countFloorWork = np.asarray(countModelVarianceFloorMat, dtype=np.float32)
+            if countFloorWork.shape != seedMuncArr.shape:
+                raise RuntimeError(
+                    "count-model floor matrix must align with MUNC evidence"
+                )
+            if not np.all(np.isfinite(countFloorWork)):
+                raise RuntimeError("count-model floor must be finite")
+            if np.any(countFloorWork < 0.0):
+                raise RuntimeError("count-model floor must be nonnegative")
 
-        defaultTileBP = max(5_000, 2 * int(muncSizing.localWindowSizeBP))
-        priorTileBP = (
-            defaultTileBP
-            if muncEBPriorTileSizeBP is None
-            else int(muncEBPriorTileSizeBP)
+        localEvidenceMatrix = np.empty(seedMuncArr.shape, dtype=np.float32)
+        responseWeightMatrix = np.ones(seedMuncArr.shape, dtype=np.float32)
+
+        blockIntervals = max(2, int(muncSizing.trendBlockIntervals))
+        startsArr = np.arange(0, intervalCount, blockIntervals, dtype=np.intp)
+        endsArr = np.minimum(startsArr + blockIntervals, intervalCount).astype(
+            np.intp
         )
-        if priorTileBP <= 0:
-            raise ValueError(
-                "observationParams.muncEBPrior.tileSizeBP must be positive"
-            )
-        tileIntervals = max(
-            2,
-            int(math.ceil(float(priorTileBP) / float(intervalSizeBP))),
-        )
-        startsArr = np.arange(
-            0,
-            intervalCount,
-            tileIntervals,
-            dtype=np.intp,
-        )
-        endsArr = np.minimum(startsArr + tileIntervals, intervalCount).astype(np.intp)
         blockLengthsArr = endsArr - startsArr
-        keepTiles = blockLengthsArr >= 2
-        startsArr = startsArr[keepTiles]
-        endsArr = endsArr[keepTiles]
+        keepBlocks = blockLengthsArr >= 2
+        startsArr = startsArr[keepBlocks]
+        endsArr = endsArr[keepBlocks]
+        blockLengthsArr = blockLengthsArr[keepBlocks]
         if startsArr.size == 0:
-            raise RuntimeError(f"MUNC EB prior has no broad tiles for {chromosomeName}")
-
-        activeWeights = np.asarray(seedWeightSum, dtype=np.float64).reshape(-1)
-        activeWeights = activeWeights.copy()
-        activeWeights[blacklistExcludeMask != 0] = 0.0
-        blockLengthsArr = endsArr - startsArr
-        dummyEvidence = np.zeros((1, intervalCount), dtype=np.float32)
-        tilePredictorArrAll, _unusedEvidence, tileWeightMatrixAll = (
-            cconsenrich.cbroadMuncTileEvidence(
-                np.ascontiguousarray(seedMeanTrack, dtype=np.float32),
-                dummyEvidence,
-                np.ascontiguousarray(startsArr, dtype=np.intp),
-                np.ascontiguousarray(blockLengthsArr, dtype=np.intp),
-                blacklistExcludeMask,
-                np.ascontiguousarray(activeWeights, dtype=np.float64),
-                eps=_MUNC_NUMERIC_VARIANCE_FLOOR,
-            )
-        )
-        tilePredictorArrAll = np.asarray(tilePredictorArrAll, dtype=np.float64)
-        tileWeightAll = np.asarray(tileWeightMatrixAll[0, :], dtype=np.float64)
-        finiteTileIdx = np.flatnonzero(
-            (tileWeightAll > 0.0) & np.isfinite(tilePredictorArrAll)
-        )
-        if finiteTileIdx.size == 0:
             raise RuntimeError(
-                f"MUNC EB prior has no valid broad tiles for {chromosomeName}"
-            )
-        priorTileCount = min(
-            int(muncEBPriorTileBudgetByChromosome[int(c_)]),
-            int(finiteTileIdx.size),
-        )
-        if finiteTileIdx.size > priorTileCount:
-            rng = np.random.default_rng(int(muncEBPriorSeed) + int(c_))
-            strata = muncEBPriorStrata
-            if strata is None:
-                strata = max(
-                    1,
-                    min(
-                        32,
-                        priorTileCount // max(int(muncEBPriorMinTilesPerStratum), 1),
-                    ),
-                )
-            strata = min(int(max(1, strata)), int(priorTileCount))
-            order = finiteTileIdx[np.argsort(tilePredictorArrAll[finiteTileIdx])]
-            pieces = np.array_split(order, strata)
-            sampledParts = []
-            baseTiles = (
-                int(muncEBPriorMinTilesPerStratum)
-                if priorTileCount >= int(strata) * int(muncEBPriorMinTilesPerStratum)
-                else 1
-            )
-            baseQuota = np.full(int(strata), int(baseTiles), dtype=np.int64)
-            remaining = max(int(priorTileCount) - int(np.sum(baseQuota)), 0)
-            if remaining:
-                pieceSizes = np.asarray(
-                    [piece.size for piece in pieces],
-                    dtype=np.float64,
-                )
-                pieceWeights = pieceSizes / float(np.sum(pieceSizes))
-                addQuota = np.floor(pieceWeights * float(remaining)).astype(np.int64)
-                quotaGapCount = remaining - int(np.sum(addQuota))
-                if quotaGapCount > 0:
-                    quotaGap = pieceWeights - addQuota / max(remaining, 1)
-                    addQuota[np.argsort(-quotaGap)[:quotaGapCount]] += 1
-                baseQuota += addQuota
-            for piece, quotaValue in zip(pieces, baseQuota):
-                quota = min(int(quotaValue), int(piece.size))
-                if piece.size <= quota:
-                    sampledParts.append(piece)
-                else:
-                    sampledParts.append(rng.choice(piece, size=quota, replace=False))
-            sampledIdx = np.unique(np.concatenate(sampledParts))
-            tailCount = min(
-                int(muncEBPriorMinTilesPerStratum),
-                max(1, int(priorTileCount) // 2),
-            )
-            tailIdx = (
-                order[:1]
-                if int(priorTileCount) == 1
-                else np.unique(np.concatenate((order[:tailCount], order[-tailCount:])))
-            )
-            sampledIdx = np.unique(np.concatenate((sampledIdx, tailIdx)))
-            if sampledIdx.size > priorTileCount:
-                keep = set(int(idx) for idx in tailIdx)
-                removable = np.asarray(
-                    [idx for idx in sampledIdx if int(idx) not in keep],
-                    dtype=np.intp,
-                )
-                keepArr = np.asarray(sorted(keep), dtype=np.intp)
-                need = max(int(priorTileCount) - int(keepArr.size), 0)
-                sampledIdx = (
-                    keepArr
-                    if need == 0
-                    else np.unique(
-                        np.concatenate(
-                            (
-                                keepArr,
-                                rng.choice(removable, size=need, replace=False),
-                            )
-                        )
-                    )
-                )
-            sampledIdx = np.sort(sampledIdx.astype(np.intp, copy=False))
-        else:
-            sampledIdx = finiteTileIdx.astype(np.intp, copy=False)
-
-        qLo, qHi = np.quantile(
-            tilePredictorArrAll[finiteTileIdx],
-            [muncEBPriorSupportMinQ, muncEBPriorSupportMaxQ],
-        )
-        sampledPredictor = tilePredictorArrAll[sampledIdx]
-        if float(np.min(sampledPredictor)) > float(qLo) or float(
-            np.max(sampledPredictor)
-        ) < float(qHi):
-            raise RuntimeError(
-                "MUNC EB prior sampled tiles do not span requested signal support"
-            )
-        sampledLo = float(np.min(sampledPredictor))
-        sampledHi = float(np.max(sampledPredictor))
-        extrapolatedFraction = float(
-            np.mean(
-                (tilePredictorArrAll[finiteTileIdx] < sampledLo)
-                | (tilePredictorArrAll[finiteTileIdx] > sampledHi)
-            )
-        )
-        if extrapolatedFraction > float(muncEBPriorMaxExtrapolatedFraction):
-            raise RuntimeError(
-                "MUNC EB prior sampled tiles exceed extrapolated support fraction"
+                f"MUNC has no deterministic blocks for {chromosomeName}"
             )
 
-        startsArr = startsArr[sampledIdx]
-        endsArr = endsArr[sampledIdx]
-        tilePredictorArr = sampledPredictor
-        blockLengthsArr = endsArr - startsArr
         priorBlockLenIntervals = _resolveRuntimeBackgroundBlockLen(
             dependenceSpanIntervals_,
             backgroundBlockSizeBP_,
             intervalSizeBP,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
-        backgroundArr = np.asarray(muncResidualBackground, dtype=np.float32).reshape(-1)
-        if backgroundArr.shape[0] != intervalCount:
-            raise RuntimeError("MUNC residual background length mismatch")
-        startupSegments: list[tuple[int, int, int, int]] = []
-        startupInitialProcessQ: np.ndarray | None = None
-        if bool(observationArgs.EB_use):
-            segmentMaxIntervals = max(
-                int(tileIntervals),
-                int(
-                    math.ceil(10_000_000.0 / float(intervalSizeBP))
-                ),  # FFR: check against contig len
-            )
-            segmentStart = int(startsArr[0])
-            segmentEnd = int(endsArr[0])
-            segmentTileStart = 0
-            for tileIndex in range(1, int(startsArr.size)):
-                tileStart = int(startsArr[tileIndex])
-                tileEnd = int(endsArr[tileIndex])
-                gap = tileStart - segmentEnd
-                mergedLength = tileEnd - segmentStart
-                if (
-                    gap <= 2 * int(tileIntervals)
-                    and mergedLength <= segmentMaxIntervals
-                ):
-                    segmentEnd = tileEnd
-                    continue
-                startupSegments.append(
-                    (segmentStart, segmentEnd, segmentTileStart, int(tileIndex))
+        seedStateModel = core._normalizeStateModel(processArgs.stateModel)
+        seedDeltaF = (
+            1.0
+            if seedStateModel == core.STATE_MODEL_LEVEL
+            else core._resolveFixedDeltaF(deltaF_)
+        )
+        seedMinQ = float(muncSeedProcessMinQ_)
+        seedMaxQ = float(muncSeedProcessMaxQ_)
+        seedQStart = time.perf_counter()
+        seedProcessQ, seedQDiagnostics = core._estimateInitialProcessNoiseFromData(
+            matrixData=np.ascontiguousarray(residArr, dtype=np.float32),
+            matrixMunc=np.ascontiguousarray(seedMuncArr, dtype=np.float32),
+            pad=float(pad_),
+            stateModel=seedStateModel,
+            minQ=float(seedMinQ),
+            maxQ=float(seedMaxQ),
+            deltaF=float(seedDeltaF),
+            puncMaxScale=float(processArgs.puncMaxScale),
+            processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
+            robustTNu=float(
+                getattr(
+                    observationArgs,
+                    "muncSeedWeightStudentTdf",
+                    constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF,
                 )
-                segmentStart = tileStart
-                segmentEnd = tileEnd
-                segmentTileStart = int(tileIndex)
-            startupSegments.append(
-                (segmentStart, segmentEnd, segmentTileStart, int(startsArr.size))
+            ),
+            qSeedPriorLevel=float(processArgs.qSeedPriorLevel),
+        )
+        seedProcessQ = np.ascontiguousarray(seedProcessQ, dtype=np.float32)
+        logger.info(
+            "MUNC seed Q %s source=%s reason=%s q_level=%.6g "
+            "q_trend=%.6g minQ=%.6g maxQ=%.6g elapsed=%.3fs",
+            chromosomeName,
+            seedQDiagnostics["qSeedSource"],
+            seedQDiagnostics["qSeedReason"],
+            float(seedQDiagnostics["qSeedLevelFinal"]),
+            float(seedQDiagnostics["qSeedTrendFinal"]),
+            seedMinQ,
+            seedMaxQ,
+            time.perf_counter() - seedQStart,
+        )
+
+        seedPassCount = int(muncSeedWeightPasses_)
+        seedWeightEnabled = bool(
+            getattr(
+                observationArgs,
+                "muncSeedWeightEnabled",
+                constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED,
             )
-            logger.info(
-                "MUNC EB prior startup %s tiles=%d segments=%d tile_bp=%d max_segment_bp=%d",
-                chromosomeName,
-                int(startsArr.size),
-                int(len(startupSegments)),
-                int(tileIntervals) * int(intervalSizeBP),
-                int(segmentMaxIntervals) * int(intervalSizeBP),
+        )
+        seedWeightStudentT = bool(
+            getattr(
+                observationArgs,
+                "muncSeedWeightStudentT",
+                constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T,
             )
-            startupStateModel = core._normalizeStateModel(processArgs.stateModel)
-            startupDeltaF = (
-                1.0
-                if startupStateModel == core.STATE_MODEL_LEVEL
-                else core._resolveFixedDeltaF(deltaF_)
+        )
+        seedUseWeights = bool(seedWeightEnabled and seedWeightStudentT)
+        seedStudentTdf = float(
+            getattr(
+                observationArgs,
+                "muncSeedWeightStudentTdf",
+                constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF,
             )
-            seedStartIndex, seedEndIndex, _seedTileStart, _seedTileEnd = max(
-                startupSegments,
-                key=lambda segment: (
-                    int(segment[1]) - int(segment[0]),
-                    -int(segment[0]),
-                ),
+        )
+        seedOmegaMin = float(
+            getattr(
+                observationArgs,
+                "muncSeedWeightMin",
+                constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MIN,
             )
-            seedSegmentSlice = slice(int(seedStartIndex), int(seedEndIndex))
-            startupSeedQStart = time.perf_counter()
-            startupInitialProcessQ, startupQDiagnostics = (
-                core._estimateInitialProcessNoiseFromData(
-                    matrixData=np.ascontiguousarray(
-                        chromArr[:, seedSegmentSlice],
-                        dtype=np.float32,
-                    ),
-                    matrixMunc=np.ascontiguousarray(
-                        seedMuncArr[:, seedSegmentSlice],
-                        dtype=np.float32,
-                    ),
-                    pad=float(pad_),
-                    stateModel=startupStateModel,
-                    minQ=float(minQ_),
-                    maxQ=float(maxQ_),
-                    deltaF=float(startupDeltaF),
-                    puncMaxScale=float(processArgs.puncMaxScale),
-                    processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
-                    robustTNu=fitArgs.ECM_robustTNu,
-                    qSeedPriorLevel=float(processArgs.qSeedPriorLevel),
+        )
+        seedOmegaMax = float(
+            getattr(
+                observationArgs,
+                "muncSeedWeightMax",
+                constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MAX,
+            )
+        )
+        if seedUseWeights:
+            if (
+                seedStudentTdf <= 0.0
+                or seedOmegaMin <= 0.0
+                or seedOmegaMax < seedOmegaMin
+                or not np.isfinite(seedStudentTdf)
+                or not np.isfinite(seedOmegaMin)
+                or not np.isfinite(seedOmegaMax)
+            ):
+                raise ValueError("MUNC seed Student-t weight parameters are invalid")
+        seedBlockMap = np.zeros(intervalCount, dtype=np.int32)
+        seedStateDim = 1 if seedStateModel == core.STATE_MODEL_LEVEL else 2
+        seedMatrixF = np.ascontiguousarray(
+            core.constructMatrixF(float(seedDeltaF)),
+            dtype=np.float32,
+        )
+        seedBackground = np.zeros(intervalCount, dtype=np.float32)
+        seedGVariance = np.zeros(intervalCount, dtype=np.float32)
+        omegaTrack = np.ones(intervalCount, dtype=np.float32)
+        rhoTrack = np.ones(seedMuncArr.shape, dtype=np.float32)
+        def _seedWorkingMunc(
+            totalVariance: np.ndarray,
+            omega: np.ndarray,
+            rho: np.ndarray,
+            gVariance: np.ndarray,
+        ) -> np.ndarray:
+            base = np.asarray(totalVariance, dtype=np.float64) + float(pad_)
+            if seedUseWeights:
+                denom = np.maximum(
+                    np.asarray(omega, dtype=np.float64).reshape(1, -1)
+                    * np.asarray(rho, dtype=np.float64),
+                    1.0e-12,
                 )
-            )
-            startupInitialProcessQ = np.ascontiguousarray(
-                startupInitialProcessQ,
+                working = base / denom
+            else:
+                working = base
+            working += np.asarray(gVariance, dtype=np.float64).reshape(1, -1)
+            working -= float(pad_)
+            return np.ascontiguousarray(
+                np.maximum(working, _MUNC_NUMERIC_VARIANCE_FLOOR),
                 dtype=np.float32,
             )
-            logger.info(
-                "MUNC EB prior startup seed Q %s segments=%d source_start=%d "
-                "source_end=%d source_intervals=%d source=%s reason=%s "
-                "q_level=%.6g q_trend=%.6g elapsed=%.3fs",
-                chromosomeName,
-                int(len(startupSegments)),
-                int(seedStartIndex),
-                int(seedEndIndex),
-                int(seedEndIndex) - int(seedStartIndex),
-                startupQDiagnostics["qSeedSource"],
-                startupQDiagnostics["qSeedReason"],
-                float(startupQDiagnostics["qSeedLevelFinal"]),
-                float(startupQDiagnostics["qSeedTrendFinal"]),
-                time.perf_counter() - startupSeedQStart,
+
+        def _muncObservationMomentSeedPass(
+            matrixData: np.ndarray,
+            matrixMunc: np.ndarray,
+            stateMean: np.ndarray,
+            stateVariance: np.ndarray,
+            *,
+            background: np.ndarray,
+            gVariance: np.ndarray,
+            countFloor: np.ndarray | None,
+            omegaIn: np.ndarray,
+            rhoIn: np.ndarray,
+            updateWeights: bool,
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+            cythonSeedPass = getattr(
+                cconsenrich,
+                "cMuncObservationMomentSeedPass",
+                None,
+            )
+            if not callable(cythonSeedPass):
+                raise RuntimeError("cMuncObservationMomentSeedPass is required")
+            return cythonSeedPass(
+                np.ascontiguousarray(matrixData, dtype=np.float32),
+                np.ascontiguousarray(matrixMunc, dtype=np.float32),
+                np.ascontiguousarray(stateMean, dtype=np.float32),
+                np.ascontiguousarray(stateVariance, dtype=np.float32),
+                background=np.ascontiguousarray(background, dtype=np.float32),
+                gVariance=np.ascontiguousarray(gVariance, dtype=np.float32),
+                countFloor=countFloor,
+                omegaIn=np.ascontiguousarray(omegaIn, dtype=np.float32),
+                rhoIn=np.ascontiguousarray(rhoIn, dtype=np.float32),
+                pad=float(pad_),
+                studentTdf=float(seedStudentTdf),
+                useSeedWeights=bool(seedUseWeights),
+                updateWeights=bool(updateWeights),
+                omegaMin=float(seedOmegaMin),
+                omegaMax=float(seedOmegaMax),
+                varianceFloor=float(_MUNC_NUMERIC_VARIANCE_FLOOR),
+                varianceCap=(
+                    float(maxR_)
+                    if maxR_ is not None and maxR_ > 0.0
+                    else np.finfo(np.float32).max
+                ),
             )
 
-        def _fitStartupSegment(
-            segmentIndex: int,
-            segment: tuple[int, int, int, int],
-        ):
-            startIndex, endIndex, tileStartPos, tileEndPos = segment
-            segmentSlice = slice(int(startIndex), int(endIndex))
-            segmentLength = int(endIndex) - int(startIndex)
-            startupResult = core.runConsenrich(
-                np.ascontiguousarray(chromArr[:, segmentSlice], dtype=np.float32),
-                np.ascontiguousarray(seedMuncArr[:, segmentSlice], dtype=np.float32),
-                deltaF=deltaF_,
-                minQ=minQ_,
-                maxQ=maxQ_,
-                stateInit=stateArgs.stateInit,
-                stateCovarInit=stateArgs.stateCovarInit,
-                boundState=stateArgs.boundState,
-                stateLowerBound=stateArgs.stateLowerBound,
-                stateUpperBound=stateArgs.stateUpperBound,
-                blockLenIntervals=priorBlockLenIntervals,
-                intervalSizeBP=intervalSizeBP,
-                returnScales=True,
-                returnBackground=True,
-                pad=pad_,
-                ECM_fixedBackgroundIters=int(muncEBPriorWarmupECMIters),
-                ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
-                ECM_robustTNu=fitArgs.ECM_robustTNu,
-                ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
-                ECM_useProcessPrecisionReweighting=False,
-                ECM_useAPN=False,
-                fitBackground=fitArgs.fitBackground,
-                useNonnegativeBackground=fitArgs.useNonnegativeBackground,
+        def _smoothDenseLocalEvidence(
+            localEvidence: np.ndarray,
+        ) -> tuple[np.ndarray, str]:
+            cythonSmooth = getattr(
+                cconsenrich,
+                "cMuncSmoothDenseLocalEvidence",
+                None,
+            )
+            if not callable(cythonSmooth):
+                raise RuntimeError("cMuncSmoothDenseLocalEvidence is required")
+            return (
+                np.ascontiguousarray(
+                    cythonSmooth(
+                        np.ascontiguousarray(localEvidence, dtype=np.float32),
+                        int(muncSizing.localWindowIntervals),
+                        excludeMask=blacklistExcludeMask,
+                        eps=float(_MUNC_NUMERIC_VARIANCE_FLOOR),
+                    ),
+                    dtype=np.float32,
+                ),
+                "cython",
+            )
+
+        def _localEvidenceToTotalVariance(localEvidence: np.ndarray) -> np.ndarray:
+            localArr = np.asarray(localEvidence, dtype=np.float32)
+            if countFloorWork is None:
+                totalArr = localArr.copy()
+            else:
+                totalArr = np.ascontiguousarray(
+                    localArr + np.asarray(countFloorWork, dtype=np.float32),
+                    dtype=np.float32,
+                )
+            varianceCap = (
+                float(maxR_)
+                if maxR_ is not None and maxR_ > 0.0
+                else None
+            )
+            if varianceCap is not None:
+                totalArr = np.minimum(totalArr, np.float32(varianceCap))
+            return np.ascontiguousarray(
+                np.maximum(totalArr, np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR)),
+                dtype=np.float32,
+            )
+
+        def _runSeedSmoother(
+            totalVariance: np.ndarray,
+            omega: np.ndarray,
+            rho: np.ndarray,
+            background: np.ndarray,
+            gVariance: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            seedData = np.ascontiguousarray(
+                residArr - np.asarray(background, dtype=np.float32).reshape(1, -1),
+                dtype=np.float32,
+            )
+            workingMunc = _seedWorkingMunc(totalVariance, omega, rho, gVariance)
+            stateForward = np.empty((intervalCount, seedStateDim), dtype=np.float32)
+            stateCovarForward = np.empty(
+                (intervalCount, seedStateDim, seedStateDim),
+                dtype=np.float32,
+            )
+            pNoiseForward = np.empty(
+                (intervalCount, seedStateDim, seedStateDim),
+                dtype=np.float32,
+            )
+            vectorD = np.empty(intervalCount, dtype=np.float32)
+            if seedStateModel == core.STATE_MODEL_LEVEL:
+                cconsenrich.cforwardPassLevel(
+                    matrixData=seedData,
+                    matrixPluginMuncInit=workingMunc,
+                    matrixQ0=np.ascontiguousarray(
+                        seedProcessQ[:1, :1],
+                        dtype=np.float32,
+                    ),
+                    intervalToBlockMap=seedBlockMap,
+                    blockCount=1,
+                    stateInit=float(stateArgs.stateInit),
+                    stateCovarInit=float(stateArgs.stateCovarInit),
+                    pad=float(pad_),
+                    chunkSize=0,
+                    stateForward=stateForward,
+                    stateCovarForward=stateCovarForward,
+                    pNoiseForward=pNoiseForward,
+                    vectorD=vectorD,
+                    progressBar=None,
+                    progressIter=0,
+                    returnNLL=True,
+                    storeNLLInD=False,
+                    lambdaExp=None,
+                    processPrecExp=None,
+                    ECM_useObsPrecisionReweighting=False,
+                    ECM_useProcessPrecisionReweighting=False,
+                    ECM_useAPN=False,
+                )
+                stateSmoothed, stateCovarSmoothed, _lagCov, _postResiduals = (
+                    cconsenrich.cbackwardPassLevel(
+                        matrixData=seedData,
+                        stateForward=stateForward,
+                        stateCovarForward=stateCovarForward,
+                        pNoiseForward=pNoiseForward,
+                        chunkSize=0,
+                        stateSmoothed=None,
+                        stateCovarSmoothed=None,
+                        lagCovSmoothed=None,
+                        postFitResiduals=None,
+                        progressBar=None,
+                        progressIter=0,
+                    )
+                )
+            else:
+                cconsenrich.cforwardPass(
+                    matrixData=seedData,
+                    matrixPluginMuncInit=workingMunc,
+                    matrixF=seedMatrixF,
+                    matrixQ0=np.ascontiguousarray(
+                        seedProcessQ[:2, :2],
+                        dtype=np.float32,
+                    ),
+                    intervalToBlockMap=seedBlockMap,
+                    blockCount=1,
+                    stateInit=float(stateArgs.stateInit),
+                    stateCovarInit=float(stateArgs.stateCovarInit),
+                    pad=float(pad_),
+                    projectStateDuringFiltering=bool(stateArgs.boundState),
+                    stateLowerBound=float(stateArgs.stateLowerBound),
+                    stateUpperBound=float(stateArgs.stateUpperBound),
+                    chunkSize=0,
+                    stateForward=stateForward,
+                    stateCovarForward=stateCovarForward,
+                    pNoiseForward=pNoiseForward,
+                    vectorD=vectorD,
+                    progressBar=None,
+                    progressIter=0,
+                    returnNLL=True,
+                    storeNLLInD=False,
+                    lambdaExp=None,
+                    processPrecExp=None,
+                    ECM_useObsPrecisionReweighting=False,
+                    ECM_useProcessPrecisionReweighting=False,
+                    ECM_useAPN=False,
+                )
+                stateSmoothed, stateCovarSmoothed, _lagCov, _postResiduals = (
+                    cconsenrich.cbackwardPass(
+                        matrixData=seedData,
+                        matrixF=seedMatrixF,
+                        stateForward=stateForward,
+                        stateCovarForward=stateCovarForward,
+                        pNoiseForward=pNoiseForward,
+                        chunkSize=0,
+                        stateSmoothed=None,
+                        stateCovarSmoothed=None,
+                        lagCovSmoothed=None,
+                        postFitResiduals=None,
+                        progressBar=None,
+                        progressIter=0,
+                    )
+                )
+            return (
+                np.asarray(stateSmoothed, dtype=np.float32),
+                np.asarray(stateCovarSmoothed, dtype=np.float32),
+            )
+
+        def _updateSeedBackground(
+            stateMean: np.ndarray,
+            totalVariance: np.ndarray,
+            omega: np.ndarray,
+            rho: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            if not bool(fitArgs.fitBackground):
+                return (
+                    np.zeros(intervalCount, dtype=np.float32),
+                    np.zeros(intervalCount, dtype=np.float32),
+                )
+            base = np.asarray(totalVariance, dtype=np.float64) + float(pad_)
+            if seedUseWeights:
+                invVar = (
+                    np.asarray(omega, dtype=np.float64).reshape(1, -1)
+                    * np.asarray(rho, dtype=np.float64)
+                    / np.maximum(base, 1.0e-12)
+                )
+            else:
+                invVar = 1.0 / np.maximum(base, 1.0e-12)
+            residualForG = (
+                np.asarray(residArr, dtype=np.float32)
+                - np.asarray(stateMean, dtype=np.float32).reshape(1, -1)
+            )
+            nextBackground = core.solveZeroCenteredBackground(
+                residualMatrix=np.ascontiguousarray(residualForG, dtype=np.float32),
+                invVarMatrix=np.ascontiguousarray(invVar, dtype=np.float32),
+                blockLenIntervals=int(priorBlockLenIntervals),
+                backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
+                zeroCenter=bool(fitArgs.ECM_zeroCenterBackground),
+                useNonnegative=bool(fitArgs.useNonnegativeBackground),
                 backgroundNegativePenaltyMultiplier=(
                     fitArgs.backgroundNegativePenaltyMultiplier
                 ),
-                ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
-                ECM_outerIters=int(muncEBPriorWarmupOuterPasses),
-                ECM_minOuterIters=1,
-                ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
-                ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
-                ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
-                qSeedPriorLevel=processArgs.qSeedPriorLevel,
-                stateModel=processArgs.stateModel,
-                observationPrecisionMultiplierMin=(
-                    observationArgs.precisionMultiplierMin
-                ),
-                observationPrecisionMultiplierMax=(
-                    observationArgs.precisionMultiplierMax
-                ),
-                processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
-                processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
-                returnPrecisionDiagnostics=True,
-                returnDiagnostics=True,
-                initialBackground=(
-                    backgroundArr[segmentSlice] if bool(fitArgs.fitBackground) else None
-                ),
-                initialProcessQ=startupInitialProcessQ,
-                logIndentLevel=1,
-                logRunRole="MUNC prior startup",
             )
-            startupStateCov = startupResult[1]
-            startupResiduals = startupResult[2]
-            startupBackground = np.asarray(startupResult[5], dtype=np.float32)
-            startupPrecision = (
-                startupResult[6]
-                if len(startupResult) > 6 and isinstance(startupResult[6], Mapping)
-                else {}
-            )
-            startupLambda = startupPrecision.get("lambdaExp")
-            lambdaTrack = (
-                np.ones(segmentLength, dtype=np.float64)
-                if startupLambda is None
-                else np.asarray(startupLambda, dtype=np.float64).reshape(-1)
-            )
-            if lambdaTrack.shape[0] != segmentLength:
-                raise RuntimeError("startup lambda track length mismatch")
             if (
                 muncEBPriorGUncertaintyMode
                 == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED
             ):
-                gUncertainty = np.zeros(segmentLength, dtype=np.float32)
+                nextGVariance = np.zeros(intervalCount, dtype=np.float32)
             elif (
                 muncEBPriorGUncertaintyMode
                 == constants.MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY
             ):
-                gUncertainty = core._diagonalBackgroundUncertainty(
-                    np.ascontiguousarray(
-                        seedMuncArr[:, segmentSlice], dtype=np.float32
-                    ),
-                    blockLenIntervals=priorBlockLenIntervals,
-                    pad=pad_,
-                    lambdaExp=startupLambda,
-                    backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                    fitBackground=bool(fitArgs.fitBackground),
-                    backgroundTrack=startupBackground,
-                    useNonnegativeBackground=fitArgs.useNonnegativeBackground,
-                    backgroundNegativePenaltyMultiplier=(
-                        fitArgs.backgroundNegativePenaltyMultiplier
-                    ),
+                weightTrack = np.sum(invVar, axis=0, dtype=np.float64)
+                lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
+                    blockLenIntervals=int(priorBlockLenIntervals),
+                    backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
                 )
+                diagonal = weightTrack + core._backgroundPenaltyDiagonal(
+                    intervalCount,
+                    float(lamFirst),
+                    float(lamSecond),
+                )
+                negativePenaltyMultiplier = (
+                    fitArgs.backgroundNegativePenaltyMultiplier
+                    if bool(fitArgs.useNonnegativeBackground)
+                    else None
+                )
+                if negativePenaltyMultiplier is not None:
+                    negativePenaltyValue = float(negativePenaltyMultiplier)
+                    if negativePenaltyValue > 0.0:
+                        positiveWeights = weightTrack[weightTrack > 0.0]
+                        weightScale = (
+                            float(np.median(positiveWeights))
+                            if positiveWeights.size
+                            else 1.0
+                        )
+                        diagonal[np.asarray(nextBackground) < 0.0] += (
+                            negativePenaltyValue * max(weightScale, 1.0e-12)
+                        )
+                nextGVariance = (
+                    1.0 / np.maximum(diagonal, 1.0e-12)
+                ).astype(np.float32)
             else:
                 raise RuntimeError(
                     "unsupported MUNC EB prior g uncertainty mode "
                     f"{muncEBPriorGUncertaintyMode}"
                 )
-            residualsArr = np.asarray(startupResiduals, dtype=np.float64)
-            if residualsArr.shape != (segmentLength, residArr.shape[0]):
-                raise RuntimeError("startup residual shape mismatch")
-            stateCovArr = np.asarray(startupStateCov, dtype=np.float64)
-            if stateCovArr.shape[0] != segmentLength or stateCovArr.ndim != 3:
-                raise RuntimeError("startup state covariance shape mismatch")
-            gDiag = np.asarray(gUncertainty, dtype=np.float64).reshape(-1)
+            maxGVariance = float(np.quantile(np.asarray(totalVariance, dtype=np.float64), 0.99))
+            if not np.isfinite(maxGVariance) or maxGVariance <= 0.0:
+                maxGVariance = 1.0
+            clippedGVariance = np.minimum(
+                np.maximum(np.asarray(nextGVariance, dtype=np.float32), 0.0),
+                np.float32(maxGVariance),
+            )
             return (
-                int(segmentIndex),
-                int(startIndex),
-                int(endIndex),
-                int(tileStartPos),
-                int(tileEndPos),
-                lambdaTrack,
-                residualsArr,
-                stateCovArr,
-                gDiag,
+                np.ascontiguousarray(nextBackground, dtype=np.float32),
+                np.ascontiguousarray(clippedGVariance, dtype=np.float32),
             )
 
-        def _storeStartupEvidence(startupFit) -> None:
+        stateScore = np.zeros((intervalCount, seedStateDim), dtype=np.float32)
+        stateCovScore = np.zeros(
+            (intervalCount, seedStateDim, seedStateDim),
+            dtype=np.float32,
+        )
+        for seedPassIndex in range(seedPassCount):
+            stateArr, stateCovArr = _runSeedSmoother(
+                seedMuncArr,
+                omegaTrack,
+                rhoTrack,
+                seedBackground,
+                seedGVariance,
+            )
+            stateVariance = np.maximum(
+                np.asarray(stateCovArr[:, 0, 0], dtype=np.float32),
+                0.0,
+            )
             (
-                _segmentIndex,
-                startIndex,
-                endIndex,
-                tileStartPos,
-                tileEndPos,
-                lambdaTrack,
-                residualsArr,
-                stateCovArr,
-                gDiag,
-            ) = startupFit
-            for tilePos in range(int(tileStartPos), int(tileEndPos)):
-                tileStart = int(startsArr[tilePos])
-                tileEnd = int(endsArr[tilePos])
-                localSlice = slice(
-                    tileStart - int(startIndex), tileEnd - int(startIndex)
-                )
-                tileSlice = slice(tileStart, tileEnd)
-                evidenceTile = (
-                    lambdaTrack[None, localSlice]
-                    * (
-                        np.square(residualsArr[localSlice, :].T, dtype=np.float64)
-                        + stateCovArr[localSlice, 0, 0][None, :]
-                        + gDiag[None, localSlice]
-                    )
-                    - float(pad_)
-                    - countFloorWork[:, tileSlice]
-                )
-                localEvidenceMatrix[:, tileSlice] = np.maximum(
-                    evidenceTile,
-                    _MUNC_NUMERIC_VARIANCE_FLOOR,
-                ).astype(np.float32)
-
-        if startupSegments:
-            startupThreadCount = io_helpers._getSmallWorkerCount(
-                int(len(startupSegments)),
-                maxWorkers=4,
+                momentArr,
+                rhoNext,
+                omegaRaw,
+                omegaNext,
+                localNext,
+                seedMuncNext,
+            ) = _muncObservationMomentSeedPass(
+                residArr,
+                seedMuncArr,
+                stateArr[:, 0],
+                stateVariance,
+                background=np.ascontiguousarray(seedBackground, dtype=np.float32),
+                gVariance=np.ascontiguousarray(seedGVariance, dtype=np.float32),
+                countFloor=countFloorWork,
+                omegaIn=np.ascontiguousarray(omegaTrack, dtype=np.float32),
+                rhoIn=np.ascontiguousarray(rhoTrack, dtype=np.float32),
+                updateWeights=True,
             )
-            useParallelStartup = (
-                int(len(startupSegments)) > 1 and startupThreadCount > 1
+            seedBackground, seedGVariance = _updateSeedBackground(
+                np.asarray(stateArr[:, 0], dtype=np.float32),
+                seedMuncArr,
+                omegaTrack,
+                rhoTrack,
             )
-            if useParallelStartup:
-                logger.info(
-                    "MUNC EB prior startup %s thread_count=%d segments=%d",
-                    chromosomeName,
-                    int(startupThreadCount),
-                    int(len(startupSegments)),
-                )
-                with ThreadPool(processes=int(startupThreadCount)) as pool:
-                    pendingStartup = {}
-                    nextSubmit = 0
-                    startupTotal = int(len(startupSegments))
-                    startupWindow = int(startupThreadCount)
-                    while nextSubmit < min(startupWindow, startupTotal):
-                        pendingStartup[nextSubmit] = pool.apply_async(
-                            _fitStartupSegment,
-                            (nextSubmit, startupSegments[nextSubmit]),
-                        )
-                        nextSubmit += 1
-                    for resultIndex in range(startupTotal):
-                        startupFit = pendingStartup.pop(resultIndex).get()
-                        _storeStartupEvidence(startupFit)
-                        if nextSubmit < startupTotal:
-                            pendingStartup[nextSubmit] = pool.apply_async(
-                                _fitStartupSegment,
-                                (nextSubmit, startupSegments[nextSubmit]),
-                            )
-                            nextSubmit += 1
-            else:
-                for segmentIndex, startupSegment in enumerate(startupSegments):
-                    _storeStartupEvidence(
-                        _fitStartupSegment(segmentIndex, startupSegment)
-                    )
+            seedMuncArr = np.ascontiguousarray(seedMuncNext, dtype=np.float32)
+            localEvidenceMatrix = np.ascontiguousarray(localNext, dtype=np.float32)
+            omegaTrack = np.ascontiguousarray(omegaNext, dtype=np.float32)
+            rhoTrack = np.ascontiguousarray(rhoNext, dtype=np.float32)
+            if not seedUseWeights:
+                omegaTrack.fill(1.0)
+                rhoTrack.fill(1.0)
+            omegaStats = _summarizeFiniteArray(omegaTrack)
+            rhoStats = _summarizeFiniteArray(rhoTrack)
+            momentStats = _summarizeFiniteArray(momentArr)
+            gStats = _summarizeFiniteArray(seedBackground)
+            GStats = _summarizeFiniteArray(seedGVariance)
+            baseRatio = np.asarray(momentArr, dtype=np.float64) / np.maximum(
+                np.asarray(seedMuncArr, dtype=np.float64) + float(pad_),
+                1.0e-12,
+            )
+            logger.info(
+                "MUNC dense seed %s pass=%d/%d mode=%s "
+                "seed_omega[q05,q50,q95]=[%s,%s,%s] "
+                "seed_rho[q05,q50,q95]=[%s,%s,%s] "
+                "M[q05,q50,q95]=[%s,%s,%s] mean_M_over_B=%.6g "
+                "g[q05,q50,q95]=[%s,%s,%s] G[q05,q50,q95]=[%s,%s,%s]",
+                chromosomeName,
+                int(seedPassIndex + 1),
+                int(seedPassCount),
+                (
+                    "student_t"
+                    if seedUseWeights
+                    else ("gaussian" if seedWeightEnabled else "disabled")
+                ),
+                _fmtDiagnosticFloat(omegaStats["p05"]),
+                _fmtDiagnosticFloat(omegaStats["median"]),
+                _fmtDiagnosticFloat(omegaStats["p95"]),
+                _fmtDiagnosticFloat(rhoStats["p05"]),
+                _fmtDiagnosticFloat(rhoStats["median"]),
+                _fmtDiagnosticFloat(rhoStats["p95"]),
+                _fmtDiagnosticFloat(momentStats["p05"]),
+                _fmtDiagnosticFloat(momentStats["median"]),
+                _fmtDiagnosticFloat(momentStats["p95"]),
+                float(np.mean(baseRatio, dtype=np.float64)),
+                _fmtDiagnosticFloat(gStats["p05"]),
+                _fmtDiagnosticFloat(gStats["median"]),
+                _fmtDiagnosticFloat(gStats["p95"]),
+                _fmtDiagnosticFloat(GStats["p05"]),
+                _fmtDiagnosticFloat(GStats["median"]),
+                _fmtDiagnosticFloat(GStats["p95"]),
+            )
+            stateScore = stateArr
+            stateCovScore = stateCovArr
 
+        stateScore, stateCovScore = _runSeedSmoother(
+            seedMuncArr,
+            omegaTrack,
+            rhoTrack,
+            seedBackground,
+            seedGVariance,
+        )
+        scoreVariance = np.maximum(
+            np.asarray(stateCovScore[:, 0, 0], dtype=np.float32),
+            0.0,
+        )
+        (
+            momentScore,
+            rhoScore,
+            omegaRawScore,
+            omegaScore,
+            localPointwise,
+            seedMuncPointwise,
+        ) = _muncObservationMomentSeedPass(
+            residArr,
+            seedMuncArr,
+            stateScore[:, 0],
+            scoreVariance,
+            background=np.ascontiguousarray(seedBackground, dtype=np.float32),
+            gVariance=np.ascontiguousarray(seedGVariance, dtype=np.float32),
+            countFloor=countFloorWork,
+            omegaIn=np.ascontiguousarray(omegaTrack, dtype=np.float32),
+            rhoIn=np.ascontiguousarray(rhoTrack, dtype=np.float32),
+            updateWeights=False,
+        )
+        localEvidenceMatrix, denseSmoothingSource = _smoothDenseLocalEvidence(
+            localPointwise
+        )
+        seedMuncArr = _localEvidenceToTotalVariance(localEvidenceMatrix)
+        if seedUseWeights:
+            responseWeightMatrix = np.ascontiguousarray(
+                np.asarray(rhoScore, dtype=np.float32)
+                * np.asarray(omegaScore, dtype=np.float32).reshape(1, -1),
+                dtype=np.float32,
+            )
+        else:
+            responseWeightMatrix = np.ones(seedMuncArr.shape, dtype=np.float32)
+        seedMeanTrack = np.asarray(stateScore[:, 0], dtype=np.float64)
+        localStats = _summarizeFiniteArray(localEvidenceMatrix)
+        totalStats = _summarizeFiniteArray(seedMuncArr)
+        qStats = _summarizeFiniteArray(responseWeightMatrix)
+        logger.info(
+            "MUNC dense score %s L_pt[q05,q50,q95]=[%s,%s,%s] "
+            "V_pt[q05,q50,q95]=[%s,%s,%s] q_ji[q05,q50,q95]=[%s,%s,%s] "
+            "smoothing=%s nu_L=%.4g",
+            chromosomeName,
+            _fmtDiagnosticFloat(localStats["p05"]),
+            _fmtDiagnosticFloat(localStats["median"]),
+            _fmtDiagnosticFloat(localStats["p95"]),
+            _fmtDiagnosticFloat(totalStats["p05"]),
+            _fmtDiagnosticFloat(totalStats["median"]),
+            _fmtDiagnosticFloat(totalStats["p95"]),
+            _fmtDiagnosticFloat(qStats["p05"]),
+            _fmtDiagnosticFloat(qStats["median"]),
+            _fmtDiagnosticFloat(qStats["p95"]),
+            denseSmoothingSource,
+            float(max(4, int(muncSizing.localWindowIntervals) - 3)),
+        )
+
+        coveredMask = np.zeros(intervalCount, dtype=bool)
+        for blockStart, blockEnd in zip(startsArr, endsArr):
+            coveredMask[int(blockStart) : int(blockEnd)] = True
+        includedMask = blacklistExcludeMask == 0
+        includedCount = int(np.count_nonzero(includedMask))
+        coveredCount = int(np.count_nonzero(coveredMask & includedMask))
+        coverageFraction = (
+            float(coveredCount) / float(includedCount) if includedCount else 0.0
+        )
         localEvidenceCachePath = os.path.join(
             pooledMuncCache.name,
             f"chrom_{c_:05d}_munc_local_evidence.npy",
@@ -4947,43 +5008,105 @@ def main():
         np.save(localEvidenceCachePath, localEvidenceMatrix, allow_pickle=False)
         muncLocalEvidenceCachePaths[chromosomeName] = localEvidenceCachePath
 
-        tilePredictorArr, tileEvidenceArr, tileWeightArr = (
-            cconsenrich.cbroadMuncTileEvidence(
-                np.ascontiguousarray(seedMeanTrack, dtype=np.float32),
-                np.ascontiguousarray(localEvidenceMatrix, dtype=np.float32),
-                np.ascontiguousarray(startsArr, dtype=np.intp),
-                np.ascontiguousarray(blockLengthsArr, dtype=np.intp),
-                blacklistExcludeMask,
-                np.ascontiguousarray(activeWeights, dtype=np.float64),
-                eps=_MUNC_NUMERIC_VARIANCE_FLOOR,
-            )
+        blockCount = int(startsArr.size)
+        blockPredictorMatrix = np.full(
+            (numSamples, blockCount),
+            np.nan,
+            dtype=np.float64,
         )
-        tilePredictorArr = np.asarray(tilePredictorArr, dtype=np.float64)
-        tileEvidenceArr = np.asarray(tileEvidenceArr, dtype=np.float64)
-        tileWeightArr = np.asarray(tileWeightArr, dtype=np.float64)
-        tileMeansForFit = _inverseMuncTrendPredictor(tilePredictorArr)
-        collectedMeansParts: list[np.ndarray] = [
-            tileMeansForFit[np.isfinite(tileMeansForFit)]
-        ]
+        blockEvidenceArr = np.full((numSamples, blockCount), np.nan, dtype=np.float64)
+        blockWeightArr = np.zeros((numSamples, blockCount), dtype=np.float64)
+        blockEffectiveSupport = np.zeros((numSamples, blockCount), dtype=np.float64)
+        blockIncludedCounts = np.zeros(blockCount, dtype=np.int64)
+        predictorTrack = core._muncTrendPredictor(seedMeanTrack)
+        responseWeightArr = np.ascontiguousarray(
+            responseWeightMatrix,
+            dtype=np.float64,
+        )
+        responseWeightArr[:, blacklistExcludeMask != 0] = 0.0
+        dependenceDivisor = float(max(1.0, float(muncTrendBlockDependenceMultiplier_)))
+        for blockIndex, (blockStart, blockEnd) in enumerate(zip(startsArr, endsArr)):
+            blockSlice = slice(int(blockStart), int(blockEnd))
+            blockAllowed = np.asarray(blacklistExcludeMask[blockSlice]) == 0
+            blockIncludedCounts[blockIndex] = int(np.count_nonzero(blockAllowed))
+            predictorBlock = np.asarray(predictorTrack[blockSlice], dtype=np.float64)
+            for sampleIndex in range(numSamples):
+                evidenceBlock = np.asarray(
+                    localEvidenceMatrix[sampleIndex, blockSlice],
+                    dtype=np.float64,
+                )
+                qBlock = np.asarray(
+                    responseWeightArr[sampleIndex, blockSlice],
+                    dtype=np.float64,
+                )
+                validResponse = (
+                    blockAllowed
+                    & np.isfinite(predictorBlock)
+                    & np.isfinite(evidenceBlock)
+                    & (evidenceBlock > 0.0)
+                    & np.isfinite(qBlock)
+                    & (qBlock > 0.0)
+                )
+                if not np.any(validResponse):
+                    continue
+                qValid = qBlock[validResponse]
+                evidenceValid = evidenceBlock[validResponse]
+                predictorValid = predictorBlock[validResponse]
+                qSum = float(np.sum(qValid, dtype=np.float64))
+                if qSum <= 0.0:
+                    continue
+                blockPredictorMatrix[sampleIndex, blockIndex] = float(
+                    np.sum(qValid * predictorValid, dtype=np.float64) / qSum
+                )
+                blockEvidenceArr[sampleIndex, blockIndex] = float(
+                    np.sum(qValid * evidenceValid, dtype=np.float64) / qSum
+                )
+                blockWeightArr[sampleIndex, blockIndex] = qSum
+                qSquareSum = float(np.sum(qValid * qValid, dtype=np.float64))
+                if qSquareSum > 0.0:
+                    blockEffectiveSupport[sampleIndex, blockIndex] = max(
+                        1.0,
+                        (qSum * qSum / qSquareSum) / dependenceDivisor,
+                    )
+        blockMeansForFitMatrix = _inverseMuncTrendPredictor(blockPredictorMatrix)
+        collectedMeansParts: list[np.ndarray] = []
         rawDiagnosticMeansParts: list[np.ndarray] = []
+        blockCovariates = (
+            _blockCovariateMeans(
+                chromCovariates,
+                startsArr,
+                endsArr,
+            )
+            if chromCovariates is not None
+            else None
+        )
+        chromPooledRowCount = 0
         for j in range(numSamples):
-            blockMeansArr = tileMeansForFit
-            blockVarsForPooled = tileEvidenceArr[j, :]
-            blockWeightsForPooled = tileWeightArr[j, :]
+            blockMeansArr = blockMeansForFitMatrix[j, :]
+            blockVarsForPooled = blockEvidenceArr[j, :]
+            blockKernelWeights = blockWeightArr[j, :]
+            blockWeightsForPooled = blockEffectiveSupport[j, :]
             blockLogVarianceNoise = np.asarray(
                 core.trigamma(np.maximum(blockWeightsForPooled, 4.0) / 2.0),
                 dtype=np.float64,
             )
+            blockTrendWeights = 1.0 / blockLogVarianceNoise
             valid = (
                 np.isfinite(blockMeansArr)
                 & np.isfinite(blockVarsForPooled)
                 & np.isfinite(blockWeightsForPooled)
+                & np.isfinite(blockKernelWeights)
                 & (blockVarsForPooled >= _MUNC_NUMERIC_VARIANCE_FLOOR)
                 & (blockWeightsForPooled > 0.0)
+                & (blockKernelWeights > 0.0)
             )
             if not np.any(valid):
                 continue
             count = int(np.count_nonzero(valid))
+            chromPooledRowCount += count
+            collectedMeansParts.append(
+                np.asarray(blockMeansArr[valid], dtype=np.float64)
+            )
             if diagnosticRawMat is not None and endsArr.size == blockMeansArr.size:
                 rawMeans = _rawMeansForSampledBlocks(
                     diagnosticRawMat[j, :],
@@ -5004,21 +5127,59 @@ def main():
             pooledBlockLogVarianceNoiseParts.append(
                 np.asarray(blockLogVarianceNoise[valid], dtype=np.float64)
             )
-            if chromCovariates is not None:
-                blockCovariates = _blockCovariateMeans(
-                    chromCovariates,
-                    startsArr,
-                    endsArr,
-                )
+            if blockCovariates is not None:
                 pooledBlockCovariatesParts.append(
                     np.asarray(blockCovariates[valid, :], dtype=np.float32)
                 )
             pooledSampleIndexParts.append(np.full(count, int(j), dtype=np.int64))
             pooledChromIndexParts.append(np.full(count, int(c_), dtype=np.int64))
-            pooledBlockStartsParts.append(np.asarray(startsArr[valid], dtype=np.int64))
-            pooledWeightsParts.append(
-                np.asarray(blockWeightsForPooled[valid], dtype=np.float64)
+            pooledBlockStartsParts.append(
+                np.asarray(startsArr[valid], dtype=np.int64)
             )
+            pooledTrendWeightsParts.append(
+                np.asarray(blockTrendWeights[valid], dtype=np.float64)
+            )
+        effectiveSupportPositive = blockEffectiveSupport[blockEffectiveSupport > 0.0]
+        blockNoisePositive = core.trigamma(
+            np.maximum(effectiveSupportPositive, 4.0) / 2.0
+        )
+        blockTrendWeightPositive = (
+            1.0 / blockNoisePositive
+            if blockNoisePositive.size
+            else np.empty(0, dtype=np.float64)
+        )
+        logger.info(
+            "MUNC deterministic block summary %s blocks=%d valid_blocks=%d "
+            "rows=%d coverage_fraction=%.6g block_intervals_median=%.4g "
+            "n_eff_median=%.4g tau2_median=%.4g trend_weight_median=%.4g "
+            "nu_L=%.4g",
+            chromosomeName,
+            int(startsArr.size),
+            int(np.count_nonzero(blockIncludedCounts > 0)),
+            int(chromPooledRowCount),
+            float(coverageFraction),
+            (
+                float(np.median(blockIncludedCounts))
+                if blockIncludedCounts.size
+                else 0.0
+            ),
+            (
+                float(np.median(effectiveSupportPositive))
+                if effectiveSupportPositive.size
+                else 0.0
+            ),
+            (
+                float(np.median(blockNoisePositive))
+                if blockNoisePositive.size
+                else 0.0
+            ),
+            (
+                float(np.median(blockTrendWeightPositive))
+                if blockTrendWeightPositive.size
+                else 0.0
+            ),
+            float(max(4, int(muncSizing.localWindowIntervals) - 3)),
+        )
         if diagnosticRawMat is not None and rawDiagnosticMeansParts:
             _logMuncTrendInputSummary(
                 chromosomeName,
@@ -5075,9 +5236,9 @@ def main():
 
     _logCliPhase(
         "MUNC prior setup",
-        "chromosomes=%d tile_budget=%d EB=%s",
+        "chromosomes=%d seed_passes=%d EB=%s",
         int(len(chromosomePlans)),
-        int(muncEBPriorTileCount),
+        int(muncSeedWeightPasses_),
         "yes" if bool(observationArgs.EB_use) else "no",
     )
     for c_, chromPlan in enumerate(
@@ -5118,47 +5279,27 @@ def main():
             source=muncResidualSource,
             blockLenIntervals=muncResidualBlockLen,
         )
-        seedMuncMat = np.empty_like(chromMat, dtype=np.float32)
-        blacklistExcludeMask = _getChromBlacklistMask(chromosome, intervals)
-        seedSizing = core._resolveMuncRuntimeSizing(
-            intervalSizeBP=intervalSizeBP,
-            dependenceSpanIntervals=dependenceSpanIntervals_,
-            muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
-            muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
-            muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
-            muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
-        )
+        seedMuncMat, _seedObservationMask = _coarseMuncResidualizationMunc(chromMat)
         for j in range(numSamples):
-            seedTrack = core._rollingCenteredWindowMean(
-                np.square(np.asarray(residMat[j, :], dtype=np.float64)),
-                int(seedSizing.localWindowIntervals),
-                blacklistExcludeMask,
-            )
-            seedTrack = core.applyMuncCountModelVarianceFloor(
-                seedTrack,
-                None,
-                varianceFloor=_MUNC_NUMERIC_VARIANCE_FLOOR,
-                varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
-            )
+            seedCountFloor = None
             if countModelVarianceFloorMat is not None:
                 seedCountFloor = np.ascontiguousarray(
                     countModelVarianceFloorMat[j, :],
                     dtype=np.float32,
                 ).reshape(-1)
-                if seedCountFloor.shape[0] != residMat.shape[1]:
+                if seedCountFloor.shape[0] != chromMat.shape[1]:
                     raise RuntimeError(
                         "seed MUNC count-model floor track length mismatch for "
-                        f"{chromosome} sample {j}: expected {residMat.shape[1]}, "
+                        f"{chromosome} sample {j}: expected {chromMat.shape[1]}, "
                         f"got {seedCountFloor.shape[0]}"
                     )
-                seedTrack = core.applyMuncCountModelVarianceFloor(
-                    seedTrack,
-                    seedCountFloor,
-                    varianceFloor=_MUNC_NUMERIC_VARIANCE_FLOOR,
-                    varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
-                )
-            seedMuncMat[j, :] = seedTrack
-        muncTrendInputLabel = "residualized" if bool(fitArgs.fitBackground) else "raw"
+            seedMuncMat[j, :] = core.applyMuncCountModelVarianceFloor(
+                seedMuncMat[j, :],
+                seedCountFloor,
+                varianceFloor=_MUNC_NUMERIC_VARIANCE_FLOOR,
+                varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
+            )
+        muncTrendInputLabel = "dense_seed_state"
         chromCovariates = _getChromMuncCovariates(
             chromosome,
             int(chromPlan["start"]),
@@ -5169,9 +5310,7 @@ def main():
             c_,
             intervals,
             chromMat,
-            residMat,
             seedMuncMat,
-            muncResidualBackground,
             inputLabel=muncTrendInputLabel,
             diagnosticRawMat=chromMat if bool(fitArgs.fitBackground) else None,
             chromCovariates=chromCovariates,
@@ -5196,7 +5335,7 @@ def main():
         pooledSampleIndex = np.concatenate(pooledSampleIndexParts)
         pooledChromIndex = np.concatenate(pooledChromIndexParts)
         pooledBlockStarts = np.concatenate(pooledBlockStartsParts)
-        pooledWeights = np.concatenate(pooledWeightsParts)
+        pooledTrendWeights = np.concatenate(pooledTrendWeightsParts)
         if pooledBlockCovariatesParts:
             pooledBlockCovariates = np.concatenate(pooledBlockCovariatesParts)
         elif muncCovariatesEnabled:
@@ -5218,7 +5357,16 @@ def main():
         pooledSampleIndex = np.empty(0, dtype=np.int64)
         pooledChromIndex = np.empty(0, dtype=np.int64)
         pooledBlockStarts = np.empty(0, dtype=np.int64)
-        pooledWeights = np.empty(0, dtype=np.float64)
+        pooledTrendWeights = np.empty(0, dtype=np.float64)
+
+    pooledBlockMeansParts.clear()
+    pooledBlockVarsParts.clear()
+    pooledBlockCovariatesParts.clear()
+    pooledBlockLogVarianceNoiseParts.clear()
+    pooledSampleIndexParts.clear()
+    pooledChromIndexParts.clear()
+    pooledBlockStartsParts.clear()
+    pooledTrendWeightsParts.clear()
 
     pooledMuncSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
@@ -5229,19 +5377,21 @@ def main():
         muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
     )
     if pooledBlockLogVarianceNoise is not None:
-        tileNoise = pooledBlockLogVarianceNoise[
+        blockNoise = pooledBlockLogVarianceNoise[
             np.isfinite(pooledBlockLogVarianceNoise)
             & (pooledBlockLogVarianceNoise > 0.0)
         ]
-        if tileNoise.size:
-            tileEffNu = 2.0 * core.itrigamma(tileNoise)
-            tileEffNu = tileEffNu[np.isfinite(tileEffNu)]
+        if blockNoise.size:
+            blockEffNu = 2.0 * core.itrigamma(blockNoise)
+            blockEffNu = blockEffNu[np.isfinite(blockEffNu)]
             logger.info(
-                "pooled MUNC broad-tile log-variance noise: pairs=%d "
-                "logvar_noise_median=%.4g tile_Nu_L_effective_median=%.2f",
-                int(tileNoise.size),
-                float(np.median(tileNoise)),
-                float(np.median(tileEffNu)) if tileEffNu.size else float("nan"),
+                "pooled MUNC deterministic block log-variance noise: pairs=%d "
+                "logvar_noise_median=%.4g trend_weight_median=%.4g "
+                "block_nu_L_effective_median=%.2f",
+                int(blockNoise.size),
+                float(np.median(blockNoise)),
+                float(np.median(1.0 / blockNoise)),
+                float(np.median(blockEffNu)) if blockEffNu.size else float("nan"),
             )
     pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
     pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
@@ -5282,12 +5432,13 @@ def main():
         trendLambdaMax=trendLambdaMax_,
         trendLambdaGridSize=trendLambdaGridSize_,
         pooledPairCount=int(pooledBlockMeans.size),
+        seedPassCount=int(muncSeedWeightPasses_),
     )
     pooledMuncFit = core.fitPooledMuncVarianceTrend(
         pooledBlockMeans,
         pooledBlockVars,
         pooledSampleIndex,
-        weights=pooledWeights,
+        weights=pooledTrendWeights,
         eps=varianceFloorForTrend,
         trendNumBasis=trendNumBasis_,
         trendMinObsPerBasis=trendMinObsPerBasis_,
@@ -5309,14 +5460,16 @@ def main():
     )
 
     specifiedNu0 = core._coerceEBPriorStrength(observationArgs.EB_setNu0)
-    pooledMuncNu0BySample = np.full(numSamples, pooledNu0Cap, dtype=np.float64)
+    pooledMuncNu0BySample = np.empty(numSamples, dtype=np.float64)
+    weakNu0Samples: list[int] = []
     for j in range(numSamples):
         if specifiedNu0 is not None:
             repNu0 = specifiedNu0
         else:
             repMask = pooledSampleIndex == j
             if np.count_nonzero(repMask) < 4:
-                repNu0 = pooledNu0Cap
+                repNu0 = 4.0
+                weakNu0Samples.append(int(j))
             else:
                 repNu0 = core.EB_computePooledPriorStrength(
                     pooledBlockVars[repMask],
@@ -5332,12 +5485,17 @@ def main():
                         else pooledBlockLogVarianceNoise[repMask]
                     ),
                 )
-        if not np.isfinite(repNu0) or repNu0 < 4.0:
-            repNu0 = pooledNu0Cap
+                if repNu0 == 4.0:
+                    weakNu0Samples.append(int(j))
+        if not np.isfinite(repNu0):
+            raise RuntimeError(f"pooled MUNC Nu_0 is non-finite for sample {j}")
+        if repNu0 < 4.0:
+            raise RuntimeError(f"pooled MUNC Nu_0 is below 4.0 for sample {j}")
         pooledMuncNu0BySample[j] = min(float(repNu0), float(pooledNu0Cap))
 
     logger.info(
-        "pooled MUNC broad-tile trend: pairs=%d samples=%d Nu_L=%.2f sampleNu0=%s diagnostics=%s",
+        "pooled MUNC deterministic block trend: pairs=%d samples=%d "
+        "nu_L=%.2f sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
         int(pooledBlockMeans.size),
         int(numSamples),
         float(pooledNuL),
@@ -5347,6 +5505,7 @@ def main():
             floatmode="fixed",
             separator=", ",
         ),
+        weakNu0Samples,
         pooledMuncFit.diagnostics,
     )
 
@@ -5385,7 +5544,7 @@ def main():
                 pooledBlockCovariates,
                 pooledSampleIndex,
                 featureNames=muncCovariateFeatureNames,
-                weights=pooledWeights,
+                weights=pooledTrendWeights,
                 sampleCount=numSamples,
                 eps=varianceFloorForTrend,
             )
@@ -5426,6 +5585,18 @@ def main():
                 ),
             )
 
+    del (
+        pooledBlockMeans,
+        pooledBlockVars,
+        pooledBlockCovariates,
+        pooledBlockLogVarianceNoise,
+        pooledSampleIndex,
+        pooledChromIndex,
+        pooledBlockStarts,
+        pooledTrendWeights,
+        pooledPriorVariance,
+    )
+
     stateDiagnosticsByChromosome: Dict[str, Any] = {}
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
     if outputArgs.writeUncertainty:
@@ -5436,7 +5607,7 @@ def main():
     )
     if any(trackName != "slope" for trackName in diagnosticTrackNames):
         logger.info(
-            "MUNC/lambda and PUNC/kappa diagnostic tracks are written to category logs; "
+            "MUNC/omega and PUNC/kappa diagnostic tracks are written to category logs; "
             "only slope remains a bedGraph diagnostic track."
         )
     for trackName in stateDiagnosticTrackNames:
@@ -5550,6 +5721,16 @@ def main():
         muncPriorMeanTrack = _loadMuncPriorMeanTrack(
             chromosome,
             int(numIntervals),
+        )
+        pooledPriorVarianceTrack = (
+            core.evalPSplineLogVarianceTrend(
+                pooledMuncFit.trend,
+                muncPriorMeanTrack,
+                eps=varianceFloorForTrend,
+                maxVariance=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
+            )
+            if bool(observationArgs.EB_use)
+            else None
         )
         muncLocalEvidenceMat = _loadMuncLocalEvidenceMatrix(
             chromosome,
@@ -5673,6 +5854,7 @@ def main():
                 excludeMaskArr=muncExcludeMask,
                 pooledTrend=pooledTrend,
                 priorMeanTrack=muncPriorMeanTrack,
+                priorVarianceTrack=pooledPriorVarianceTrack,
                 replicateVarianceFactor=1.0,
                 EB_pooledNu0=pooledNu0,
                 covariateTrack=chromMuncCovariates,
@@ -5740,6 +5922,9 @@ def main():
             int(numSamples),
             time.perf_counter() - muncStart,
         )
+        del residMat, muncLocalEvidenceMat, chromMuncCovariates
+        if countModelVarianceFloorMat is not None:
+            del countModelVarianceFloorMat
 
         blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
             dependenceSpanIntervals_,
@@ -5769,12 +5954,13 @@ def main():
         maxRForRepair_ = (
             float(maxR_) if maxRFinite_ else float(np.finfo(np.float32).max)
         )
-        muncMat = np.nan_to_num(
-            muncMat.astype(np.float32, copy=False),
-            nan=np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),
-            posinf=np.float32(maxRForRepair_),
-            neginf=np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),
-        )
+        if not np.all(np.isfinite(muncMat)):
+            invalidMuncCount = int(
+                np.size(muncMat) - np.count_nonzero(np.isfinite(muncMat))
+            )
+            raise RuntimeError(
+                f"MUNC matrix for {chromosome} has {invalidMuncCount} non-finite entries"
+            )
         np.maximum(
             muncMat,
             np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR),

@@ -74,6 +74,14 @@ from .constants import (
     MUNC_VARIANCE_MODEL_KALMAN,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
+    OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q,
+    OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MIN_Q,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MAX,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MIN,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T,
+    OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
@@ -507,6 +515,16 @@ class observationParams(NamedTuple):
     muncLocalWindowDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
     )
+    muncSeedWeightEnabled: bool | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED
+    muncSeedWeightPasses: int | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES
+    muncSeedWeightMin: float | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MIN
+    muncSeedWeightMax: float | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MAX
+    muncSeedWeightStudentT: bool | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T
+    muncSeedWeightStudentTdf: float | None = (
+        OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF
+    )
+    muncSeedProcessMinQ: float | None = OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MIN_Q
+    muncSeedProcessMaxQ: float | None = OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q
     restrictLocalVarianceToSparseBed: bool | None = (
         OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
     )
@@ -2509,6 +2527,7 @@ def _processQTrackArrays(
     pNoiseForward: np.ndarray | None,
     procPrecisionMultiplierMin: float,
     procPrecisionMultiplierMax: float,
+    returnFullQ: bool = True,
 ) -> dict[str, np.ndarray]:
     intervalCount_ = int(intervalCount)
     if intervalCount_ < 0:
@@ -2521,12 +2540,6 @@ def _processQTrackArrays(
         raise ValueError("matrixQ0 shape does not match stateModel")
     baseQ = q0[:stateDim, :stateDim]
 
-    preKappaQ = np.empty((intervalCount_, stateDim, stateDim), dtype=np.float64)
-    effectiveQ = np.empty((intervalCount_, stateDim, stateDim), dtype=np.float64)
-    if intervalCount_:
-        preKappaQ[:, :, :] = baseQ[None, :, :]
-        effectiveQ[:, :, :] = baseQ[None, :, :]
-
     qScale = np.ones(intervalCount_, dtype=np.float64)
     if processQScale is not None:
         qScale = np.asarray(processQScale, dtype=np.float64).reshape(-1)
@@ -2538,8 +2551,23 @@ def _processQTrackArrays(
         if intervalCount_:
             qScale = qScale.copy()
             qScale[0] = 1.0
+
+    baseQLevel = np.full(intervalCount_, float(baseQ[0, 0]), dtype=np.float64)
+    baseQTrend = np.zeros(intervalCount_, dtype=np.float64)
+    if stateDim == 2:
+        baseQTrend.fill(float(baseQ[1, 1]))
+    preKappaQLevel = baseQLevel * qScale
+    preKappaQTrend = baseQTrend * qScale
+    effectiveQLevel = preKappaQLevel.copy()
+    effectiveQTrend = preKappaQTrend.copy()
+
+    preKappaQ = None
+    effectiveQ = None
+    if bool(returnFullQ):
+        preKappaQ = np.empty((intervalCount_, stateDim, stateDim), dtype=np.float64)
+        if intervalCount_:
             preKappaQ[:, :, :] = baseQ[None, :, :] * qScale[:, None, None]
-            effectiveQ[:, :, :] = preKappaQ
+        effectiveQ = preKappaQ.copy()
 
     if processPrecExp is not None:
         procPrecision = np.asarray(processPrecExp, dtype=np.float64).reshape(-1)
@@ -2554,9 +2582,12 @@ def _processQTrackArrays(
         )
         procPrecision = np.maximum(procPrecision, np.finfo(np.float64).tiny)
         if intervalCount_:
-            effectiveQ[:, :, :] = preKappaQ / procPrecision[:, None, None]
+            effectiveQLevel = preKappaQLevel / procPrecision
+            effectiveQTrend = preKappaQTrend / procPrecision
+            if effectiveQ is not None:
+                effectiveQ[:, :, :] = preKappaQ / procPrecision[:, None, None]
     elif pNoiseForward is not None:
-        pNoise = np.asarray(pNoiseForward, dtype=np.float64)
+        pNoise = np.asarray(pNoiseForward)
         if (
             pNoise.ndim != 3
             or pNoise.shape[0] < max(intervalCount_ - 1, 0)
@@ -2567,20 +2598,13 @@ def _processQTrackArrays(
         for k in range(1, intervalCount_):
             qEff = pNoise[k - 1, :stateDim, :stateDim]
             if np.all(np.isfinite(qEff)):
-                effectiveQ[k, :, :] = qEff
+                effectiveQLevel[k] = float(qEff[0, 0])
+                if stateDim == 2:
+                    effectiveQTrend[k] = float(qEff[1, 1])
+                if effectiveQ is not None:
+                    effectiveQ[k, :, :] = qEff
 
-    baseQLevel = np.full(intervalCount_, float(baseQ[0, 0]), dtype=np.float64)
-    preKappaQLevel = preKappaQ[:, 0, 0].copy()
-    effectiveQLevel = effectiveQ[:, 0, 0].copy()
-    baseQTrend = np.zeros(intervalCount_, dtype=np.float64)
-    preKappaQTrend = np.zeros(intervalCount_, dtype=np.float64)
-    effectiveQTrend = np.zeros(intervalCount_, dtype=np.float64)
-    if stateDim == 2:
-        baseQTrend.fill(float(baseQ[1, 1]))
-        preKappaQTrend = preKappaQ[:, 1, 1].copy()
-        effectiveQTrend = effectiveQ[:, 1, 1].copy()
-
-    return {
+    tracks = {
         "baseQLevel": baseQLevel,
         "baseQTrend": baseQTrend,
         "preKappaQLevel": preKappaQLevel,
@@ -2588,9 +2612,11 @@ def _processQTrackArrays(
         "effectiveQLevel": effectiveQLevel,
         "effectiveQTrend": effectiveQTrend,
         "puncQScale": qScale,
-        "preKappaQ": preKappaQ,
-        "effectiveQ": effectiveQ,
     }
+    if bool(returnFullQ):
+        tracks["preKappaQ"] = preKappaQ
+        tracks["effectiveQ"] = effectiveQ
+    return tracks
 
 
 def _processQDiagnosticsMetadata(
@@ -2616,6 +2642,7 @@ def _processQDiagnosticsMetadata(
         pNoiseForward=pNoiseForward,
         procPrecisionMultiplierMin=float(procPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(procPrecisionMultiplierMax),
+        returnFullQ=False,
     )
     baseLevel = float(np.asarray(matrixQ0, dtype=np.float64)[0, 0])
     baseTrend = (
@@ -2628,7 +2655,7 @@ def _processQDiagnosticsMetadata(
     levelSummary = _metadataTrackSummary(qTracks["effectiveQLevel"])
     trendSummary = _metadataTrackSummary(qTracks["effectiveQTrend"])
     qTraceSummary = _metadataTrackSummary(
-        np.trace(qTracks["effectiveQ"], axis1=1, axis2=2)
+        qTracks["effectiveQLevel"] + qTracks["effectiveQTrend"]
     )
     return {
         "policy": _processQPolicy(
@@ -2928,7 +2955,7 @@ def _estimateBackgroundWarmStart(
 
     warmResidualMatrix = np.asarray(matrixDataArr, dtype=np.float32)
     if useNonnegativeBackground:
-        background = _solveZeroCenteredBackground(
+        background = solveZeroCenteredBackground(
             residualMatrix=warmResidualMatrix,
             invVarMatrix=warmInvVarMatrix,
             blockLenIntervals=int(blockLenIntervals),
@@ -2943,7 +2970,7 @@ def _estimateBackgroundWarmStart(
             else "asymmetric_irls_weighted_data"
         )
     else:
-        background = _solveZeroCenteredBackground(
+        background = solveZeroCenteredBackground(
             residualMatrix=warmResidualMatrix,
             invVarMatrix=warmInvVarMatrix,
             blockLenIntervals=int(blockLenIntervals),
@@ -3707,42 +3734,16 @@ def _puncObservationInformation(
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
 ) -> np.ndarray:
-    puncInfoFunction = getattr(
-        cconsenrich,
-        "cPuncObservationInformation",
-        getattr(cconsenrich, "cpuncObservationInformation", None),
-    )
-    if puncInfoFunction is not None:
-        return np.asarray(
-            puncInfoFunction(
-                matrixMunc,
-                float(pad),
-                lambdaExp,
-                float(observationPrecisionMultiplierMin),
-                float(observationPrecisionMultiplierMax),
-            ),
-            dtype=np.float64,
-        )
-
-    munc = np.asarray(matrixMunc, dtype=np.float64)
-    obsVar = np.maximum(munc + float(pad), 1.0e-12)
-    finite = np.isfinite(munc) & np.isfinite(obsVar) & (obsVar > 0.0)
-    if lambdaExp is None:
-        lam = np.ones(munc.shape[1], dtype=np.float64)
-    else:
-        lam = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
-        if lam.shape != (munc.shape[1],):
-            raise ValueError("lambdaExp length must match interval count")
-        if not np.all(np.isfinite(lam)):
-            raise ValueError("lambdaExp must contain only finite values")
-        lam = np.clip(
-            lam,
+    return np.asarray(
+        cconsenrich.cPuncObservationInformation(
+            matrixMunc,
+            float(pad),
+            lambdaExp,
             float(observationPrecisionMultiplierMin),
             float(observationPrecisionMultiplierMax),
-        )
-    invVar = np.where(finite, lam[None, :] / obsVar, 0.0)
-    info = np.sum(invVar, axis=0, dtype=np.float64)
-    return np.maximum(info, 0.0)
+        ),
+        dtype=np.float64,
+    )
 
 
 def _weightedGeometricMean(
@@ -4141,14 +4142,14 @@ def _fitPuncProcessNoise(
         minScale = tiny
         maxScale = float(1.0 / tiny)
     y = np.log(np.maximum(evidence, tiny))
-    state = np.asarray(warmupFit["stateSmoothed"], dtype=np.float64)
-    levelMidRaw = 0.5 * (state[:-1, 0] + state[1:, 0])
+    state = np.asarray(warmupFit["stateSmoothed"])
+    levelMidRaw = 0.5 * np.add(state[:-1, 0], state[1:, 0], dtype=np.float64)
     levelMid = levelMidRaw
     levelBufferZ = float(max(puncLevelBufferZ, 0.0))
     levelMidSd = np.zeros(transitionCount, dtype=np.float64)
     if levelBufferZ > 0.0:
-        stateCov = np.asarray(warmupFit["stateCovarSmoothed"], dtype=np.float64)
-        lagCov = np.asarray(warmupFit["lagCovSmoothed"], dtype=np.float64)
+        stateCov = np.asarray(warmupFit["stateCovarSmoothed"])
+        lagCov = np.asarray(warmupFit["lagCovSmoothed"])
         if (
             stateCov.ndim == 3
             and lagCov.ndim == 3
@@ -4159,12 +4160,25 @@ def _fitPuncProcessNoise(
             and lagCov.shape[1] >= 1
             and lagCov.shape[2] >= 1
         ):
-            levelMidVar = 0.25 * (
-                stateCov[:transitionCount, 0, 0]
-                + stateCov[1 : transitionCount + 1, 0, 0]
-                + 2.0 * lagCov[:transitionCount, 0, 0]
+            levelMidVar = np.add(
+                stateCov[:transitionCount, 0, 0],
+                stateCov[1 : transitionCount + 1, 0, 0],
+                dtype=np.float64,
             )
-            levelMidSd = np.sqrt(np.maximum(np.nan_to_num(levelMidVar, nan=0.0), 0.0))
+            np.add(
+                levelMidVar,
+                lagCov[:transitionCount, 0, 0],
+                out=levelMidVar,
+                casting="unsafe",
+            )
+            np.add(
+                levelMidVar,
+                lagCov[:transitionCount, 0, 0],
+                out=levelMidVar,
+                casting="unsafe",
+            )
+            levelMidVar *= 0.25
+            levelMidSd = np.sqrt(np.maximum(levelMidVar, 0.0))
         buffer = levelBufferZ * levelMidSd
         levelMid = np.sign(levelMidRaw) * np.maximum(np.abs(levelMidRaw) - buffer, 0.0)
     columns = [
@@ -4700,9 +4714,7 @@ def _clampProcessNoiseMatrix(
     levelVariance = _clampProcessNoise(float(q0[0, 0]), qFloor=qFloor, qCap=qCap)
     if stateModelMode == STATE_MODEL_LEVEL:
         return np.asarray([[levelVariance]], dtype=np.float32)
-    trendVariance = (
-        _clampProcessNoise(float(q0[1, 1]), qFloor=qFloor, qCap=qCap)
-    )
+    trendVariance = _clampProcessNoise(float(q0[1, 1]), qFloor=qFloor, qCap=qCap)
     return constructMatrixQ(
         minDiagQ=qFloor,
         Q00=levelVariance,
@@ -6011,15 +6023,10 @@ def runConsenrich(
     ) -> dict[str, float]:
         def _backgroundNegativePenaltyForObjective(
             backgroundLocal: np.ndarray,
-            invVarMatrixLocal: np.ndarray,
+            objectiveWeightTrack: np.ndarray,
         ) -> float:
             if not negativeBackgroundPenaltyActive:
                 return 0.0
-            objectiveWeightTrack = np.sum(
-                invVarMatrixLocal,
-                axis=0,
-                dtype=np.float64,
-            )
             objectivePositiveWeights = objectiveWeightTrack[
                 np.isfinite(objectiveWeightTrack) & (objectiveWeightTrack > 0.0)
             ]
@@ -6076,17 +6083,25 @@ def runConsenrich(
             ),
             robustTNu=float(ECM_robustTNu),
         )
-        invVarMatrixForBackground = 1.0 / np.maximum(
-            matrixMuncLocal + float(pad),
-            1.0e-8,
-        )
+        objectiveWeightTrack = np.zeros(intervalCount, dtype=np.float64)
         if lambdaExp is not None:
             objectiveObsPrecision = np.clip(
-                np.asarray(lambdaExp, dtype=np.float32).reshape(1, intervalCount),
+                np.asarray(lambdaExp, dtype=np.float64).reshape(-1),
                 float(observationPrecisionMultiplierMin),
                 float(observationPrecisionMultiplierMax),
             )
-            invVarMatrixForBackground *= objectiveObsPrecision
+            if objectiveObsPrecision.shape != (intervalCount,):
+                raise ValueError("lambdaExp length must match interval count")
+        else:
+            objectiveObsPrecision = None
+        for rowIndex in range(int(matrixMuncLocal.shape[0])):
+            invVarRow = 1.0 / np.maximum(
+                np.asarray(matrixMuncLocal[rowIndex, :], dtype=np.float64) + float(pad),
+                1.0e-8,
+            )
+            if objectiveObsPrecision is not None:
+                invVarRow *= objectiveObsPrecision
+            objectiveWeightTrack += invVarRow
         smoothPenalty, firstDiffPenalty, secondDiffPenalty = (
             _backgroundObjectivePenalty(
                 background=background,
@@ -6096,7 +6111,7 @@ def runConsenrich(
         )
         negativePenalty = _backgroundNegativePenaltyForObjective(
             background,
-            invVarMatrixForBackground,
+            objectiveWeightTrack,
         )
         objective = float(
             forwardNLL + obsPenalty + procPenalty + smoothPenalty + negativePenalty
@@ -6718,7 +6733,7 @@ def runConsenrich(
                     int(outerPassCount),
                     int(intervalCount),
                 )
-            nextBackground = _solveZeroCenteredBackground(
+            nextBackground = solveZeroCenteredBackground(
                 residualMatrix=residualMatrix,
                 invVarMatrix=invVarMatrix,
                 blockLenIntervals=int(blockLenIntervals),
@@ -7237,6 +7252,7 @@ def runConsenrich(
         maxQ=float(maxQ),
     )
     fitProcessNoiseWarmup: Mapping[str, Any] | None = None
+    fitProcessNoiseWarmupMetadata: dict[str, Any] | None = None
     processNoiseCalibrationInfo: dict[str, Any] | None = None
     postQInitialBackground = initialBackgroundArr
     postQInitialLambda = initialObservationPrecisionArr
@@ -7267,9 +7283,12 @@ def runConsenrich(
         skipReason = (
             str(processCalibrationSkipReason)
             if processCalibrationSkipReason is not None
-            else "fixed_diagonal"
-            if processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
-            else processNoiseCalibrationMode
+            else (
+                "fixed_diagonal"
+                if processNoiseCalibrationMode
+                == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
+                else processNoiseCalibrationMode
+            )
         )
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
             processNoisePolicy=processNoiseCalibrationMode,
@@ -7423,6 +7442,8 @@ def runConsenrich(
         processNoiseCalibrationInfo["warmupOuterPasses"] = (
             float(warmupOuterIters) if puncUseWarmupFit else 0.0
         )
+        fitProcessNoiseWarmupMetadata = _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
+        fitProcessNoiseWarmup = None
     if processNoiseCalibrationInfo is None:
         raise RuntimeError("process-noise calibration did not produce diagnostics")
     if qSeedDiagnostics:
@@ -7533,22 +7554,18 @@ def runConsenrich(
         obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
         obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
     )
-    finalMunc = np.asarray(fitFinal["matrixMunc"], dtype=np.float64)
-    finalObservationVariance = np.maximum(finalMunc + float(pad), 1.0e-12)
     if bool(ECM_useObsPrecisionReweighting) and fitFinal.get("lambdaExp") is not None:
-        finalObsPrecision = np.clip(
-            np.asarray(fitFinal["lambdaExp"], dtype=np.float64).reshape(-1),
-            float(observationPrecisionMultiplierMin),
-            float(observationPrecisionMultiplierMax),
-        )
+        finalObsPrecision = np.asarray(fitFinal["lambdaExp"]).reshape(-1)
         if finalObsPrecision.shape != (intervalCount,):
             raise ValueError("lambdaExp length must match interval count")
-    else:
-        finalObsPrecision = np.ones(intervalCount, dtype=np.float64)
-    finalObsPrecision = np.maximum(finalObsPrecision, np.finfo(np.float64).tiny)
-    observationRTraceSummary = _metadataTrackSummary(
-        np.sum(finalObservationVariance, axis=0)
-    )
+    finalObservationRTrace = np.zeros(intervalCount, dtype=np.float64)
+    finalMunc = np.asarray(fitFinal["matrixMunc"])
+    for rowIndex in range(int(finalMunc.shape[0])):
+        finalObservationRTrace += np.maximum(
+            np.asarray(finalMunc[rowIndex, :], dtype=np.float64) + float(pad),
+            1.0e-12,
+        )
+    observationRTraceSummary = _metadataTrackSummary(finalObservationRTrace)
     processQDiagnostics = _processQDiagnosticsMetadata(
         matrixQ0=np.asarray(matrixQ0, dtype=np.float32),
         intervalCount=int(intervalCount),
@@ -7585,6 +7602,7 @@ def runConsenrich(
                 pNoiseForward=np.asarray(fitFinal["pNoiseForward"], dtype=np.float32),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
+                returnFullQ=False,
             )
             if (
                 bool(ECM_useProcessPrecisionReweighting)
@@ -7733,11 +7751,7 @@ def runConsenrich(
             processPrecisionMax=float(processPrecisionMultiplierMax),
         ),
         "process_noise_calibration": processNoiseCalibrationMetadata,
-        "process_noise_warmup_fit": (
-            _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
-            if fitProcessNoiseWarmup is not None
-            else None
-        ),
+        "process_noise_warmup_fit": fitProcessNoiseWarmupMetadata,
         "post_process_noise_fit": _fitDiagnosticsMetadata(fitFinal),
         "optimization_path_tracked": bool(trackOptimizationPath),
         "process_precision_reweighting_requested": bool(
@@ -9011,9 +9025,9 @@ def _formatMuncVarianceDiagnostics(
     floorLine = ""
     if countModelVarianceFloorTrack is not None:
         floorLine = f"\n\t{_sdQuantiles('count_floor', countModelVarianceFloorTrack)}"
-        localName = "L_total"
-        globalName = "G_total"
-        finalName = "V0_total"
+        localName = "L_excess"
+        globalName = "G_excess"
+        finalName = "V_total"
     else:
         localName = "L"
         globalName = "G"
@@ -9075,51 +9089,6 @@ def _coerceMuncCountModelVarianceFloor(
         return None
     out = np.full(floorTrack.shape, np.nan, dtype=np.float64)
     out[finite] = floorTrack[finite]
-    return out
-
-
-def _finiteIntervalMeans(
-    values: np.ndarray,
-    starts: np.ndarray,
-    ends: np.ndarray,
-) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64).reshape(-1)
-    startsArr = np.asarray(starts, dtype=np.intp).reshape(-1)
-    endsArr = np.asarray(ends, dtype=np.intp).reshape(-1)
-    if startsArr.shape != endsArr.shape:
-        raise ValueError("starts and ends must have the same shape")
-    finite = np.isfinite(arr)
-    valCum = np.concatenate(([0.0], np.cumsum(np.where(finite, arr, 0.0))))
-    nCum = np.concatenate(([0], np.cumsum(finite.astype(np.int64))))
-    lo = np.clip(startsArr, 0, arr.size)
-    hi = np.clip(endsArr, lo, arr.size)
-    counts = nCum[hi] - nCum[lo]
-    out = np.full(lo.shape, np.nan, dtype=np.float64)
-    ok = counts > 0
-    out[ok] = (valCum[hi[ok]] - valCum[lo[ok]]) / counts[ok]
-    return out
-
-
-def _rollingCenteredWindowMean(
-    values: np.ndarray,
-    windowLength: int,
-    excludeMask: np.ndarray | None = None,
-) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64).reshape(-1)
-    n = arr.size
-    if n == 0:
-        return np.empty(0, dtype=np.float64)
-    win = int(max(1, min(int(windowLength), n)))
-    starts = np.arange(n, dtype=np.intp) - (win // 2)
-    starts = np.clip(starts, 0, max(n - win, 0))
-    ends = starts + win
-    out = _finiteIntervalMeans(arr, starts, ends)
-    if excludeMask is not None:
-        ex = np.asarray(excludeMask, dtype=np.uint8).reshape(-1)
-        if ex.shape != arr.shape:
-            raise ValueError("excludeMask must match values")
-        exCum = np.concatenate(([0], np.cumsum((ex != 0).astype(np.int64))))
-        out[(exCum[ends] - exCum[starts]) != 0] = np.nan
     return out
 
 
@@ -9309,20 +9278,29 @@ def _diagonalBackgroundUncertainty(
     useNonnegativeBackground: bool = False,
     backgroundNegativePenaltyMultiplier: float | None = None,
 ) -> np.ndarray:
-    munc = np.asarray(matrixMunc, dtype=np.float64)
+    munc = np.asarray(matrixMunc)
     if munc.ndim != 2:
         raise ValueError("matrixMunc must be two-dimensional")
     intervalCount = int(munc.shape[1])
     if not bool(fitBackground):
         return np.zeros(intervalCount, dtype=np.float32)
-    denom = np.maximum(munc + float(pad), 1.0e-12)
-    invVar = 1.0 / denom
+    weightTrack = np.zeros(intervalCount, dtype=np.float64)
     if lambdaExp is not None:
         lam = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
         if lam.shape[0] != intervalCount:
             raise ValueError("lambdaExp length must match matrixMunc interval count")
-        invVar *= np.maximum(lam, 1.0e-12)[None, :]
-    weightTrack = np.sum(invVar, axis=0, dtype=np.float64)
+        lam = np.maximum(lam, 1.0e-12)
+    else:
+        lam = None
+    for rowIndex in range(int(munc.shape[0])):
+        denom = np.maximum(
+            np.asarray(munc[rowIndex, :], dtype=np.float64) + float(pad),
+            1.0e-12,
+        )
+        invVar = 1.0 / denom
+        if lam is not None:
+            invVar *= lam
+        weightTrack += invVar
     lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(
         blockLenIntervals=int(blockLenIntervals),
         backgroundSmoothness=float(backgroundSmoothness),
@@ -9343,7 +9321,9 @@ def _diagonalBackgroundUncertainty(
             if bg.shape[0] != intervalCount:
                 raise ValueError("backgroundTrack length must match matrixMunc")
             positiveWeights = weightTrack[weightTrack > 0.0]
-            weightScale = float(np.median(positiveWeights)) if positiveWeights.size else 1.0
+            weightScale = (
+                float(np.median(positiveWeights)) if positiveWeights.size else 1.0
+            )
             diagonal[bg < 0.0] += negativePenaltyMultiplier * max(weightScale, 1.0e-12)
     return (1.0 / np.maximum(diagonal, 1.0e-12)).astype(np.float32)
 
@@ -9388,7 +9368,7 @@ def _solveBackgroundLinearSystem(
     raise ValueError("rhsTrack must be one- or two-dimensional")
 
 
-def _solveZeroCenteredBackgroundLinearSystem(
+def solveZeroCenteredBackgroundLinearSystem(
     weightTrack: np.ndarray,
     rhsTrack: np.ndarray,
     lamFirst: float,
@@ -9569,7 +9549,7 @@ def _finalForwardReplicateGainContigSummary(
     obsPrecisionMultiplierMax: float,
 ) -> dict[str, np.ndarray]:
     covar = np.asarray(stateCovarForward, dtype=np.float64)
-    munc = np.asarray(matrixMunc, dtype=np.float64)
+    munc = np.asarray(matrixMunc)
     if covar.ndim != 3 or covar.shape[1] < 1 or covar.shape[2] < 1:
         raise ValueError("stateCovarForward must have shape (n, d, d)")
     if munc.ndim != 2:
@@ -9578,7 +9558,6 @@ def _finalForwardReplicateGainContigSummary(
         raise ValueError("stateCovarForward and matrixMunc interval counts must match")
 
     p00Forward = np.maximum(covar[:, 0, 0], 0.0)
-    obsVariance = np.maximum(munc + float(pad), 1.0e-12)
     if lambdaExp is None:
         obsPrecision = np.ones(covar.shape[0], dtype=np.float64)
     else:
@@ -9591,18 +9570,24 @@ def _finalForwardReplicateGainContigSummary(
             float(obsPrecisionMultiplierMax),
         )
 
-    # For row j at interval k, K[j,k] = P[k|k]00 * precision[j,k].
-    gains = (p00Forward[None, :] * obsPrecision[None, :]) / obsVariance
-    finite = np.isfinite(gains)
-    gainSums = np.sum(np.where(finite, gains, 0.0), axis=1, dtype=np.float64)
-    gainCounts = np.sum(finite, axis=1, dtype=np.int64)
     gainMeans = np.full(munc.shape[0], np.nan, dtype=np.float64)
     gainMedians = np.full(munc.shape[0], np.nan, dtype=np.float64)
     gainSds = np.full(munc.shape[0], np.nan, dtype=np.float64)
     gainIqrs = np.full(munc.shape[0], np.nan, dtype=np.float64)
-    np.divide(gainSums, gainCounts, out=gainMeans, where=gainCounts > 0)
+    gainCounts = np.zeros(munc.shape[0], dtype=np.int64)
+    numerator = p00Forward * obsPrecision
     for rowIdx in range(munc.shape[0]):
-        row = gains[rowIdx, finite[rowIdx, :]]
+        obsVariance = np.maximum(
+            np.asarray(munc[rowIdx, :], dtype=np.float64) + float(pad),
+            1.0e-12,
+        )
+        rowGains = numerator / obsVariance
+        finite = np.isfinite(rowGains)
+        gainCounts[rowIdx] = int(np.count_nonzero(finite))
+        if gainCounts[rowIdx] == 0:
+            continue
+        row = rowGains[finite]
+        gainMeans[rowIdx] = float(np.mean(row, dtype=np.float64))
         if row.size:
             gainMedians[rowIdx] = float(np.median(row))
             gainSds[rowIdx] = float(np.std(row))
@@ -9638,7 +9623,7 @@ def _perIntervalOutputDiagnosticTracks(
     r"""Build per-interval diagnostic tracks aligned to emitted bedGraph rows."""
 
     covar = np.asarray(stateCovarForward, dtype=np.float64)
-    munc = np.asarray(matrixMunc, dtype=np.float64)
+    munc = np.asarray(matrixMunc)
     q0 = np.asarray(matrixQ0, dtype=np.float64)
     f = np.asarray(matrixF, dtype=np.float64)
     stateModelMode = _normalizeStateModel(stateModel)
@@ -9668,18 +9653,21 @@ def _perIntervalOutputDiagnosticTracks(
         )
     obsPrecision = np.maximum(obsPrecision, np.finfo(np.float64).tiny)
 
-    effectiveObsVariance = obsVariance / obsPrecision[None, :]
-    muncTrace = np.sum(
-        np.where(np.isfinite(effectiveObsVariance), effectiveObsVariance, 0.0),
-        axis=0,
-        dtype=np.float64,
-    )
-    invObsVariance = obsPrecision[None, :] / obsVariance
-    sumInvR = np.sum(
-        np.where(np.isfinite(invObsVariance), invObsVariance, 0.0),
-        axis=0,
-        dtype=np.float64,
-    )
+    muncTrace = np.zeros(intervalCount, dtype=np.float64)
+    sumInvR = np.zeros(intervalCount, dtype=np.float64)
+    for rowIndex in range(int(munc.shape[0])):
+        obsVariance = np.maximum(
+            np.asarray(munc[rowIndex, :], dtype=np.float64) + float(pad),
+            1.0e-12,
+        )
+        effectiveObsVariance = obsVariance / obsPrecision
+        finiteEffectiveObsVariance = np.isfinite(effectiveObsVariance)
+        muncTrace[finiteEffectiveObsVariance] += effectiveObsVariance[
+            finiteEffectiveObsVariance
+        ]
+        invObsVariance = obsPrecision / obsVariance
+        finiteInvObsVariance = np.isfinite(invObsVariance)
+        sumInvR[finiteInvObsVariance] += invObsVariance[finiteInvObsVariance]
 
     qTracks = _processQTrackArrays(
         matrixQ0=q0,
@@ -9690,8 +9678,8 @@ def _perIntervalOutputDiagnosticTracks(
         pNoiseForward=pNoiseForward,
         procPrecisionMultiplierMin=float(procPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(procPrecisionMultiplierMax),
+        returnFullQ=False,
     )
-    effectiveQ = qTracks["effectiveQ"]
     preKappaQLevel = qTracks["preKappaQLevel"]
     preKappaQTrend = qTracks["preKappaQTrend"]
     effectiveQLevel = qTracks["effectiveQLevel"]
@@ -9699,9 +9687,35 @@ def _perIntervalOutputDiagnosticTracks(
     sumGain0 = np.zeros(intervalCount, dtype=np.float64)
     sumGain1 = np.zeros(intervalCount, dtype=np.float64)
     previousCovar = np.eye(stateDim, dtype=np.float64) * float(stateCovarInit)
+    baseQ = q0[:stateDim, :stateDim]
+    qScale = qTracks["puncQScale"]
+    procPrecision = None
+    if processPrecExp is not None:
+        procPrecision = np.asarray(processPrecExp, dtype=np.float64).reshape(-1)
+        procPrecision = np.clip(
+            procPrecision,
+            float(procPrecisionMultiplierMin),
+            float(procPrecisionMultiplierMax),
+        )
+        procPrecision = np.maximum(procPrecision, np.finfo(np.float64).tiny)
+    pNoise = (
+        None
+        if pNoiseForward is None or procPrecision is not None
+        else np.asarray(pNoiseForward)
+    )
+    qEff = np.empty((stateDim, stateDim), dtype=np.float64)
 
     for k in range(intervalCount):
-        qEff = effectiveQ[k, :, :]
+        if pNoise is not None and k > 0:
+            pNoiseEff = pNoise[k - 1, :stateDim, :stateDim]
+            if np.all(np.isfinite(pNoiseEff)):
+                qEff[:, :] = pNoiseEff
+            else:
+                qEff[:, :] = baseQ * float(qScale[k])
+        else:
+            qEff[:, :] = baseQ * float(qScale[k])
+            if procPrecision is not None:
+                qEff[:, :] /= float(procPrecision[k])
         if stateDim == 2:
             predCovar = f @ previousCovar @ f.T + qEff
             pred10 = float(predCovar[1, 0])
@@ -9939,7 +9953,7 @@ def _muncSizingNeedsDependence(
     return bool(trendNeedsAuto or localNeedsAuto)
 
 
-def _solveZeroCenteredBackground(
+def solveZeroCenteredBackground(
     residualMatrix: np.ndarray,
     invVarMatrix: np.ndarray,
     blockLenIntervals: int,
@@ -9950,7 +9964,8 @@ def _solveZeroCenteredBackground(
         FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
     ),
 ) -> npt.NDArray[np.float32]:
-    r"""Estimate a positional background g(i) with asymmetric IRLS and strong first/second-order difference penalties (to prevent conflation with signal).
+    r"""Estimate a positional background with asymmetric IRLS and strong first/second-order difference penalties (to prevent conflation with signal).
+
 
     Parameters
     ----------
@@ -9963,7 +9978,7 @@ def _solveZeroCenteredBackground(
     backgroundSmoothness : float, optional
         Linear multiplier for first/second-order penalties.
     zeroCenter : bool, optional
-        Whether to zero-center the background, by default False. This feature is an artifact and should maybe not be used, ever.
+        Whether to zero-center the background, by default False. This feature is an artifact and should maybe not be used, ever. It does not affect signal-background conflation appreciably.
     useNonnegative : bool
         Use an asymmetric penalty on negative background values (note this is, in fact, a soft, not hard constraint)
 
@@ -10020,7 +10035,7 @@ def _solveZeroCenteredBackground(
     if zeroCenter:
         if intervalCount == 1:
             return np.zeros(1, dtype=np.float32)
-        return _solveZeroCenteredBackgroundLinearSystem(
+        return solveZeroCenteredBackgroundLinearSystem(
             weightTrack,
             rhsTrack,
             float(lamFirst),
@@ -10100,7 +10115,7 @@ def _solveNonnegativeBackground(
         if bool(zeroCenter):
             if n == 1:
                 return np.zeros(1, dtype=np.float64)
-            return _solveZeroCenteredBackgroundLinearSystem(
+            return solveZeroCenteredBackgroundLinearSystem(
                 np.ascontiguousarray(weightTrackLocal, dtype=np.float64),
                 rhsTrack,
                 float(lamFirst),
@@ -10253,6 +10268,7 @@ def getMuncTrack(
     replicateIndex: int | None = None,
     countModelVarianceFloor: Optional[np.ndarray] = None,
     localVarianceTrack: Optional[np.ndarray] = None,
+    priorVarianceTrack: Optional[np.ndarray] = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -10407,19 +10423,30 @@ def getMuncTrack(
     if int(numNearest) > 0 or sparseIntervalIndices is not None:
         raise ValueError("sparse-nearest MUNC is not supported by kalman MUNC")
     if bool(restrictLocalVariance):
-        raise ValueError("restrictLocalVarianceToSparseBed is not supported by kalman MUNC")
+        raise ValueError(
+            "restrictLocalVarianceToSparseBed is not supported by kalman MUNC"
+        )
 
     def _finalizeMuncVarianceTrack(
         fittedVarianceTrack: np.ndarray,
     ) -> npt.NDArray[np.float32]:
-        return applyMuncCountModelVarianceFloor(
+        out = _clipVarianceTrack(
             np.asarray(fittedVarianceTrack, dtype=np.float64),
-            countModelVarianceFloorArr,
-            varianceFloor=varianceFloor_,
-            varianceCap=varianceCap_,
-        )
+            floor=varianceFloor_,
+            cap=None,
+        ).astype(np.float64, copy=False)
+        if countModelVarianceFloorArr is not None:
+            countFloorArr = np.asarray(
+                countModelVarianceFloorArr,
+                dtype=np.float64,
+            ).ravel()
+            finiteFloor = np.isfinite(countFloorArr)
+            out[finiteFloor] += countFloorArr[finiteFloor]
+        return _clipVarianceTrack(out, floor=varianceFloor_, cap=varianceCap_)
 
-    supportFraction = float(np.mean(obsVarTrack > varianceFloor_)) if obsVarTrack.size else 0.0
+    supportFraction = (
+        float(np.mean(obsVarTrack > varianceFloor_)) if obsVarTrack.size else 0.0
+    )
     if pooledTrend is None:
         if EB_use:
             raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
@@ -10438,14 +10465,15 @@ def getMuncTrack(
         means_Sorted = finiteValues[np.isfinite(finiteValues)]
         if means_Sorted.size == 0:
             means_Sorted = np.array([0.0], dtype=np.float64)
-        logger.info(
-            _formatPSplineTrendSummary(
-                opt,
-                means_Sorted,
-                eps=varianceFloor_,
-                maxVariance=varianceCap_,
+        if priorVarianceTrack is None:
+            logger.info(
+                _formatPSplineTrendSummary(
+                    opt,
+                    means_Sorted,
+                    eps=varianceFloor_,
+                    maxVariance=varianceCap_,
+                )
             )
-        )
 
     if priorMeanTrack is None:
         meanTrack = np.ascontiguousarray(valuesArr, dtype=np.float32)
@@ -10467,12 +10495,20 @@ def getMuncTrack(
         return _finalizeMuncVarianceTrack(obsVarTrack), float(supportFraction)
     if opt is None:
         raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
-    priorTrack = evalPSplineLogVarianceTrend(
-        opt,
-        meanTrack,
-        eps=varianceFloor_,
-        maxVariance=varianceCap_,
-    )
+    if priorVarianceTrack is None:
+        priorTrack = evalPSplineLogVarianceTrend(
+            opt,
+            meanTrack,
+            eps=varianceFloor_,
+            maxVariance=varianceCap_,
+        )
+    else:
+        priorTrack = np.ascontiguousarray(
+            priorVarianceTrack,
+            dtype=np.float32,
+        ).reshape(-1)
+        if priorTrack.shape[0] != valuesArr.size:
+            raise ValueError("priorVarianceTrack must match values length")
     priorTrack = _clipVarianceTrack(
         priorTrack,
         floor=varianceFloor_,
@@ -10604,29 +10640,28 @@ def getMuncTrack(
         floor=varianceFloor_,
         cap=varianceCap_,
     )
+    posteriorVarTrack = _finalizeMuncVarianceTrack(posteriorVarTrack)
     if countModelVarianceFloorArr is None:
-        countFloorHitCount = 0
+        countFloorAddedCount = 0
     else:
         countFloorArr = np.asarray(countModelVarianceFloorArr, dtype=np.float64).ravel()
-        countFloorHitCount = int(
-            np.count_nonzero(
-                np.isfinite(countFloorArr)
-                & (countFloorArr > posteriorVarTrack.astype(np.float64))
-            )
+        countFloorAddedCount = int(
+            np.count_nonzero(np.isfinite(countFloorArr) & (countFloorArr > 0.0))
         )
-    posteriorVarTrack = _finalizeMuncVarianceTrack(posteriorVarTrack)
 
     logger.info(
         "MUNC EB evidence: chromosome=%s localAboveFloorFraction=%.6g "
         "nu0PairFraction=%.6g finalShrinkagePairFraction=%.6g "
-        "countFloorHitCount=%d",
+        "countFloorAddedCount=%d",
         chromosome,
         float(supportFraction),
-        float(np.count_nonzero(nu0Evidence) / nu0Evidence.size)
-        if nu0Evidence.size
-        else 0.0,
+        (
+            float(np.count_nonzero(nu0Evidence) / nu0Evidence.size)
+            if nu0Evidence.size
+            else 0.0
+        ),
         float(finalShrinkagePairFraction),
-        countFloorHitCount,
+        countFloorAddedCount,
     )
 
     logger.info(
@@ -10823,9 +10858,9 @@ def EB_computePooledPriorStrength(
     candidateIdx = np.flatnonzero(ratioMask)
     if candidateIdx.size < max(4, int(np.ceil(0.10 * localArr.size))):
         logger.warning(
-            "Insufficient pooled prior/local variance pairs...setting Nu_0 = 1.0e6"
+            "Insufficient pooled prior/local variance pairs...setting Nu_0 = 4.0"
         )
-        return float(1.0e6)
+        return float(4.0)
 
     if (
         sampleIndex is not None
@@ -10857,10 +10892,8 @@ def EB_computePooledPriorStrength(
         candidateIdx = np.asarray(thinned, dtype=np.intp)
 
     if candidateIdx.size < 4:
-        logger.warning(
-            "After pooled thinning, insufficient pairs...setting Nu_0 = 1.0e6"
-        )
-        return float(1.0e6)
+        logger.warning("After pooled thinning, insufficient pairs...setting Nu_0 = 4.0")
+        return float(4.0)
 
     return _computePriorStrengthFromCandidateIdx(
         localArr,

@@ -990,6 +990,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction",
         "uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
         "uncertaintyCalibrationParams.calibrationOuterIters",
+        constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
         "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
     ):
         assert key in defaults
@@ -1292,6 +1293,168 @@ def _case_runtime_defaults_are_centralized(
     )
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
+
+
+def _case_observationMuncSeedWeightDefaultAndPrecisionIndependence(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    profile = constants.DEFAULT_CONFIGURATION_VALUES[
+        constants.GENERIC_DEFAULT_CONFIGURATION
+    ]
+    seedFieldMap = {
+        "muncSeedWeightEnabled": "observationParams.muncSeedWeight.enabled",
+        "muncSeedWeightPasses": "observationParams.muncSeedWeight.passes",
+        "muncSeedWeightMin": "observationParams.muncSeedWeight.min",
+        "muncSeedWeightMax": "observationParams.muncSeedWeight.max",
+        "muncSeedWeightStudentT": "observationParams.muncSeedWeight.studentT",
+        "muncSeedWeightStudentTdf": "observationParams.muncSeedWeight.studentTdf",
+        "muncSeedProcessMinQ": "observationParams.muncSeedProcess.minQ",
+        "muncSeedProcessMaxQ": "observationParams.muncSeedProcess.maxQ",
+    }
+
+    for defaultKey in constants.OBSERVATION_MUNC_SEED_WEIGHT_CONFIG_KEYS:
+        assert defaultKey in profile
+    for defaultKey in constants.OBSERVATION_MUNC_SEED_PROCESS_CONFIG_KEYS:
+        assert defaultKey in profile
+
+    baseConfig = """
+    experimentName: seedWeightDefault
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    basePath = writeConfigFile(tmp_path, "config_seed_weight_base.yaml", baseConfig)
+    baseParsed = readConfig(str(basePath))
+    for attrName, defaultKey in seedFieldMap.items():
+        assert getattr(baseParsed["observationArgs"], attrName) == profile[defaultKey]
+
+    precisionConfig = """
+    experimentName: seedWeightPrecision
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.precisionMultiplierMin: 0.25
+    observationParams.precisionMultiplierMax: 9.0
+    processParams.minQ: 1.0e-4
+    processParams.maxQ: 1.0e-2
+    """
+    precisionPath = writeConfigFile(
+        tmp_path,
+        "config_seed_weight_precision.yaml",
+        precisionConfig,
+    )
+    precisionParsed = readConfig(str(precisionPath))
+    assert precisionParsed["observationArgs"].precisionMultiplierMin == pytest.approx(
+        0.25
+    )
+    assert precisionParsed["observationArgs"].precisionMultiplierMax == pytest.approx(
+        9.0
+    )
+    assert precisionParsed["processArgs"].minQ == pytest.approx(1.0e-4)
+    assert precisionParsed["processArgs"].maxQ == pytest.approx(1.0e-2)
+    for attrName, defaultKey in seedFieldMap.items():
+        assert getattr(precisionParsed["observationArgs"], attrName) == profile[defaultKey]
+
+    explicitConfig = """
+    experimentName: seedWeightExplicit
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams:
+      muncSeedWeight:
+        enabled: false
+        passes: 3
+        min: 0.2
+        max: 2.5
+        studentT: false
+        studentTdf: 3.5
+      muncSeedProcess:
+        minQ: 2.0e-5
+        maxQ: 8.0e-3
+    observationParams.precisionMultiplierMin: 0.5
+    observationParams.precisionMultiplierMax: 4.0
+    """
+    explicitPath = writeConfigFile(
+        tmp_path,
+        "config_seed_weight_explicit.yaml",
+        explicitConfig,
+    )
+    explicitParsed = readConfig(str(explicitPath))
+    explicitArgs = explicitParsed["observationArgs"]
+    assert explicitArgs.muncSeedWeightEnabled is False
+    assert explicitArgs.muncSeedWeightPasses == 3
+    assert explicitArgs.muncSeedWeightMin == pytest.approx(0.2)
+    assert explicitArgs.muncSeedWeightMax == pytest.approx(2.5)
+    assert explicitArgs.muncSeedWeightStudentT is False
+    assert explicitArgs.muncSeedWeightStudentTdf == pytest.approx(3.5)
+    assert explicitArgs.muncSeedProcessMinQ == pytest.approx(2.0e-5)
+    assert explicitArgs.muncSeedProcessMaxQ == pytest.approx(8.0e-3)
+    assert explicitParsed["observationArgs"].precisionMultiplierMin == pytest.approx(
+        0.5
+    )
+    assert explicitParsed["observationArgs"].precisionMultiplierMax == pytest.approx(
+        4.0
+    )
+
+    invalidCases = (
+        ("scalar", "observationParams.muncSeedWeight: 0.35", "muncSeedWeight"),
+        (
+            "enabled string",
+            'observationParams.muncSeedWeight.enabled: "false"',
+            "enabled",
+        ),
+        (
+            "passes bool",
+            "observationParams.muncSeedWeight.passes: true",
+            "passes",
+        ),
+        ("passes low", "observationParams.muncSeedWeight.passes: 1", "passes"),
+        ("min high", "observationParams.muncSeedWeight.min: 1.5", "min"),
+        ("max low", "observationParams.muncSeedWeight.max: 0.5", "max"),
+        (
+            "studentT string",
+            'observationParams.muncSeedWeight.studentT: "false"',
+            "studentT",
+        ),
+        (
+            "studentTdf bool",
+            "observationParams.muncSeedWeight.studentTdf: true",
+            "studentTdf",
+        ),
+        ("studentTdf zero", "observationParams.muncSeedWeight.studentTdf: 0", "studentTdf"),
+        ("process scalar", "observationParams.muncSeedProcess: 0.35", "muncSeedProcess"),
+        (
+            "process min bool",
+            "observationParams.muncSeedProcess.minQ: true",
+            "minQ",
+        ),
+        ("process min zero", "observationParams.muncSeedProcess.minQ: 0", "minQ"),
+        (
+            "process max bool",
+            "observationParams.muncSeedProcess.maxQ: true",
+            "maxQ",
+        ),
+        (
+            "process max low",
+            "observationParams.muncSeedProcess.minQ: 2.0e-3\n"
+            "        observationParams.muncSeedProcess.maxQ: 1.0e-3",
+            "maxQ",
+        ),
+    )
+    for caseName, configLine, message in invalidCases:
+        invalidConfig = f"""
+        experimentName: seedWeightInvalid{caseName.replace(" ", "")}
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        {configLine}
+        """
+        invalidPath = writeConfigFile(
+            tmp_path,
+            f"config_seed_weight_invalid_{caseName.replace(' ', '_')}.yaml",
+            invalidConfig,
+        )
+        with pytest.raises(ValueError, match=message):
+            readConfig(str(invalidPath))
 
 
 def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
@@ -2506,6 +2669,10 @@ def test_config_parser_defaults_and_override_contracts(
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         (
+            "MUNC seed weight defaults",
+            _case_observationMuncSeedWeightDefaultAndPrecisionIndependence,
+        ),
+        (
             "generic overrides",
             _case_readConfigGenericDefaultsStillAllowExplicitOverrides,
         ),
@@ -2810,8 +2977,16 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[0, "kappa_upper_bound_hits"] == 4
     assert frame.loc[0, "process_q_trace_median"] == pytest.approx(0.02)
     assert frame.loc[0, "observation_r_trace_median"] == pytest.approx(2.0)
+    assert frame.loc[0, "state_roughness_block_median"] == pytest.approx(0.2)
+    assert frame.loc[0, "state_roughness_block_q90"] == pytest.approx(0.3)
+    assert frame.loc[0, "delete_block_global_factor"] == pytest.approx(1.5)
+    assert frame.loc[0, "delete_block_rows_valid"] == 10
+    assert frame.loc[0, "delete_block_rows_fit"] == 5
+    assert frame.loc[0, "delete_block_scale"] == pytest.approx(1.1)
+    assert frame.loc[0, "delete_block_scale_reason"] == "target"
     assert frame.loc[1, "chromosome"] == "genome"
     assert frame.loc[1, "intervals"] == 12
+    assert frame.loc[1, "output_track_count"] == 2
     assert "\tNA\t" in raw
 
 

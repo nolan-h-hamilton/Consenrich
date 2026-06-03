@@ -19,6 +19,9 @@ from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
 
+IF USE_OPENMP:
+    from cython.parallel cimport prange
+
 cdef extern from "htslib/hts.h":
     ctypedef struct htsFile
     ctypedef struct hts_idx_t
@@ -434,9 +437,9 @@ cpdef tuple cExpectedTransitionResidualSumsLevel(
 
 
 cdef void _expectedTransitionEvidenceLevelLoop(
-    double[:, ::1] stateSmoothed,
-    double[:, :, ::1] stateCovarSmoothed,
-    double[:, :, ::1] lagCovSmoothed,
+    real_t[:, ::1] stateSmoothed,
+    real_t[:, :, ::1] stateCovarSmoothed,
+    real_t[:, :, ::1] lagCovSmoothed,
     double seedQInv,
     double[::1] evidence,
     Py_ssize_t transitionCount,
@@ -494,9 +497,9 @@ cdef void _expectedTransitionEvidenceLevelLoop(
 
 
 cdef void _expectedTransitionEvidenceLevelTrendLoop(
-    double[:, ::1] stateSmoothed,
-    double[:, :, ::1] stateCovarSmoothed,
-    double[:, :, ::1] lagCovSmoothed,
+    real_t[:, ::1] stateSmoothed,
+    real_t[:, :, ::1] stateCovarSmoothed,
+    real_t[:, :, ::1] lagCovSmoothed,
     double[:, ::1] matrixF,
     double qInv00,
     double qInv01,
@@ -621,22 +624,32 @@ cpdef tuple cExpectedTransitionProcessEvidence(
     For transition ``i``, the scalar is
     ``trace(inv(seedQ) * E[w_i w_i.T]) / stateDim``.
     """
+    cdef object stateObj
+    cdef object covObj
+    cdef object lagObj
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] stateArr
     cdef cnp.ndarray[cnp.float64_t, ndim=3, mode="c"] covArr
     cdef cnp.ndarray[cnp.float64_t, ndim=3, mode="c"] lagArr
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] seedQArr
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] fArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] evidenceArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateArr32
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] covArr32
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagArr32
     cdef double[:, ::1] stateView
     cdef double[:, :, ::1] covView
     cdef double[:, :, ::1] lagView
     cdef double[:, ::1] seedQView
     cdef double[:, ::1] fView
     cdef double[::1] evidenceView
+    cdef cnp.float32_t[:, ::1] stateView32
+    cdef cnp.float32_t[:, :, ::1] covView32
+    cdef cnp.float32_t[:, :, ::1] lagView32
     cdef Py_ssize_t n
     cdef Py_ssize_t transitionCount
     cdef Py_ssize_t requiredLagCount
     cdef Py_ssize_t stateDim
+    cdef bint useFloat32Moments
     cdef Py_ssize_t finiteCount = 0
     cdef Py_ssize_t invalidCount = 0
     cdef Py_ssize_t negativeCount = 0
@@ -654,33 +667,41 @@ cpdef tuple cExpectedTransitionProcessEvidence(
     cdef double qInv11
     cdef dict diagnostics
 
-    stateArr = np.ascontiguousarray(stateSmoothed, dtype=np.float64)
-    covArr = np.ascontiguousarray(stateCovarSmoothed, dtype=np.float64)
-    lagArr = np.ascontiguousarray(lagCovSmoothed, dtype=np.float64)
+    stateObj = np.asarray(stateSmoothed)
+    covObj = np.asarray(stateCovarSmoothed)
+    lagObj = np.asarray(lagCovSmoothed)
     seedQArr = np.ascontiguousarray(seedQ, dtype=np.float64)
 
-    if stateArr.ndim != 2:
+    if stateObj.ndim != 2:
         raise ValueError("stateSmoothed must be a 2D array")
-    n = stateArr.shape[0]
-    stateDim = stateArr.shape[1]
+    n = stateObj.shape[0]
+    stateDim = stateObj.shape[1]
     if stateDim != 1 and stateDim != 2:
         raise ValueError("stateSmoothed must have one or two state columns")
     if (
-        covArr.shape[0] != n
-        or covArr.shape[1] != stateDim
-        or covArr.shape[2] != stateDim
+        covObj.shape[0] != n
+        or covObj.shape[1] != stateDim
+        or covObj.shape[2] != stateDim
     ):
         raise ValueError("stateCovarSmoothed shape must match stateSmoothed state dimension")
     transitionCount = n - 1
     requiredLagCount = transitionCount if transitionCount > 0 else 0
     if (
-        lagArr.shape[0] < requiredLagCount
-        or lagArr.shape[1] != stateDim
-        or lagArr.shape[2] != stateDim
+        lagObj.shape[0] < requiredLagCount
+        or lagObj.shape[1] != stateDim
+        or lagObj.shape[2] != stateDim
     ):
         raise ValueError("lagCovSmoothed shape must match transition count and state dimension")
     if seedQArr.shape[0] != stateDim or seedQArr.shape[1] != stateDim:
         raise ValueError("seedQ shape must match state dimension")
+    useFloat32Moments = (
+        isinstance(stateObj, np.ndarray)
+        and isinstance(covObj, np.ndarray)
+        and isinstance(lagObj, np.ndarray)
+        and (<cnp.ndarray>stateObj).dtype == np.float32
+        and (<cnp.ndarray>covObj).dtype == np.float32
+        and (<cnp.ndarray>lagObj).dtype == np.float32
+    )
 
     evidenceArr = np.empty(requiredLagCount, dtype=np.float64)
     if requiredLagCount <= 0:
@@ -697,31 +718,59 @@ cpdef tuple cExpectedTransitionProcessEvidence(
         }
         return evidenceArr, diagnostics
 
-    stateView = stateArr
-    covView = covArr
-    lagView = lagArr
     seedQView = seedQArr
     evidenceView = evidenceArr
+    if useFloat32Moments:
+        stateArr32 = np.ascontiguousarray(stateObj, dtype=np.float32)
+        covArr32 = np.ascontiguousarray(covObj, dtype=np.float32)
+        lagArr32 = np.ascontiguousarray(lagObj, dtype=np.float32)
+        stateView32 = stateArr32
+        covView32 = covArr32
+        lagView32 = lagArr32
+    else:
+        stateArr = np.ascontiguousarray(stateObj, dtype=np.float64)
+        covArr = np.ascontiguousarray(covObj, dtype=np.float64)
+        lagArr = np.ascontiguousarray(lagObj, dtype=np.float64)
+        stateView = stateArr
+        covView = covArr
+        lagView = lagArr
 
     if stateDim == 1:
         q00 = seedQView[0, 0]
         if (not isfinite(q00)) or q00 <= 0.0:
             raise ValueError("seedQ[0, 0] must be positive and finite")
-        with nogil:
-            _expectedTransitionEvidenceLevelLoop(
-                stateView,
-                covView,
-                lagView,
-                1.0 / q00,
-                evidenceView,
-                transitionCount,
-                &finiteCount,
-                &invalidCount,
-                &negativeCount,
-                &finiteSum,
-                &finiteMin,
-                &finiteMax,
-            )
+        if useFloat32Moments:
+            with nogil:
+                _expectedTransitionEvidenceLevelLoop(
+                    stateView32,
+                    covView32,
+                    lagView32,
+                    1.0 / q00,
+                    evidenceView,
+                    transitionCount,
+                    &finiteCount,
+                    &invalidCount,
+                    &negativeCount,
+                    &finiteSum,
+                    &finiteMin,
+                    &finiteMax,
+                )
+        else:
+            with nogil:
+                _expectedTransitionEvidenceLevelLoop(
+                    stateView,
+                    covView,
+                    lagView,
+                    1.0 / q00,
+                    evidenceView,
+                    transitionCount,
+                    &finiteCount,
+                    &invalidCount,
+                    &negativeCount,
+                    &finiteSum,
+                    &finiteMin,
+                    &finiteMax,
+                )
     else:
         if matrixF is None:
             raise ValueError("matrixF is required for two-state process evidence")
@@ -749,25 +798,46 @@ cpdef tuple cExpectedTransitionProcessEvidence(
         qInv01 = -q01 / detQ
         qInv10 = -q10 / detQ
         qInv11 = q00 / detQ
-        with nogil:
-            _expectedTransitionEvidenceLevelTrendLoop(
-                stateView,
-                covView,
-                lagView,
-                fView,
-                qInv00,
-                qInv01,
-                qInv10,
-                qInv11,
-                evidenceView,
-                transitionCount,
-                &finiteCount,
-                &invalidCount,
-                &negativeCount,
-                &finiteSum,
-                &finiteMin,
-                &finiteMax,
-            )
+        if useFloat32Moments:
+            with nogil:
+                _expectedTransitionEvidenceLevelTrendLoop(
+                    stateView32,
+                    covView32,
+                    lagView32,
+                    fView,
+                    qInv00,
+                    qInv01,
+                    qInv10,
+                    qInv11,
+                    evidenceView,
+                    transitionCount,
+                    &finiteCount,
+                    &invalidCount,
+                    &negativeCount,
+                    &finiteSum,
+                    &finiteMin,
+                    &finiteMax,
+                )
+        else:
+            with nogil:
+                _expectedTransitionEvidenceLevelTrendLoop(
+                    stateView,
+                    covView,
+                    lagView,
+                    fView,
+                    qInv00,
+                    qInv01,
+                    qInv10,
+                    qInv11,
+                    evidenceView,
+                    transitionCount,
+                    &finiteCount,
+                    &invalidCount,
+                    &negativeCount,
+                    &finiteSum,
+                    &finiteMin,
+                    &finiteMax,
+                )
 
     diagnostics = {
         "state_dim": int(stateDim),
@@ -2489,112 +2559,809 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     return mask
 
 
-cpdef tuple cbroadMuncTileEvidence(
-    cnp.ndarray[cnp.float32_t, ndim=1] seedMean,
-    cnp.ndarray[cnp.float32_t, ndim=2] evidenceMatrix,
-    cnp.ndarray[cnp.intp_t, ndim=1] blockStarts,
-    cnp.ndarray[cnp.intp_t, ndim=1] blockSizes,
-    cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-    cnp.ndarray[cnp.float64_t, ndim=1] weights,
-    double eps=1.0e-12,
-):
-    cdef Py_ssize_t intervalCount = seedMean.shape[0]
-    cdef Py_ssize_t sampleCount = evidenceMatrix.shape[0]
-    cdef Py_ssize_t blockCount = blockStarts.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] tilePredictor
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] tileEvidence
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] tileWeight
-    cdef float[::1] seedView = seedMean
-    cdef float[:, ::1] evidenceView = evidenceMatrix
-    cdef Py_ssize_t[::1] startsView = blockStarts
-    cdef Py_ssize_t[::1] sizesView = blockSizes
-    cdef cnp.uint8_t[::1] excludeView = excludeIdxMask
-    cdef double[::1] weightView = weights
-    cdef double[::1] predictorView
-    cdef double[:, ::1] tileEvidenceView
-    cdef double[:, ::1] tileWeightView
-    cdef Py_ssize_t blockIndex
-    cdef Py_ssize_t sampleIndex
-    cdef Py_ssize_t offset
-    cdef Py_ssize_t startIndex
-    cdef Py_ssize_t blockLength
-    cdef Py_ssize_t pos
-    cdef double sumSeed
-    cdef double weight
-    cdef double weightSum
+cdef inline bint _muncSeedMaskAllowsCell(
+    const uint8_t* maskPtr,
+    int maskMode,
+    Py_ssize_t intervalCount,
+    Py_ssize_t j,
+    Py_ssize_t k,
+    bint nonzeroMeansActive,
+) noexcept nogil:
+    cdef uint8_t value
+
+    if maskMode == 0:
+        return True
+    if maskMode == 1:
+        value = maskPtr[k]
+    else:
+        value = maskPtr[j * intervalCount + k]
+    if nonzeroMeansActive:
+        return value != 0
+    return value == 0
+
+
+cdef Py_ssize_t _muncObservationMomentSeedInvalidIndex(
+    const cnp.float32_t* dataPtr,
+    const cnp.float32_t* muncPtr,
+    const cnp.float32_t* stateMeanPtr,
+    const cnp.float32_t* stateVariancePtr,
+    const cnp.float32_t* backgroundPtr,
+    const cnp.float32_t* gVariancePtr,
+    const cnp.float32_t* countFloorPtr,
+    const cnp.float32_t* omegaInPtr,
+    const cnp.float32_t* rhoInPtr,
+    const uint8_t* activePtr,
+    Py_ssize_t trackCount,
+    Py_ssize_t intervalCount,
+    int omegaInMode,
+    int activeMode,
+    double pad,
+    bint useBackground,
+    bint useGVariance,
+    bint useCountFloor,
+    bint useWeights,
+    bint studentT,
+    bint updateWeights,
+) noexcept nogil:
+    cdef Py_ssize_t j
+    cdef Py_ssize_t k
+    cdef Py_ssize_t idx
     cdef double value
-    cdef double signedLog
-    cdef double floorValue = eps
 
-    if evidenceMatrix.shape[1] != intervalCount:
-        raise ValueError("evidenceMatrix must align with seedMean")
-    if blockSizes.shape[0] != blockCount:
-        raise ValueError("blockStarts and blockSizes must align")
-    if excludeIdxMask.shape[0] != intervalCount:
-        raise ValueError("excludeIdxMask must align with seedMean")
-    if weights.shape[0] != intervalCount:
-        raise ValueError("weights must align with seedMean")
-    if floorValue <= 0.0 or not isfinite(floorValue):
-        raise ValueError("eps must be positive and finite")
-    for blockIndex in range(blockCount):
-        startIndex = blockStarts[blockIndex]
-        blockLength = blockSizes[blockIndex]
-        if startIndex < 0 or blockLength <= 0:
-            raise ValueError("blockStarts and blockSizes must define positive ranges")
-        if startIndex + blockLength > intervalCount:
-            raise ValueError("block ranges must fit seedMean")
+    for j in range(trackCount):
+        for k in range(intervalCount):
+            if not _muncSeedMaskAllowsCell(
+                activePtr,
+                activeMode,
+                intervalCount,
+                j,
+                k,
+                True,
+            ):
+                continue
+            idx = j * intervalCount + k
+            value = <double>stateMeanPtr[k]
+            if not isfinite(value):
+                return idx
+            value = <double>stateVariancePtr[k]
+            if not isfinite(value):
+                return idx
+            if useBackground:
+                value = <double>backgroundPtr[k]
+                if not isfinite(value):
+                    return idx
+            if useGVariance:
+                value = <double>gVariancePtr[k]
+                if not isfinite(value):
+                    return idx
+            value = <double>dataPtr[idx]
+            if not isfinite(value):
+                return idx
+            value = (<double>muncPtr[idx]) + pad
+            if (not isfinite(value)) or value <= 0.0:
+                return idx
+            if useCountFloor:
+                value = <double>countFloorPtr[idx]
+                if (not isfinite(value)) or value < 0.0:
+                    return idx
+            if useWeights and studentT:
+                if omegaInMode == 1:
+                    value = <double>omegaInPtr[k]
+                    if (not isfinite(value)) or value <= 0.0:
+                        return idx
+                if not updateWeights:
+                    value = <double>rhoInPtr[idx]
+                    if (not isfinite(value)) or value <= 0.0:
+                        return idx
+    return -1
 
-    tilePredictor = np.empty(blockCount, dtype=np.float64)
-    tileEvidence = np.empty((sampleCount, blockCount), dtype=np.float64)
-    tileWeight = np.empty((sampleCount, blockCount), dtype=np.float64)
-    predictorView = tilePredictor
-    tileEvidenceView = tileEvidence
-    tileWeightView = tileWeight
 
-    with nogil:
-        for blockIndex in range(blockCount):
-            startIndex = startsView[blockIndex]
-            blockLength = sizesView[blockIndex]
-            for sampleIndex in range(sampleCount):
-                tileEvidenceView[sampleIndex, blockIndex] = 0.0
-                tileWeightView[sampleIndex, blockIndex] = 0.0
+cdef inline void _muncObservationMomentSeedPassInterval(
+    const cnp.float32_t* dataPtr,
+    const cnp.float32_t* muncPtr,
+    const cnp.float32_t* stateMeanPtr,
+    const cnp.float32_t* stateVariancePtr,
+    const cnp.float32_t* backgroundPtr,
+    const cnp.float32_t* gVariancePtr,
+    const cnp.float32_t* countFloorPtr,
+    const cnp.float32_t* omegaInPtr,
+    const cnp.float32_t* rhoInPtr,
+    const uint8_t* activePtr,
+    cnp.float32_t* momentPtr,
+    cnp.float32_t* rhoOutPtr,
+    cnp.float32_t* omegaRawPtr,
+    cnp.float32_t* omegaOutPtr,
+    cnp.float32_t* localPtr,
+    cnp.float32_t* variancePtr,
+    Py_ssize_t trackCount,
+    Py_ssize_t intervalCount,
+    Py_ssize_t intervalIndex,
+    int omegaInMode,
+    int activeMode,
+    double pad,
+    double dS,
+    double dOmega,
+    double omegaMin,
+    double omegaMax,
+    double varianceFloor,
+    double varianceCap,
+    bint useWeights,
+    bint studentT,
+    bint updateWeights,
+    bint useBackground,
+    bint useGVariance,
+    bint useCountFloor,
+) noexcept nogil:
+    cdef Py_ssize_t j
+    cdef Py_ssize_t idx
+    cdef Py_ssize_t activeCount = 0
+    cdef double stateValue = <double>stateMeanPtr[intervalIndex]
+    cdef double momentVarianceBase = <double>stateVariancePtr[intervalIndex]
+    cdef double momentVariance
+    cdef double backgroundValue = 0.0
+    cdef double countValue = 0.0
+    cdef double baseVariance
+    cdef double residual
+    cdef double momentValue
+    cdef double rhoValue = 1.0
+    cdef double omegaInValue = 1.0
+    cdef double omegaRawValue
+    cdef double omegaValue = 1.0
+    cdef double dbar
+    cdef double localValue
+    cdef double totalValue
 
-            sumSeed = 0.0
-            weightSum = 0.0
-            for offset in range(blockLength):
-                pos = startIndex + offset
-                if excludeView[pos] != 0:
+    if useBackground:
+        backgroundValue = <double>backgroundPtr[intervalIndex]
+    if useGVariance:
+        momentVarianceBase += <double>gVariancePtr[intervalIndex]
+    if momentVarianceBase < 0.0:
+        momentVarianceBase = 0.0
+
+    if useWeights and studentT:
+        if omegaInMode == 1:
+            omegaInValue = <double>omegaInPtr[intervalIndex]
+        else:
+            omegaInValue = 1.0
+        if updateWeights:
+            dbar = 0.0
+            for j in range(trackCount):
+                idx = j * intervalCount + intervalIndex
+                if not _muncSeedMaskAllowsCell(
+                    activePtr,
+                    activeMode,
+                    intervalCount,
+                    j,
+                    intervalIndex,
+                    True,
+                ):
+                    momentPtr[idx] = <cnp.float32_t>0.0
+                    rhoOutPtr[idx] = <cnp.float32_t>1.0
                     continue
-                weight = weightView[pos]
-                if weight <= 0.0:
-                    continue
-                value = <double>seedView[pos]
-                if value > 0.0:
-                    signedLog = log1p(value)
-                elif value < 0.0:
-                    signedLog = -log1p(-value)
-                else:
-                    signedLog = 0.0
-                sumSeed += weight * signedLog
-                weightSum += weight
-                for sampleIndex in range(sampleCount):
-                    value = <double>evidenceView[sampleIndex, pos]
-                    if value < floorValue:
-                        value = floorValue
-                    tileEvidenceView[sampleIndex, blockIndex] += weight * value
-            if weightSum > 0.0:
-                predictorView[blockIndex] = sumSeed / weightSum
-                for sampleIndex in range(sampleCount):
-                    tileEvidenceView[sampleIndex, blockIndex] = (
-                        tileEvidenceView[sampleIndex, blockIndex] / weightSum
-                    )
-                    tileWeightView[sampleIndex, blockIndex] = weightSum
+                baseVariance = (<double>muncPtr[idx]) + pad
+                if baseVariance < varianceFloor:
+                    baseVariance = varianceFloor
+                residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
+                momentValue = residual * residual + momentVarianceBase
+                rhoValue = (dS + 1.0) / (
+                    dS + omegaInValue * momentValue / baseVariance
+                )
+                momentPtr[idx] = <cnp.float32_t>momentValue
+                rhoOutPtr[idx] = <cnp.float32_t>rhoValue
+                dbar += momentValue / baseVariance
+                activeCount += 1
+            if activeCount > 0:
+                dbar = dbar / (<double>activeCount)
+                omegaRawValue = (dOmega + 1.0) / (dOmega + dbar)
+                omegaValue = _clampMultiplierValue(
+                    omegaRawValue,
+                    omegaMin,
+                    omegaMax,
+                )
             else:
-                predictorView[blockIndex] = NAN
-                for sampleIndex in range(sampleCount):
-                    tileEvidenceView[sampleIndex, blockIndex] = NAN
+                omegaRawValue = 1.0
+                omegaValue = 1.0
+        else:
+            omegaRawValue = omegaInValue
+            omegaValue = _clampMultiplierValue(
+                omegaRawValue,
+                omegaMin,
+                omegaMax,
+            )
+            for j in range(trackCount):
+                idx = j * intervalCount + intervalIndex
+                if not _muncSeedMaskAllowsCell(
+                    activePtr,
+                    activeMode,
+                    intervalCount,
+                    j,
+                    intervalIndex,
+                    True,
+                ):
+                    momentPtr[idx] = <cnp.float32_t>0.0
+                    rhoOutPtr[idx] = <cnp.float32_t>1.0
+                    continue
+                residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
+                momentValue = residual * residual + momentVarianceBase
+                rhoValue = <double>rhoInPtr[idx]
+                momentPtr[idx] = <cnp.float32_t>momentValue
+                rhoOutPtr[idx] = <cnp.float32_t>rhoValue
+        omegaRawPtr[intervalIndex] = <cnp.float32_t>omegaRawValue
+        omegaOutPtr[intervalIndex] = <cnp.float32_t>omegaValue
+    else:
+        omegaRawPtr[intervalIndex] = <cnp.float32_t>1.0
+        omegaOutPtr[intervalIndex] = <cnp.float32_t>1.0
 
-    return tilePredictor, tileEvidence, tileWeight
+    for j in range(trackCount):
+        idx = j * intervalCount + intervalIndex
+        if _muncSeedMaskAllowsCell(
+            activePtr,
+            activeMode,
+            intervalCount,
+            j,
+            intervalIndex,
+            True,
+        ):
+            if not (useWeights and studentT):
+                residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
+                momentValue = residual * residual + momentVarianceBase
+                momentPtr[idx] = <cnp.float32_t>momentValue
+                rhoOutPtr[idx] = <cnp.float32_t>1.0
+            else:
+                momentValue = <double>momentPtr[idx]
+                rhoValue = <double>rhoOutPtr[idx]
+            if useCountFloor:
+                countValue = <double>countFloorPtr[idx]
+            else:
+                countValue = 0.0
+            if useWeights and studentT:
+                localValue = (
+                    omegaValue * rhoValue * momentValue
+                    - pad
+                    - countValue
+                )
+            else:
+                localValue = momentValue - pad - countValue
+            totalValue = localValue + countValue
+            if localValue < varianceFloor:
+                localValue = varianceFloor
+                totalValue = localValue + countValue
+            if totalValue > varianceCap:
+                totalValue = varianceCap
+                localValue = totalValue - countValue
+                if localValue < varianceFloor:
+                    localValue = varianceFloor
+                    totalValue = localValue + countValue
+            localPtr[idx] = <cnp.float32_t>localValue
+            variancePtr[idx] = <cnp.float32_t>totalValue
+        else:
+            if useCountFloor:
+                countValue = <double>countFloorPtr[idx]
+            else:
+                countValue = 0.0
+            localValue = (<double>muncPtr[idx]) - countValue
+            if localValue < varianceFloor:
+                localValue = varianceFloor
+            totalValue = localValue + countValue
+            if totalValue > varianceCap:
+                totalValue = varianceCap
+                localValue = totalValue - countValue
+                if localValue < varianceFloor:
+                    localValue = varianceFloor
+                    totalValue = localValue + countValue
+            momentPtr[idx] = <cnp.float32_t>0.0
+            rhoOutPtr[idx] = <cnp.float32_t>1.0
+            localPtr[idx] = <cnp.float32_t>localValue
+            variancePtr[idx] = <cnp.float32_t>totalValue
+
+
+cpdef tuple cMuncObservationMomentSeedPass(
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateMean,
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVariance,
+    object background=None,
+    object gVariance=None,
+    object countFloor=None,
+    object omegaIn=None,
+    object rhoIn=None,
+    float pad=1.0e-4,
+    float studentTdf=8.0,
+    bint useSeedWeights=True,
+    bint updateWeights=True,
+    float omegaMin=0.01,
+    float omegaMax=100.0,
+    float varianceFloor=1.0e-12,
+    float varianceCap=3.4028234663852886e38,
+    bint enabled=True,
+    bint studentT=True,
+    float dOmega=8.0,
+    object activeMask=None,
+):
+    cdef Py_ssize_t trackCount = matrixData.shape[0]
+    cdef Py_ssize_t intervalCount = matrixData.shape[1]
+    cdef Py_ssize_t intervalIndex
+    cdef Py_ssize_t invalidIndex
+    cdef bint useBackground = background is not None
+    cdef bint useGVariance = gVariance is not None
+    cdef bint useCountFloor = countFloor is not None
+    cdef bint useWeights = enabled and useSeedWeights
+    cdef double padValue = <double>pad
+    cdef double studentTdfValue = <double>studentTdf
+    cdef double dOmegaValue = <double>dOmega
+    cdef double omegaMinValue = <double>omegaMin
+    cdef double omegaMaxValue = <double>omegaMax
+    cdef double varianceFloorValue = <double>varianceFloor
+    cdef double varianceCapValue = <double>varianceCap
+    cdef object omegaObj
+    cdef object activeObj
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] backgroundArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] gVarianceArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] countFloorArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] omegaInArr1d
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] rhoInArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr1d
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] activeArr2d
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] momentArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] rhoOutArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] omegaRawArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] omegaOutArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] localArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] varianceArr
+    cdef cnp.float32_t* backgroundPtr = <cnp.float32_t*>NULL
+    cdef cnp.float32_t* gVariancePtr = <cnp.float32_t*>NULL
+    cdef cnp.float32_t* countFloorPtr = <cnp.float32_t*>NULL
+    cdef cnp.float32_t* omegaInPtr = <cnp.float32_t*>NULL
+    cdef cnp.float32_t* rhoInPtr = <cnp.float32_t*>NULL
+    cdef uint8_t* activePtr = <uint8_t*>NULL
+    cdef cnp.float32_t* momentPtr
+    cdef cnp.float32_t* rhoOutPtr
+    cdef cnp.float32_t* omegaRawPtr
+    cdef cnp.float32_t* omegaOutPtr
+    cdef cnp.float32_t* localPtr
+    cdef cnp.float32_t* variancePtr
+    cdef int omegaInMode = 0
+    cdef int activeMode = 0
+
+    if matrixMunc.shape[0] != trackCount or matrixMunc.shape[1] != intervalCount:
+        raise ValueError("matrixMunc shape must match matrixData shape")
+    if stateMean.shape[0] != intervalCount:
+        raise ValueError("stateMean length must match interval count")
+    if stateVariance.shape[0] != intervalCount:
+        raise ValueError("stateVariance length must match interval count")
+    if padValue < 0.0 or not isfinite(padValue):
+        raise ValueError("pad must be finite and nonnegative")
+    if varianceFloorValue <= 0.0 or not isfinite(varianceFloorValue):
+        raise ValueError("varianceFloor must be positive and finite")
+    if (not isfinite(varianceCapValue)) or varianceCapValue < varianceFloorValue:
+        raise ValueError("varianceCap must be greater than or equal to varianceFloor")
+    if useWeights and studentT and (
+        studentTdfValue <= 0.0
+        or dOmegaValue <= 0.0
+        or not isfinite(studentTdfValue)
+        or not isfinite(dOmegaValue)
+        or omegaMinValue <= 0.0
+        or omegaMaxValue < omegaMinValue
+        or not isfinite(omegaMinValue)
+        or not isfinite(omegaMaxValue)
+    ):
+        raise ValueError("seed weight parameters are invalid")
+
+    if useBackground:
+        backgroundArr = np.ascontiguousarray(background, dtype=np.float32).reshape(-1)
+        if backgroundArr.shape[0] != intervalCount:
+            raise ValueError("background length must match interval count")
+        backgroundPtr = <cnp.float32_t*>backgroundArr.data
+    if useGVariance:
+        gVarianceArr = np.ascontiguousarray(gVariance, dtype=np.float32).reshape(-1)
+        if gVarianceArr.shape[0] != intervalCount:
+            raise ValueError("gVariance length must match interval count")
+        gVariancePtr = <cnp.float32_t*>gVarianceArr.data
+    if useCountFloor:
+        countFloorArr = np.ascontiguousarray(countFloor, dtype=np.float32)
+        if (
+            countFloorArr.shape[0] != trackCount
+            or countFloorArr.shape[1] != intervalCount
+        ):
+            raise ValueError("countFloor shape must match matrixData shape")
+        countFloorPtr = <cnp.float32_t*>countFloorArr.data
+    if omegaIn is not None:
+        omegaObj = np.ascontiguousarray(omegaIn, dtype=np.float32)
+        if omegaObj.ndim == 1:
+            omegaInArr1d = np.ascontiguousarray(omegaObj.reshape(-1), dtype=np.float32)
+            if omegaInArr1d.shape[0] != intervalCount:
+                raise ValueError("omegaIn length must match interval count")
+            omegaInPtr = <cnp.float32_t*>omegaInArr1d.data
+            omegaInMode = 1
+        else:
+            raise ValueError("omegaIn must be one-dimensional")
+    if rhoIn is None and useWeights and studentT and not updateWeights:
+        rhoInArr = np.ones((trackCount, intervalCount), dtype=np.float32)
+        rhoInPtr = <cnp.float32_t*>rhoInArr.data
+    elif rhoIn is not None:
+        rhoInArr = np.ascontiguousarray(rhoIn, dtype=np.float32)
+        if (
+            rhoInArr.shape[0] != trackCount
+            or rhoInArr.shape[1] != intervalCount
+        ):
+            raise ValueError("rhoIn shape must match matrixData shape")
+        rhoInPtr = <cnp.float32_t*>rhoInArr.data
+    if activeMask is not None:
+        activeObj = np.ascontiguousarray(activeMask, dtype=np.uint8)
+        if activeObj.ndim == 1:
+            activeArr1d = np.ascontiguousarray(activeObj.reshape(-1), dtype=np.uint8)
+            if activeArr1d.shape[0] != intervalCount:
+                raise ValueError("activeMask length must match interval count")
+            activePtr = <uint8_t*>activeArr1d.data
+            activeMode = 1
+        elif activeObj.ndim == 2:
+            activeArr2d = <cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"]>activeObj
+            if (
+                activeArr2d.shape[0] != trackCount
+                or activeArr2d.shape[1] != intervalCount
+            ):
+                raise ValueError("activeMask shape must match matrixData shape")
+            activePtr = <uint8_t*>activeArr2d.data
+            activeMode = 2
+        else:
+            raise ValueError("activeMask must be one- or two-dimensional")
+
+    invalidIndex = _muncObservationMomentSeedInvalidIndex(
+        <cnp.float32_t*>matrixData.data,
+        <cnp.float32_t*>matrixMunc.data,
+        <cnp.float32_t*>stateMean.data,
+        <cnp.float32_t*>stateVariance.data,
+        backgroundPtr,
+        gVariancePtr,
+        countFloorPtr,
+        omegaInPtr,
+        rhoInPtr,
+        activePtr,
+        trackCount,
+        intervalCount,
+        omegaInMode,
+        activeMode,
+        padValue,
+        useBackground,
+        useGVariance,
+        useCountFloor,
+        useWeights,
+        studentT,
+        updateWeights,
+    )
+    if invalidIndex >= 0:
+        raise ValueError("active MUNC seed cells must be finite with positive denominators")
+
+    momentArr = np.empty((trackCount, intervalCount), dtype=np.float32)
+    rhoOutArr = np.empty((trackCount, intervalCount), dtype=np.float32)
+    omegaRawArr = np.empty(intervalCount, dtype=np.float32)
+    omegaOutArr = np.empty(intervalCount, dtype=np.float32)
+    localArr = np.empty((trackCount, intervalCount), dtype=np.float32)
+    varianceArr = np.empty((trackCount, intervalCount), dtype=np.float32)
+
+    momentPtr = <cnp.float32_t*>momentArr.data
+    rhoOutPtr = <cnp.float32_t*>rhoOutArr.data
+    omegaRawPtr = <cnp.float32_t*>omegaRawArr.data
+    omegaOutPtr = <cnp.float32_t*>omegaOutArr.data
+    localPtr = <cnp.float32_t*>localArr.data
+    variancePtr = <cnp.float32_t*>varianceArr.data
+
+    IF USE_OPENMP:
+        if intervalCount >= OPENMP_APPLY_MIN_ROWS:
+            for intervalIndex in prange(intervalCount, nogil=True, schedule="static"):
+                _muncObservationMomentSeedPassInterval(
+                    <cnp.float32_t*>matrixData.data,
+                    <cnp.float32_t*>matrixMunc.data,
+                    <cnp.float32_t*>stateMean.data,
+                    <cnp.float32_t*>stateVariance.data,
+                    backgroundPtr,
+                    gVariancePtr,
+                    countFloorPtr,
+                    omegaInPtr,
+                    rhoInPtr,
+                    activePtr,
+                    momentPtr,
+                    rhoOutPtr,
+                    omegaRawPtr,
+                    omegaOutPtr,
+                    localPtr,
+                    variancePtr,
+                    trackCount,
+                    intervalCount,
+                    intervalIndex,
+                    omegaInMode,
+                    activeMode,
+                    padValue,
+                    studentTdfValue,
+                    dOmegaValue,
+                    omegaMinValue,
+                    omegaMaxValue,
+                    varianceFloorValue,
+                    varianceCapValue,
+                    useWeights,
+                    studentT,
+                    updateWeights,
+                    useBackground,
+                    useGVariance,
+                    useCountFloor,
+                )
+        else:
+            with nogil:
+                for intervalIndex in range(intervalCount):
+                    _muncObservationMomentSeedPassInterval(
+                        <cnp.float32_t*>matrixData.data,
+                        <cnp.float32_t*>matrixMunc.data,
+                        <cnp.float32_t*>stateMean.data,
+                        <cnp.float32_t*>stateVariance.data,
+                        backgroundPtr,
+                        gVariancePtr,
+                        countFloorPtr,
+                        omegaInPtr,
+                        rhoInPtr,
+                        activePtr,
+                        momentPtr,
+                        rhoOutPtr,
+                        omegaRawPtr,
+                        omegaOutPtr,
+                        localPtr,
+                        variancePtr,
+                        trackCount,
+                        intervalCount,
+                        intervalIndex,
+                        omegaInMode,
+                        activeMode,
+                        padValue,
+                        studentTdfValue,
+                        dOmegaValue,
+                        omegaMinValue,
+                        omegaMaxValue,
+                        varianceFloorValue,
+                        varianceCapValue,
+                        useWeights,
+                        studentT,
+                        updateWeights,
+                        useBackground,
+                        useGVariance,
+                        useCountFloor,
+                    )
+    ELSE:
+        with nogil:
+            for intervalIndex in range(intervalCount):
+                _muncObservationMomentSeedPassInterval(
+                    <cnp.float32_t*>matrixData.data,
+                    <cnp.float32_t*>matrixMunc.data,
+                    <cnp.float32_t*>stateMean.data,
+                    <cnp.float32_t*>stateVariance.data,
+                    backgroundPtr,
+                    gVariancePtr,
+                    countFloorPtr,
+                    omegaInPtr,
+                    rhoInPtr,
+                    activePtr,
+                    momentPtr,
+                    rhoOutPtr,
+                    omegaRawPtr,
+                    omegaOutPtr,
+                    localPtr,
+                    variancePtr,
+                    trackCount,
+                    intervalCount,
+                    intervalIndex,
+                    omegaInMode,
+                    activeMode,
+                    padValue,
+                    studentTdfValue,
+                    dOmegaValue,
+                    omegaMinValue,
+                    omegaMaxValue,
+                    varianceFloorValue,
+                    varianceCapValue,
+                    useWeights,
+                    studentT,
+                    updateWeights,
+                    useBackground,
+                    useGVariance,
+                    useCountFloor,
+                )
+
+    return momentArr, rhoOutArr, omegaRawArr, omegaOutArr, localArr, varianceArr
+
+
+cdef Py_ssize_t _muncSmoothDenseLocalEvidenceInvalidIndex(
+    const cnp.float32_t* localPtr,
+    const uint8_t* excludePtr,
+    Py_ssize_t trackCount,
+    Py_ssize_t intervalCount,
+    int excludeMode,
+) noexcept nogil:
+    cdef Py_ssize_t j
+    cdef Py_ssize_t i
+    cdef Py_ssize_t idx
+    cdef double value
+
+    for j in range(trackCount):
+        for i in range(intervalCount):
+            if not _muncSeedMaskAllowsCell(
+                excludePtr,
+                excludeMode,
+                intervalCount,
+                j,
+                i,
+                False,
+            ):
+                continue
+            idx = j * intervalCount + i
+            value = <double>localPtr[idx]
+            if (not isfinite(value)) or value <= 0.0:
+                return idx
+    return -1
+
+
+cdef inline void _muncSmoothDenseLocalEvidenceRow(
+    const cnp.float32_t* localPtr,
+    const uint8_t* excludePtr,
+    cnp.float32_t* outPtr,
+    Py_ssize_t intervalCount,
+    Py_ssize_t rowIndex,
+    Py_ssize_t windowIntervals,
+    int excludeMode,
+    double epsValue,
+) noexcept nogil:
+    cdef Py_ssize_t rowStart = rowIndex * intervalCount
+    cdef Py_ssize_t i
+    cdef Py_ssize_t left
+    cdef Py_ssize_t right
+    cdef Py_ssize_t targetLeft
+    cdef Py_ssize_t targetRight
+    cdef Py_ssize_t half = windowIntervals // 2
+    cdef Py_ssize_t count = 0
+    cdef double value
+    cdef double rollingSum = 0.0
+
+    left = 0
+    right = 0
+    for i in range(intervalCount):
+        targetLeft = i - half if i >= half else 0
+        targetRight = targetLeft + windowIntervals
+        if targetRight > intervalCount:
+            targetRight = intervalCount
+            if targetRight >= windowIntervals:
+                targetLeft = targetRight - windowIntervals
+            else:
+                targetLeft = 0
+        while right < targetRight:
+            if _muncSeedMaskAllowsCell(
+                excludePtr,
+                excludeMode,
+                intervalCount,
+                rowIndex,
+                right,
+                False,
+            ):
+                rollingSum += <double>localPtr[rowStart + right]
+                count += 1
+            right += 1
+        while left < targetLeft:
+            if _muncSeedMaskAllowsCell(
+                excludePtr,
+                excludeMode,
+                intervalCount,
+                rowIndex,
+                left,
+                False,
+            ):
+                rollingSum -= <double>localPtr[rowStart + left]
+                count -= 1
+            left += 1
+        if count > 0:
+            value = rollingSum / (<double>count)
+        else:
+            value = <double>localPtr[rowStart + i]
+        if value < epsValue:
+            value = epsValue
+        outPtr[rowStart + i] = <cnp.float32_t>value
+
+
+cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] localEvidence,
+    Py_ssize_t windowIntervals,
+    object excludeMask=None,
+    float eps=1.0e-12,
+):
+    cdef Py_ssize_t trackCount = localEvidence.shape[0]
+    cdef Py_ssize_t intervalCount = localEvidence.shape[1]
+    cdef Py_ssize_t rowIndex
+    cdef Py_ssize_t invalidIndex
+    cdef Py_ssize_t cellCount = trackCount * intervalCount
+    cdef double epsValue = <double>eps
+    cdef object excludeObj
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] outArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] excludeArr1d
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] excludeArr2d
+    cdef cnp.float32_t* localPtr = <cnp.float32_t*>localEvidence.data
+    cdef cnp.float32_t* outPtr
+    cdef uint8_t* excludePtr = <uint8_t*>NULL
+    cdef int excludeMode = 0
+    cdef bint useExclude = excludeMask is not None
+
+    if windowIntervals < 1:
+        raise ValueError("windowIntervals must be positive")
+    if epsValue <= 0.0 or not isfinite(epsValue):
+        raise ValueError("eps must be positive and finite")
+    if useExclude:
+        excludeObj = np.ascontiguousarray(excludeMask, dtype=np.uint8)
+        if excludeObj.ndim == 1:
+            excludeArr1d = np.ascontiguousarray(excludeObj.reshape(-1), dtype=np.uint8)
+            if excludeArr1d.shape[0] != intervalCount:
+                raise ValueError("excludeMask length must match interval count")
+            excludePtr = <uint8_t*>excludeArr1d.data
+            excludeMode = 1
+        elif excludeObj.ndim == 2:
+            excludeArr2d = <cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"]>excludeObj
+            if (
+                excludeArr2d.shape[0] != trackCount
+                or excludeArr2d.shape[1] != intervalCount
+            ):
+                raise ValueError("excludeMask shape must match localEvidence shape")
+            excludePtr = <uint8_t*>excludeArr2d.data
+            excludeMode = 2
+        else:
+            raise ValueError("excludeMask must be one- or two-dimensional")
+
+    invalidIndex = _muncSmoothDenseLocalEvidenceInvalidIndex(
+        localPtr,
+        excludePtr,
+        trackCount,
+        intervalCount,
+        excludeMode,
+    )
+    if invalidIndex >= 0:
+        raise ValueError("active local evidence cells must be positive and finite")
+
+    outArr = np.empty((trackCount, intervalCount), dtype=np.float32)
+    outPtr = <cnp.float32_t*>outArr.data
+
+    IF USE_OPENMP:
+        if cellCount >= OPENMP_APPLY_MIN_ROWS:
+            for rowIndex in prange(trackCount, nogil=True, schedule="static"):
+                _muncSmoothDenseLocalEvidenceRow(
+                    localPtr,
+                    excludePtr,
+                    outPtr,
+                    intervalCount,
+                    rowIndex,
+                    windowIntervals,
+                    excludeMode,
+                    epsValue,
+                )
+        else:
+            with nogil:
+                for rowIndex in range(trackCount):
+                    _muncSmoothDenseLocalEvidenceRow(
+                        localPtr,
+                        excludePtr,
+                        outPtr,
+                        intervalCount,
+                        rowIndex,
+                        windowIntervals,
+                        excludeMode,
+                        epsValue,
+                    )
+    ELSE:
+        with nogil:
+            for rowIndex in range(trackCount):
+                _muncSmoothDenseLocalEvidenceRow(
+                    localPtr,
+                    excludePtr,
+                    outPtr,
+                    intervalCount,
+                    rowIndex,
+                    windowIntervals,
+                    excludeMode,
+                    epsValue,
+                )
+
+    return outArr
 
 
 cdef bint _cEMA(const real_t* xPtr, real_t* outPtr,
@@ -6178,18 +6945,20 @@ def cPuncObservationInformation(
     double observationPrecisionMultiplierMax=1.0,
 ):
     r"""Interval information reduction for PUNC with a nogil inner loop."""
-    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] munc = np.ascontiguousarray(matrixMunc, dtype=np.float64)
+    cdef object muncObj = np.ascontiguousarray(matrixMunc)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] munc32
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] munc64
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] lam
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] info
+    cdef bint useLambda = (lambdaExp is not None)
     cdef Py_ssize_t m, n, i, j
     cdef double v, sumInfo, lamj
-    if munc.ndim != 2:
+    if muncObj.ndim != 2:
         raise ValueError("matrixMunc must be a 2D array")
-    m = munc.shape[0]
-    n = munc.shape[1]
-    if lambdaExp is None:
-        lam = np.ascontiguousarray(np.ones(n, dtype=np.float64), dtype=np.float64)
-    else:
+    m = muncObj.shape[0]
+    n = muncObj.shape[1]
+    lam = np.empty(0, dtype=np.float64)
+    if useLambda:
         lam = np.ascontiguousarray(np.asarray(lambdaExp, dtype=np.float64).reshape(-1), dtype=np.float64)
         if lam.shape[0] != n:
             raise ValueError("lambdaExp length must match interval count")
@@ -6197,22 +6966,79 @@ def cPuncObservationInformation(
             raise ValueError("lambdaExp must contain only finite values")
         lam = np.ascontiguousarray(np.clip(lam, observationPrecisionMultiplierMin, observationPrecisionMultiplierMax), dtype=np.float64)
     info = np.zeros(n, dtype=np.float64)
-    with nogil:
-        for j in range(n):
-            lamj = <double>lam[j]
-            sumInfo = 0.0
-            for i in range(m):
-                v = <double>munc[i, j]
-                if isfinite(v):
-                    v = v + pad
-                    if isfinite(v) and v > 0.0:
-                        if v < 1.0e-12:
-                            v = 1.0e-12
-                        sumInfo += lamj / v
-            if sumInfo > 0.0 and isfinite(sumInfo):
-                info[j] = sumInfo
-            else:
-                info[j] = 0.0
+    if muncObj.dtype == np.float32:
+        munc32 = muncObj
+        if useLambda:
+            with nogil:
+                for j in range(n):
+                    lamj = <double>lam[j]
+                    sumInfo = 0.0
+                    for i in range(m):
+                        v = <double>munc32[i, j]
+                        if isfinite(v):
+                            v = v + pad
+                            if isfinite(v) and v > 0.0:
+                                if v < 1.0e-12:
+                                    v = 1.0e-12
+                                sumInfo += lamj / v
+                    if sumInfo > 0.0 and isfinite(sumInfo):
+                        info[j] = sumInfo
+                    else:
+                        info[j] = 0.0
+        else:
+            with nogil:
+                for j in range(n):
+                    sumInfo = 0.0
+                    for i in range(m):
+                        v = <double>munc32[i, j]
+                        if isfinite(v):
+                            v = v + pad
+                            if isfinite(v) and v > 0.0:
+                                if v < 1.0e-12:
+                                    v = 1.0e-12
+                                sumInfo += 1.0 / v
+                    if sumInfo > 0.0 and isfinite(sumInfo):
+                        info[j] = sumInfo
+                    else:
+                        info[j] = 0.0
+    else:
+        if muncObj.dtype == np.float64:
+            munc64 = muncObj
+        else:
+            munc64 = np.ascontiguousarray(muncObj, dtype=np.float64)
+        if useLambda:
+            with nogil:
+                for j in range(n):
+                    lamj = <double>lam[j]
+                    sumInfo = 0.0
+                    for i in range(m):
+                        v = <double>munc64[i, j]
+                        if isfinite(v):
+                            v = v + pad
+                            if isfinite(v) and v > 0.0:
+                                if v < 1.0e-12:
+                                    v = 1.0e-12
+                                sumInfo += lamj / v
+                    if sumInfo > 0.0 and isfinite(sumInfo):
+                        info[j] = sumInfo
+                    else:
+                        info[j] = 0.0
+        else:
+            with nogil:
+                for j in range(n):
+                    sumInfo = 0.0
+                    for i in range(m):
+                        v = <double>munc64[i, j]
+                        if isfinite(v):
+                            v = v + pad
+                            if isfinite(v) and v > 0.0:
+                                if v < 1.0e-12:
+                                    v = 1.0e-12
+                                sumInfo += 1.0 / v
+                    if sumInfo > 0.0 and isfinite(sumInfo):
+                        info[j] = sumInfo
+                    else:
+                        info[j] = 0.0
     return info
 
 

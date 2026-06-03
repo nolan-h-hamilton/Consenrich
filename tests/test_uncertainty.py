@@ -88,6 +88,31 @@ def _casePacOrderIndexExamples():
 
 
 def _caseDeleteBlockInformationApproximation():
+    m = 3
+    n = 7
+    blockLen = 2
+    folds = 3
+    holdoutCount = 1
+    seed = 19
+    blockCount = (n + blockLen - 1) // blockLen
+    seededBlockFold, seededRepsByBlock = cuncertainty.cmakeFoldSpec(
+        m,
+        n,
+        blockLen,
+        folds,
+        holdoutCount,
+        seed,
+    )
+    rng = np.random.default_rng(seed)
+    blockOrder = rng.permutation(blockCount).astype(np.int32, copy=False)
+    wantBlockFold = np.empty(blockCount, dtype=np.int32)
+    wantBlockFold[blockOrder] = np.arange(blockCount, dtype=np.int32) % folds
+    wantRepsByBlock = np.empty((blockCount, holdoutCount), dtype=np.intp)
+    for block in range(blockCount):
+        wantRepsByBlock[block, :] = rng.choice(m, size=holdoutCount, replace=False)
+    assert np.array_equal(seededBlockFold, wantBlockFold)
+    assert np.array_equal(seededRepsByBlock, wantRepsByBlock)
+
     infoCell = np.array(
         [
             [1.0, 2.0, 4.0],
@@ -95,19 +120,37 @@ def _caseDeleteBlockInformationApproximation():
         ],
         dtype=np.float64,
     )
-    activeMask = np.ones_like(infoCell, dtype=bool)
-    foldMask = np.array(
+    matrixMunc = 1.0 / infoCell
+    activeMask = np.ones_like(infoCell, dtype=np.uint8)
+    blockFold = np.array([1, 0, 0], dtype=np.int32)
+    repsByBlock = np.array([[0], [0], [1]], dtype=np.intp)
+    totalInfo = cuncertainty.cobservationTotalInformation(
+        matrixMunc,
+        activeMask,
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+    )
+    _foldMask, keptInfo, deletedInfo, h = cuncertainty.cmakeFoldMaskAndInformation(
+        2,
+        3,
+        1,
+        0,
+        blockFold,
+        repsByBlock,
+        matrixMunc,
+        activeMask,
+        totalInfo,
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+    )
+    assert np.array_equal(
+        _foldMask,
         [
             [1, 0, 1],
             [1, 1, 0],
         ],
-        dtype=np.uint8,
-    )
-
-    totalInfo, keptInfo, deletedInfo, h = uncertainty._heldoutInformationByInterval(
-        infoCell,
-        activeMask,
-        foldMask,
     )
 
     assert np.allclose(totalInfo, [4.0, 4.0, 8.0])
@@ -129,8 +172,16 @@ def _caseDeleteBlockInformationApproximation():
     assert valid.tolist() == [False, True, True]
     assert np.isnan(delta[0])
     assert np.allclose(delta[1:], [1.0, 2.0])
-    assert source.tolist() == ["invalid", "heldout_information", "heldout_information"]
-    assert reason.tolist() == ["h_out_of_bounds", "valid", "valid"]
+    assert uncertainty.DELETE_BLOCK_VARIANCE_SOURCE_LABELS[source].tolist() == [
+        "invalid",
+        "heldout_information",
+        "heldout_information",
+    ]
+    assert uncertainty.DELETE_BLOCK_INVALID_REASON_LABELS[reason].tolist() == [
+        "h_out_of_bounds",
+        "valid",
+        "valid",
+    ]
 
 
 def _caseDeleteBlockVarianceModeSelection():
@@ -151,12 +202,16 @@ def _caseDeleteBlockVarianceModeSelection():
 
     assert valid.tolist() == [True, True, True]
     assert np.allclose(delta, [0.5, 1.0, 1.0])
-    assert source.tolist() == [
+    assert uncertainty.DELETE_BLOCK_VARIANCE_SOURCE_LABELS[source].tolist() == [
         "covariance_difference",
         "heldout_information_fallback",
         "heldout_information_fallback",
     ]
-    assert reason.tolist() == ["valid", "valid", "valid"]
+    assert uncertainty.DELETE_BLOCK_INVALID_REASON_LABELS[reason].tolist() == [
+        "valid",
+        "valid",
+        "valid",
+    ]
 
     delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
         pFull,
@@ -171,8 +226,12 @@ def _caseDeleteBlockVarianceModeSelection():
 
     assert valid.tolist() == [True, False, False]
     assert np.isfinite(delta[0])
-    assert source.tolist() == ["covariance_difference", "invalid", "invalid"]
-    assert reason.tolist() == [
+    assert uncertainty.DELETE_BLOCK_VARIANCE_SOURCE_LABELS[source].tolist() == [
+        "covariance_difference",
+        "invalid",
+        "invalid",
+    ]
+    assert uncertainty.DELETE_BLOCK_INVALID_REASON_LABELS[reason].tolist() == [
         "valid",
         "covariance_delta_nonpositive",
         "covariance_delta_nonpositive",
@@ -427,10 +486,9 @@ def _caseSegShrinkCythonParityContract():
         ),
     )
 
-    baseLog, bootLog = cuncertainty.csegShrinkBootstrapLogFactors(
+    baseLog, bootLog = cuncertainty.csegShrinkBootstrapLogFactorsCompact(
         np.array([1.0, 2.0, 3.0, 2.0, 4.0, 8.0], dtype=np.float64),
         np.ones(6, dtype=np.float64),
-        np.array([0, 0, 0, 1, 1, 1], dtype=np.int32),
         np.array([0, 1, 2, 0, 1, 2], dtype=np.int64),
         np.array(
             [
@@ -440,7 +498,8 @@ def _caseSegShrinkCythonParityContract():
             ],
             dtype=np.float64,
         ),
-        2,
+        np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
+        np.array([0, 3, 6], dtype=np.int64),
         0.5,
         1.0,
         0.01,

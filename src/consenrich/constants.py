@@ -196,6 +196,39 @@ OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER: Final[float] = 2.0
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER: Final[float] = 2.0
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED: Final[bool] = True
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES: Final[int] = 5
+OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES: Final[int] = 3
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MIN: Final[float] = 0.001
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MAX: Final[float] = 1000.0
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T: Final[bool] = True
+OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF: Final[float] = 8.0
+OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MIN_Q: Final[float] = PROCESS_DEFAULT_MIN_Q
+OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q: Final[float] = PROCESS_DEFAULT_MAX_Q
+OBSERVATION_MUNC_SEED_WEIGHT_CONFIG_KEYS: Final[StrTuple] = (
+    "observationParams.muncSeedWeight.enabled",
+    "observationParams.muncSeedWeight.passes",
+    "observationParams.muncSeedWeight.min",
+    "observationParams.muncSeedWeight.max",
+    "observationParams.muncSeedWeight.studentT",
+    "observationParams.muncSeedWeight.studentTdf",
+)
+OBSERVATION_MUNC_SEED_WEIGHT_LOG_FIELDS: Final[StrTuple] = (
+    "muncSeedWeightEnabled",
+    "muncSeedWeightPasses",
+    "muncSeedWeightMin",
+    "muncSeedWeightMax",
+    "muncSeedWeightStudentT",
+    "muncSeedWeightStudentTdf",
+)
+OBSERVATION_MUNC_SEED_PROCESS_CONFIG_KEYS: Final[StrTuple] = (
+    "observationParams.muncSeedProcess.minQ",
+    "observationParams.muncSeedProcess.maxQ",
+)
+OBSERVATION_MUNC_SEED_PROCESS_LOG_FIELDS: Final[StrTuple] = (
+    "muncSeedProcessMinQ",
+    "muncSeedProcessMaxQ",
+)
 OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT: Final[int] = 512
 OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRATA: Final[int | None] = None
@@ -261,7 +294,7 @@ FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER: Final[float] = 2.0
 FIT_DEFAULT_ZERO_CENTER_BACKGROUND: Final[bool] = False
 FIT_DEFAULT_OUTER_ITERS: Final[int] = 32
 FIT_DEFAULT_MIN_OUTER_ITERS: Final[int] = 3
-FIT_DEFAULT_BACKGROUND_SHIFT_RTOL: Final[float] = 5.0e-3
+FIT_DEFAULT_BACKGROUND_SHIFT_RTOL: Final[float] = 1.0e-2
 FIT_DEFAULT_OUTER_NLL_RTOL: Final[float] = 5.0e-6
 FIT_DEFAULT_BACKGROUND_SMOOTHNESS: Final[float] = 50.0
 FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER: Final[float] = 16.0
@@ -398,8 +431,11 @@ UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS: Final[int] = 50
 UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS: Final[int] = 2
 UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA: Final[float] = 0.05
 UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION: Final[bool] = (
-    True
+    False
 )
+UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY: Final[
+    str
+] = "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration"
 UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE: Final[str] = (
     UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_HYBRID
 )
@@ -583,6 +619,30 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         "observationParams.muncLocalWindowDependenceMultiplier": (
             OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
         ),
+        "observationParams.muncSeedWeight.enabled": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED
+        ),
+        "observationParams.muncSeedWeight.passes": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES
+        ),
+        "observationParams.muncSeedWeight.min": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MIN
+        ),
+        "observationParams.muncSeedWeight.max": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_MAX
+        ),
+        "observationParams.muncSeedWeight.studentT": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T
+        ),
+        "observationParams.muncSeedWeight.studentTdf": (
+            OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF
+        ),
+        "observationParams.muncSeedProcess.minQ": (
+            OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MIN_Q
+        ),
+        "observationParams.muncSeedProcess.maxQ": (
+            OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q
+        ),
         "observationParams.muncEBPrior.tileSizeBP": (
             OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP
         ),
@@ -682,6 +742,9 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         ),
         "uncertaintyCalibrationParams.calibrationOuterIters": (
             UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS
+        ),
+        UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY: (
+            UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION
         ),
         "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration": (
             UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_APPLY_TARGET_CALIBRATION

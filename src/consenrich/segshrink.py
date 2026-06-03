@@ -47,55 +47,71 @@ def _denseGroupCodes(groupCode: np.ndarray) -> tuple[np.ndarray, int]:
     return dense, int(unique.size)
 
 
-def _expandedScopeRows(
+def _compactScopeRows(
     *,
     ratio: np.ndarray,
     rowWeight: np.ndarray,
     rowSegment: np.ndarray,
     groupCode: np.ndarray,
     segmentCount: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    int,
+]:
     ratio = np.asarray(ratio, dtype=np.float64).reshape(-1)
     rowWeight = np.asarray(rowWeight, dtype=np.float64).reshape(-1)
     rowSegment = np.asarray(rowSegment, dtype=np.int32).reshape(-1)
     groupCode = np.asarray(groupCode, dtype=np.int64).reshape(-1)
-    valid = (
-        np.isfinite(ratio)
-        & np.isfinite(rowWeight)
-        & (rowWeight > 0.0)
-        & (rowSegment >= 0)
-        & (rowSegment < int(segmentCount))
-        & (groupCode >= 0)
-    )
-    ratio = ratio[valid]
-    rowWeight = rowWeight[valid]
-    rowSegment = rowSegment[valid]
-    groupCode = groupCode[valid]
+    if not (
+        ratio.shape[0]
+        == rowWeight.shape[0]
+        == rowSegment.shape[0]
+        == groupCode.shape[0]
+    ):
+        raise ValueError("segShrink compact score inputs must have the same length")
     if ratio.size == 0:
+        scopeCount = int(segmentCount) + 2
         return (
             np.empty(0, dtype=np.float64),
             np.empty(0, dtype=np.float64),
-            np.empty(0, dtype=np.int32),
             np.empty(0, dtype=np.int64),
-            int(segmentCount) + 2,
+            np.empty(0, dtype=np.int64),
+            np.zeros(scopeCount + 1, dtype=np.int64),
+            scopeCount,
         )
+    if np.any((rowSegment < 0) | (rowSegment >= int(segmentCount))):
+        raise ValueError("segShrink compact score segments are out of range")
+    if np.any(groupCode < 0):
+        raise ValueError("segShrink compact score groups are out of range")
+    scopeCount = int(segmentCount) + 2
+    rowCount = int(ratio.size)
+    rowIndexAll = np.tile(np.arange(rowCount, dtype=np.int64), 3)
     scopeCode = np.concatenate(
         [
-            np.zeros(ratio.size, dtype=np.int32),
-            np.ones(ratio.size, dtype=np.int32),
+            np.zeros(rowCount, dtype=np.int32),
+            np.ones(rowCount, dtype=np.int32),
             (rowSegment + 2).astype(np.int32, copy=False),
         ]
     )
-    ratioExpanded = np.tile(ratio, 3)
-    weightExpanded = np.tile(rowWeight, 3)
-    groupExpanded = np.tile(groupCode, 3)
-    order = np.lexsort((ratioExpanded, scopeCode))
+    order = np.lexsort((ratio[rowIndexAll], scopeCode))
+    scopeSorted = scopeCode[order]
+    scopeOffset = np.searchsorted(
+        scopeSorted,
+        np.arange(scopeCount + 1, dtype=np.int32),
+        side="left",
+    ).astype(np.int64, copy=False)
+    rowIndex = rowIndexAll[order]
     return (
-        ratioExpanded[order],
-        weightExpanded[order],
-        scopeCode[order],
-        groupExpanded[order],
-        int(segmentCount) + 2,
+        ratio,
+        rowWeight,
+        groupCode,
+        rowIndex,
+        scopeOffset,
+        scopeCount,
     )
 
 
@@ -151,42 +167,47 @@ def fitSingleContig(
     )
     if not np.any(validVariance):
         raise ValueError("segShrink factor fit has no valid score rows")
-    ratio = np.empty(residual.shape[0], dtype=np.float64)
-    ratio.fill(np.nan)
-    ratio[validVariance] = np.abs(residual[validVariance]) / np.sqrt(
-        pDelta[validVariance]
+    validScore = validVariance & (groupCode >= 0)
+    validSegment = segmentByInterval[intervalIndex[validVariance]].astype(
+        np.int32,
+        copy=False,
     )
-    rowSegment = np.full(intervalIndex.shape[0], -1, dtype=np.int32)
-    rowSegment[validVariance] = segmentByInterval[
-        intervalIndex[validVariance]
-    ].astype(np.int32, copy=False)
+    segmentRows = np.bincount(
+        validSegment,
+        minlength=segmentCountEffective,
+    ).astype(np.int64, copy=False)
+    scoreSegment = segmentByInterval[intervalIndex[validScore]].astype(
+        np.int32,
+        copy=False,
+    )
     (
-        ratioExpanded,
-        weightExpanded,
-        scopeCode,
-        groupExpanded,
+        ratioCompact,
+        weightCompact,
+        groupCompact,
+        rowIndex,
+        scopeOffset,
         scopeCount,
-    ) = _expandedScopeRows(
-        ratio=ratio,
-        rowWeight=rowWeight,
-        rowSegment=rowSegment,
-        groupCode=groupCode,
+    ) = _compactScopeRows(
+        ratio=np.abs(residual[validScore]) / np.sqrt(pDelta[validScore]),
+        rowWeight=rowWeight[validScore],
+        rowSegment=scoreSegment,
+        groupCode=groupCode[validScore],
         segmentCount=segmentCountEffective,
     )
-    if ratioExpanded.size == 0:
+    if ratioCompact.size == 0:
         raise ValueError("segShrink factor fit has no finite weighted score rows")
     multipliers = bootstrapMultipliers(
         groupCount=groupCount,
         replicateCount=int(bootstrapReplicates),
         seed=int(seed),
     )
-    baseLog, bootLog = _cuncertainty.csegShrinkBootstrapLogFactors(
-        ratioExpanded,
-        weightExpanded,
-        scopeCode,
-        groupExpanded,
+    baseLog, bootLog = _cuncertainty.csegShrinkBootstrapLogFactorsCompact(
+        ratioCompact,
+        weightCompact,
+        groupCompact,
         multipliers,
-        scopeCount,
+        rowIndex,
+        scopeOffset,
         float(target),
         float(targetZ),
         float(factorMin),
@@ -223,10 +244,6 @@ def fitSingleContig(
     )
     factor = np.asarray(factor, dtype=np.float64)
     calibrated = np.asarray(calibrated, dtype=np.float32)
-    segmentRows = np.asarray(
-        [int(np.count_nonzero(rowSegment == idx)) for idx in range(segmentCountEffective)],
-        dtype=np.int64,
-    )
     segmentShrinkage = []
     for idx in range(segmentCountEffective):
         rawLog = float(segmentLog[idx]) if idx < segmentLog.size else float("nan")

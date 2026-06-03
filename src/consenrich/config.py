@@ -1317,8 +1317,11 @@ def getUncertaintyCalibrationArgs(
         scaleUncertaintyByTargetCalibration=bool(
             _cfgGet(
                 configData,
-                "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration",
-                constants.UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION,
+                constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
+                _cfgDefault(
+                    configData,
+                    constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
+                ),
             )
         ),
         deleteBlockVarianceMode=deleteBlockVarianceMode,
@@ -1792,6 +1795,144 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
         )
+    if _cfgHas(configData, "observationParams.muncSeedWeight") and not isinstance(
+        _cfgGet(configData, "observationParams.muncSeedWeight"),
+        Mapping,
+    ):
+        raise ValueError(
+            "`observationParams.muncSeedWeight` must be a mapping with subkeys."
+        )
+    muncSeedWeightEnabledRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.enabled",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.enabled"),
+    )
+    if not isinstance(muncSeedWeightEnabledRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedWeight.enabled` must be boolean.")
+    muncSeedWeightEnabled = bool(muncSeedWeightEnabledRaw)
+    muncSeedWeightPassesRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.passes",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.passes"),
+    )
+    if isinstance(muncSeedWeightPassesRaw, (bool, np.bool_)) or not isinstance(
+        muncSeedWeightPassesRaw,
+        (int, np.integer),
+    ):
+        raise ValueError("`observationParams.muncSeedWeight.passes` must be an integer.")
+    muncSeedWeightPasses = int(muncSeedWeightPassesRaw)
+    if muncSeedWeightPasses < constants.OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES:
+        raise ValueError(
+            "`observationParams.muncSeedWeight.passes` must be at least "
+            f"{constants.OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES}."
+        )
+    muncSeedWeightMinRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.min",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.min"),
+    )
+    if isinstance(muncSeedWeightMinRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedWeight.min` must be numeric.")
+    try:
+        muncSeedWeightMin = float(muncSeedWeightMinRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.muncSeedWeight.min` must be numeric."
+        ) from exc
+    if not (0.0 < muncSeedWeightMin <= 1.0):
+        raise ValueError(
+            "`observationParams.muncSeedWeight.min` must satisfy 0 < min <= 1."
+        )
+    muncSeedWeightMaxRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.max",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.max"),
+    )
+    if isinstance(muncSeedWeightMaxRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedWeight.max` must be numeric.")
+    try:
+        muncSeedWeightMax = float(muncSeedWeightMaxRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.muncSeedWeight.max` must be numeric."
+        ) from exc
+    if not (muncSeedWeightMin <= muncSeedWeightMax and 1.0 <= muncSeedWeightMax):
+        raise ValueError(
+            "`observationParams.muncSeedWeight.max` must satisfy min <= 1 <= max."
+        )
+    muncSeedWeightStudentTRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.studentT",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.studentT"),
+    )
+    if not isinstance(muncSeedWeightStudentTRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedWeight.studentT` must be boolean.")
+    muncSeedWeightStudentT = bool(muncSeedWeightStudentTRaw)
+    muncSeedWeightStudentTdfRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedWeight.studentTdf",
+        _cfgDefault(configData, "observationParams.muncSeedWeight.studentTdf"),
+    )
+    if isinstance(muncSeedWeightStudentTdfRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedWeight.studentTdf` must be numeric.")
+    try:
+        muncSeedWeightStudentTdf = float(muncSeedWeightStudentTdfRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.muncSeedWeight.studentTdf` must be numeric."
+        ) from exc
+    if not (0.0 < muncSeedWeightStudentTdf):
+        raise ValueError(
+            "`observationParams.muncSeedWeight.studentTdf` must be positive."
+        )
+    if muncSeedWeightStudentTdf <= 2.0:
+        logger.warning(
+            "`observationParams.muncSeedWeight.studentTdf` gives unbounded "
+            "Student-t variance when it is <= 2."
+        )
+    if _cfgHas(configData, "observationParams.muncSeedProcess") and not isinstance(
+        _cfgGet(configData, "observationParams.muncSeedProcess"),
+        Mapping,
+    ):
+        raise ValueError(
+            "`observationParams.muncSeedProcess` must be a mapping with subkeys."
+        )
+    muncSeedProcessMinQRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedProcess.minQ",
+        _cfgDefault(configData, "observationParams.muncSeedProcess.minQ"),
+    )
+    if isinstance(muncSeedProcessMinQRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedProcess.minQ` must be numeric.")
+    try:
+        muncSeedProcessMinQ = float(muncSeedProcessMinQRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.muncSeedProcess.minQ` must be numeric."
+        ) from exc
+    if not (np.isfinite(muncSeedProcessMinQ) and muncSeedProcessMinQ > 0.0):
+        raise ValueError(
+            "`observationParams.muncSeedProcess.minQ` must be finite and positive."
+        )
+    muncSeedProcessMaxQRaw = _cfgGet(
+        configData,
+        "observationParams.muncSeedProcess.maxQ",
+        _cfgDefault(configData, "observationParams.muncSeedProcess.maxQ"),
+    )
+    if isinstance(muncSeedProcessMaxQRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.muncSeedProcess.maxQ` must be numeric.")
+    try:
+        muncSeedProcessMaxQ = float(muncSeedProcessMaxQRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.muncSeedProcess.maxQ` must be numeric."
+        ) from exc
+    if np.isnan(muncSeedProcessMaxQ):
+        raise ValueError("`observationParams.muncSeedProcess.maxQ` must not be NaN.")
+    if muncSeedProcessMaxQ >= 0.0 and muncSeedProcessMaxQ < muncSeedProcessMinQ:
+        raise ValueError(
+            "`observationParams.muncSeedProcess.maxQ` must be negative or at least minQ."
+        )
     muncCovariatesEnabled = bool(
         _cfgGet(
             configData,
@@ -2075,6 +2216,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
+        "muncSeedWeightEnabled": muncSeedWeightEnabled,
+        "muncSeedWeightPasses": muncSeedWeightPasses,
+        "muncSeedWeightMin": muncSeedWeightMin,
+        "muncSeedWeightMax": muncSeedWeightMax,
+        "muncSeedWeightStudentT": muncSeedWeightStudentT,
+        "muncSeedWeightStudentTdf": muncSeedWeightStudentTdf,
+        "muncSeedProcessMinQ": muncSeedProcessMinQ,
+        "muncSeedProcessMaxQ": muncSeedProcessMaxQ,
         "restrictLocalVarianceToSparseBed": restrictLocalVarianceResolved,
         "muncEBPriorTileSizeBP": muncEBPriorTileSizeBP,
         "muncEBPriorTileCount": muncEBPriorTileCount,

@@ -128,6 +128,62 @@ def joinCompilerFlags(*flagGroups):
     return " ".join(flag for flagGroup in flagGroups for flag in flagGroup if flag)
 
 
+def parseBoolEnv(name, defaultValue=False):
+    rawValue = os.environ.get(name)
+    if rawValue is None:
+        return defaultValue
+    normalized = rawValue.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{name} must be one of 1, true, yes, on, 0, false, no, off")
+
+
+def parsePositiveIntEnv(name, defaultValue):
+    rawValue = os.environ.get(name)
+    if rawValue is None or rawValue.strip() == "":
+        return defaultValue
+    parsedValue = int(rawValue)
+    if parsedValue < 1:
+        raise ValueError(f"{name} must be positive")
+    return parsedValue
+
+
+def findDarwinLibompPrefix():
+    envPrefix = os.environ.get("CONSENRICH_LIBOMP_PREFIX")
+    candidatePrefixes = [envPrefix] if envPrefix else [
+        "/opt/homebrew/opt/libomp",
+        "/usr/local/opt/libomp",
+    ]
+    for candidatePrefix in candidatePrefixes:
+        includePath = os.path.join(candidatePrefix, "include", "omp.h")
+        libraryPath = os.path.join(candidatePrefix, "lib", "libomp.dylib")
+        if os.path.exists(includePath) and os.path.exists(libraryPath):
+            return candidatePrefix
+    raise RuntimeError(
+        "CONSENRICH_USE_OPENMP=1 on macOS requires libomp. "
+        "Install libomp or set CONSENRICH_LIBOMP_PREFIX."
+    )
+
+
+def getOpenMPConfig(useOpenMP):
+    if not useOpenMP:
+        return [], [], [], []
+    if sys.platform == "darwin":
+        libompPrefix = findDarwinLibompPrefix()
+        libompLibDir = os.path.join(libompPrefix, "lib")
+        return (
+            ["-Xpreprocessor", "-fopenmp"],
+            ["-lomp", f"-Wl,-rpath,{libompLibDir}"],
+            [os.path.join(libompPrefix, "include")],
+            [libompLibDir],
+        )
+    if sys.platform.startswith("linux"):
+        return ["-fopenmp"], ["-fopenmp"], [], []
+    raise RuntimeError(f"CONSENRICH_USE_OPENMP=1 is not configured for {sys.platform}")
+
+
 def getVendoredHtslibCPPFlags():
     return joinCompilerFlags(
         [f"-I{PREFIX_INCLUDE_DIR}"],
@@ -236,6 +292,17 @@ base_compile = [
     "-mtune=generic",
 ]
 
+useOpenMP = parseBoolEnv("CONSENRICH_USE_OPENMP", False)
+openMPFactorMinRows = parsePositiveIntEnv(
+    "CONSENRICH_OPENMP_FACTOR_MIN_ROWS", 262_144
+)
+openMPApplyMinRows = parsePositiveIntEnv(
+    "CONSENRICH_OPENMP_APPLY_MIN_ROWS", 1_048_576
+)
+openMPCompileArgs, openMPLinkArgs, openMPIncludeDirs, openMPLibraryDirs = (
+    getOpenMPConfig(useOpenMP)
+)
+
 
 class buildConsenrichExt(build_ext):
     def run(self):
@@ -256,11 +323,12 @@ extensions = [
     Extension(
         "consenrich.cconsenrich",
         sources=[cythonSourceOrGeneratedC("src/consenrich/cconsenrich.pyx")],
-        include_dirs=get_includes(),
+        include_dirs=get_includes() + openMPIncludeDirs,
         libraries=getBundledHtslibLibraries(),
-        library_dirs=get_library_dirs(),
+        library_dirs=get_library_dirs() + openMPLibraryDirs,
         extra_objects=getBundledHtslibExtraObjects(),
-        extra_compile_args=base_compile,
+        extra_compile_args=base_compile + openMPCompileArgs,
+        extra_link_args=openMPLinkArgs,
     ),
     Extension(
         "consenrich.ccounts",
@@ -278,8 +346,13 @@ extensions = [
     Extension(
         "consenrich.cuncertainty",
         sources=[cythonSourceOrGeneratedC("src/consenrich/cuncertainty.pyx")],
-        include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")],
-        extra_compile_args=base_compile,
+        include_dirs=[
+            numpy.get_include(),
+            os.path.join("src", "consenrich"),
+        ] + openMPIncludeDirs,
+        library_dirs=openMPLibraryDirs,
+        extra_compile_args=base_compile + openMPCompileArgs,
+        extra_link_args=openMPLinkArgs,
     ),
 ]
 
@@ -288,7 +361,11 @@ setup(
     ext_modules=cythonize(
         extensions,
         language_level="3",
-        compile_time_env={"USE_OPENMP": False},
+        compile_time_env={
+            "USE_OPENMP": useOpenMP,
+            "OPENMP_FACTOR_MIN_ROWS": openMPFactorMinRows,
+            "OPENMP_APPLY_MIN_ROWS": openMPApplyMinRows,
+        },
     ),
     cmdclass={
         "build_ext": buildConsenrichExt,
