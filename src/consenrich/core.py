@@ -26,7 +26,6 @@ import numpy as np
 import numpy.typing as npt
 from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special
 from scipy.sparse import linalg as sparse_linalg
-from tqdm import tqdm
 from itrigamma import itrigamma, trigamma
 from . import cconsenrich
 from . import ccounts
@@ -113,6 +112,9 @@ from .constants import (
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
     OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
+    LOGGING_DEFAULT_LOG_FILE,
+    LOGGING_DEFAULT_PROGRESS,
+    LOGGING_DEFAULT_VERBOSITY,
     PROCESS_DEFAULT_DELTA_F,
     PROCESS_DEFAULT_NOISE_CALIBRATION,
     PROCESS_DEFAULT_Q_PRIOR_LEVEL,
@@ -239,7 +241,6 @@ from ._logging import (
     log_event as _sharedLogEvent,
     log_event_name as _logEventName,
     log_field_name as _logFieldName,
-    progress_enabled as _ecmProgressEnabled,
     quote_log_string as _quoteLogString,
 )
 from ._normalization import (
@@ -256,6 +257,9 @@ logger = logging.getLogger(__name__)
 
 _PROCESS_NOISE_WARMUP_Q_LOG_CHANGE_RTOL = 1.0e-2
 _QINIT_MIN_TRANSITIONS = 8
+_QINIT_MAX_TRANSITIONS = 32_000
+_QINIT_GRID_SIZE = 64
+_QINIT_PRECISION_SAMPLE_CAP = 32_000
 _QINIT_PRECISION_CAP_QUANTILE = 0.95
 _QINIT_PRECISION_CAP_MULTIPLIER = 20.0
 _QINIT_PRIOR_LOG_SD = math.log(4.0)
@@ -271,28 +275,6 @@ _PUNC_STAGE_TOGGLE_KEYS = (
     "puncUsePriorDfMoments",
     "puncUsePriorShrinkage",
 )
-
-
-def _makeECMProgressBar(
-    *,
-    phaseLabel: str,
-    passLabel: str,
-    total: int,
-    enabled: bool,
-):
-    if not enabled or int(total) <= 0 or not _ecmProgressEnabled():
-        return None
-    desc = " ".join(f"ECM {phaseLabel} {passLabel}".split())
-    if len(desc) > 80:
-        desc = desc[:77] + "..."
-    return tqdm(
-        total=int(total),
-        desc=desc,
-        unit="iter",
-        mininterval=0.5,
-        leave=False,
-        dynamic_ncols=True,
-    )
 
 
 def _logEvent(
@@ -1144,6 +1126,12 @@ class outputParams(NamedTuple):
         OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
     )
     maxNonTrackFileBytes: int = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
+
+
+class loggingParams(NamedTuple):
+    verbosity: str = LOGGING_DEFAULT_VERBOSITY
+    progress: str = LOGGING_DEFAULT_PROGRESS
+    logFile: str | None = LOGGING_DEFAULT_LOG_FILE
 
 
 class fitParams(NamedTuple):
@@ -3359,9 +3347,6 @@ def _runFixedBackgroundECMPhase(
     processPrecExpLocal: np.ndarray | None,
     processQScaleLocal: np.ndarray | None,
     trackOptimizationPath: bool,
-    phaseLabel: str,
-    passLabel: str,
-    showProgress: bool,
     logIterations: bool,
     stateModelMode: str,
     matrixFLocal: np.ndarray | None,
@@ -3400,24 +3385,13 @@ def _runFixedBackgroundECMPhase(
         trackOptimizationPath=bool(trackOptimizationPath),
         logIterations=bool(logIterations),
     )
-    ecmProgressBar = _makeECMProgressBar(
-        phaseLabel=phaseLabel,
-        passLabel=passLabel,
-        total=int(ecmItersLocal),
-        enabled=bool(showProgress),
-    )
-    ecmKwargs["progressBar"] = ecmProgressBar
     ecmFunction = cconsenrich.cfixedBackgroundECMLevel
     if stateModelMode == STATE_MODEL_LEVEL_TREND:
         ecmFunction = cconsenrich.cfixedBackgroundECM
         ecmKwargs["matrixF"] = matrixFLocal
     if not _cythonFunctionSupportsKeyword(ecmFunction.__name__, "processQScale"):
         ecmKwargs.pop("processQScale", None)
-    try:
-        ecmOutLocal = ecmFunction(**ecmKwargs, returnDiagnostics=True)
-    finally:
-        if ecmProgressBar is not None:
-            ecmProgressBar.close()
+    ecmOutLocal = ecmFunction(**ecmKwargs, returnDiagnostics=True)
 
     if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
         ecmDiagnosticsLocal = ecmOutLocal[-1]
@@ -4778,7 +4752,7 @@ def _qSeedPosteriorFromTransitions(
         int(_QINIT_MIN_TRANSITIONS),
         float(_QINIT_PRIOR_LOG_SD),
         float(_QINIT_DEFAULT_T_NU),
-        256,
+        int(_QINIT_GRID_SIZE),
     )
 
 
@@ -4794,6 +4768,8 @@ def _estimateSameTrackProcessNoiseTransitions(
         finiteMask,
         float(_QINIT_PRECISION_CAP_QUANTILE),
         float(_QINIT_PRECISION_CAP_MULTIPLIER),
+        int(_QINIT_MAX_TRANSITIONS),
+        int(_QINIT_PRECISION_SAMPLE_CAP),
     )
 
 
@@ -5561,8 +5537,6 @@ def runConsenrich(
                 stateCovarForward=stateCovarForward,
                 pNoiseForward=pNoiseForward,
                 vectorD=vectorD,
-                progressBar=None,
-                progressIter=0,
                 returnNLL=True,
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
@@ -5593,8 +5567,6 @@ def runConsenrich(
                     stateCovarSmoothed=None,
                     lagCovSmoothed=None,
                     postFitResiduals=None,
-                    progressBar=None,
-                    progressIter=0,
                 )
             )
         else:
@@ -5616,8 +5588,6 @@ def runConsenrich(
                 stateCovarForward=stateCovarForward,
                 pNoiseForward=pNoiseForward,
                 vectorD=vectorD,
-                progressBar=None,
-                progressIter=0,
                 returnNLL=True,
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
@@ -5650,8 +5620,6 @@ def runConsenrich(
                     stateCovarSmoothed=None,
                     lagCovSmoothed=None,
                     postFitResiduals=None,
-                    progressBar=None,
-                    progressIter=0,
                 )
             )
 
@@ -5697,8 +5665,6 @@ def runConsenrich(
                 stateCovarForward=None,
                 pNoiseForward=None,
                 vectorD=None,
-                progressBar=None,
-                progressIter=0,
                 returnNLL=True,
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
@@ -5737,8 +5703,6 @@ def runConsenrich(
                 stateCovarForward=None,
                 pNoiseForward=None,
                 vectorD=None,
-                progressBar=None,
-                progressIter=0,
                 returnNLL=True,
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
@@ -6287,10 +6251,6 @@ def runConsenrich(
                 processPrecExpLocal=processPrecExpLocal,
                 processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
-                phaseLabel=phaseLabel,
-                passLabel=f"pass {int(outerPassIndex + 1)}/{int(outerPassCount)}",
-                showProgress=bool(showNonAlternatingECMProgress)
-                and not bool(ecmLogIterations),
                 logIterations=ecmLogIterations,
                 stateModelMode=stateModelMode,
                 matrixFLocal=matrixFLocal,
@@ -6764,9 +6724,6 @@ def runConsenrich(
                 processPrecExpLocal=processPrecExpLocal,
                 processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
-                phaseLabel=phaseLabel,
-                passLabel="final fixed-background",
-                showProgress=bool(showNonAlternatingECMProgress),
                 logIterations=False,
                 stateModelMode=stateModelMode,
                 matrixFLocal=matrixFLocal,
@@ -10114,6 +10071,11 @@ def getMuncTrack(
         or float(varianceCap) <= varianceFloor_
         else float(varianceCap)
     )
+    varianceCapForKernel = (
+        float(varianceCap_)
+        if varianceCap_ is not None
+        else float(np.finfo(np.float32).max)
+    )
     muncVarianceModelName = _normalizeMuncVarianceModel(muncVarianceModel)
     replicateFactor = float(replicateVarianceFactor)
     if not np.isfinite(replicateFactor) or abs(replicateFactor - 1.0) > 1.0e-8:
@@ -10145,12 +10107,13 @@ def getMuncTrack(
     obsVarTrack = np.ascontiguousarray(localVarianceTrack, dtype=np.float32).reshape(-1)
     if obsVarTrack.shape[0] != valuesArr.size:
         raise ValueError("localVarianceTrack must match values length")
-    obsVarTrack = _clipVarianceTrack(
+    obsVarTrack, localFinalizeDiagnostics = cconsenrich.cFinalizeMuncEBTrack(
         obsVarTrack,
-        floor=varianceFloor_,
-        cap=varianceCap_,
-        fillNaN=False,
+        useEB=False,
+        varianceFloor=float(varianceFloor_),
+        varianceCap=float(varianceCapForKernel),
     )
+    supportFraction = float(localFinalizeDiagnostics["supportFraction"])
 
     if excludeMask is None:
         if excludeMaskArr is None:
@@ -10236,26 +10199,6 @@ def getMuncTrack(
             "restrictLocalVarianceToSparseBed is not supported by kalman MUNC"
         )
 
-    def _finalizeMuncVarianceTrack(
-        fittedVarianceTrack: np.ndarray,
-    ) -> npt.NDArray[np.float32]:
-        out = _clipVarianceTrack(
-            np.asarray(fittedVarianceTrack, dtype=np.float64),
-            floor=varianceFloor_,
-            cap=None,
-        ).astype(np.float64, copy=False)
-        if countModelVarianceFloorArr is not None:
-            countFloorArr = np.asarray(
-                countModelVarianceFloorArr,
-                dtype=np.float64,
-            ).ravel()
-            finiteFloor = np.isfinite(countFloorArr)
-            out[finiteFloor] += countFloorArr[finiteFloor]
-        return _clipVarianceTrack(out, floor=varianceFloor_, cap=varianceCap_)
-
-    supportFraction = (
-        float(np.mean(obsVarTrack > varianceFloor_)) if obsVarTrack.size else 0.0
-    )
     if pooledTrend is None:
         if EB_use:
             raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
@@ -10301,7 +10244,16 @@ def getMuncTrack(
                 ("support fraction", float(supportFraction)),
             ),
         )
-        return _finalizeMuncVarianceTrack(obsVarTrack), float(supportFraction)
+        posteriorVarTrack, finalizeDiagnostics = cconsenrich.cFinalizeMuncEBTrack(
+            obsVarTrack,
+            countFloor=countModelVarianceFloorArr,
+            useEB=False,
+            varianceFloor=float(varianceFloor_),
+            varianceCap=float(varianceCapForKernel),
+        )
+        return posteriorVarTrack.astype(np.float32, copy=False), float(
+            finalizeDiagnostics["supportFraction"]
+        )
     if opt is None:
         raise ValueError("kalman MUNC EB requires a pooled MUNC trend")
     if priorVarianceTrack is None:
@@ -10318,12 +10270,6 @@ def getMuncTrack(
         ).reshape(-1)
         if priorTrack.shape[0] != valuesArr.size:
             raise ValueError("priorVarianceTrack must match values length")
-    priorTrack = _clipVarianceTrack(
-        priorTrack,
-        floor=varianceFloor_,
-        cap=varianceCap_,
-        fillNaN=False,
-    )
     if additiveCovariateModel is not None and covariateTrack is not None:
         additionalTrack = evalMuncAdditiveCovariateModel(
             additiveCovariateModel,
@@ -10331,12 +10277,10 @@ def getMuncTrack(
             covariateTrack,
             replicateIndex,
         ).astype(np.float64, copy=False)
-        priorTrack = _clipVarianceTrack(
-            priorTrack.astype(np.float64, copy=False) + additionalTrack,
-            floor=varianceFloor_,
-            cap=varianceCap_,
-            fillNaN=False,
-        )
+        priorTrack = np.asarray(
+            priorTrack,
+            dtype=np.float64,
+        ).reshape(-1) + additionalTrack
         finiteAdditional = additionalTrack[np.isfinite(additionalTrack)]
         if finiteAdditional.size:
             logger.info(
@@ -10348,6 +10292,12 @@ def getMuncTrack(
                 float(np.median(finiteAdditional)),
                 float(np.quantile(finiteAdditional, 0.95)),
             )
+    priorTrack, _ = cconsenrich.cFinalizeMuncEBTrack(
+        priorTrack,
+        useEB=False,
+        varianceFloor=float(varianceFloor_),
+        varianceCap=float(varianceCapForKernel),
+    )
 
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
@@ -10358,16 +10308,14 @@ def getMuncTrack(
     # --- Determine prior strength ---
     specifiedNu0 = _coerceEBPriorStrength(EB_setNu0)
     pooledNu0 = _coerceEBPriorStrength(EB_pooledNu0)
-    priorFinite = priorTrack[np.isfinite(priorTrack)]
-    obsFinite = obsVarTrack[np.isfinite(obsVarTrack)]
-    medPrior = float(np.median(priorFinite)) if priorFinite.size else 0.0
-    medObs = float(np.median(obsFinite)) if obsFinite.size else 0.0
+    medPrior = float(np.median(priorTrack)) if priorTrack.size else 0.0
+    medObs = float(np.median(obsVarTrack)) if obsVarTrack.size else 0.0
 
     nu0MinPrior = (1.0e-2 * medPrior) + 1.0e-4
     nu0MinObs = (1.0e-2 * medObs) + 1.0e-4
 
-    nu0LocalEvidence = np.isfinite(obsVarTrack) & (obsVarTrack > nu0MinObs)
-    nu0PriorEvidence = np.isfinite(priorTrack) & (priorTrack > nu0MinPrior)
+    nu0LocalEvidence = obsVarTrack > nu0MinObs
+    nu0PriorEvidence = priorTrack > nu0MinPrior
     nu0Evidence = nu0LocalEvidence & nu0PriorEvidence
 
     if specifiedNu0 is not None:
@@ -10420,43 +10368,21 @@ def getMuncTrack(
             f"MUNC EB posterior sample size is invalid on {chromosome}: {posteriorSampleSize}"
         )
 
-    # --- Shrinkage ---
-    posteriorVarTrack = np.array(priorTrack, dtype=np.float32, copy=True)
-    finalLocalOk = np.isfinite(obsVarTrack) & (obsVarTrack > 0.0)
-    finalPriorOk = np.isfinite(posteriorVarTrack) & (posteriorVarTrack > 0.0)
-    badLocalCount = int(obsVarTrack.size - np.count_nonzero(finalLocalOk))
-    badPriorCount = int(posteriorVarTrack.size - np.count_nonzero(finalPriorOk))
-    if badLocalCount:
-        raise ValueError(
-            f"local final shrinkage variance track has {badLocalCount} invalid entries on {chromosome}"
-        )
-    if badPriorCount:
-        raise ValueError(
-            f"prior final shrinkage variance track has {badPriorCount} invalid entries on {chromosome}"
-        )
-    finalShrinkagePairFraction = 1.0 if posteriorVarTrack.size else 0.0
-
-    posteriorVarTrack = (
-        (
-            Nu_L * obsVarTrack.astype(np.float64)
-            + Nu_0 * posteriorVarTrack.astype(np.float64)
-        )
-        / posteriorSampleSize
-    ).astype(np.float32)
-
-    posteriorVarTrack = _clipVarianceTrack(
-        posteriorVarTrack,
-        floor=varianceFloor_,
-        cap=varianceCap_,
+    posteriorVarTrack, finalizeDiagnostics = cconsenrich.cFinalizeMuncEBTrack(
+        obsVarTrack,
+        priorVarianceTrack=priorTrack,
+        countFloor=countModelVarianceFloorArr,
+        nuLocal=float(Nu_L),
+        nuPrior=float(Nu_0),
+        useEB=True,
+        varianceFloor=float(varianceFloor_),
+        varianceCap=float(varianceCapForKernel),
     )
-    posteriorVarTrack = _finalizeMuncVarianceTrack(posteriorVarTrack)
-    if countModelVarianceFloorArr is None:
-        countFloorAddedCount = 0
-    else:
-        countFloorArr = np.asarray(countModelVarianceFloorArr, dtype=np.float64).ravel()
-        countFloorAddedCount = int(
-            np.count_nonzero(np.isfinite(countFloorArr) & (countFloorArr > 0.0))
-        )
+    supportFraction = float(finalizeDiagnostics["supportFraction"])
+    finalShrinkagePairFraction = float(
+        finalizeDiagnostics["finalShrinkagePairFraction"]
+    )
+    countFloorAddedCount = int(finalizeDiagnostics["countFloorAddedCount"])
 
     logger.info(
         "MUNC EB evidence: chromosome=%s localAboveFloorFraction=%.6g "
@@ -10498,38 +10424,31 @@ def _computePriorStrengthFromCandidateIdx(
     candidateIdx: np.ndarray,
     localLogVarianceNoiseArr: np.ndarray | None = None,
 ) -> float:
-    localSelected = localModelVariancesArr[candidateIdx]
-    globalSelected = globalModelVariancesArr[candidateIdx]
-    valid = (
-        np.isfinite(localSelected)
-        & np.isfinite(globalSelected)
-        & (localSelected > 0.0)
-        & (globalSelected > 0.0)
+    (
+        logVarRatioArr,
+        noiseSelected,
+    ) = cconsenrich.cEBPriorStrengthLogRatiosFromCandidateIdx(
+        localModelVariancesArr,
+        globalModelVariancesArr,
+        candidateIdx,
+        localLogVarianceNoiseArr,
     )
-    if localLogVarianceNoiseArr is not None:
-        noiseSelected = localLogVarianceNoiseArr[candidateIdx]
-        valid &= np.isfinite(noiseSelected) & (noiseSelected > 0.0)
-    else:
-        noiseSelected = None
-
-    varRatioArr = localSelected[valid] / globalSelected[valid]
-    if varRatioArr.size < 4:
+    if logVarRatioArr.size < 4:
         logger.warning(
             f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
 
-    logVarRatioArr = np.log(varRatioArr)
     if logVarRatioArr.size >= 20:
         clipSmall = np.quantile(logVarRatioArr, 0.01)
         clipBig = np.quantile(logVarRatioArr, 0.99)
         np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
-    if noiseSelected is None:
+    if localLogVarianceNoiseArr is None:
         localLogVarianceNoise = float(trigamma(float(Nu_local) / 2.0))
     else:
-        localLogVarianceNoise = float(np.mean(noiseSelected[valid]))
+        localLogVarianceNoise = float(np.mean(noiseSelected, dtype=np.float64))
     # inverse trigamma --> inf near 0
     gap = max(varLogVarRatio - localLogVarianceNoise, 1.0e-6)
     Nu_0 = 2.0 * itrigamma(gap)
@@ -10583,34 +10502,27 @@ def EB_computePriorStrength(
                 "localLogVarianceNoise must align with localModelVariances"
             )
 
-    ratioMask = (
-        np.isfinite(localModelVariancesArr)
-        & np.isfinite(globalModelVariancesArr)
-        & (localModelVariancesArr > 0.0)
-        & (globalModelVariancesArr > 0.0)
-    )
-    if localLogVarianceNoiseArr is not None:
-        ratioMask &= np.isfinite(localLogVarianceNoiseArr) & (
-            localLogVarianceNoiseArr > 0.0
-        )
     if candidateMask is not None:
         candidateMaskArr = np.asarray(candidateMask, dtype=bool).ravel()
         if candidateMaskArr.shape != localModelVariancesArr.shape:
             raise ValueError("candidateMask must align with localModelVariances")
-        ratioMask &= candidateMaskArr
-    candidateIdx = np.flatnonzero(ratioMask)
-    if candidateIdx.size < max(4, int(np.ceil((0.10) * localModelVariancesArr.size))):
+    else:
+        candidateMaskArr = None
+
+    stride = max(int(thinStride or 1), 1)
+    candidateIdx, candidateCount = cconsenrich.cEBPriorStrengthCandidateIdx(
+        localModelVariancesArr,
+        globalModelVariancesArr,
+        localLogVarianceNoiseArr,
+        candidateMaskArr,
+        stride,
+    )
+    minPoints = max(4, int(np.ceil((0.10) * localModelVariancesArr.size)))
+    if candidateCount < minPoints:
         logger.warning(
             f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
-
-    stride = max(int(thinStride or 1), 1)
-    if stride > 1:
-        phases = candidateIdx % stride
-        phaseCounts = np.bincount(phases, minlength=stride)
-        bestPhase = int(np.argmax(phaseCounts))
-        candidateIdx = candidateIdx[phases == bestPhase]
 
     if candidateIdx.size < 4:
         logger.warning(
@@ -10654,23 +10566,6 @@ def EB_computePooledPriorStrength(
             raise ValueError(
                 "localLogVarianceNoise must align with localModelVariances"
             )
-    ratioMask = (
-        np.isfinite(localArr)
-        & np.isfinite(globalArr)
-        & (localArr > 0.0)
-        & (globalArr > 0.0)
-    )
-    if localLogVarianceNoiseArr is not None:
-        ratioMask &= np.isfinite(localLogVarianceNoiseArr) & (
-            localLogVarianceNoiseArr > 0.0
-        )
-    candidateIdx = np.flatnonzero(ratioMask)
-    if candidateIdx.size < max(4, int(np.ceil(0.10 * localArr.size))):
-        logger.warning(
-            "Insufficient pooled prior/local variance pairs...setting Nu_0 = 4.0"
-        )
-        return float(4.0)
-
     if (
         sampleIndex is not None
         and chromosomeIndex is not None
@@ -10686,19 +10581,27 @@ def EB_computePooledPriorStrength(
         ):
             raise ValueError("sampleIndex, chromosomeIndex, and blockStarts must align")
         binSize = max(int(thinBinSize or 1), 1)
-        seen: set[tuple[int, int, int]] = set()
-        thinned: list[int] = []
-        for idx in candidateIdx:
-            key = (
-                int(samples[idx]),
-                int(chromosomes[idx]),
-                int(starts[idx] // binSize),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            thinned.append(int(idx))
-        candidateIdx = np.asarray(thinned, dtype=np.intp)
+    else:
+        samples = None
+        chromosomes = None
+        starts = None
+        binSize = max(int(thinBinSize or 1), 1)
+
+    candidateIdx, candidateCount = cconsenrich.cEBPooledPriorStrengthCandidateIdx(
+        localArr,
+        globalArr,
+        localLogVarianceNoiseArr,
+        samples,
+        chromosomes,
+        starts,
+        binSize,
+    )
+    minPoints = max(4, int(np.ceil(0.10 * localArr.size)))
+    if candidateCount < minPoints:
+        logger.warning(
+            "Insufficient pooled prior/local variance pairs...setting Nu_0 = 4.0"
+        )
+        return float(4.0)
 
     if candidateIdx.size < 4:
         logger.warning("After pooled thinning, insufficient pairs...setting Nu_0 = 4.0")

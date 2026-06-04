@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import sys
 import time
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -12,7 +10,6 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 from scipy import stats
-from tqdm import tqdm
 
 from . import core
 from . import diagnostics
@@ -137,19 +134,6 @@ class uncertaintyCalibrationResult(NamedTuple):
     model: dict[str, Any]
 
 
-def _progressEnabled(params: core.uncertaintyCalibrationParams) -> bool:
-    return bool(params.writeDiagnostics) and _logging_utils.progress_enabled()
-
-
-def _progress(iterable, *, params: core.uncertaintyCalibrationParams, **kwargs):
-    if not _progressEnabled(params):
-        return iterable
-    kwargs.setdefault("mininterval", 0.5)
-    kwargs.setdefault("leave", False)
-    kwargs.setdefault("dynamic_ncols", True)
-    return tqdm(iterable, disable=False, **kwargs)
-
-
 def _firstSet(params: core.uncertaintyCalibrationParams, *names: str, default: Any = None):
     for name in names:
         if hasattr(params, name):
@@ -162,6 +146,8 @@ def _firstSet(params: core.uncertaintyCalibrationParams, *names: str, default: A
 def _jsonSafe(value: Any) -> Any:
     if isinstance(value, np.generic):
         value = value.item()
+    if value is pd.NA:
+        return None
     if isinstance(value, np.ndarray):
         return [_jsonSafe(item) for item in value.reshape(-1).tolist()]
     if isinstance(value, dict):
@@ -170,15 +156,40 @@ def _jsonSafe(value: Any) -> Any:
         return [_jsonSafe(item) for item in value]
     if isinstance(value, (float, np.floating)):
         valueFloat = float(value)
-        return valueFloat if np.isfinite(valueFloat) else None
+        if np.isnan(valueFloat):
+            return {"nonfinite": "nan"}
+        if np.isposinf(valueFloat):
+            return {"nonfinite": "inf"}
+        if np.isneginf(valueFloat):
+            return {"nonfinite": "-inf"}
+        return valueFloat
     return value
 
 
-def _diagnosticValue(value: Any) -> Any:
-    safeValue = _jsonSafe(value)
-    if isinstance(safeValue, (dict, list, tuple)):
-        return json.dumps(safeValue, sort_keys=True)
-    return safeValue
+def _initJsonlFile(path: str | Path) -> Path:
+    return _logging_utils.init_jsonl_log(path)
+
+
+def _jsonlRecords(rows: list[dict[str, Any]] | pd.DataFrame) -> list[dict[str, Any]]:
+    if isinstance(rows, pd.DataFrame):
+        rowRecords = [
+            dict(zip(rows.columns, values))
+            for values in rows.itertuples(index=False, name=None)
+        ]
+    else:
+        rowRecords = [dict(row) for row in rows]
+    records: list[dict[str, Any]] = []
+    for row in rowRecords:
+        converted = {str(key): _jsonSafe(value) for key, value in row.items()}
+        records.append({key: value for key, value in converted.items() if value is not None})
+    return records
+
+
+def _appendJsonlRecords(path: str | Path, rows: list[dict[str, Any]] | pd.DataFrame) -> int:
+    records = _jsonlRecords(rows)
+    if not records:
+        return 0
+    return _logging_utils.append_jsonl_log(path, records)
 
 
 def _calibrationKeyValueRows(
@@ -189,23 +200,20 @@ def _calibrationKeyValueRows(
     values: dict[str, Any],
     fold: int | None = None,
 ) -> list[dict[str, Any]]:
-    return [
-        {
-            "record_type": recordType,
-            "event": event,
-            "chromosome": chromosome,
-            "fold": None if fold is None else int(fold),
-            "key": str(key),
-            "value": _diagnosticValue(value),
-        }
-        for key, value in values.items()
-    ]
+    record = {
+        "record_type": recordType,
+        "event": event,
+        "chromosome": chromosome,
+        "fold": None if fold is None else int(fold),
+        **{str(key): value for key, value in values.items()},
+    }
+    return [record]
 
 
 def _ensureCalibrationLog(path: str | Path) -> Path:
     logPath = Path(path)
     if not logPath.exists():
-        _logging_utils.init_tsv_log(logPath, DELETE_BLOCK_CALIBRATION_LOG_COLUMNS)
+        _initJsonlFile(logPath)
     return logPath
 
 
@@ -718,41 +726,33 @@ def _summarizeScores(
     return summary[orderedColumns]
 
 
-def _diagnosticsTable(
+def _diagnosticsRecords(
     *,
     scores: pd.DataFrame,
     summary: pd.DataFrame,
     model: dict[str, Any],
     chromosome: str | None = None,
-) -> pd.DataFrame:
-    scoreRows = scores.copy()
-    scoreRows.insert(0, "event", "delete_block_calibration.score_sample")
-    scoreRows.insert(0, "record_type", "score_sample")
-    summaryRows = summary.copy()
-    summaryRows.insert(0, "event", "delete_block_calibration.summary")
-    summaryRows.insert(0, "record_type", "summary")
-    modelRows = pd.DataFrame(
-        {
-            "record_type": "model",
-            "event": "delete_block_calibration.model",
-            "key": list(model.keys()),
-            "value": [_diagnosticValue(value) for value in model.values()],
-        }
-    )
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for recordType, event, frame in (
+        ("score_sample", "delete_block_calibration.score_sample", scores),
+        ("summary", "delete_block_calibration.summary", summary),
+    ):
+        for row in frame.to_dict(orient="records"):
+            record = {"record_type": recordType, "event": event}
+            if chromosome is not None:
+                record["chromosome"] = str(chromosome)
+            record.update(row)
+            records.append(record)
+    modelRecord = {
+        "record_type": "model",
+        "event": "delete_block_calibration.model",
+    }
     if chromosome is not None:
-        for frame in (scoreRows, summaryRows, modelRows):
-            frame.insert(2, "chromosome", str(chromosome))
-    columns = list(
-        dict.fromkeys([*scoreRows.columns, *summaryRows.columns, *modelRows.columns])
-    )
-    return pd.concat(
-        [
-            scoreRows.reindex(columns=columns),
-            summaryRows.reindex(columns=columns),
-            modelRows.reindex(columns=columns),
-        ],
-        ignore_index=True,
-    )
+        modelRecord["chromosome"] = str(chromosome)
+    modelRecord.update(model)
+    records.append(modelRecord)
+    return records
 
 
 def _coverageLogPayload(rows: list[dict[str, Any]]) -> str:
@@ -1265,12 +1265,7 @@ def calibrateChromosomeStateUncertainty(
             f"{int(fitKwargs['processNoiseWarmupECMIters'])}"
         )
     )
-    for fold in _progress(
-        range(int(folds)),
-        params=params,
-        desc="Uncertainty calibration folds",
-        unit="fold",
-    ):
+    for fold in range(int(folds)):
         logger.info(
             "uncertaintyCalibration.fold.start fold=%s/%s intervals=%s warmupMode=%s warmupDetail=%s",
             int(fold + 1),
@@ -2003,19 +1998,15 @@ def calibrateChromosomeStateUncertainty(
         logPath = _ensureCalibrationLog(
             diagnosticsLogPath
             if diagnosticsLogPath is not None
-            else str(Path(str(outPrefix))) + ".delete_block_calibration.log"
+            else str(Path(str(outPrefix))) + ".delete_block_calibration.jsonl"
         )
-        diagnosticsTable = _diagnosticsTable(
+        diagnosticsRecords = _diagnosticsRecords(
             scores=scoresDiagnostics,
             summary=summary,
             model=model,
             chromosome=chromosome,
         )
-        rowsWritten = _logging_utils.append_tsv_log(
-            logPath,
-            diagnosticsTable,
-            DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
-        )
+        rowsWritten = _appendJsonlRecords(logPath, diagnosticsRecords)
         extraRows: list[dict[str, Any]] = []
         extraRows.extend(foldDiagnosticRows)
         extraRows.extend(
@@ -2031,18 +2022,11 @@ def calibrateChromosomeStateUncertainty(
                 "record_type": "target_bound",
                 "event": "delete_block_calibration.target_bound",
                 "chromosome": chromosome,
-                **{
-                    key: _diagnosticValue(value)
-                    for key, value in dict(bound).items()
-                },
+                **dict(bound),
             }
             for bound in targetCalibrationBounds
         )
-        rowsWritten += _logging_utils.append_tsv_log(
-            logPath,
-            extraRows,
-            DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
-        )
+        rowsWritten += _appendJsonlRecords(logPath, extraRows)
         timings["diagnostics_seconds"] = time.perf_counter() - diagnosticsStart
         model["timings_seconds"] = {key: float(value) for key, value in timings.items()}
         _logging_utils.log_file_written(

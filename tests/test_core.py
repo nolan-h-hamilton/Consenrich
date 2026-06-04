@@ -485,11 +485,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
         "_initializeDiagnosticLogs",
         lambda paths: None,
     )
-    monkeypatch.setattr(
-        consenrichRuntime,
-        "_progress",
-        lambda iterable, **kwargs: iterable,
-    )
     monkeypatch.setattr(consenrichRuntime.os, "listdir", lambda path: [])
     monkeypatch.setattr(
         consenrichRuntime.misc_util,
@@ -985,6 +980,60 @@ def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
         )
         for observed, expected in zip(branchOut, branchExpected):
             np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
+
+
+@pytest.mark.correctness
+def _caseFinalizeMuncEBTrackPreservesCountFloorSentinel():
+    local = np.asarray([0.05, 0.20, 4.00, 0.001], dtype=np.float64)
+    prior = np.asarray([0.35, 0.60, 10.00, 0.02], dtype=np.float32)
+    countFloor = np.asarray([np.nan, 0.25, 2.00, 0.00], dtype=np.float32)
+
+    out, diagnostics = cconsenrich.cFinalizeMuncEBTrack(
+        local,
+        priorVarianceTrack=prior,
+        countFloor=countFloor,
+        nuLocal=2.0,
+        nuPrior=3.0,
+        useEB=True,
+        varianceFloor=0.01,
+        varianceCap=5.0,
+    )
+
+    expected = np.asarray([0.23, 0.69, 5.0, 0.016], dtype=np.float32)
+    np.testing.assert_allclose(out, expected, rtol=1.0e-6, atol=1.0e-6)
+    assert diagnostics["supportCount"] == 3
+    assert diagnostics["supportFraction"] == pytest.approx(0.75)
+    assert diagnostics["countFloorFiniteCount"] == 3
+    assert diagnostics["countFloorAddedCount"] == 2
+    assert diagnostics["countFloorMissingCount"] == 1
+    assert diagnostics["finalShrinkagePairCount"] == 4
+    assert diagnostics["finalShrinkagePairFraction"] == pytest.approx(1.0)
+
+    noEBOut, noEBDiagnostics = cconsenrich.cFinalizeMuncEBTrack(
+        local,
+        countFloor=countFloor,
+        useEB=False,
+        varianceFloor=0.01,
+        varianceCap=5.0,
+    )
+    np.testing.assert_allclose(
+        noEBOut,
+        np.asarray([0.05, 0.45, 5.0, 0.01], dtype=np.float32),
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+    assert noEBDiagnostics["finalShrinkagePairCount"] == 0
+
+    with pytest.raises(ValueError, match="countFloor"):
+        cconsenrich.cFinalizeMuncEBTrack(
+            local,
+            priorVarianceTrack=prior,
+            countFloor=np.asarray([0.0, np.inf, 0.0, 0.0], dtype=np.float32),
+            nuLocal=2.0,
+            nuPrior=3.0,
+            varianceFloor=0.01,
+            varianceCap=5.0,
+        )
 
 
 @pytest.mark.correctness
@@ -2655,6 +2704,116 @@ def _caseLevelForwardBackwardMatchesPythonReference():
 
 
 @pytest.mark.correctness
+def _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers():
+    matrixData = np.asarray(
+        [
+            [0.25, 0.10, 0.45, 0.75, 0.20, -0.10, 0.05],
+            [0.15, 0.20, 0.35, 0.65, 0.10, -0.20, 0.15],
+        ],
+        dtype=np.float32,
+    )
+    matrixMunc = np.asarray(
+        [
+            [0.20, 0.25, 0.18, 0.22, 0.30, 0.28, 0.24],
+            [0.27, 0.23, 0.31, 0.19, 0.29, 0.25, 0.33],
+        ],
+        dtype=np.float32,
+    )
+    n = matrixData.shape[1]
+    matrixF = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+    matrixQ0 = np.asarray([[0.045, 0.0], [0.0, 0.125]], dtype=np.float32)
+    sharedKwargs = {
+        "matrixData": matrixData,
+        "matrixPluginMuncInit": matrixMunc,
+        "intervalToBlockMap": np.asarray([0, 0, 1, 1, 1, 2, 2], dtype=np.int32),
+        "blockCount": 3,
+        "stateInit": -0.15,
+        "stateCovarInit": 0.7,
+        "pad": 0.015,
+        "returnNLL": True,
+        "storeNLLInD": True,
+        "lambdaExp": np.asarray(
+            [0.10, 0.50, 1.20, 3.50, 7.00, 0.80, 2.20],
+            dtype=np.float32,
+        ),
+        "processPrecExp": np.asarray(
+            [1.00, 0.20, 0.75, 2.50, 6.00, 1.25, 0.40],
+            dtype=np.float32,
+        ),
+        "obsPrecisionMultiplierMin": 0.25,
+        "obsPrecisionMultiplierMax": 4.0,
+        "procPrecisionMultiplierMin": 0.25,
+        "procPrecisionMultiplierMax": 4.0,
+        "processQScale": np.asarray(
+            [1.00, 0.70, 1.80, 0.55, 1.20, 2.40, 0.90],
+            dtype=np.float32,
+        ),
+    }
+    levelStore = {
+        "stateForward": np.empty((n, 1), dtype=np.float32),
+        "stateCovarForward": np.empty((n, 1, 1), dtype=np.float32),
+        "pNoiseForward": np.empty((n, 1, 1), dtype=np.float32),
+        "vectorD": np.empty(n, dtype=np.float32),
+    }
+    fullStore = {
+        "stateForward": np.empty((n, 2), dtype=np.float32),
+        "stateCovarForward": np.empty((n, 2, 2), dtype=np.float32),
+        "pNoiseForward": np.empty((n, 2, 2), dtype=np.float32),
+        "vectorD": np.empty(n, dtype=np.float32),
+    }
+
+    levelPhiHat, levelSentinel, levelDOut, levelNLL = cconsenrich.cforwardPassLevel(
+        **sharedKwargs,
+        matrixQ0=matrixQ0,
+        **levelStore,
+    )
+    fullPhiHat, fullSentinel, fullDOut, fullNLL = cconsenrich.cforwardPass(
+        **sharedKwargs,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        **fullStore,
+    )
+
+    assert levelSentinel == 0
+    assert fullSentinel == 0
+    assert levelDOut is levelStore["vectorD"]
+    assert fullDOut is fullStore["vectorD"]
+    assert fullPhiHat == pytest.approx(levelPhiHat, rel=2.0e-6, abs=2.0e-6)
+    assert fullNLL == pytest.approx(levelNLL, rel=2.0e-6, abs=2.0e-6)
+    for observed, expected in (
+        (fullStore["vectorD"], levelStore["vectorD"]),
+        (fullStore["stateForward"][:, :1], levelStore["stateForward"]),
+        (fullStore["stateCovarForward"][:, :1, :1], levelStore["stateCovarForward"]),
+        (
+            fullStore["pNoiseForward"][: n - 1, :1, :1],
+            levelStore["pNoiseForward"][: n - 1],
+        ),
+    ):
+        np.testing.assert_allclose(observed, expected, rtol=2.0e-6, atol=2.0e-6)
+
+    levelSmooth = cconsenrich.cbackwardPassLevel(
+        matrixData=matrixData,
+        stateForward=levelStore["stateForward"],
+        stateCovarForward=levelStore["stateCovarForward"],
+        pNoiseForward=levelStore["pNoiseForward"],
+    )
+    fullSmooth = cconsenrich.cbackwardPass(
+        matrixData=matrixData,
+        matrixF=matrixF,
+        stateForward=fullStore["stateForward"],
+        stateCovarForward=fullStore["stateCovarForward"],
+        pNoiseForward=fullStore["pNoiseForward"],
+    )
+    for observed, expected in (
+        (fullSmooth[0][:, :1], levelSmooth[0]),
+        (fullSmooth[1][:, :1, :1], levelSmooth[1]),
+        (fullSmooth[2][: n - 1, :1, :1], levelSmooth[2][: n - 1]),
+        (fullSmooth[3], levelSmooth[3]),
+    ):
+        np.testing.assert_allclose(observed, expected, rtol=2.0e-6, atol=2.0e-6)
+
+
+@pytest.mark.correctness
 def _casePuncProcessNoiseCalibrationRebasesClampedBaseQ():
     intervalCount = 16
     seedQLevel = 1.0e-2
@@ -2982,25 +3141,61 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             loc = nextLoc
         return loc
 
-    def sameTrackReference(data, obs, activeRows):
-        activePair = activeRows[:, 1:] & activeRows[:, :-1]
-        rawPrecision = np.where(activePair, 1.0 / (obs[:, 1:] + obs[:, :-1]), 0.0)
-        positivePrecision = rawPrecision[rawPrecision > 0.0]
-        cap = min(
-            float(np.quantile(positivePrecision, core._QINIT_PRECISION_CAP_QUANTILE)),
-            core._QINIT_PRECISION_CAP_MULTIPLIER * float(np.median(positivePrecision)),
+    def sampleIndices(itemCount, sampleCount):
+        if sampleCount <= 0 or sampleCount >= itemCount:
+            sampleCount = itemCount
+        return np.asarray(
+            [
+                (((2 * sampleIndex) + 1) * itemCount) // (2 * sampleCount)
+                for sampleIndex in range(sampleCount)
+            ],
+            dtype=np.intp,
         )
-        precision = np.minimum(rawPrecision, cap)
+
+    def sameTrackReference(
+        data,
+        obs,
+        activeRows,
+        precisionCapQuantile,
+        precisionCapMultiplier,
+        maxTransitionSamples=0,
+        precisionSampleCap=core._QINIT_PRECISION_SAMPLE_CAP,
+    ):
+        maxTransitionCount = activeRows.shape[1] - 1
+        useTransitionSampling = (
+            maxTransitionSamples > 0 and maxTransitionSamples < maxTransitionCount
+        )
+        transitionIndex = sampleIndices(maxTransitionCount, maxTransitionSamples)
+        pairPrecisions = []
+        perTransition = []
+        for k in transitionIndex:
+            rows = np.flatnonzero(activeRows[:, k] & activeRows[:, k + 1])
+            rawPrecision = 1.0 / (obs[rows, k] + obs[rows, k + 1])
+            pairPrecisions.extend(rawPrecision.tolist())
+            perTransition.append((k, rows, rawPrecision))
+        positivePrecision = np.asarray(pairPrecisions, dtype=np.float64)
+        precisionForCap = positivePrecision
+        if (
+            useTransitionSampling
+            and precisionSampleCap > 0
+            and precisionForCap.size > precisionSampleCap
+        ):
+            precisionForCap = precisionForCap[
+                sampleIndices(precisionForCap.size, precisionSampleCap)
+            ]
+        cap = min(
+            float(np.quantile(precisionForCap, float(precisionCapQuantile))),
+            float(precisionCapMultiplier) * float(np.median(precisionForCap)),
+        )
         deltaValues = []
         samplingValues = []
         weightValues = []
         pairCount = 0
-        for k in range(activePair.shape[1]):
-            rows = precision[:, k] > 0.0
-            if not np.any(rows):
+        for k, rows, rawPrecision in perTransition:
+            if rows.size == 0:
                 continue
             d = data[rows, k + 1] - data[rows, k]
-            p = precision[rows, k]
+            p = np.minimum(rawPrecision, cap)
             pairCount += int(d.size)
             sumP = float(np.sum(p))
             sumP2 = float(np.sum(p * p))
@@ -3013,8 +3208,19 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             np.asarray(weightValues, dtype=np.float64),
             {
                 "pairCount": pairCount,
+                "sampledPairCount": int(positivePrecision.size),
+                "precisionSamplePairCount": int(precisionForCap.size),
                 "precisionCap": cap,
                 "precisionCapFraction": float(np.mean(positivePrecision > cap)),
+                "sampledTransitionCount": int(transitionIndex.size),
+                "transitionSampleFraction": float(
+                    transitionIndex.size / maxTransitionCount
+                ),
+                "precisionSampleCap": int(precisionSampleCap),
+                "maxTransitionSamples": int(maxTransitionSamples),
+                "sampledTransitionIndices": transitionIndex.tolist()
+                if transitionIndex.size <= 1024
+                else None,
             },
         )
 
@@ -3055,9 +3261,10 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             )[0]
         )
 
-    def posteriorReference(deltas, sampling, weights, source):
+    def posteriorReference(
+        deltas, sampling, weights, source, gridSize=core._QINIT_GRID_SIZE, qCap=1.0
+    ):
         qFloor = 1.0e-5
-        qCap = 1.0
         delta = np.asarray(deltas, dtype=np.float64)
         s2 = np.asarray(sampling, dtype=np.float64)
         transitionWeight = np.asarray(weights, dtype=np.float64)
@@ -3072,7 +3279,7 @@ def _caseMuncSeedQCythonKernelsMatchReference():
         qPrior = max(robustScale * robustScale - medianS2, qFloor)
         deconvolved = np.maximum(delta * delta - s2, 0.0)
         qTransition90 = weightedQuantile(deconvolved, transitionWeight, 0.9)
-        grid = np.exp(np.linspace(math.log(qFloor), math.log(qCap), 256))
+        grid = np.exp(np.linspace(math.log(qFloor), math.log(qCap), gridSize))
         nu = 8.0
         normalizedWeights = transitionWeight / max(
             weightedQuantile(transitionWeight, transitionWeight, 0.5),
@@ -3106,7 +3313,13 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             "transitionQ90": float(qTransition90),
         }
 
-    sameExpected = sameTrackReference(matrixData, obsVar, active)
+    sameExpected = sameTrackReference(
+        matrixData,
+        obsVar,
+        active,
+        core._QINIT_PRECISION_CAP_QUANTILE,
+        core._QINIT_PRECISION_CAP_MULTIPLIER,
+    )
     sameActual = cconsenrich.cEstimateSameTrackProcessNoiseTransitions(
         matrixData,
         obsVar,
@@ -3130,6 +3343,83 @@ def _caseMuncSeedQCythonKernelsMatchReference():
         assert actual[3]["precisionCapFraction"] == pytest.approx(
             sameExpected[3]["precisionCapFraction"], rel=2e-12, abs=2e-12
         )
+
+    uncappedExpected = sameTrackReference(matrixData, obsVar, active, 1.0, 1.0e12)
+    uncappedActual = cconsenrich.cEstimateSameTrackProcessNoiseTransitions(
+        matrixData,
+        obsVar,
+        active,
+        1.0,
+        1.0e12,
+        0,
+    )
+    np.testing.assert_allclose(
+        uncappedActual[0], uncappedExpected[0], rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        uncappedActual[1], uncappedExpected[1], rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        uncappedActual[2], uncappedExpected[2], rtol=2e-12, atol=2e-12
+    )
+    assert uncappedActual[3]["pairCount"] == uncappedExpected[3]["pairCount"]
+    assert uncappedActual[3]["precisionCapFraction"] == pytest.approx(0.0)
+
+    sampleBase = np.linspace(-0.2, 1.4, 33, dtype=np.float64)
+    sampleData = np.vstack(
+        [
+            sampleBase + 0.02 * np.sin(3.0 * sampleBase),
+            sampleBase + 0.05 + 0.03 * np.cos(2.0 * sampleBase),
+            sampleBase - 0.04 + 0.01 * np.sin(5.0 * sampleBase),
+        ]
+    )
+    sampleObs = np.full(sampleData.shape, 0.035, dtype=np.float64)
+    sampleActive = np.ones(sampleData.shape, dtype=bool)
+    sampleCap = 8
+    midpointIndex = np.floor(
+        (np.arange(sampleCap, dtype=np.float64) + 0.5)
+        * (sampleData.shape[1] - 1)
+        / sampleCap
+    ).astype(np.int64)
+    fullExpected = sameTrackReference(sampleData, sampleObs, sampleActive, 1.0, 1.0e12)
+    sampledExpected = sameTrackReference(
+        sampleData,
+        sampleObs,
+        sampleActive,
+        1.0,
+        1.0e12,
+        sampleCap,
+        precisionSampleCap=7,
+    )
+    sampledActual = cconsenrich.cEstimateSameTrackProcessNoiseTransitions(
+        sampleData,
+        sampleObs,
+        sampleActive,
+        1.0,
+        1.0e12,
+        sampleCap,
+        7,
+    )
+    assert sampledActual[0].shape == (sampleCap,)
+    assert sampledActual[3]["pairCount"] == sampleData.shape[0] * sampleCap
+    assert sampledActual[3]["sampledPairCount"] == sampledExpected[3][
+        "sampledPairCount"
+    ]
+    assert sampledActual[3]["precisionSamplePairCount"] == 7
+    assert sampledActual[3]["precisionSampleCap"] == 7
+    assert sampledActual[3]["sampledTransitionIndices"] == midpointIndex.tolist()
+    np.testing.assert_allclose(
+        sampledActual[0], fullExpected[0][midpointIndex], rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        sampledActual[0], sampledExpected[0], rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        sampledActual[1], sampledExpected[1], rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        sampledActual[2], sampledExpected[2], rtol=2e-12, atol=2e-12
+    )
 
     pooledExpected = pooledReference(matrixData, obsVar, active)
     pooledActual = cconsenrich.cEstimatePooledProcessNoiseTransitions(
@@ -3176,6 +3466,76 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             posteriorExpected[key], rel=1e-8, abs=1e-12
         )
 
+    posteriorCalls = []
+    nativePosterior = cconsenrich.cQSeedPosteriorFromTransitions
+
+    def spyPosterior(*args):
+        posteriorCalls.append(args)
+        return nativePosterior(*args)
+
+    try:
+        cconsenrich.cQSeedPosteriorFromTransitions = spyPosterior
+        core._qSeedPosteriorFromTransitions(
+            deltas=sameActual[0],
+            samplingVariances=sameActual[1],
+            transitionWeights=sameActual[2],
+            qFloor=1.0e-5,
+            qCap=1.0,
+            robustTNu=8.0,
+            source="sameTrackEB",
+            qSeedPriorLevel=1.0e-5,
+        )
+    finally:
+        cconsenrich.cQSeedPosteriorFromTransitions = nativePosterior
+    assert posteriorCalls[0][-1] == core._QINIT_GRID_SIZE
+
+    syntheticCount = 96
+    syntheticX = (np.arange(syntheticCount, dtype=np.float64) + 0.5) / syntheticCount
+    syntheticDeltas = (
+        0.05 * np.sin(2.0 * np.pi * syntheticX)
+        + 0.0175 * np.sin(6.0 * np.pi * syntheticX)
+        + 0.006 * np.cos(10.0 * np.pi * syntheticX)
+    )
+    syntheticSampling = np.full(syntheticCount, 1.0e-4, dtype=np.float64)
+    syntheticWeights = 1.0 + 0.35 * np.cos(2.0 * np.pi * syntheticX)
+    synthetic64 = cconsenrich.cQSeedPosteriorFromTransitions(
+        syntheticDeltas,
+        syntheticSampling,
+        syntheticWeights,
+        1.0e-5,
+        1.0e-2,
+        8.0,
+        "sameTrackEB",
+        1.0e-5,
+        core._QINIT_MIN_TRANSITIONS,
+        core._QINIT_PRIOR_LOG_SD,
+        core._QINIT_DEFAULT_T_NU,
+        core._QINIT_GRID_SIZE,
+    )
+    synthetic256 = cconsenrich.cQSeedPosteriorFromTransitions(
+        syntheticDeltas,
+        syntheticSampling,
+        syntheticWeights,
+        1.0e-5,
+        1.0e-2,
+        8.0,
+        "sameTrackEB",
+        1.0e-5,
+        core._QINIT_MIN_TRANSITIONS,
+        core._QINIT_PRIOR_LOG_SD,
+        core._QINIT_DEFAULT_T_NU,
+        256,
+    )
+    for key in ("ok", "source", "reason", "transitionCount"):
+        assert synthetic64[key] == synthetic256[key]
+    for key in (
+        "posteriorMedianLevel",
+        "posteriorModeLevel",
+        "posteriorQ05Level",
+        "posteriorQ95Level",
+    ):
+        assert synthetic64[key] == pytest.approx(synthetic256[key], rel=0.35)
+
     with pytest.raises(ValueError, match="samplingVariances"):
         cconsenrich.cQSeedPosteriorFromTransitions(
             np.ones(8, dtype=np.float64),
@@ -3189,7 +3549,7 @@ def _caseMuncSeedQCythonKernelsMatchReference():
             core._QINIT_MIN_TRANSITIONS,
             core._QINIT_PRIOR_LOG_SD,
             core._QINIT_DEFAULT_T_NU,
-            256,
+            core._QINIT_GRID_SIZE,
         )
 
 
@@ -4624,54 +4984,56 @@ def _caseEBPriorStrengthBoundaryIsUsable():
 
 @pytest.mark.correctness
 def _caseEBPriorStrengthUsesThinnedVariancePairs():
-    n = 50
+    n = 25
+    candidateIdx = np.arange(n, dtype=np.intp)
     globalVars = np.ones(n, dtype=np.float64)
-    localVars = np.ones(n, dtype=np.float64)
-    nonThinned = (np.arange(n) % 5) != 0
-    localVars[nonThinned] = np.exp(
-        np.where(np.arange(n)[nonThinned] % 2 == 0, 1.0, -1.0)
-    )
+    localVars = np.exp(0.32 * np.sin(candidateIdx) + 0.013 * candidateIdx)
 
-    nuAll = core.EB_computePriorStrength(
-        localVars, globalVars, Nu_local=10.0, thinStride=1
-    )
-    nuThinned = core.EB_computePriorStrength(
-        localVars, globalVars, Nu_local=10.0, thinStride=5
-    )
-
-    assert nuThinned > 10.0 * nuAll
-
-
-@pytest.mark.correctness
-def _casePooledPriorStrengthThinsBySampleChromosomeAndBin(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    n = 12
-    localVars = np.linspace(1.0, 2.0, n, dtype=np.float64)
-    globalVars = np.ones(n, dtype=np.float64)
-    sampleIndex = np.repeat([0, 1], 6)
-    chromosomeIndex = np.tile(np.repeat([0, 1], 3), 2)
-    blockStarts = np.tile(np.array([0, 4, 8, 0, 4, 8], dtype=np.int64), 2)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeCompute(localArr, globalArr, _nuLocal, candidateIdx):
-        seen["candidate_idx"] = np.asarray(candidateIdx, dtype=np.intp)
-        return 17.0
-
-    monkeypatch.setattr(core, "_computePriorStrengthFromCandidateIdx", _fakeCompute)
-
-    nu0 = core.EB_computePooledPriorStrength(
+    expectedUnpooled = core._computePriorStrengthFromCandidateIdx(
         localVars,
         globalVars,
-        Nu_local=8.0,
-        sampleIndex=sampleIndex,
-        chromosomeIndex=chromosomeIndex,
-        blockStarts=blockStarts,
+        100.0,
+        candidateIdx[candidateIdx % 4 == 0],
+    )
+    observedUnpooled = core.EB_computePriorStrength(
+        localVars,
+        globalVars,
+        Nu_local=100.0,
+        thinStride=4,
+    )
+    np.testing.assert_allclose(observedUnpooled, expectedUnpooled)
+
+    pooledLogRatios = np.asarray(
+        [0.00, 0.95, 0.42, -0.36, 0.88, -0.20, 0.30, -0.75],
+        dtype=np.float64,
+    )
+    pooledLocalVars = np.exp(pooledLogRatios)
+    pooledGlobalVars = np.ones(pooledLogRatios.size, dtype=np.float64)
+    tupleKeyExpectedIdx = np.asarray([0, 2, 3, 5, 6], dtype=np.intp)
+    expectedPooled = core._computePriorStrengthFromCandidateIdx(
+        pooledLocalVars,
+        pooledGlobalVars,
+        100.0,
+        tupleKeyExpectedIdx,
+    )
+    observedPooled = core.EB_computePooledPriorStrength(
+        pooledLocalVars,
+        pooledGlobalVars,
+        Nu_local=100.0,
+        sampleIndex=np.asarray([0, 0, 0, 1, 1, 1, 0, 0], dtype=np.int64),
+        chromosomeIndex=np.asarray([0, 0, 1, 0, 0, 1, 0, 0], dtype=np.int64),
+        blockStarts=np.asarray([0, 4, 0, 0, 6, 0, 12, 18], dtype=np.int64),
         thinBinSize=10,
     )
+    expectedWithoutTupleKeys = core._computePriorStrengthFromCandidateIdx(
+        pooledLocalVars,
+        pooledGlobalVars,
+        100.0,
+        np.asarray([0, 6], dtype=np.intp),
+    )
 
-    assert nu0 == pytest.approx(17.0)
-    assert seen["candidate_idx"].tolist() == [0, 3, 6, 9]
+    np.testing.assert_allclose(observedPooled, expectedPooled)
+    assert observedPooled != pytest.approx(expectedWithoutTupleKeys)
 
 
 @pytest.mark.correctness
@@ -4990,6 +5352,121 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
     )
     np.testing.assert_allclose(muncTrack, expected.astype(np.float32))
     assert np.all(muncTrack >= countModelVarianceFloor)
+
+
+def test_core_munc_eb_finalization_uses_native_count_floor_nan_sentinel(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    intervals = np.arange(0, 300, 25, dtype=np.uint32)
+    values = np.linspace(0.1, 1.2, intervals.size, dtype=np.float32)
+    localVarianceTrack = np.linspace(0.2, 1.3, intervals.size, dtype=np.float32)
+    priorVarianceTrack = np.linspace(1.5, 0.4, intervals.size, dtype=np.float32)
+    countModelVarianceFloor = np.array(
+        [
+            0.10,
+            np.nan,
+            0.00,
+            0.20,
+            np.nan,
+            0.05,
+            0.30,
+            np.nan,
+            0.00,
+            0.15,
+            0.25,
+            np.nan,
+        ],
+        dtype=np.float32,
+    )
+    pooledTrend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(1.0)], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={},
+    )
+    nativeFinalize = cconsenrich.cFinalizeMuncEBTrack
+    seen = {}
+
+    def spyFinalize(localTrack, priorVarianceTrack=None, countFloor=None, **kwargs):
+        if kwargs.get("useEB", True) and countFloor is not None:
+            seen["countFloor"] = np.asarray(countFloor, dtype=np.float32).copy()
+            seen["kwargs"] = dict(kwargs)
+        return nativeFinalize(
+            localTrack,
+            priorVarianceTrack=priorVarianceTrack,
+            countFloor=countFloor,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(cconsenrich, "cFinalizeMuncEBTrack", spyFinalize)
+    monkeypatch.setattr(
+        core,
+        "fitPSplineLogVarianceTrend",
+        lambda *args, **kwargs: pytest.fail("fit called"),
+    )
+    monkeypatch.setattr(
+        core,
+        "evalPSplineLogVarianceTrend",
+        lambda *args, **kwargs: priorVarianceTrack.copy(),
+    )
+    monkeypatch.setattr(
+        core,
+        "EB_computePriorStrength",
+        lambda *args, **kwargs: pytest.fail("prior strength called"),
+    )
+
+    muncTrack, _ = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+        samplingIters=64,
+        EB_use=True,
+        EB_setNuL=6,
+        EB_pooledNu0=4.0,
+        pooledTrend=pooledTrend,
+        localVarianceTrack=localVarianceTrack,
+        countModelVarianceFloor=countModelVarianceFloor,
+        varianceFloor=1.0e-6,
+        varianceCap=20.0,
+    )
+
+    expected, _ = nativeFinalize(
+        localVarianceTrack,
+        priorVarianceTrack=priorVarianceTrack,
+        countFloor=countModelVarianceFloor,
+        nuLocal=6.0,
+        nuPrior=4.0,
+        varianceFloor=1.0e-6,
+        varianceCap=20.0,
+        useEB=True,
+    )
+    noFloorIndex = 1
+    finiteFloorIndex = 0
+    expectedNoFloor = (
+        6.0 * float(localVarianceTrack[noFloorIndex])
+        + 4.0 * float(priorVarianceTrack[noFloorIndex])
+    ) / 10.0
+    expectedFiniteFloor = (
+        6.0 * float(localVarianceTrack[finiteFloorIndex])
+        + 4.0 * float(priorVarianceTrack[finiteFloorIndex])
+    ) / 10.0 + float(countModelVarianceFloor[finiteFloorIndex])
+
+    assert seen["kwargs"]["nuLocal"] == pytest.approx(6.0)
+    assert seen["kwargs"]["nuPrior"] == pytest.approx(4.0)
+    assert np.isnan(seen["countFloor"][noFloorIndex])
+    np.testing.assert_allclose(muncTrack, expected)
+    assert muncTrack[noFloorIndex] == pytest.approx(expectedNoFloor)
+    assert muncTrack[finiteFloorIndex] == pytest.approx(expectedFiniteFloor)
 
 
 @pytest.mark.correctness
@@ -6725,6 +7202,10 @@ def test_core_numeric_kernel_contracts(contract_case):
             _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors,
         ),
         (
+            "MUNC EB finalize count floor sentinel",
+            _caseFinalizeMuncEBTrackPreservesCountFloorSentinel,
+        ),
+        (
             "MUNC dense evidence smoothing",
             _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows,
         ),
@@ -6749,6 +7230,10 @@ def test_core_numeric_kernel_contracts(contract_case):
         (
             "level forward-backward kernel",
             _caseLevelForwardBackwardMatchesPythonReference,
+        ),
+        (
+            "level embedded forward-backward agreement",
+            _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers,
         ),
         (
             "fixed ECM precision equations",
@@ -6975,6 +7460,10 @@ def test_core_pspline_sparse_support_and_trend_contracts(
         (
             "MUNC trend invalid variance rejection",
             _caseMuncTrendRejectsInvalidVarianceValues,
+        ),
+        (
+            "EB prior strength thinning",
+            _caseEBPriorStrengthUsesThinnedVariancePairs,
         ),
         (
             "MUNC sparse local variance rejection",

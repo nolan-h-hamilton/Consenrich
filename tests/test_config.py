@@ -1,5 +1,7 @@
 import textwrap
+import io
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -184,12 +186,17 @@ def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     assert rows[0]["gain_avg"] == pytest.approx(expectedAvg)
     assert rows[0]["gain_std"] == pytest.approx(expectedStd)
 
-    path = tmp_path / "gains.tsv"
+    path = tmp_path / "gains.jsonl"
     assert consenrich_cli._writeReplicateGainSummary(rows, str(path)) is True
-    text = path.read_text(encoding="utf-8")
-    assert "gain_avg\tgain_std" in text
-    assert "gain_median" not in text
-    assert "gain_iqr" not in text
+    records = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [record["replicate_index"] for record in records] == [1, 2]
+    assert records[0]["gain_avg"] == pytest.approx(expectedAvg)
+    assert records[0]["gain_std"] == pytest.approx(expectedStd)
+    assert "gain_median" not in records[0]
+    assert "gain_iqr" not in records[0]
 
 
 def _case_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
@@ -501,6 +508,9 @@ def _case_readConfigDottedAndNestedEquivalent(
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
     matchingParams.minPeakScore: 7.5
+    loggingParams.verbosity: debug
+    loggingParams.progress: off
+    loggingParams.logFile: runEvents.jsonl
     """
 
     nestedYaml = """
@@ -529,6 +539,10 @@ def _case_readConfigDottedAndNestedEquivalent(
       uncertaintyScoreZ: 1.25
       metadataDetail: full
       minPeakScore: 7.5
+    loggingParams:
+      verbosity: debug
+      progress: off
+      logFile: runEvents.jsonl
     """
 
     dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
@@ -597,6 +611,10 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputDotted.maxNonTrackFileBytes == 1024
     assert outputNested.maxNonTrackFileBytes == 1024
     assert outputDotted == outputNested
+    assert configDotted["loggingArgs"] == configNested["loggingArgs"]
+    assert configDotted["loggingArgs"].verbosity == "debug"
+    assert configDotted["loggingArgs"].progress == "off"
+    assert configDotted["loggingArgs"].logFile == "runEvents.jsonl"
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]
@@ -1182,6 +1200,9 @@ def _case_runtime_defaults_are_centralized(
         parsed["outputArgs"].maxNonTrackFileBytes
         == constants.OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
     )
+    assert parsed["loggingArgs"].verbosity == constants.LOGGING_DEFAULT_VERBOSITY
+    assert parsed["loggingArgs"].progress == constants.LOGGING_DEFAULT_PROGRESS
+    assert parsed["loggingArgs"].logFile is None
     assert (
         parsed["matchingArgs"].metadataDetail
         == constants.MATCHING_DEFAULT_METADATA_DETAIL
@@ -1293,6 +1314,16 @@ def _case_runtime_defaults_are_centralized(
     )
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
+    assert cliDefaults.verbosity is None
+    assert cliDefaults.progress is None
+    monkeypatch.setattr(
+        consenrich_cli.sys,
+        "argv",
+        ["consenrich", "--verbosity", "debug", "--verbose"],
+    )
+    with pytest.raises(SystemExit) as conflictExit:
+        consenrich_cli.main()
+    assert conflictExit.value.code == 2
 
 
 def _case_observationMuncSeedWeightDefaultAndPrecisionIndependence(
@@ -2771,19 +2802,86 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     assert rows[1]["change"] is None
     assert rows[-1]["final_solution"] is True
 
-    convergencePath = tmp_path / "convergence.log"
+    precisionPath = tmp_path / "precision.jsonl"
+    convergencePath = tmp_path / "convergence.jsonl"
     consenrich_cli._initializeDiagnosticLogs(
         consenrich_cli.DiagnosticLogPaths(
-            munc_lambda=tmp_path / "munc.log",
-            punc_kappa=tmp_path / "punc.log",
+            precision=precisionPath,
             convergence=convergencePath,
-            delete_block_calibration=tmp_path / "delete.log",
+            delete_block_calibration=tmp_path / "delete.jsonl",
         )
     )
     consenrich_cli._appendConvergenceDiagnostics(rows, convergencePath)
-    lines = convergencePath.read_text(encoding="utf-8").splitlines()
-    assert lines[0].split("\t") == consenrich_cli.CONVERGENCE_LOG_COLUMNS
-    assert len(lines) == 4
+    records = [
+        json.loads(line)
+        for line in convergencePath.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [record["record_type"] for record in records] == ["trace"] * 3
+    assert [record["record_order"] for record in records] == [0, 1, 2]
+    assert records[0]["objective_value"] == pytest.approx(12.5)
+
+    precisionDiagnostics = {
+        "lambdaExp": np.asarray([0.5, 2.0], dtype=np.float64),
+        "processPrecExp": np.asarray([1.5, 0.75], dtype=np.float64),
+        "matrixQ0": np.diag([0.2, 0.05]),
+        "observationPrecisionMultiplierMin": 0.5,
+        "observationPrecisionMultiplierMax": 2.0,
+        "processPrecisionMultiplierMin": 0.75,
+        "processPrecisionMultiplierMax": 1.5,
+        "outputTracks": {
+            "muncTrace": np.asarray([0.4, 0.2], dtype=np.float64),
+            "sumGain0": np.asarray([0.1, 0.2], dtype=np.float64),
+            "sumGain1": np.asarray([0.3, 0.4], dtype=np.float64),
+            "puncQScale": np.asarray([1.1, 0.9], dtype=np.float64),
+        },
+    }
+    precisionFrame = consenrich_cli._precisionDiagnosticsFrame(
+        chromosome="chrTest",
+        intervals=np.asarray([0, 50], dtype=np.int64),
+        intervalSizeBP=50,
+        matrixMunc=np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype=np.float64),
+        pad=0.01,
+        precisionDiagnostics=precisionDiagnostics,
+    )
+    assert (
+        consenrich_cli._appendMuncLambdaDiagnostics(
+            precisionFrame,
+            precisionPath,
+            chromosome="chrTest",
+            precisionDiagnostics=precisionDiagnostics,
+            detail="full",
+        ),
+        consenrich_cli._appendPuncKappaDiagnostics(
+            precisionFrame,
+            precisionPath,
+            chromosome="chrTest",
+            precisionDiagnostics=precisionDiagnostics,
+            runDiagnostics={
+                "process_noise_calibration": {
+                    "processNoiseCalibrationStatus": "ok",
+                }
+            },
+            detail="full",
+        ),
+    ) == (2, 2)
+    precisionRecords = [
+        json.loads(line)
+        for line in precisionPath.read_text(encoding="utf-8").splitlines()
+    ]
+    precisionEvents = {record["event"] for record in precisionRecords}
+    assert {
+        "munc_lambda.interval",
+        "munc_lambda.summary",
+        "punc_kappa.interval",
+        "punc_kappa.process_noise_calibration",
+        "punc_kappa.summary",
+    } <= precisionEvents
+    assert sum(record["record_type"] == "interval" for record in precisionRecords) == 4
+    assert precisionRecords[0]["lambda"] == pytest.approx(0.5)
+    firstPunc = next(
+        record for record in precisionRecords if record["event"] == "punc_kappa.interval"
+    )
+    assert firstPunc["kappa"] == pytest.approx(1.5)
 
     with monkeypatch.context() as mp:
         mp.setitem(sys.modules, "matplotlib", None)
@@ -2910,10 +3008,9 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
 
 def test_run_summary_output_helpers(tmp_path):
     paths = consenrich_cli.DiagnosticLogPaths(
-        munc_lambda=tmp_path / "munc.log",
-        punc_kappa=tmp_path / "punc.log",
-        convergence=tmp_path / "convergence.log",
-        delete_block_calibration=tmp_path / "delete.log",
+        precision=tmp_path / "precision.jsonl",
+        convergence=tmp_path / "convergence.jsonl",
+        delete_block_calibration=tmp_path / "delete.jsonl",
     )
     row = consenrich_cli._runSummaryRow(
         chromosome="chr1",
@@ -2965,13 +3062,16 @@ def test_run_summary_output_helpers(tmp_path):
         elapsedSeconds=2.5,
         diagnosticLogPaths=paths,
     )
-    summaryPath = tmp_path / "summary.tsv"
+    summaryPath = tmp_path / "summary.jsonl"
 
     consenrich_cli._writeRunSummary([row, genome], summaryPath)
 
-    raw = summaryPath.read_text(encoding="utf-8")
-    frame = pd.read_csv(summaryPath, sep="\t")
-    assert list(frame.columns) == consenrich_cli.RUN_SUMMARY_COLUMNS
+    records = [
+        json.loads(line)
+        for line in summaryPath.read_text(encoding="utf-8").splitlines()
+    ]
+    frame = pd.DataFrame(records)
+    assert set(frame.columns) <= set(consenrich_cli.RUN_SUMMARY_COLUMNS)
     assert frame["record_type"].tolist() == ["chromosome", "genome"]
     assert frame.loc[0, "lambda_lower_bound_hits"] == 1
     assert frame.loc[0, "kappa_upper_bound_hits"] == 4
@@ -2987,7 +3087,66 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[1, "chromosome"] == "genome"
     assert frame.loc[1, "intervals"] == 12
     assert frame.loc[1, "output_track_count"] == 2
-    assert "\tNA\t" in raw
+    assert frame.loc[1, "precision_log"].endswith(".jsonl")
+
+
+def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):
+    class ColorStream(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    stream = ColorStream()
+    logPath = tmp_path / "events.jsonl"
+    packageLogger = logging.getLogger("consenrich")
+    originalHandlers = list(packageLogger.handlers)
+    originalLevel = packageLogger.level
+    originalPropagate = packageLogger.propagate
+
+    resolvedLogPath = consenrich_cli._configureCliLogging(
+        logPath,
+        verbose=False,
+        verbose2=False,
+        verbosity="normal",
+        consoleStream=stream,
+    )
+    try:
+        assert resolvedLogPath == logPath
+        consenrich_cli._logCliPhase("Config", "samples=%d", 2)
+        consenrich_cli._logCliSubphase("Diagnostics: %s", "ready")
+        consenrich_cli._logCliProgressMilestone("Verbose detail")
+        consenrich_cli._logCliMilestone("Milestone")
+        consenrich_cli._logCliMilestone("Finished", blue=True)
+        for handler in packageLogger.handlers:
+            handler.flush()
+    finally:
+        consenrich_cli._removeCliHandlers(packageLogger)
+        packageLogger.setLevel(originalLevel)
+        packageLogger.propagate = originalPropagate
+        for handler in originalHandlers:
+            if handler not in packageLogger.handlers:
+                packageLogger.addHandler(handler)
+
+    consoleText = stream.getvalue()
+    assert "\033[1;38;2;0;48;96m" in consoleText
+    assert "\033[38;2;191;87;0m" in consoleText
+    assert "\033[1;38;2;128;24;96m" in consoleText
+    assert "\n\n" in consoleText
+    assert "  - " in consoleText
+    assert "Verbose detail" not in consoleText
+
+    records = [
+        json.loads(line)
+        for line in logPath.read_text(encoding="utf-8").splitlines()
+    ]
+    byMessage = {record["message"]: record for record in records}
+    assert byMessage["=== Consenrich | Config === samples=2"]["console_phase"]
+    assert byMessage["Diagnostics: ready"]["console_subphase"]
+    assert byMessage["Verbose detail"]["console_subphase"]
+    assert byMessage["Verbose detail"]["console_verbose"]
+    assert byMessage["Milestone"]["console_milestone"]
+    assert byMessage["Finished"]["console_milestone"]
 
 
 def test_config_sparse_sample_source_and_matching_contracts(

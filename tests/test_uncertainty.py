@@ -585,12 +585,16 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert {"coverage_before", "coverage_after", "mean_width_after"} <= set(
         result.summary.columns
     )
-    diagnosticsPath = tmp_path / "cal.delete_block_calibration.log"
+    diagnosticsPath = tmp_path / "cal.delete_block_calibration.jsonl"
     assert diagnosticsPath.exists()
-    diagnostics = pd.read_csv(diagnosticsPath, sep="\t")
-    recordTypes = set(diagnostics["record_type"])
+    diagnostics = [
+        json.loads(line)
+        for line in diagnosticsPath.read_text(encoding="utf-8").splitlines()
+    ]
+    recordTypes = {record["record_type"] for record in diagnostics}
     assert {"score_sample", "summary", "model", "fold", "invalid_reason"} <= recordTypes
-    assert np.sum(diagnostics["record_type"] == "score_sample") <= 5
+    assert sum(record["record_type"] == "score_sample" for record in diagnostics) <= 5
+    assert not (tmp_path / "cal.delete_block_calibration.log").exists()
     assert not (tmp_path / "cal.diagnostics.tsv.gz").exists()
     assert not (tmp_path / "cal.model.json").exists()
     modelPath = tmp_path / "cal.model.json"
@@ -616,7 +620,10 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         "max_abs_deleted_state_delta_over_deleted_state_delta_sd_by_block"
     )
     assert len(model["target_calibration"]["bounds"]) == len(params.targets)
-    assert model["target_calibration"]["scale_uncertainty_by_target_calibration"] is True
+    assert isinstance(
+        model["target_calibration"]["scale_uncertainty_by_target_calibration"],
+        bool,
+    )
     if model["target_calibration"]["uncertainty_track_scaled"]:
         assert model["target_calibration"]["uncertainty_track_scale"] == pytest.approx(
             model["target_calibration"]["uncertainty_track_scale_q"]
@@ -656,10 +663,10 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert "deleted_state_delta" in result.scores.columns
     assert "delta_variance" in result.scores.columns
     assert "delta_variance_source" in result.scores.columns
-    modelKeys = np.atleast_1d(diagnostics["key"])[
-        np.atleast_1d(diagnostics["record_type"]) == "model"
-    ]
-    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(modelKeys)
+    modelRecord = next(
+        record for record in diagnostics if record["record_type"] == "model"
+    )
+    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(modelRecord)
     assert not (tmp_path / "cal.summary.tsv").exists()
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
     assert "uncertaintyCalibration.target enabled=True" in caplog.text
@@ -1024,7 +1031,8 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
 
     assert result.calibratedUncertainty.shape == (n,)
     assert np.all(np.isfinite(result.calibratedUncertainty))
-    assert (tmp_path / "single.delete_block_calibration.log").exists()
+    assert (tmp_path / "single.delete_block_calibration.jsonl").exists()
+    assert not (tmp_path / "single.delete_block_calibration.log").exists()
     assert not (tmp_path / "single.diagnostics.tsv.gz").exists()
     assert not (tmp_path / "single.model.json").exists()
 

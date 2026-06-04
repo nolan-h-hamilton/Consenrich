@@ -5,14 +5,18 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import gzip
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+import structlog
 
 
-_PROGRESS_ENABLED = False
+def _reject_json_default(value: Any) -> Any:
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def log_field_name(value: Any) -> str:
@@ -108,23 +112,15 @@ def log_event(
     level: int = logging.INFO,
     stacklevel: int = 2,
 ) -> None:
-    logger.log(level, format_log_event(event, fields), stacklevel=stacklevel)
-
-
-def set_progress_enabled(enabled: bool) -> None:
-    """Enable or disable progress bars for CLI-owned workflows."""
-
-    global _PROGRESS_ENABLED
-    _PROGRESS_ENABLED = bool(enabled)
-
-
-def progress_enabled(stderr: Any | None = None) -> bool:
-    import sys
-
-    if not _PROGRESS_ENABLED:
-        return False
-    stream = sys.stderr if stderr is None else stderr
-    return bool(getattr(stream, "isatty", lambda: False)())
+    logger.log(
+        level,
+        format_log_event(event, fields),
+        extra={
+            "consenrich_event": log_event_name(event),
+            "consenrich_fields": dict(_field_items(fields)),
+        },
+        stacklevel=stacklevel,
+    )
 
 
 def atomic_write(path: str, writer: Callable[[str], None]) -> None:
@@ -170,60 +166,193 @@ def log_file_written(
     log_event(logger, event, payload, level=level, stacklevel=3)
 
 
-def init_tsv_log(path: str | os.PathLike[str], columns: Sequence[str]) -> Path:
-    """Create or replace a tab-delimited diagnostic log with a stable header."""
+def strictJsonValue(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.ndarray):
+        return strictJsonValue(value.tolist())
+    if isinstance(value, Mapping):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("JSON mappings must use string keys")
+            out[key] = strictJsonValue(item)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [strictJsonValue(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
+
+_JSON_RENDERER = structlog.processors.JSONRenderer(
+    serializer=lambda obj, **kwargs: json.dumps(
+        obj,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        default=_reject_json_default,
+    )
+)
+
+
+def strictJsonDumps(record: Mapping[str, Any]) -> str:
+    if not isinstance(record, Mapping):
+        raise TypeError("JSON records must be mappings")
+    return _JSON_RENDERER(None, None, strictJsonValue(record))
+
+
+def _jsonl_open(path: Path, mode: str):
+    if str(path).endswith(".gz"):
+        return gzip.open(path, mode, encoding="utf-8", newline="")
+    return path.open(mode, encoding="utf-8", newline="")
+
+
+def init_jsonl_log(path: str | os.PathLike[str]) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    header = "\t".join(str(column) for column in columns) + "\n"
 
-    def _write_header(temp_path: str) -> None:
-        Path(temp_path).write_text(header, encoding="utf-8")
+    def _write_empty(temp_path: str) -> None:
+        tempTarget = Path(temp_path)
+        if str(target).endswith(".gz"):
+            with gzip.open(tempTarget, "wt", encoding="utf-8", newline=""):
+                pass
+        else:
+            tempTarget.write_text("", encoding="utf-8")
 
-    atomic_write(str(target), _write_header)
+    atomic_write(str(target), _write_empty)
     return target
 
 
-def append_tsv_log(
+def sizeAdvisoryRecord(
     path: str | os.PathLike[str],
-    rows: Sequence[Mapping[str, Any]] | Any,
-    columns: Sequence[str],
-) -> int:
-    """Append records to a tab-delimited diagnostic log using pandas' vectorized writer."""
+    *,
+    bytesWritten: int,
+    sizeAdvisoryBytes: int,
+    event: str = "artifact.size",
+    artifact: str | None = None,
+) -> dict[str, Any]:
+    if isinstance(bytesWritten, bool) or not isinstance(bytesWritten, int):
+        raise TypeError("bytesWritten must be an integer")
+    if isinstance(sizeAdvisoryBytes, bool) or not isinstance(sizeAdvisoryBytes, int):
+        raise TypeError("sizeAdvisoryBytes must be an integer")
+    if sizeAdvisoryBytes <= 0:
+        raise ValueError("sizeAdvisoryBytes must be positive")
+    record = {
+        "record_type": "size_advisory",
+        "event": event,
+        "path": str(path),
+        "bytes": bytesWritten,
+        "size_advisory_bytes": sizeAdvisoryBytes,
+        "exceeds_advisory": bool(bytesWritten > sizeAdvisoryBytes),
+    }
+    if artifact is not None:
+        record["artifact"] = str(artifact)
+    return record
 
+
+class JsonlWriter:
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        append: bool = True,
+        sizeAdvisoryBytes: int | None = None,
+    ):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if sizeAdvisoryBytes is not None:
+            if isinstance(sizeAdvisoryBytes, bool) or not isinstance(
+                sizeAdvisoryBytes,
+                int,
+            ):
+                raise TypeError("sizeAdvisoryBytes must be an integer")
+            if sizeAdvisoryBytes <= 0:
+                raise ValueError("sizeAdvisoryBytes must be positive")
+        self.sizeAdvisoryBytes = sizeAdvisoryBytes
+        self.bytesWritten = (
+            self.path.stat().st_size
+            if append and self.path.exists() and self.sizeAdvisoryBytes is not None
+            else 0
+        )
+        self._advisoryEmitted = False
+        self._handle = _jsonl_open(self.path, "at" if append else "wt")
+
+    def close(self) -> None:
+        self._handle.close()
+
+    def __enter__(self) -> "JsonlWriter":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+    def write(self, record: Mapping[str, Any]) -> int:
+        line = strictJsonDumps(record) + "\n"
+        self._handle.write(line)
+        self.bytesWritten += len(line.encode("utf-8"))
+        rowsWritten = 1
+        if (
+            self.sizeAdvisoryBytes is not None
+            and self.bytesWritten > self.sizeAdvisoryBytes
+            and not self._advisoryEmitted
+        ):
+            self._advisoryEmitted = True
+            advisory = sizeAdvisoryRecord(
+                self.path,
+                bytesWritten=self.bytesWritten,
+                sizeAdvisoryBytes=self.sizeAdvisoryBytes,
+            )
+            advisoryLine = strictJsonDumps(advisory) + "\n"
+            self._handle.write(advisoryLine)
+            self.bytesWritten += len(advisoryLine.encode("utf-8"))
+            rowsWritten += 1
+        return rowsWritten
+
+    def write_many(self, records: Sequence[Mapping[str, Any]]) -> int:
+        rowsWritten = 0
+        for record in records:
+            rowsWritten += self.write(record)
+        return rowsWritten
+
+
+def append_jsonl_log(
+    path: str | os.PathLike[str],
+    records: Sequence[Mapping[str, Any]] | Mapping[str, Any] | Any,
+    *,
+    sizeAdvisoryBytes: int | None = None,
+) -> int:
     import pandas as pd
 
-    if rows is None:
+    if records is None:
+        raise TypeError("records must not be None")
+    if isinstance(records, Mapping):
+        recordList = [records]
+    elif isinstance(records, pd.DataFrame):
+        recordList = records.to_dict(orient="records")
+    else:
+        recordList = list(records)
+    if not recordList:
         return 0
-    frame = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(list(rows))
-    if frame.empty:
-        return 0
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    frame = frame.reindex(columns=list(columns))
-    frame.to_csv(
-        target,
-        sep="\t",
-        mode="a",
-        header=False,
-        index=False,
-        lineterminator="\n",
-        na_rep="NA",
-    )
-    return int(len(frame))
+    with JsonlWriter(path, append=True, sizeAdvisoryBytes=sizeAdvisoryBytes) as writer:
+        return writer.write_many(recordList)
 
 
 __all__ = [
-    "append_tsv_log",
+    "JsonlWriter",
+    "append_jsonl_log",
     "atomic_write",
     "format_log_event",
     "format_log_value",
-    "init_tsv_log",
+    "init_jsonl_log",
     "log_event",
     "log_event_name",
     "log_field_name",
     "log_file_written",
-    "progress_enabled",
     "quote_log_string",
-    "set_progress_enabled",
+    "sizeAdvisoryRecord",
+    "strictJsonDumps",
+    "strictJsonValue",
 ]

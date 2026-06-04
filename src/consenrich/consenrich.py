@@ -16,7 +16,6 @@ from typing import List, Optional, Tuple, Dict, Any, Union, Sequence, NamedTuple
 import sys
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 import consenrich.core as core
 import consenrich.diagnostics as diagnostics
@@ -32,7 +31,7 @@ from .genome_covariates import (
     resolve_genome_covariate_feature_config,
 )
 from . import io as io_helpers
-from .config import loadConfig, readConfig
+from .config import getLoggingArgs, loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
     _checkSF,
@@ -56,12 +55,25 @@ _CLI_HANDLER_ATTR = "_consenrich_cli_handler"
 _CONSOLE_EVENT_ATTR = "consenrich_console"
 _CONSOLE_VERBOSE_EVENT_ATTR = "consenrich_console_verbose"
 _CONSOLE_PHASE_ATTR = "consenrich_console_phase"
+_CONSOLE_SUBPHASE_ATTR = "consenrich_console_subphase"
 _CONSOLE_BLUE_ATTR = "consenrich_console_blue"
-_CONSOLE_PHASE_BLUE = "\033[34m"
+_CONSOLE_RICH_NAVY_TEXT = "\033[1;38;2;0;48;96m"
+_CONSOLE_BURNT_ORANGE_TEXT = "\033[38;2;191;87;0m"
+_CONSOLE_DARK_MAGENTA_TEXT = "\033[1;38;2;128;24;96m"
+_CONSOLE_PHASE_TEXT = _CONSOLE_RICH_NAVY_TEXT
+_CONSOLE_SUBPHASE_TEXT = _CONSOLE_BURNT_ORANGE_TEXT
+_CONSOLE_MILESTONE_TEXT = _CONSOLE_DARK_MAGENTA_TEXT
+_CONSOLE_BLUE_TEXT = _CONSOLE_RICH_NAVY_TEXT
+_CONSOLE_WARNING_TEXT = _CONSOLE_BURNT_ORANGE_TEXT
+_CONSOLE_ERROR_TEXT = _CONSOLE_DARK_MAGENTA_TEXT
 _CONSOLE_STYLE_RESET = "\033[0m"
-_AUDIT_LOG_FORMAT = (
-    "%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s"
-)
+_JSON_LOG_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+_CONSOLE_VERBOSITY_ORDER = {
+    "quiet": 0,
+    "normal": 1,
+    "verbose": 2,
+    "debug": 3,
+}
 
 OPTIMIZATION_PATH_COLUMNS = [
     "chromosome",
@@ -260,16 +272,14 @@ RUN_SUMMARY_COLUMNS = [
     "delete_block_rows_fit",
     "delete_block_scale",
     "delete_block_scale_reason",
-    "munc_lambda_log",
-    "punc_kappa_log",
+    "precision_log",
     "convergence_log",
     "delete_block_calibration_log",
 ]
 
 
 class DiagnosticLogPaths(NamedTuple):
-    munc_lambda: Path
-    punc_kappa: Path
+    precision: Path
     convergence: Path
     delete_block_calibration: Path
 
@@ -576,70 +586,101 @@ def _diagnosticLogPaths(experimentName: str) -> DiagnosticLogPaths:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     prefix = f"consenrichOutput_{experimentToken}"
     return DiagnosticLogPaths(
-        munc_lambda=Path(f"{prefix}_munc_lambda.v{__version__}.log"),
-        punc_kappa=Path(f"{prefix}_punc_kappa.v{__version__}.log"),
-        convergence=Path(f"{prefix}_convergence.v{__version__}.log"),
+        precision=Path(f"{prefix}_precision.v{__version__}.jsonl.gz"),
+        convergence=Path(f"{prefix}_convergence.v{__version__}.jsonl"),
         delete_block_calibration=Path(
-            f"{prefix}_delete_block_calibration.v{__version__}.log"
+            f"{prefix}_delete_block_calibration.v{__version__}.jsonl.gz"
         ),
     )
 
 
 def _runSummaryPath(experimentName: str) -> Path:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.tsv")
+    return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.jsonl")
 
 
 def _initializeDiagnosticLogs(paths: DiagnosticLogPaths) -> None:
-    logging_utils.init_tsv_log(paths.munc_lambda, MUNC_LAMBDA_LOG_COLUMNS)
-    logging_utils.init_tsv_log(paths.punc_kappa, PUNC_KAPPA_LOG_COLUMNS)
-    logging_utils.init_tsv_log(paths.convergence, CONVERGENCE_LOG_COLUMNS)
-    logging_utils.init_tsv_log(
-        paths.delete_block_calibration,
-        DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
-    )
+    for path in paths:
+        logging_utils.init_jsonl_log(path)
 
 
 def _jsonDiagnosticValue(value: Any) -> Any:
     if isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, np.ndarray):
-        return value.astype(float).tolist()
+        return [_jsonDiagnosticValue(item) for item in value.reshape(-1).tolist()]
     if isinstance(value, Mapping):
         return {str(key): _jsonDiagnosticValue(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_jsonDiagnosticValue(item) for item in value]
+    if value is pd.NA:
+        return None
     if isinstance(value, (float, np.floating)):
-        value_ = float(value)
-        return value_ if np.isfinite(value_) else None
+        valueFloat = float(value)
+        return valueFloat if math.isfinite(valueFloat) else None
     return value
 
 
-def _appendKeyValueDiagnostics(
+def _jsonlRecords(
+    rows: Sequence[Mapping[str, Any]] | pd.DataFrame,
+    columns: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    if isinstance(rows, pd.DataFrame):
+        frame = rows if columns is None else rows.reindex(columns=list(columns))
+        rowRecords = [
+            dict(zip(frame.columns, values))
+            for values in frame.itertuples(index=False, name=None)
+        ]
+    else:
+        rowRecords = []
+        for row in rows:
+            rowDict = dict(row)
+            if columns is not None:
+                rowDict = {str(column): rowDict.get(column) for column in columns}
+            rowRecords.append(rowDict)
+    records: list[dict[str, Any]] = []
+    for row in rowRecords:
+        converted = {str(key): _jsonDiagnosticValue(value) for key, value in row.items()}
+        records.append({key: value for key, value in converted.items() if value is not None})
+    return records
+
+
+def _writeJsonlRecords(
+    path: str | os.PathLike[str],
+    rows: Sequence[Mapping[str, Any]] | pd.DataFrame,
+    columns: Sequence[str] | None = None,
+) -> int:
+    records = _jsonlRecords(rows, columns)
+    logging_utils.init_jsonl_log(path)
+    return logging_utils.append_jsonl_log(path, records)
+
+
+def _appendJsonlRecords(
+    path: str | os.PathLike[str],
+    rows: Sequence[Mapping[str, Any]] | pd.DataFrame,
+    columns: Sequence[str] | None = None,
+) -> int:
+    records = _jsonlRecords(rows, columns)
+    if not records:
+        return 0
+    return logging_utils.append_jsonl_log(path, records)
+
+
+def _appendMappingDiagnostics(
     path: Path,
-    columns: Sequence[str],
     *,
     recordType: str,
     event: str,
     chromosome: str | None,
     values: Mapping[str, Any],
 ) -> int:
-    rows = []
-    for key, value in values.items():
-        rows.append(
-            {
-                "record_type": recordType,
-                "event": event,
-                "chromosome": chromosome,
-                "key": str(key),
-                "value": (
-                    json.dumps(_jsonDiagnosticValue(value), sort_keys=True)
-                    if isinstance(value, (Mapping, list, tuple, np.ndarray))
-                    else _jsonDiagnosticValue(value)
-                ),
-            }
-        )
-    return logging_utils.append_tsv_log(path, rows, columns)
+    record = {
+        "record_type": recordType,
+        "event": event,
+        "chromosome": chromosome,
+        **{str(key): value for key, value in values.items()},
+    }
+    return _appendJsonlRecords(path, [record])
 
 
 def _selectPrecisionDiagnosticIntervalRows(
@@ -1286,10 +1327,9 @@ def _appendMuncLambdaDiagnostics(
                     out[name] = track[rowPositions]
                 elif track.shape[0] == len(outFrame):
                     out[name] = track
-    rowsWritten = logging_utils.append_tsv_log(path, out, MUNC_LAMBDA_LOG_COLUMNS)
-    _appendKeyValueDiagnostics(
+    rowsWritten = _appendJsonlRecords(path, out)
+    _appendMappingDiagnostics(
         path,
-        MUNC_LAMBDA_LOG_COLUMNS,
         recordType="summary",
         event="munc_lambda.summary",
         chromosome=chromosome,
@@ -1375,20 +1415,18 @@ def _appendPuncKappaDiagnostics(
             out["puncQScale"] = track[rowPositions]
         elif track.shape[0] == len(outFrame):
             out["puncQScale"] = track
-    rowsWritten = logging_utils.append_tsv_log(path, out, PUNC_KAPPA_LOG_COLUMNS)
+    rowsWritten = _appendJsonlRecords(path, out)
     processNoise = runDiagnostics.get("process_noise_calibration")
     if isinstance(processNoise, Mapping):
-        _appendKeyValueDiagnostics(
+        _appendMappingDiagnostics(
             path,
-            PUNC_KAPPA_LOG_COLUMNS,
             recordType="summary",
             event="punc_kappa.process_noise_calibration",
             chromosome=chromosome,
             values=processNoise,
         )
-    _appendKeyValueDiagnostics(
+    _appendMappingDiagnostics(
         path,
-        PUNC_KAPPA_LOG_COLUMNS,
         recordType="summary",
         event="punc_kappa.summary",
         chromosome=chromosome,
@@ -1413,11 +1451,8 @@ def _appendConvergenceDiagnostics(
 ) -> int:
     if not rows:
         return 0
-    frame = pd.DataFrame(
-        ({"record_type": "trace", **dict(row)} for row in rows),
-        columns=CONVERGENCE_LOG_COLUMNS,
-    )
-    rowsWritten = logging_utils.append_tsv_log(path, frame, CONVERGENCE_LOG_COLUMNS)
+    records = ({"record_type": "trace", **dict(row)} for row in rows)
+    rowsWritten = _appendJsonlRecords(path, records)
     core._logEvent(
         "artifact.convergence",
         (("path", str(path)), ("rows", int(rowsWritten))),
@@ -1515,8 +1550,7 @@ def _runSummaryRow(
         "delete_block_scale_reason": targetCalibration.get(
             "uncertainty_track_scale_reason"
         ),
-        "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
-        "punc_kappa_log": str(diagnosticLogPaths.punc_kappa),
+        "precision_log": str(diagnosticLogPaths.precision),
         "convergence_log": str(diagnosticLogPaths.convergence),
         "delete_block_calibration_log": str(
             diagnosticLogPaths.delete_block_calibration
@@ -1543,8 +1577,7 @@ def _genomeRunSummaryRow(
         "samples": int(samples),
         "elapsed_seconds": float(elapsedSeconds),
         "output_track_count": int(outputTrackCount),
-        "munc_lambda_log": str(diagnosticLogPaths.munc_lambda),
-        "punc_kappa_log": str(diagnosticLogPaths.punc_kappa),
+        "precision_log": str(diagnosticLogPaths.precision),
         "convergence_log": str(diagnosticLogPaths.convergence),
         "delete_block_calibration_log": str(
             diagnosticLogPaths.delete_block_calibration
@@ -1553,19 +1586,19 @@ def _genomeRunSummaryRow(
 
 
 def _writeRunSummary(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
-    frame = pd.DataFrame(list(rows), columns=RUN_SUMMARY_COLUMNS)
-    frame.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
+    rowsList = list(rows)
+    _writeJsonlRecords(path, rowsList)
     logging_utils.log_file_written(
         logger,
         event="artifact.run_summary",
         path=str(path),
-        fields=(("rows", int(len(frame))),),
+        fields=(("rows", int(len(rowsList))),),
     )
 
 
 def _replicateGainSummaryPath(experimentName: str) -> str:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    return f"consenrichOutput_{experimentToken}_replicateGains.v{__version__}.tsv"
+    return f"consenrichOutput_{experimentToken}_replicateGains.v{__version__}.jsonl"
 
 
 def _newReplicateGainAccumulator(replicateCount: int) -> dict[str, np.ndarray]:
@@ -1654,8 +1687,8 @@ def _replicateGainSummaryRows(
             variance = max(float(sumSqs[i] / float(count)) - (avg * avg), 0.0)
             std = float(math.sqrt(variance))
         else:
-            avg = float("nan")
-            std = float("nan")
+            avg = None
+            std = None
         rows.append(
             {
                 "replicate_index": int(i + 1),
@@ -1690,15 +1723,7 @@ def _writeReplicateGainSummary(rows: Sequence[Mapping[str, Any]], path: str) -> 
             level=logging.WARNING,
         )
         return False
-    frame.to_csv(
-        path,
-        sep="\t",
-        header=True,
-        index=False,
-        float_format="%.7g",
-        lineterminator="\n",
-        na_rep="NA",
-    )
+    _writeJsonlRecords(path, frame, GAIN_SUMMARY_COLUMNS)
     core._logEvent(
         "artifact.replicate_gains",
         (
@@ -2129,32 +2154,44 @@ def _logMuncEstimationParameters(
     )
 
 
-def _progress(iterable, **kwargs):
-    disable = kwargs.pop("disable", False)
-    if disable or not logging_utils.progress_enabled():
-        return iterable
-    kwargs.setdefault("mininterval", 0.5)
-    kwargs.setdefault("leave", False)
-    kwargs.setdefault("dynamic_ncols", True)
-    return tqdm(iterable, disable=False, **kwargs)
-
-
 class _ConsoleLogFilter(logging.Filter):
-    def __init__(self, *, verbose: bool, verbose2: bool):
+    def __init__(
+        self,
+        *,
+        verbose: bool,
+        verbose2: bool,
+        verbosity: str | None = None,
+    ):
         super().__init__()
-        self.verbose = bool(verbose)
-        self.verbose2 = bool(verbose2)
+        if verbosity is None:
+            if verbose2:
+                verbosity = "debug"
+            elif verbose:
+                verbosity = "verbose"
+            else:
+                verbosity = constants.LOGGING_DEFAULT_VERBOSITY
+        self.verbosity = str(verbosity)
 
     def filter(self, record: logging.LogRecord) -> bool:
+        levelRank = _CONSOLE_VERBOSITY_ORDER.get(
+            self.verbosity,
+            _CONSOLE_VERBOSITY_ORDER[constants.LOGGING_DEFAULT_VERBOSITY],
+        )
         if record.levelno >= logging.WARNING:
             return True
-        if self.verbose2:
+        if levelRank >= _CONSOLE_VERBOSITY_ORDER["debug"]:
             return True
-        if self.verbose and record.levelno >= logging.INFO:
+        if (
+            levelRank >= _CONSOLE_VERBOSITY_ORDER["verbose"]
+            and record.levelno >= logging.INFO
+        ):
             return True
         if getattr(record, _CONSOLE_VERBOSE_EVENT_ATTR, False):
-            return self.verbose
-        return bool(getattr(record, _CONSOLE_EVENT_ATTR, False))
+            return levelRank >= _CONSOLE_VERBOSITY_ORDER["verbose"]
+        return (
+            levelRank >= _CONSOLE_VERBOSITY_ORDER["normal"]
+            and bool(getattr(record, _CONSOLE_EVENT_ATTR, False))
+        )
 
 
 class _ConsoleFormatter(logging.Formatter):
@@ -2162,16 +2199,29 @@ class _ConsoleFormatter(logging.Formatter):
         super().__init__()
         self.colorPhaseHeaders = bool(colorPhaseHeaders)
 
+    def _color(self, message: str, colorCode: str) -> str:
+        if not self.colorPhaseHeaders:
+            return message
+        return f"{colorCode}{message}{_CONSOLE_STYLE_RESET}"
+
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
         if getattr(record, _CONSOLE_PHASE_ATTR, False):
-            if self.colorPhaseHeaders:
-                message = f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
+            message = self._color(message, _CONSOLE_PHASE_TEXT)
             message = "\n\n" + message
-        elif getattr(record, _CONSOLE_BLUE_ATTR, False) and self.colorPhaseHeaders:
-            message = f"{_CONSOLE_PHASE_BLUE}{message}{_CONSOLE_STYLE_RESET}"
+        elif getattr(record, _CONSOLE_SUBPHASE_ATTR, False):
+            message = "  - " + self._color(message, _CONSOLE_SUBPHASE_TEXT)
+        elif getattr(record, _CONSOLE_BLUE_ATTR, False):
+            message = self._color(message, _CONSOLE_BLUE_TEXT)
+        elif getattr(record, _CONSOLE_EVENT_ATTR, False):
+            message = "  * " + self._color(message, _CONSOLE_MILESTONE_TEXT)
         if record.levelno >= logging.WARNING:
-            message = f"{record.levelname}: {message}"
+            colorCode = (
+                _CONSOLE_ERROR_TEXT
+                if record.levelno >= logging.ERROR
+                else _CONSOLE_WARNING_TEXT
+            )
+            message = self._color(f"{record.levelname}: {message}", colorCode)
         if record.exc_info:
             message = message + "\n" + self.formatException(record.exc_info)
         if record.stack_info:
@@ -2179,26 +2229,35 @@ class _ConsoleFormatter(logging.Formatter):
         return message
 
 
-class _AuditFormatter(logging.Formatter):
+class _JSONLFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        message = super().format(record)
+        payload: dict[str, Any] = {
+            "record_type": "event",
+            "event": getattr(record, "consenrich_event", None) or "log.message",
+            "function": record.funcName,
+            "level": record.levelname.lower(),
+            "line": int(record.lineno),
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "time": self.formatTime(record, _JSON_LOG_TIME_FORMAT),
+        }
+        fields = getattr(record, "consenrich_fields", None)
+        if isinstance(fields, Mapping) and fields:
+            payload["fields"] = dict(fields)
         if getattr(record, _CONSOLE_PHASE_ATTR, False):
-            return "\n\n" + message
-        return message
-
-
-class _TqdmConsoleHandler(logging.StreamHandler):
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            message = self.format(record)
-            stream = self.stream
-            if stream is sys.stderr and getattr(stream, "isatty", lambda: False)():
-                tqdm.write(message, file=stream, end=self.terminator)
-            else:
-                stream.write(message + self.terminator)
-                self.flush()
-        except Exception:
-            self.handleError(record)
+            payload["console_phase"] = True
+        if getattr(record, _CONSOLE_SUBPHASE_ATTR, False):
+            payload["console_subphase"] = True
+        if getattr(record, _CONSOLE_EVENT_ATTR, False):
+            payload["console_milestone"] = True
+        if getattr(record, _CONSOLE_VERBOSE_EVENT_ATTR, False):
+            payload["console_verbose"] = True
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload["stack"] = self.formatStack(record.stack_info)
+        return logging_utils.strictJsonDumps(payload)
 
 
 def _removeCliHandlers(packageLogger: logging.Logger) -> None:
@@ -2223,12 +2282,12 @@ def _defaultConfigLogPath(configPath: str) -> Path:
     except Exception:
         pass
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    return Path(f"consenrichOutput_{experimentToken}_run.v{__version__}.log")
+    return Path(f"consenrichOutput_{experimentToken}_run.v{__version__}.jsonl")
 
 
 def _defaultMatchLogPath(stateBedGraphPath: str) -> Path:
     statePath = Path(stateBedGraphPath)
-    return statePath.with_name(f"{statePath.stem}_consenrich_run.v{__version__}.log")
+    return statePath.with_name(f"{statePath.stem}_consenrich_run.v{__version__}.jsonl")
 
 
 def _configureCliLogging(
@@ -2236,19 +2295,31 @@ def _configureCliLogging(
     *,
     verbose: bool,
     verbose2: bool,
+    verbosity: str | None = None,
     consoleStream=None,
 ) -> Path | None:
+    verbosityLabel = (
+        str(verbosity)
+        if verbosity is not None
+        else ("debug" if verbose2 else "verbose" if verbose else "normal")
+    )
+    if verbosityLabel not in _CONSOLE_VERBOSITY_ORDER:
+        raise ValueError(f"Unsupported verbosity {verbosityLabel!r}")
     packageLogger = logging.getLogger("consenrich")
     _removeCliHandlers(packageLogger)
-    packageLogger.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+    packageLogger.setLevel(logging.DEBUG)
     packageLogger.propagate = False
 
     consoleTarget = sys.stderr if consoleStream is None else consoleStream
-    consoleHandler = _TqdmConsoleHandler(consoleTarget)
+    consoleHandler = logging.StreamHandler(consoleTarget)
     setattr(consoleHandler, _CLI_HANDLER_ATTR, True)
-    consoleHandler.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+    consoleHandler.setLevel(logging.DEBUG)
     consoleHandler.addFilter(
-        _ConsoleLogFilter(verbose=bool(verbose), verbose2=bool(verbose2))
+        _ConsoleLogFilter(
+            verbose=bool(verbose),
+            verbose2=bool(verbose2),
+            verbosity=verbosityLabel,
+        )
     )
     consoleColor = (
         getattr(consoleTarget, "isatty", lambda: False)()
@@ -2267,16 +2338,13 @@ def _configureCliLogging(
             logPath.parent.mkdir(parents=True, exist_ok=True)
         fileHandler = logging.FileHandler(logPath, mode="w", encoding="utf-8")
         setattr(fileHandler, _CLI_HANDLER_ATTR, True)
-        fileHandler.setLevel(logging.DEBUG if verbose2 else logging.INFO)
-        fileHandler.addFilter(
-            _ConsoleLogFilter(verbose=bool(verbose), verbose2=bool(verbose2))
-        )
-        fileHandler.setFormatter(_AuditFormatter(_AUDIT_LOG_FORMAT))
+        fileHandler.setLevel(logging.DEBUG)
+        fileHandler.setFormatter(_JSONLFormatter())
         packageLogger.addHandler(fileHandler)
         return logPath
     except Exception as exc:
         logger.warning(
-            "Failed to configure canonical log file %s: %s. Continuing with console logging.",
+            "Failed to configure JSONL log file %s: %s.",
             logPath,
             exc,
         )
@@ -2287,6 +2355,19 @@ def _logCliMilestone(message: str, *args: Any, blue: bool = False) -> None:
     extra = {_CONSOLE_EVENT_ATTR: True}
     if blue:
         extra[_CONSOLE_BLUE_ATTR] = True
+    logger.info(message, *args, extra=extra, stacklevel=2)
+
+
+def _logCliSubphase(
+    message: str,
+    *args: Any,
+    verboseOnly: bool = False,
+) -> None:
+    extra = {_CONSOLE_SUBPHASE_ATTR: True}
+    if verboseOnly:
+        extra[_CONSOLE_VERBOSE_EVENT_ATTR] = True
+    else:
+        extra[_CONSOLE_EVENT_ATTR] = True
     logger.info(message, *args, extra=extra, stacklevel=2)
 
 
@@ -2311,12 +2392,7 @@ def _logCliPhase(phaseLabel: str, message: str | None = None, *args: Any) -> Non
 
 
 def _logCliProgressMilestone(message: str, *args: Any) -> None:
-    logger.info(
-        message,
-        *args,
-        extra={_CONSOLE_VERBOSE_EVENT_ATTR: True},
-        stacklevel=2,
-    )
+    _logCliSubphase(message, *args, verboseOnly=True)
 
 
 def _buildArgParser() -> argparse.ArgumentParser:
@@ -2432,12 +2508,29 @@ def _buildArgParser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         dest="logFile",
-        help="Path for the canonical Consenrich audit log.",
+        help="Path for the canonical Consenrich JSONL event log.",
     )
-    parser.add_argument("--verbose", action="store_true", help="If set, logs config")
+    parser.add_argument(
+        "--verbosity",
+        type=str,
+        choices=constants.LOGGING_VERBOSITY_LEVELS,
+        default=None,
+        dest="verbosity",
+        help="Console logging level.",
+    )
+    parser.add_argument(
+        "--progress",
+        type=str,
+        choices=constants.LOGGING_PROGRESS_MODES,
+        default=None,
+        dest="progress",
+        help="Progress display mode. Progress bars are not used by this CLI.",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Use verbose logging.")
     parser.add_argument(
         "--verbose2",
         action="store_true",
+        help="Use debug logging.",
     )
     parser.add_argument(
         "--version",
@@ -2450,9 +2543,30 @@ def _buildArgParser() -> argparse.ArgumentParser:
 def main():
     parser = _buildArgParser()
     args = parser.parse_args()
-    if args.verbose2:
-        args.verbose = True
-    logging_utils.set_progress_enabled(bool(args.verbose or args.verbose2))
+    cliVerbositySet = args.verbosity is not None or args.verbose or args.verbose2
+    cliProgressSet = args.progress is not None
+    if args.verbosity is not None and (args.verbose or args.verbose2):
+        parser.error("--verbosity cannot be combined with --verbose or --verbose2")
+    if args.verbosity is None:
+        if args.verbose2:
+            args.verbosity = "debug"
+        elif args.verbose:
+            args.verbosity = "verbose"
+        else:
+            args.verbosity = constants.LOGGING_DEFAULT_VERBOSITY
+    configLoggingArgs = None
+    if not args.matchBedGraph and args.config and os.path.exists(args.config):
+        configLoggingArgs = getLoggingArgs(args.config)
+        if not cliVerbositySet:
+            args.verbosity = configLoggingArgs.verbosity
+        if not cliProgressSet:
+            args.progress = configLoggingArgs.progress
+        if args.logFile is None and configLoggingArgs.logFile is not None:
+            args.logFile = configLoggingArgs.logFile
+    if args.progress is None:
+        args.progress = constants.LOGGING_DEFAULT_PROGRESS
+    args.verbose = args.verbosity in {"verbose", "debug"}
+    args.verbose2 = args.verbosity == "debug"
 
     if args.matchBedGraph:
         if not os.path.exists(args.matchBedGraph):
@@ -2474,14 +2588,16 @@ def main():
             args.logFile or _defaultMatchLogPath(args.matchBedGraph),
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
+            verbosity=args.verbosity,
         )
         if resolvedLogPath is not None:
             _logCliMilestone("Canonical log: %s", resolvedLogPath)
         if uncertaintyBedGraph is None:
             uncertaintyBedGraph = _inferMatchingUncertaintyBedGraph(args.matchBedGraph)
         matchStart = time.perf_counter()
-        _logCliMilestone(
-            "Consenrich post-hoc ROCCO start: state=%s",
+        _logCliPhase("Post-hoc ROCCO")
+        _logCliSubphase(
+            "State input: %s",
             args.matchBedGraph,
         )
         logger.info(
@@ -2518,6 +2634,7 @@ def main():
             args.logFile,
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
+            verbosity=args.verbosity,
         )
         _logCliMilestone(
             "No config file provided, run with `--config <path_to_config.yaml>`"
@@ -2532,6 +2649,7 @@ def main():
             args.logFile,
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
+            verbosity=args.verbosity,
         )
         _logCliMilestone("Config file %s does not exist.", args.config)
         _logCliMilestone(
@@ -2540,9 +2658,16 @@ def main():
         sys.exit(1)
 
     resolvedLogPath = _configureCliLogging(
-        args.logFile or _defaultConfigLogPath(args.config),
+        args.logFile
+        or (
+            configLoggingArgs.logFile
+            if configLoggingArgs is not None
+            else constants.LOGGING_DEFAULT_LOG_FILE
+        )
+        or _defaultConfigLogPath(args.config),
         verbose=bool(args.verbose),
         verbose2=bool(args.verbose2),
+        verbosity=args.verbosity,
     )
     if resolvedLogPath is not None:
         _logCliMilestone("Canonical log: %s", resolvedLogPath)
@@ -2629,21 +2754,20 @@ def main():
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
-    _logCliMilestone(
-        "Diagnostic logs: munc/omega=%s punc/kappa=%s convergence=%s delete-block=%s",
-        diagnosticLogPaths.munc_lambda,
-        diagnosticLogPaths.punc_kappa,
+    _logCliSubphase(
+        "Diagnostic logs: precision=%s convergence=%s delete-block=%s",
+        diagnosticLogPaths.precision,
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
     )
-    _logCliMilestone(
+    _logCliSubphase(
         "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d roccoMetadata=%s",
         int(outputArgs.maxNonTrackFileBytes),
         outputArgs.precisionDiagnosticDetail,
         int(outputArgs.maxPrecisionDiagnosticRowsPerChromosome),
         matchingArgs.metadataDetail,
     )
-    _logCliMilestone(
+    _logCliSubphase(
         "Run config: experiment=%s version=%s config=%s chromosomes=%d samples=%d",
         experimentName,
         __version__,
@@ -3231,12 +3355,7 @@ def main():
         str(source.sourceKind).upper() for source in treatmentSources
     ]
     chromosomePlans: List[Dict[str, Any]] = []
-    for chromosome in _progress(
-        chromosomes,
-        total=len(chromosomes),
-        desc="Planning chromosomes",
-        unit="chrom",
-    ):
+    for chromosome in chromosomes:
         if str(chromosome) not in chromSizesDict:
             continue
         chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
@@ -3609,14 +3728,7 @@ def main():
         )
 
         if controlsPresent:
-            for j_, (bamA, bamB) in enumerate(
-                _progress(
-                    zip(bamFiles, bamFilesControl),
-                    total=numSamples,
-                    desc=f"Counting {chromosome}",
-                    unit="sample",
-                )
-            ):
+            for j_, (bamA, bamB) in enumerate(zip(bamFiles, bamFilesControl)):
                 countStart = time.perf_counter()
                 logger.info(
                     "counting.start %s sample=%d/%d treatment=%s control=%s",
@@ -3817,19 +3929,10 @@ def main():
                     int(chromMat.shape[1]),
                 )
                 with ThreadPool(processes=int(transformWorkers)) as pool:
-                    for _ in _progress(
-                        pool.imap(_transformTrack, range(numSamples)),
-                        total=numSamples,
-                        desc="Transforming data",
-                        unit="sample",
-                    ):
+                    for _ in pool.imap(_transformTrack, range(numSamples)):
                         pass
             else:
-                for j in _progress(
-                    range(numSamples),
-                    desc="Transforming data",
-                    unit="sample",
-                ):
+                for j in range(numSamples):
                     _transformTrack(j)
             logger.info(
                 "transform.done %s samples=%d elapsed=%.3fs",
@@ -4667,8 +4770,6 @@ def main():
                     stateCovarForward=stateCovarForward,
                     pNoiseForward=pNoiseForward,
                     vectorD=vectorD,
-                    progressBar=None,
-                    progressIter=0,
                     returnNLL=True,
                     storeNLLInD=False,
                     lambdaExp=None,
@@ -4688,8 +4789,6 @@ def main():
                         stateCovarSmoothed=None,
                         lagCovSmoothed=None,
                         postFitResiduals=None,
-                        progressBar=None,
-                        progressIter=0,
                     )
                 )
             else:
@@ -4714,8 +4813,6 @@ def main():
                     stateCovarForward=stateCovarForward,
                     pNoiseForward=pNoiseForward,
                     vectorD=vectorD,
-                    progressBar=None,
-                    progressIter=0,
                     returnNLL=True,
                     storeNLLInD=False,
                     lambdaExp=None,
@@ -4736,8 +4833,6 @@ def main():
                         stateCovarSmoothed=None,
                         lagCovSmoothed=None,
                         postFitResiduals=None,
-                        progressBar=None,
-                        progressIter=0,
                     )
                 )
             return (
@@ -5201,14 +5296,7 @@ def main():
         int(numSamples),
     )
     cachedIntervalsByChromosome: dict[str, np.ndarray] = {}
-    for c_, chromPlan in enumerate(
-        _progress(
-            chromosomePlans,
-            total=len(chromosomePlans),
-            desc="Counting/transformation pass",
-            unit="chrom",
-        )
-    ):
+    for c_, chromPlan in enumerate(chromosomePlans):
         chromosome = str(chromPlan["chromosome"])
         intervals, chromMat, countModelVarianceFloorMat = (
             _countAndTransformChromosomeMatrix(c_, chromPlan)
@@ -5241,14 +5329,7 @@ def main():
         int(muncSeedWeightPasses_),
         "yes" if bool(observationArgs.EB_use) else "no",
     )
-    for c_, chromPlan in enumerate(
-        _progress(
-            chromosomePlans,
-            total=len(chromosomePlans),
-            desc="Preparing pooled MUNC trend",
-            unit="chrom",
-        )
-    ):
+    for c_, chromPlan in enumerate(chromosomePlans):
         chromosome = str(chromPlan["chromosome"])
         cachePath = transformedMatrixCachePaths[chromosome]
         chromMat = np.ascontiguousarray(np.load(cachePath), dtype=np.float32)
@@ -5650,14 +5731,7 @@ def main():
         int(len(chromosomePlans)),
         int(numSamples),
     )
-    for c_, chromPlan in enumerate(
-        _progress(
-            chromosomePlans,
-            total=len(chromosomePlans),
-            desc="Processing chromosomes",
-            unit="chrom",
-        )
-    ):
+    for c_, chromPlan in enumerate(chromosomePlans):
         chromosomeStartTime = time.perf_counter()
         chromosome = str(chromPlan["chromosome"])
         chromosomeStart = int(chromPlan["start"])
@@ -5901,19 +5975,10 @@ def main():
                 int(chromMat.shape[1]),
             )
             with ThreadPool(processes=int(muncWorkers)) as pool:
-                for j, muncTrack in _progress(
-                    pool.imap(_fitMuncTrack, range(numSamples)),
-                    total=numSamples,
-                    desc=muncProgressDesc,
-                    unit="sample",
-                ):
+                for j, muncTrack in pool.imap(_fitMuncTrack, range(numSamples)):
                     muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
         else:
-            for j in _progress(
-                range(numSamples),
-                desc=muncProgressDesc,
-                unit="sample",
-            ):
+            for j in range(numSamples):
                 _, muncTrack = _fitMuncTrack(j)
                 muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
         logger.info(
@@ -6151,7 +6216,7 @@ def main():
             )
             _appendMuncLambdaDiagnostics(
                 precisionFrame,
-                diagnosticLogPaths.munc_lambda,
+                diagnosticLogPaths.precision,
                 chromosome=chromosome,
                 precisionDiagnostics=precisionDiagnostics,
                 detail=outputArgs.precisionDiagnosticDetail,
@@ -6159,7 +6224,7 @@ def main():
             )
             _appendPuncKappaDiagnostics(
                 precisionFrame,
-                diagnosticLogPaths.punc_kappa,
+                diagnosticLogPaths.precision,
                 chromosome=chromosome,
                 precisionDiagnostics=precisionDiagnostics,
                 runDiagnostics=runDiagnostics,
@@ -6527,12 +6592,7 @@ def main():
             for col, suffix in bedGraphTracks
             if not (segShrinkGenomeRequested and suffix == "uncertainty")
         ]
-        for col, suffix in _progress(
-            tracksForChromosome,
-            total=len(tracksForChromosome),
-            desc=f"Writing {chromosome}",
-            unit="track",
-        ):
+        for col, suffix in tracksForChromosome:
             bedgraphPath = (
                 f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
             )
@@ -6637,9 +6697,8 @@ def main():
                     item["model"].get("rows_fit")
                 )
             if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
-                _appendKeyValueDiagnostics(
+                _appendMappingDiagnostics(
                     diagnosticLogPaths.delete_block_calibration,
-                    DELETE_BLOCK_CALIBRATION_LOG_COLUMNS,
                     recordType="model",
                     event="delete_block_calibration.segShrink.processed_genome_model",
                     chromosome=chromosome,
@@ -6693,12 +6752,7 @@ def main():
         int(len(suffixes)),
     )
 
-    for suffix in _progress(
-        suffixes,
-        total=len(suffixes),
-        desc="Validating bedGraphs",
-        unit="track",
-    ):
+    for suffix in suffixes:
         bedgraphPath = (
             f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
@@ -6730,7 +6784,7 @@ def main():
             uncertaintyBedGraphPath = (
                 f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
             )
-            _logCliMilestone(
+            _logCliSubphase(
                 "ROCCO peaks: state=%s",
                 stateBedGraphPath,
             )

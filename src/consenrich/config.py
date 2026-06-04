@@ -213,6 +213,32 @@ def _normalizeOutputPrecisionDiagnosticDetail(value: Any) -> str:
     )
 
 
+def _normalizeLoggingVerbosity(value: Any) -> str:
+    raw = constants.LOGGING_DEFAULT_VERBOSITY if value is None else value
+    key = str(raw).strip().lower()
+    if key in constants.LOGGING_VERBOSITY_LEVELS:
+        return key
+    supported = ", ".join(constants.LOGGING_VERBOSITY_LEVELS)
+    raise ValueError(
+        f"Unsupported loggingParams.verbosity {value!r}; "
+        f"supported values: {supported}."
+    )
+
+
+def _normalizeLoggingProgress(value: Any) -> str:
+    raw = constants.LOGGING_DEFAULT_PROGRESS if value is None else value
+    if isinstance(raw, bool):
+        return "on" if raw else "off"
+    key = str(raw).strip().lower()
+    if key in constants.LOGGING_PROGRESS_MODES:
+        return key
+    supported = ", ".join(constants.LOGGING_PROGRESS_MODES)
+    raise ValueError(
+        f"Unsupported loggingParams.progress {value!r}; "
+        f"supported values: {supported}."
+    )
+
+
 def _normalizeNonnegativeInt(value: Any, configName: str) -> int:
     try:
         out = int(value)
@@ -620,6 +646,38 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         precisionDiagnosticDetail=precisionDiagnosticDetail_,
         maxPrecisionDiagnosticRowsPerChromosome=maxPrecisionDiagnosticRowsPerChromosome_,
         maxNonTrackFileBytes=maxNonTrackFileBytes_,
+    )
+
+
+def getLoggingArgs(
+    config_path: Union[str, Path, Mapping[str, Any]],
+) -> core.loggingParams:
+    configData = loadConfig(config_path)
+    logFile = _cfgGet(
+        configData,
+        "loggingParams.logFile",
+        constants.LOGGING_DEFAULT_LOG_FILE,
+    )
+    if logFile is not None:
+        logFile = os.fspath(logFile)
+        if not str(logFile).strip():
+            raise ValueError("loggingParams.logFile must not be empty.")
+    return core.loggingParams(
+        verbosity=_normalizeLoggingVerbosity(
+            _cfgGet(
+                configData,
+                "loggingParams.verbosity",
+                constants.LOGGING_DEFAULT_VERBOSITY,
+            )
+        ),
+        progress=_normalizeLoggingProgress(
+            _cfgGet(
+                configData,
+                "loggingParams.progress",
+                constants.LOGGING_DEFAULT_PROGRESS,
+            )
+        ),
+        logFile=None if logFile is None else str(logFile),
     )
 
 
@@ -1375,6 +1433,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
 
     inputParams = getInputArgs(configData)
     outputParams = getOutputArgs(configData)
+    loggingParams = getLoggingArgs(configData)
     genomeParams = getGenomeArgs(configData)
     stateParams = getStateArgs(configData)
     countingParams = getCountingArgs(configData)
@@ -2530,6 +2589,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "outputArgs": outputParams,
+        "loggingArgs": loggingParams,
         "countingArgs": countingParams,
         "scArgs": scArgs,
         "processArgs": processArgs,
@@ -2555,6 +2615,7 @@ __all__ = [
     "getCountingArgs",
     "getGenomeArgs",
     "getInputArgs",
+    "getLoggingArgs",
     "getOutputArgs",
     "getScArgs",
     "getStateArgs",
