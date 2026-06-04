@@ -4755,51 +4755,6 @@ def _countActiveAdjacentProcessNoiseTransitions(
     return int(np.count_nonzero(intervalActive[1:] & intervalActive[:-1]))
 
 
-def _robustLocation1d(values: np.ndarray, weights: np.ndarray) -> float:
-    x = np.asarray(values, dtype=np.float64).reshape(-1)
-    w = np.asarray(weights, dtype=np.float64).reshape(-1)
-    mask = np.isfinite(x) & np.isfinite(w) & (w > 0.0)
-    x = x[mask]
-    w = w[mask]
-    if x.size == 0:
-        return float("nan")
-    if x.size == 1:
-        return float(x[0])
-    loc = float(np.median(x))
-    scale = 1.4826 * float(np.median(np.abs(x - loc)))
-    if not np.isfinite(scale) or scale <= 1.0e-12:
-        return loc
-    c = 1.345
-    for _ in range(4):
-        resid = x - loc
-        huber = np.minimum(1.0, (c * scale) / np.maximum(np.abs(resid), 1.0e-12))
-        eff = w * huber
-        denom = float(np.sum(eff))
-        if denom <= 0.0 or not np.isfinite(denom):
-            break
-        nextLoc = float(np.sum(eff * x) / denom)
-        if not np.isfinite(nextLoc) or abs(nextLoc - loc) <= 1.0e-10 * max(
-            1.0, abs(loc)
-        ):
-            loc = nextLoc
-            break
-        loc = nextLoc
-    return loc
-
-
-def _weightedFiniteQuantile(
-    values: np.ndarray,
-    weights: np.ndarray,
-    quantile: float,
-) -> float:
-    x = np.asarray(values, dtype=np.float64).reshape(-1)
-    w = np.asarray(weights, dtype=np.float64).reshape(-1)
-    mask = np.isfinite(x) & np.isfinite(w) & (w > 0.0)
-    if not np.any(mask):
-        return float("nan")
-    return float(_weightedQuantile(x[mask], w[mask], np.asarray([quantile]))[0])
-
-
 def _qSeedPosteriorFromTransitions(
     *,
     deltas: np.ndarray,
@@ -4811,144 +4766,20 @@ def _qSeedPosteriorFromTransitions(
     source: str,
     qSeedPriorLevel: float,
 ) -> dict[str, Any]:
-    tiny = np.finfo(np.float64).tiny
-    delta = np.asarray(deltas, dtype=np.float64).reshape(-1)
-    s2 = np.asarray(samplingVariances, dtype=np.float64).reshape(-1)
-    weights = np.asarray(transitionWeights, dtype=np.float64).reshape(-1)
-    mask = (
-        np.isfinite(delta)
-        & np.isfinite(s2)
-        & (s2 >= 0.0)
-        & np.isfinite(weights)
-        & (weights > 0.0)
-    )
-    delta = delta[mask]
-    s2 = s2[mask]
-    weights = weights[mask]
-    transitionCount = int(delta.size)
-    effectiveCount = 0.0
-    if weights.size:
-        sumW = float(np.sum(weights))
-        sumW2 = float(np.sum(weights * weights))
-        effectiveCount = (sumW * sumW) / sumW2 if sumW2 > 0.0 else 0.0
-    if (
-        transitionCount < _QINIT_MIN_TRANSITIONS
-        or effectiveCount < _QINIT_MIN_TRANSITIONS
-    ):
-        return {
-            "ok": False,
-            "source": source,
-            "reason": "insufficient_transition_support",
-            "transitionCount": transitionCount,
-            "effectiveTransitionCount": float(effectiveCount),
-        }
-
-    center = _weightedFiniteQuantile(delta, weights, 0.5)
-    absDev = np.abs(delta - center)
-    robustScale = 1.4826 * _weightedFiniteQuantile(absDev, weights, 0.5)
-    medianS2 = _weightedFiniteQuantile(s2, weights, 0.5)
-    if not np.isfinite(robustScale):
-        robustScale = 0.0
-    if not np.isfinite(medianS2):
-        medianS2 = 0.0
-    qSeedPriorFloor = _resolveProcessNoiseFloor(qSeedPriorLevel)
-    if np.isfinite(qCap) and qSeedPriorFloor > float(qCap):
-        raise ValueError("`qSeedPriorLevel` must not exceed `maxQ`")
-    qPrior = max(
-        robustScale * robustScale - medianS2,
+    return cconsenrich.cQSeedPosteriorFromTransitions(
+        deltas,
+        samplingVariances,
+        transitionWeights,
         float(qFloor),
-        qSeedPriorFloor,
+        float(qCap),
+        float(robustTNu),
+        str(source),
+        float(qSeedPriorLevel),
+        int(_QINIT_MIN_TRANSITIONS),
+        float(_QINIT_PRIOR_LOG_SD),
+        float(_QINIT_DEFAULT_T_NU),
+        256,
     )
-    if not np.isfinite(qPrior) or qPrior <= 0.0:
-        qPrior = float(qFloor)
-
-    deconvolved = np.maximum(delta * delta - s2, 0.0)
-    qTransition90 = _weightedFiniteQuantile(deconvolved, weights, 0.9)
-    if not np.isfinite(qTransition90):
-        qTransition90 = float(qFloor)
-
-    lower = _resolveProcessNoiseFloor(qFloor)
-    if np.isfinite(qCap):
-        upper = max(float(qCap), lower)
-    else:
-        upperCandidates = np.asarray(
-            [
-                qPrior * 1.0e4,
-                qTransition90 * 100.0,
-                medianS2 * 100.0,
-                float(np.nanmax(delta * delta)) * 10.0 if delta.size else np.nan,
-                lower * 1.0e6,
-            ],
-            dtype=np.float64,
-        )
-        upperCandidates = upperCandidates[
-            np.isfinite(upperCandidates) & (upperCandidates > lower)
-        ]
-        upper = float(np.max(upperCandidates)) if upperCandidates.size else lower * 10.0
-    if upper <= lower * (1.0 + 1.0e-10):
-        grid = np.asarray([lower], dtype=np.float64)
-    else:
-        grid = np.exp(np.linspace(math.log(lower), math.log(upper), 256))
-
-    nu = float(robustTNu)
-    if not np.isfinite(nu) or nu <= 0.0:
-        nu = _QINIT_DEFAULT_T_NU
-    nu = max(4.0, nu)
-    normalizedWeights = weights / max(
-        _weightedFiniteQuantile(weights, weights, 0.5), tiny
-    )
-    normalizedWeights = np.clip(normalizedWeights, 0.25, 4.0)
-    logPriorCenter = math.log(max(qPrior, lower))
-    logPriorSd = max(float(_QINIT_PRIOR_LOG_SD), 1.0e-6)
-    logPost = np.empty(grid.shape, dtype=np.float64)
-    for idx, q in enumerate(grid):
-        var = np.maximum(float(q) + s2, tiny)
-        scale = np.sqrt(var)
-        z = delta / scale
-        logLike = stats.t.logpdf(z, df=nu) - np.log(scale)
-        logPrior = -0.5 * ((math.log(float(q)) - logPriorCenter) / logPriorSd) ** 2
-        logPost[idx] = float(np.sum(normalizedWeights * logLike) + logPrior)
-    finiteLogPost = np.isfinite(logPost)
-    if not np.any(finiteLogPost):
-        return {
-            "ok": False,
-            "source": source,
-            "reason": "nonfinite_posterior",
-            "transitionCount": transitionCount,
-            "effectiveTransitionCount": float(effectiveCount),
-        }
-    maxLogPost = float(np.max(logPost[finiteLogPost]))
-    posterior = np.where(finiteLogPost, np.exp(logPost - maxLogPost), 0.0)
-    totalPosterior = float(np.sum(posterior))
-    if totalPosterior <= 0.0 or not np.isfinite(totalPosterior):
-        return {
-            "ok": False,
-            "source": source,
-            "reason": "degenerate_posterior",
-            "transitionCount": transitionCount,
-            "effectiveTransitionCount": float(effectiveCount),
-        }
-    posterior = posterior / totalPosterior
-    cdf = np.cumsum(posterior)
-
-    def _posteriorQuantile(prob: float) -> float:
-        return float(np.interp(float(prob), cdf, grid))
-
-    mode = float(grid[int(np.argmax(posterior))])
-    return {
-        "ok": True,
-        "source": source,
-        "reason": "ok",
-        "transitionCount": transitionCount,
-        "effectiveTransitionCount": float(effectiveCount),
-        "medianSamplingVariance": float(medianS2),
-        "priorLevel": float(qPrior),
-        "posteriorModeLevel": mode,
-        "posteriorMedianLevel": _posteriorQuantile(0.5),
-        "posteriorQ05Level": _posteriorQuantile(0.05),
-        "posteriorQ95Level": _posteriorQuantile(0.95),
-        "transitionQ90": float(qTransition90),
-    }
 
 
 def _estimateSameTrackProcessNoiseTransitions(
@@ -4957,61 +4788,12 @@ def _estimateSameTrackProcessNoiseTransitions(
     obsVar: np.ndarray,
     finiteMask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
-    data = np.asarray(matrixData, dtype=np.float64)
-    obs = np.asarray(obsVar, dtype=np.float64)
-    active = (
-        np.asarray(finiteMask, dtype=bool)[:, 1:]
-        & np.asarray(finiteMask, dtype=bool)[:, :-1]
-        & np.isfinite(data[:, 1:])
-        & np.isfinite(data[:, :-1])
-        & np.isfinite(obs[:, 1:])
-        & np.isfinite(obs[:, :-1])
-        & (obs[:, 1:] > 0.0)
-        & (obs[:, :-1] > 0.0)
-    )
-    rd = obs[:, 1:] + obs[:, :-1]
-    precision = np.where(active & (rd > 0.0), 1.0 / rd, 0.0)
-    positivePrecision = precision[precision > 0.0]
-    cap = float("nan")
-    capFraction = 0.0
-    if positivePrecision.size:
-        medianPrecision = float(np.median(positivePrecision))
-        qPrecision = float(
-            np.quantile(positivePrecision, _QINIT_PRECISION_CAP_QUANTILE)
-        )
-        cap = min(qPrecision, _QINIT_PRECISION_CAP_MULTIPLIER * medianPrecision)
-        if np.isfinite(cap) and cap > 0.0:
-            capFraction = float(np.mean(positivePrecision > cap))
-            precision = np.minimum(precision, cap)
-    deltas: list[float] = []
-    samplingVariances: list[float] = []
-    transitionWeights: list[float] = []
-    pairCount = 0
-    for k in range(active.shape[1]):
-        mask = precision[:, k] > 0.0
-        if not np.any(mask):
-            continue
-        d = data[mask, k + 1] - data[mask, k]
-        p = precision[mask, k]
-        pairCount += int(d.size)
-        loc = _robustLocation1d(d, p)
-        sumP = float(np.sum(p))
-        sumP2 = float(np.sum(p * p))
-        if not np.isfinite(loc) or sumP <= 0.0 or not np.isfinite(sumP):
-            continue
-        deltas.append(loc)
-        samplingVariances.append(1.0 / sumP)
-        effPairs = (sumP * sumP) / sumP2 if sumP2 > 0.0 else 1.0
-        transitionWeights.append(max(float(effPairs), 1.0))
-    return (
-        np.asarray(deltas, dtype=np.float64),
-        np.asarray(samplingVariances, dtype=np.float64),
-        np.asarray(transitionWeights, dtype=np.float64),
-        {
-            "pairCount": int(pairCount),
-            "precisionCap": float(cap),
-            "precisionCapFraction": float(capFraction),
-        },
+    return cconsenrich.cEstimateSameTrackProcessNoiseTransitions(
+        matrixData,
+        obsVar,
+        finiteMask,
+        float(_QINIT_PRECISION_CAP_QUANTILE),
+        float(_QINIT_PRECISION_CAP_MULTIPLIER),
     )
 
 
@@ -5021,39 +4803,11 @@ def _estimatePooledProcessNoiseTransitions(
     obsVar: np.ndarray,
     finiteMask: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    data = np.asarray(matrixData, dtype=np.float64)
-    obs = np.asarray(obsVar, dtype=np.float64)
-    active = np.asarray(finiteMask, dtype=bool)
-    weights = np.where(active & np.isfinite(obs) & (obs > 0.0), 1.0 / obs, 0.0)
-    weightSum = np.sum(weights, axis=0, dtype=np.float64)
-    weightedData = np.where(active, data * weights, 0.0)
-    pooledMean = np.divide(
-        np.sum(weightedData, axis=0, dtype=np.float64),
-        weightSum,
-        out=np.full(data.shape[1], np.nan, dtype=np.float64),
-        where=weightSum > 0.0,
+    return cconsenrich.cEstimatePooledProcessNoiseTransitions(
+        matrixData,
+        obsVar,
+        finiteMask,
     )
-    pooledVar = np.divide(
-        1.0,
-        weightSum,
-        out=np.full(data.shape[1], np.nan, dtype=np.float64),
-        where=weightSum > 0.0,
-    )
-    valid = (
-        np.isfinite(pooledMean[1:])
-        & np.isfinite(pooledMean[:-1])
-        & np.isfinite(pooledVar[1:])
-        & np.isfinite(pooledVar[:-1])
-    )
-    deltas = pooledMean[1:][valid] - pooledMean[:-1][valid]
-    samplingVariances = pooledVar[1:][valid] + pooledVar[:-1][valid]
-    transitionWeights = np.divide(
-        1.0,
-        np.maximum(samplingVariances, np.finfo(np.float64).tiny),
-        out=np.ones_like(samplingVariances),
-        where=samplingVariances > 0.0,
-    )
-    return deltas, samplingVariances, transitionWeights
 
 
 def _estimateInitialProcessNoiseFromData(
@@ -6743,6 +6497,9 @@ def runConsenrich(
                 backgroundNegativePenaltyMultiplier=(
                     backgroundNegativePenaltyMultiplierLocal
                 ),
+                initialBackground=currentBackground,
+                weightTrack=backgroundWeightTrack,
+                rhsTrack=backgroundRhsTrack,
             )
             nextBackgroundSummary = np.asarray(nextBackground, dtype=np.float64)
             if nextBackgroundSummary.size > 0:
@@ -9963,6 +9720,9 @@ def solveZeroCenteredBackground(
     backgroundNegativePenaltyMultiplier: float | None = (
         FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
     ),
+    initialBackground: np.ndarray | None = None,
+    weightTrack: np.ndarray | None = None,
+    rhsTrack: np.ndarray | None = None,
 ) -> npt.NDArray[np.float32]:
     r"""Estimate a positional background with asymmetric IRLS and strong first/second-order difference penalties (to prevent conflation with signal).
 
@@ -9998,7 +9758,17 @@ def solveZeroCenteredBackground(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    if hasattr(cconsenrich, "cbackgroundWeightedStats"):
+    if weightTrack is not None or rhsTrack is not None:
+        if weightTrack is None or rhsTrack is None:
+            raise ValueError("weightTrack and rhsTrack must be supplied together")
+        weightTrack = np.asarray(weightTrack, dtype=np.float64).reshape(-1)
+        rhsTrack = np.asarray(rhsTrack, dtype=np.float64).reshape(-1)
+        if (
+            weightTrack.shape[0] != intervalCount
+            or rhsTrack.shape[0] != intervalCount
+        ):
+            raise ValueError("weightTrack and rhsTrack length must match interval count")
+    elif hasattr(cconsenrich, "cbackgroundWeightedStats"):
         weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
             residualArr,
             invVarArr,
@@ -10030,6 +9800,7 @@ def solveZeroCenteredBackground(
             lamSecond=float(lamSecond),
             zeroCenter=bool(zeroCenter),
             backgroundNegativePenaltyMultiplier=backgroundNegativePenaltyMultiplier,
+            initialBackground=initialBackground,
         )
 
     if zeroCenter:
@@ -10106,6 +9877,7 @@ def _solveNonnegativeBackground(
     lamSecond: float,
     zeroCenter: bool,
     backgroundNegativePenaltyMultiplier: float | None,
+    initialBackground: np.ndarray | None = None,
 ) -> npt.NDArray[np.float32]:
     n = int(rhsTrack.shape[0])
     if n <= 0:
@@ -10131,14 +9903,23 @@ def _solveNonnegativeBackground(
             dtype=np.float64,
         )
 
-    background = np.asarray(solveWithWeights(weightTrack), dtype=np.float64).reshape(-1)
-    if not np.all(np.isfinite(background)):
-        raise RuntimeError("solver returned non-finite values")
     if backgroundNegativePenaltyMultiplier is None:
+        background = np.asarray(
+            solveWithWeights(weightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+        if not np.all(np.isfinite(background)):
+            raise RuntimeError("solver returned non-finite values")
         return background.astype(np.float32)
 
     negativePenaltyMultiplier = float(backgroundNegativePenaltyMultiplier)
     if not np.isfinite(negativePenaltyMultiplier) or negativePenaltyMultiplier <= 0.0:
+        background = np.asarray(
+            solveWithWeights(weightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+        if not np.all(np.isfinite(background)):
+            raise RuntimeError("solver returned non-finite values")
         return background.astype(np.float32)
 
     positiveWeightTrack = np.asarray(weightTrack, dtype=np.float64)
@@ -10152,10 +9933,38 @@ def _solveNonnegativeBackground(
         weightScale = 1.0
     negativePenaltyWeight = float(negativePenaltyMultiplier * weightScale)
     if not np.isfinite(negativePenaltyWeight) or negativePenaltyWeight <= 0.0:
+        background = np.asarray(
+            solveWithWeights(weightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+        if not np.all(np.isfinite(background)):
+            raise RuntimeError("solver returned non-finite values")
         return background.astype(np.float32)
 
-    initialNegativeFraction = float(np.mean(background < 0.0)) if n else 0.0
     previousNegativeMask: np.ndarray | None = None
+    if initialBackground is not None:
+        initialBackgroundArr = np.asarray(
+            initialBackground,
+            dtype=np.float64,
+        ).reshape(-1)
+        if initialBackgroundArr.shape[0] != n:
+            raise ValueError("initialBackground length must match interval count")
+        previousNegativeMask = np.asarray(initialBackgroundArr < 0.0, dtype=bool)
+        adjustedWeightTrack = np.asarray(weightTrack, dtype=np.float64).copy()
+        adjustedWeightTrack[previousNegativeMask] += negativePenaltyWeight
+        background = np.asarray(
+            solveWithWeights(adjustedWeightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+    else:
+        background = np.asarray(
+            solveWithWeights(weightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+    if not np.all(np.isfinite(background)):
+        raise RuntimeError("solver returned non-finite values")
+
+    initialNegativeFraction = float(np.mean(background < 0.0)) if n else 0.0
     passCount = 0
     maxPasses = 5
     solverStart = time.perf_counter()

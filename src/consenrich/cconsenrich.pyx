@@ -14,7 +14,8 @@ from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int8_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, erf, isnan, NAN, INFINITY
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, erf, isnan, lgamma, NAN, INFINITY
+from libc.float cimport DBL_MIN
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
@@ -1111,6 +1112,45 @@ cdef inline bint _nthElement_F64(double* sortedVals_, Py_ssize_t n, Py_ssize_t k
     return _nthElementReal(sortedVals_, n, k)
 
 
+cdef inline void _swapF64(double* vals, Py_ssize_t i, Py_ssize_t j) noexcept nogil:
+    cdef double tmp = vals[i]
+    vals[i] = vals[j]
+    vals[j] = tmp
+
+
+cdef inline void _nthElementF64ThreeWay(double* vals, Py_ssize_t n, Py_ssize_t k) noexcept nogil:
+    cdef Py_ssize_t left = 0
+    cdef Py_ssize_t right = n - 1
+    cdef Py_ssize_t lt
+    cdef Py_ssize_t i
+    cdef Py_ssize_t gt
+    cdef double pivot
+
+    if n <= 1:
+        return
+    while left < right:
+        pivot = vals[(left + right) >> 1]
+        lt = left
+        i = left
+        gt = right
+        while i <= gt:
+            if vals[i] < pivot:
+                _swapF64(vals, lt, i)
+                lt += 1
+                i += 1
+            elif vals[i] > pivot:
+                _swapF64(vals, i, gt)
+                gt -= 1
+            else:
+                i += 1
+        if k < lt:
+            right = lt - 1
+        elif k > gt:
+            left = gt + 1
+        else:
+            return
+
+
 cdef inline real_t _quantileInplaceReal(real_t* vals_, Py_ssize_t n, real_t q, real_t emptyValue) noexcept nogil:
     cdef Py_ssize_t k
     if n <= 0:
@@ -1150,6 +1190,700 @@ cdef inline float _medianCopy_F32(const float* src, Py_ssize_t n) noexcept nogil
     med = _quantileInplaceF32(buf, n, <float>0.5)
     free(buf)
     return med
+
+
+cdef double _linearQuantileCopyF64(const double* values, Py_ssize_t n, double q) except *:
+    cdef double* buf
+    cdef double pos
+    cdef double frac
+    cdef double lowVal
+    cdef double highVal
+    cdef Py_ssize_t lowIndex
+    cdef Py_ssize_t highIndex
+
+    if n <= 0:
+        return NAN
+    if q <= 0.0:
+        pos = 0.0
+    elif q >= 1.0:
+        pos = <double>(n - 1)
+    else:
+        pos = q * <double>(n - 1)
+    lowIndex = <Py_ssize_t>floor(pos)
+    highIndex = lowIndex + 1
+    if highIndex >= n:
+        highIndex = n - 1
+    frac = pos - <double>lowIndex
+    buf = <double*>malloc(n * sizeof(double))
+    if buf == NULL:
+        raise MemoryError()
+    memcpy(buf, values, n * sizeof(double))
+    _nthElementF64ThreeWay(buf, n, lowIndex)
+    lowVal = buf[lowIndex]
+    if highIndex == lowIndex:
+        free(buf)
+        return lowVal
+    _nthElementF64ThreeWay(buf, n, highIndex)
+    highVal = buf[highIndex]
+    free(buf)
+    return lowVal + frac * (highVal - lowVal)
+
+
+cdef double _weightedQuantileInterpolatedF64(
+    cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] valuesArr,
+    cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightsArr,
+    double quantile,
+) except *:
+    cdef object order
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] sortedValuesArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] sortedWeightsArr
+    cdef double[::1] valueView
+    cdef double[::1] weightView
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef double total = 0.0
+    cdef double target
+    cdef double cum = 0.0
+    cdef double prevCum = 0.0
+    cdef double prevValue = 0.0
+    cdef double denom
+
+    n = valuesArr.shape[0]
+    if n != weightsArr.shape[0]:
+        raise ValueError("values and weights must have the same length")
+    if n <= 0:
+        return NAN
+    order = np.argsort(valuesArr, kind="mergesort")
+    sortedValuesArr = np.ascontiguousarray(valuesArr[order], dtype=np.float64)
+    sortedWeightsArr = np.ascontiguousarray(weightsArr[order], dtype=np.float64)
+    valueView = sortedValuesArr
+    weightView = sortedWeightsArr
+    for i in range(n):
+        total += weightView[i]
+    if total <= 0.0:
+        return NAN
+    if quantile <= 0.0:
+        target = 0.0
+    elif quantile >= 1.0:
+        target = total
+    else:
+        target = quantile * total
+    for i in range(n):
+        cum += weightView[i]
+        if target <= cum:
+            if i == 0:
+                return valueView[0]
+            denom = cum - prevCum
+            if denom <= 0.0:
+                return valueView[i]
+            return prevValue + ((target - prevCum) / denom) * (valueView[i] - prevValue)
+        prevCum = cum
+        prevValue = valueView[i]
+    return valueView[n - 1]
+
+
+cdef double _robustLocationF64(double* values, double* weights, Py_ssize_t n) except *:
+    cdef double loc
+    cdef double scale
+    cdef double c = 1.345
+    cdef double resid
+    cdef double huber
+    cdef double eff
+    cdef double denom
+    cdef double numer
+    cdef double nextLoc
+    cdef double* absDev
+    cdef Py_ssize_t i
+    cdef Py_ssize_t iterIndex
+
+    if n <= 0:
+        return NAN
+    if n == 1:
+        return values[0]
+    loc = _linearQuantileCopyF64(values, n, 0.5)
+    absDev = <double*>malloc(n * sizeof(double))
+    if absDev == NULL:
+        raise MemoryError()
+    for i in range(n):
+        absDev[i] = fabs(values[i] - loc)
+    scale = 1.4826 * _linearQuantileCopyF64(absDev, n, 0.5)
+    free(absDev)
+    if scale <= 1.0e-12:
+        return loc
+    for iterIndex in range(4):
+        denom = 0.0
+        numer = 0.0
+        for i in range(n):
+            resid = values[i] - loc
+            huber = (c * scale) / fmax(fabs(resid), 1.0e-12)
+            if huber > 1.0:
+                huber = 1.0
+            eff = weights[i] * huber
+            denom += eff
+            numer += eff * values[i]
+        if denom <= 0.0:
+            break
+        nextLoc = numer / denom
+        if fabs(nextLoc - loc) <= 1.0e-10 * fmax(1.0, fabs(loc)):
+            loc = nextLoc
+            break
+        loc = nextLoc
+    return loc
+
+
+cdef double _cdfQuantileF64(
+    double[::1] gridView,
+    double[::1] posteriorView,
+    Py_ssize_t n,
+    double prob,
+) except *:
+    cdef double target
+    cdef double cum = 0.0
+    cdef double prevCum = 0.0
+    cdef double denom
+    cdef Py_ssize_t i
+
+    if n <= 0:
+        return NAN
+    if prob <= 0.0:
+        target = 0.0
+    elif prob >= 1.0:
+        target = 1.0
+    else:
+        target = prob
+    for i in range(n):
+        cum += posteriorView[i]
+        if target <= cum:
+            if i == 0:
+                return gridView[0]
+            denom = cum - prevCum
+            if denom <= 0.0:
+                return gridView[i]
+            return gridView[i - 1] + ((target - prevCum) / denom) * (
+                gridView[i] - gridView[i - 1]
+            )
+        prevCum = cum
+    return gridView[n - 1]
+
+
+cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
+    object matrixData,
+    object obsVar,
+    object activeObservation,
+    double precisionCapQuantile,
+    double precisionCapMultiplier,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] dataArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] obsArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] activeArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] rawPrecisionArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deltasArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] samplingVariancesArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] transitionWeightsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] localDeltaArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] localPrecisionArr
+    cdef double[:, ::1] dataView
+    cdef double[:, ::1] obsView
+    cdef cnp.uint8_t[:, ::1] activeView
+    cdef double[::1] rawPrecisionView
+    cdef double[::1] deltasView
+    cdef double[::1] samplingVariancesView
+    cdef double[::1] transitionWeightsView
+    cdef double[::1] localDeltaView
+    cdef double[::1] localPrecisionView
+    cdef Py_ssize_t trackCount
+    cdef Py_ssize_t intervalCount
+    cdef Py_ssize_t maxTransitionCount
+    cdef Py_ssize_t maxPairCount
+    cdef Py_ssize_t pairCount = 0
+    cdef Py_ssize_t cappedPairCount = 0
+    cdef Py_ssize_t outCount = 0
+    cdef Py_ssize_t localCount
+    cdef Py_ssize_t j
+    cdef Py_ssize_t k
+    cdef double obsLeft
+    cdef double obsRight
+    cdef double rd
+    cdef double rawPrecision
+    cdef double precision
+    cdef double medianPrecision
+    cdef double qPrecision
+    cdef double cap = NAN
+    cdef double capFraction = 0.0
+    cdef double diff
+    cdef double loc
+    cdef double sumP
+    cdef double sumP2
+    cdef double effPairs
+    cdef dict diagnostics
+
+    if (not isfinite(precisionCapQuantile)) or precisionCapQuantile < 0.0 or precisionCapQuantile > 1.0:
+        raise ValueError("precisionCapQuantile must be in [0, 1]")
+    if (not isfinite(precisionCapMultiplier)) or precisionCapMultiplier <= 0.0:
+        raise ValueError("precisionCapMultiplier must be positive")
+    dataArr = np.ascontiguousarray(matrixData, dtype=np.float64)
+    obsArr = np.ascontiguousarray(obsVar, dtype=np.float64)
+    activeArr = np.ascontiguousarray(activeObservation, dtype=np.uint8)
+    if dataArr.ndim != 2:
+        raise ValueError("matrixData must be a 2D array")
+    if obsArr.shape[0] != dataArr.shape[0] or obsArr.shape[1] != dataArr.shape[1]:
+        raise ValueError("obsVar shape must match matrixData")
+    if activeArr.shape[0] != dataArr.shape[0] or activeArr.shape[1] != dataArr.shape[1]:
+        raise ValueError("activeObservation shape must match matrixData")
+    trackCount = dataArr.shape[0]
+    intervalCount = dataArr.shape[1]
+    if intervalCount < 2 or trackCount <= 0:
+        diagnostics = {
+            "pairCount": int(0),
+            "precisionCap": float(cap),
+            "precisionCapFraction": float(capFraction),
+        }
+        return (
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            diagnostics,
+        )
+    dataView = dataArr
+    obsView = obsArr
+    activeView = activeArr
+    maxTransitionCount = intervalCount - 1
+    maxPairCount = trackCount * maxTransitionCount
+    rawPrecisionArr = np.empty(maxPairCount, dtype=np.float64)
+    rawPrecisionView = rawPrecisionArr
+    for k in range(maxTransitionCount):
+        for j in range(trackCount):
+            if activeView[j, k] != 0 and activeView[j, k + 1] != 0:
+                if (not isfinite(dataView[j, k])) or (not isfinite(dataView[j, k + 1])):
+                    raise ValueError("active matrixData values must be finite")
+                obsLeft = obsView[j, k]
+                obsRight = obsView[j, k + 1]
+                if (
+                    (not isfinite(obsLeft))
+                    or (not isfinite(obsRight))
+                    or obsLeft <= 0.0
+                    or obsRight <= 0.0
+                ):
+                    raise ValueError("active obsVar values must be positive finite")
+                diff = dataView[j, k + 1] - dataView[j, k]
+                rd = obsLeft + obsRight
+                if (not isfinite(diff)) or (not isfinite(rd)) or rd <= 0.0:
+                    raise ValueError("active transition values must be finite")
+                rawPrecision = 1.0 / rd
+                if (not isfinite(rawPrecision)) or rawPrecision <= 0.0:
+                    raise ValueError("active transition precision must be positive finite")
+                rawPrecisionView[pairCount] = rawPrecision
+                pairCount += 1
+    if pairCount > 0:
+        medianPrecision = _linearQuantileCopyF64(&rawPrecisionView[0], pairCount, 0.5)
+        qPrecision = _linearQuantileCopyF64(
+            &rawPrecisionView[0], pairCount, precisionCapQuantile
+        )
+        cap = fmin(qPrecision, precisionCapMultiplier * medianPrecision)
+        if cap > 0.0:
+            for j in range(pairCount):
+                if rawPrecisionView[j] > cap:
+                    cappedPairCount += 1
+            capFraction = <double>cappedPairCount / <double>pairCount
+    deltasArr = np.empty(maxTransitionCount, dtype=np.float64)
+    samplingVariancesArr = np.empty(maxTransitionCount, dtype=np.float64)
+    transitionWeightsArr = np.empty(maxTransitionCount, dtype=np.float64)
+    localDeltaArr = np.empty(trackCount, dtype=np.float64)
+    localPrecisionArr = np.empty(trackCount, dtype=np.float64)
+    deltasView = deltasArr
+    samplingVariancesView = samplingVariancesArr
+    transitionWeightsView = transitionWeightsArr
+    localDeltaView = localDeltaArr
+    localPrecisionView = localPrecisionArr
+    for k in range(maxTransitionCount):
+        localCount = 0
+        for j in range(trackCount):
+            if activeView[j, k] != 0 and activeView[j, k + 1] != 0:
+                rawPrecision = 1.0 / (obsView[j, k] + obsView[j, k + 1])
+                precision = rawPrecision
+                if cap > 0.0 and precision > cap:
+                    precision = cap
+                localDeltaView[localCount] = dataView[j, k + 1] - dataView[j, k]
+                localPrecisionView[localCount] = precision
+                localCount += 1
+        if localCount <= 0:
+            continue
+        loc = _robustLocationF64(&localDeltaView[0], &localPrecisionView[0], localCount)
+        sumP = 0.0
+        sumP2 = 0.0
+        for j in range(localCount):
+            sumP += localPrecisionView[j]
+            sumP2 += localPrecisionView[j] * localPrecisionView[j]
+        deltasView[outCount] = loc
+        samplingVariancesView[outCount] = 1.0 / sumP
+        if sumP2 > 0.0:
+            effPairs = (sumP * sumP) / sumP2
+        else:
+            effPairs = 1.0
+        if effPairs < 1.0:
+            effPairs = 1.0
+        transitionWeightsView[outCount] = effPairs
+        outCount += 1
+    diagnostics = {
+        "pairCount": int(pairCount),
+        "precisionCap": float(cap),
+        "precisionCapFraction": float(capFraction),
+    }
+    return (
+        deltasArr[:outCount],
+        samplingVariancesArr[:outCount],
+        transitionWeightsArr[:outCount],
+        diagnostics,
+    )
+
+
+cpdef tuple cEstimatePooledProcessNoiseTransitions(
+    object matrixData,
+    object obsVar,
+    object activeObservation,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] dataArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] obsArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] activeArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pooledMeanArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pooledVarArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deltasArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] samplingVariancesArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] transitionWeightsArr
+    cdef double[:, ::1] dataView
+    cdef double[:, ::1] obsView
+    cdef cnp.uint8_t[:, ::1] activeView
+    cdef double[::1] pooledMeanView
+    cdef double[::1] pooledVarView
+    cdef double[::1] deltasView
+    cdef double[::1] samplingVariancesView
+    cdef double[::1] transitionWeightsView
+    cdef Py_ssize_t trackCount
+    cdef Py_ssize_t intervalCount
+    cdef Py_ssize_t maxTransitionCount
+    cdef Py_ssize_t outCount = 0
+    cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    cdef double obs
+    cdef double value
+    cdef double weight
+    cdef double weightSum
+    cdef double weightedSum
+    cdef double s2
+
+    dataArr = np.ascontiguousarray(matrixData, dtype=np.float64)
+    obsArr = np.ascontiguousarray(obsVar, dtype=np.float64)
+    activeArr = np.ascontiguousarray(activeObservation, dtype=np.uint8)
+    if dataArr.ndim != 2:
+        raise ValueError("matrixData must be a 2D array")
+    if obsArr.shape[0] != dataArr.shape[0] or obsArr.shape[1] != dataArr.shape[1]:
+        raise ValueError("obsVar shape must match matrixData")
+    if activeArr.shape[0] != dataArr.shape[0] or activeArr.shape[1] != dataArr.shape[1]:
+        raise ValueError("activeObservation shape must match matrixData")
+    trackCount = dataArr.shape[0]
+    intervalCount = dataArr.shape[1]
+    if intervalCount < 2 or trackCount <= 0:
+        return (
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+        )
+    dataView = dataArr
+    obsView = obsArr
+    activeView = activeArr
+    pooledMeanArr = np.empty(intervalCount, dtype=np.float64)
+    pooledVarArr = np.empty(intervalCount, dtype=np.float64)
+    pooledMeanView = pooledMeanArr
+    pooledVarView = pooledVarArr
+    for i in range(intervalCount):
+        weightSum = 0.0
+        weightedSum = 0.0
+        for j in range(trackCount):
+            if activeView[j, i] != 0:
+                value = dataView[j, i]
+                obs = obsView[j, i]
+                if (not isfinite(value)) or (not isfinite(obs)) or obs <= 0.0:
+                    raise ValueError("active pooled observations must be finite with positive variance")
+                weight = 1.0 / obs
+                weightSum += weight
+                weightedSum += value * weight
+        if weightSum > 0.0:
+            pooledMeanView[i] = weightedSum / weightSum
+            pooledVarView[i] = 1.0 / weightSum
+        else:
+            pooledMeanView[i] = NAN
+            pooledVarView[i] = NAN
+    maxTransitionCount = intervalCount - 1
+    deltasArr = np.empty(maxTransitionCount, dtype=np.float64)
+    samplingVariancesArr = np.empty(maxTransitionCount, dtype=np.float64)
+    transitionWeightsArr = np.empty(maxTransitionCount, dtype=np.float64)
+    deltasView = deltasArr
+    samplingVariancesView = samplingVariancesArr
+    transitionWeightsView = transitionWeightsArr
+    for i in range(maxTransitionCount):
+        if (
+            isfinite(pooledMeanView[i])
+            and isfinite(pooledMeanView[i + 1])
+            and isfinite(pooledVarView[i])
+            and isfinite(pooledVarView[i + 1])
+        ):
+            s2 = pooledVarView[i] + pooledVarView[i + 1]
+            deltasView[outCount] = pooledMeanView[i + 1] - pooledMeanView[i]
+            samplingVariancesView[outCount] = s2
+            if s2 > 0.0:
+                transitionWeightsView[outCount] = 1.0 / fmax(s2, DBL_MIN)
+            else:
+                transitionWeightsView[outCount] = 1.0
+            outCount += 1
+    return (
+        deltasArr[:outCount],
+        samplingVariancesArr[:outCount],
+        transitionWeightsArr[:outCount],
+    )
+
+
+cpdef dict cQSeedPosteriorFromTransitions(
+    object deltas,
+    object samplingVariances,
+    object transitionWeights,
+    double qFloor,
+    double qCap,
+    double robustTNu,
+    object source,
+    double qSeedPriorLevel,
+    int minTransitions,
+    double priorLogSd,
+    double defaultTNu,
+    Py_ssize_t gridSize,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deltaArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] s2Arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] absDevArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deconvolvedArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] gridArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logPostArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] posteriorArr
+    cdef double[::1] deltaView
+    cdef double[::1] s2View
+    cdef double[::1] weightsView
+    cdef double[::1] absDevView
+    cdef double[::1] deconvolvedView
+    cdef double[::1] gridView
+    cdef double[::1] logPostView
+    cdef double[::1] posteriorView
+    cdef Py_ssize_t transitionCount
+    cdef Py_ssize_t actualGridSize
+    cdef Py_ssize_t i
+    cdef Py_ssize_t g
+    cdef Py_ssize_t modeIndex = 0
+    cdef double sumW = 0.0
+    cdef double sumW2 = 0.0
+    cdef double effectiveCount = 0.0
+    cdef double center
+    cdef double robustScale
+    cdef double medianS2
+    cdef double qPrior
+    cdef double qTransition90
+    cdef double maxDeltaSq = 0.0
+    cdef double lower
+    cdef double upper
+    cdef double candidate
+    cdef double logLower
+    cdef double logUpper
+    cdef double step
+    cdef double nu
+    cdef double medianWeight
+    cdef double logPriorCenter
+    cdef double logPriorSd
+    cdef double logNorm
+    cdef double q
+    cdef double var
+    cdef double weightNorm
+    cdef double logLikeSum
+    cdef double logPrior
+    cdef double logPostValue
+    cdef double maxLogPost = -INFINITY
+    cdef double totalPosterior = 0.0
+    cdef str sourceText
+
+    deltaArr = np.ascontiguousarray(deltas, dtype=np.float64).reshape(-1)
+    s2Arr = np.ascontiguousarray(samplingVariances, dtype=np.float64).reshape(-1)
+    weightsArr = np.ascontiguousarray(transitionWeights, dtype=np.float64).reshape(-1)
+    if deltaArr.shape[0] != s2Arr.shape[0] or deltaArr.shape[0] != weightsArr.shape[0]:
+        raise ValueError("transition arrays must have the same length")
+    if (not isfinite(qFloor)) or qFloor <= 0.0:
+        raise ValueError("qFloor must be positive finite")
+    if isfinite(qCap) and qCap <= 0.0:
+        raise ValueError("qCap must be positive or infinite")
+    if (not isfinite(qSeedPriorLevel)) or qSeedPriorLevel <= 0.0:
+        raise ValueError("qSeedPriorLevel must be positive finite")
+    if isfinite(qCap) and qSeedPriorLevel > qCap:
+        raise ValueError("`qSeedPriorLevel` must not exceed `maxQ`")
+    if minTransitions <= 0:
+        raise ValueError("minTransitions must be positive")
+    if (not isfinite(priorLogSd)) or priorLogSd <= 0.0:
+        raise ValueError("priorLogSd must be positive finite")
+    if (not isfinite(defaultTNu)) or defaultTNu <= 0.0:
+        raise ValueError("defaultTNu must be positive finite")
+    if gridSize <= 0:
+        raise ValueError("gridSize must be positive")
+    sourceText = str(source)
+    transitionCount = deltaArr.shape[0]
+    deltaView = deltaArr
+    s2View = s2Arr
+    weightsView = weightsArr
+    for i in range(transitionCount):
+        if not isfinite(deltaView[i]):
+            raise ValueError("deltas must be finite")
+        if (not isfinite(s2View[i])) or s2View[i] < 0.0:
+            raise ValueError("samplingVariances must be nonnegative finite")
+        if (not isfinite(weightsView[i])) or weightsView[i] <= 0.0:
+            raise ValueError("transitionWeights must be positive finite")
+        sumW += weightsView[i]
+        sumW2 += weightsView[i] * weightsView[i]
+    if sumW2 > 0.0:
+        effectiveCount = (sumW * sumW) / sumW2
+    if transitionCount < minTransitions or effectiveCount < <double>minTransitions:
+        return {
+            "ok": False,
+            "source": sourceText,
+            "reason": "insufficient_transition_support",
+            "transitionCount": int(transitionCount),
+            "effectiveTransitionCount": float(effectiveCount),
+        }
+    center = _weightedQuantileInterpolatedF64(deltaArr, weightsArr, 0.5)
+    absDevArr = np.empty(transitionCount, dtype=np.float64)
+    absDevView = absDevArr
+    for i in range(transitionCount):
+        absDevView[i] = fabs(deltaView[i] - center)
+    robustScale = 1.4826 * _weightedQuantileInterpolatedF64(absDevArr, weightsArr, 0.5)
+    medianS2 = _weightedQuantileInterpolatedF64(s2Arr, weightsArr, 0.5)
+    qPrior = robustScale * robustScale - medianS2
+    if qPrior < qFloor:
+        qPrior = qFloor
+    if qPrior < qSeedPriorLevel:
+        qPrior = qSeedPriorLevel
+    deconvolvedArr = np.empty(transitionCount, dtype=np.float64)
+    deconvolvedView = deconvolvedArr
+    for i in range(transitionCount):
+        candidate = deltaView[i] * deltaView[i]
+        if candidate > maxDeltaSq:
+            maxDeltaSq = candidate
+        candidate -= s2View[i]
+        if candidate < 0.0:
+            candidate = 0.0
+        deconvolvedView[i] = candidate
+    qTransition90 = _weightedQuantileInterpolatedF64(deconvolvedArr, weightsArr, 0.9)
+    lower = qFloor
+    if isfinite(qCap):
+        upper = fmax(qCap, lower)
+    else:
+        upper = lower * 10.0
+        candidate = qPrior * 1.0e4
+        if candidate > upper and candidate > lower:
+            upper = candidate
+        candidate = qTransition90 * 100.0
+        if candidate > upper and candidate > lower:
+            upper = candidate
+        candidate = medianS2 * 100.0
+        if candidate > upper and candidate > lower:
+            upper = candidate
+        candidate = maxDeltaSq * 10.0
+        if candidate > upper and candidate > lower:
+            upper = candidate
+        candidate = lower * 1.0e6
+        if candidate > upper and candidate > lower:
+            upper = candidate
+    if upper <= lower * (1.0 + 1.0e-10):
+        actualGridSize = 1
+    else:
+        actualGridSize = gridSize
+    gridArr = np.empty(actualGridSize, dtype=np.float64)
+    logPostArr = np.empty(actualGridSize, dtype=np.float64)
+    posteriorArr = np.empty(actualGridSize, dtype=np.float64)
+    gridView = gridArr
+    logPostView = logPostArr
+    posteriorView = posteriorArr
+    if actualGridSize == 1:
+        gridView[0] = lower
+    else:
+        logLower = log(lower)
+        logUpper = log(upper)
+        step = (logUpper - logLower) / <double>(actualGridSize - 1)
+        for g in range(actualGridSize):
+            gridView[g] = exp(logLower + step * <double>g)
+    nu = robustTNu
+    if (not isfinite(nu)) or nu <= 0.0:
+        nu = defaultTNu
+    if nu < 4.0:
+        nu = 4.0
+    medianWeight = _weightedQuantileInterpolatedF64(weightsArr, weightsArr, 0.5)
+    if medianWeight < DBL_MIN:
+        medianWeight = DBL_MIN
+    logPriorCenter = log(fmax(qPrior, lower))
+    logPriorSd = fmax(priorLogSd, 1.0e-6)
+    logNorm = (
+        lgamma((nu + 1.0) * 0.5)
+        - lgamma(nu * 0.5)
+        - 0.5 * (log(nu) + log(__PI_DOUBLE))
+    )
+    for g in range(actualGridSize):
+        q = gridView[g]
+        logLikeSum = 0.0
+        for i in range(transitionCount):
+            var = q + s2View[i]
+            if var < DBL_MIN:
+                var = DBL_MIN
+            weightNorm = weightsView[i] / medianWeight
+            if weightNorm < 0.25:
+                weightNorm = 0.25
+            elif weightNorm > 4.0:
+                weightNorm = 4.0
+            logLikeSum += weightNorm * (
+                logNorm
+                - 0.5 * log(var)
+                - 0.5 * (nu + 1.0) * log1p(
+                    (deltaView[i] * deltaView[i]) / (nu * var)
+                )
+            )
+        logPrior = -0.5 * ((log(q) - logPriorCenter) / logPriorSd) * (
+            (log(q) - logPriorCenter) / logPriorSd
+        )
+        logPostValue = logLikeSum + logPrior
+        if not isfinite(logPostValue):
+            raise ValueError("q seed posterior produced a nonfinite score")
+        logPostView[g] = logPostValue
+        if logPostValue > maxLogPost:
+            maxLogPost = logPostValue
+            modeIndex = g
+    for g in range(actualGridSize):
+        posteriorView[g] = exp(logPostView[g] - maxLogPost)
+        totalPosterior += posteriorView[g]
+    if (not isfinite(totalPosterior)) or totalPosterior <= 0.0:
+        raise ValueError("q seed posterior normalization failed")
+    for g in range(actualGridSize):
+        posteriorView[g] = posteriorView[g] / totalPosterior
+    return {
+        "ok": True,
+        "source": sourceText,
+        "reason": "ok",
+        "transitionCount": int(transitionCount),
+        "effectiveTransitionCount": float(effectiveCount),
+        "medianSamplingVariance": float(medianS2),
+        "priorLevel": float(qPrior),
+        "posteriorModeLevel": float(gridView[modeIndex]),
+        "posteriorMedianLevel": float(
+            _cdfQuantileF64(gridView, posteriorView, actualGridSize, 0.5)
+        ),
+        "posteriorQ05Level": float(
+            _cdfQuantileF64(gridView, posteriorView, actualGridSize, 0.05)
+        ),
+        "posteriorQ95Level": float(
+            _cdfQuantileF64(gridView, posteriorView, actualGridSize, 0.95)
+        ),
+        "transitionQ90": float(qTransition90),
+    }
 
 
 cdef inline void _insertionSortF64(double* vals_, Py_ssize_t n) noexcept nogil:

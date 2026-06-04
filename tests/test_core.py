@@ -1836,6 +1836,53 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
 
 
 @pytest.mark.correctness
+def _caseBackgroundUpdateReusesStatsAndInitialActiveSet():
+    n = 90
+    x = np.linspace(-1.0, 1.0, n, dtype=np.float32)
+    residualMatrix = np.vstack(
+        [
+            -0.15 + 0.9 * np.exp(-((x - 0.2) ** 2) / 0.05),
+            -0.10 + 0.7 * np.exp(-((x + 0.25) ** 2) / 0.08),
+            0.05 * np.sin(np.linspace(0.0, 3.0 * np.pi, n, dtype=np.float32)),
+        ]
+    ).astype(np.float32)
+    invVarMatrix = np.vstack(
+        [
+            np.linspace(0.7, 1.8, n, dtype=np.float32),
+            np.linspace(1.4, 0.6, n, dtype=np.float32),
+            np.full(n, 1.1, dtype=np.float32),
+        ]
+    )
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+
+    for useNonnegative in (False, True):
+        plain = core.solveZeroCenteredBackground(
+            residualMatrix=residualMatrix,
+            invVarMatrix=invVarMatrix,
+            blockLenIntervals=5,
+            backgroundSmoothness=0.8,
+            zeroCenter=False,
+            useNonnegative=useNonnegative,
+        )
+        reused = core.solveZeroCenteredBackground(
+            residualMatrix=residualMatrix,
+            invVarMatrix=invVarMatrix,
+            blockLenIntervals=5,
+            backgroundSmoothness=0.8,
+            zeroCenter=False,
+            useNonnegative=useNonnegative,
+            initialBackground=plain,
+            weightTrack=weightTrack,
+            rhsTrack=rhsTrack,
+        )
+        np.testing.assert_allclose(reused, plain, atol=1.0e-5)
+
+
+@pytest.mark.correctness
 def _caseFinalForwardNISUsesMeanFinalForwardDiagnostic():
     assert core._finalForwardNIS(
         np.array([0.25, 0.5, 1.25, np.nan], dtype=np.float32)
@@ -2895,6 +2942,255 @@ def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
     assert diagnostics["qSeedTransitionCount"] == n - 1
     assert np.isfinite(matrixQ).all()
     assert matrixQ[0, 0] > 1.0e-4
+
+
+@pytest.mark.correctness
+def _caseMuncSeedQCythonKernelsMatchReference():
+    base = np.linspace(-0.25, 0.95, 14, dtype=np.float64)
+    matrixData = np.vstack(
+        [
+            base,
+            base + 0.035,
+            base - 0.025,
+            base + 0.02 * np.sin(np.linspace(0.0, 2.0 * np.pi, base.size)),
+        ]
+    )
+    matrixData[2, 5] = np.nan
+    matrixData[3, 9] = np.nan
+    obsVar = np.full(matrixData.shape, 0.04, dtype=np.float64)
+    obsVar[0, :] = 1.0e-5
+    active = np.isfinite(matrixData)
+
+    def robustLocation(values, weights):
+        x = np.asarray(values, dtype=np.float64)
+        w = np.asarray(weights, dtype=np.float64)
+        if x.size == 1:
+            return float(x[0])
+        loc = float(np.median(x))
+        scale = 1.4826 * float(np.median(np.abs(x - loc)))
+        if scale <= 1.0e-12:
+            return loc
+        c = 1.345
+        for _ in range(4):
+            resid = x - loc
+            huber = np.minimum(1.0, (c * scale) / np.maximum(np.abs(resid), 1.0e-12))
+            eff = w * huber
+            nextLoc = float(np.sum(eff * x) / np.sum(eff))
+            if abs(nextLoc - loc) <= 1.0e-10 * max(1.0, abs(loc)):
+                loc = nextLoc
+                break
+            loc = nextLoc
+        return loc
+
+    def sameTrackReference(data, obs, activeRows):
+        activePair = activeRows[:, 1:] & activeRows[:, :-1]
+        rawPrecision = np.where(activePair, 1.0 / (obs[:, 1:] + obs[:, :-1]), 0.0)
+        positivePrecision = rawPrecision[rawPrecision > 0.0]
+        cap = min(
+            float(np.quantile(positivePrecision, core._QINIT_PRECISION_CAP_QUANTILE)),
+            core._QINIT_PRECISION_CAP_MULTIPLIER * float(np.median(positivePrecision)),
+        )
+        precision = np.minimum(rawPrecision, cap)
+        deltaValues = []
+        samplingValues = []
+        weightValues = []
+        pairCount = 0
+        for k in range(activePair.shape[1]):
+            rows = precision[:, k] > 0.0
+            if not np.any(rows):
+                continue
+            d = data[rows, k + 1] - data[rows, k]
+            p = precision[rows, k]
+            pairCount += int(d.size)
+            sumP = float(np.sum(p))
+            sumP2 = float(np.sum(p * p))
+            deltaValues.append(robustLocation(d, p))
+            samplingValues.append(1.0 / sumP)
+            weightValues.append(max((sumP * sumP) / sumP2, 1.0))
+        return (
+            np.asarray(deltaValues, dtype=np.float64),
+            np.asarray(samplingValues, dtype=np.float64),
+            np.asarray(weightValues, dtype=np.float64),
+            {
+                "pairCount": pairCount,
+                "precisionCap": cap,
+                "precisionCapFraction": float(np.mean(positivePrecision > cap)),
+            },
+        )
+
+    def pooledReference(data, obs, activeRows):
+        weights = np.where(activeRows, 1.0 / obs, 0.0)
+        weightSum = np.sum(weights, axis=0, dtype=np.float64)
+        pooledMean = np.divide(
+            np.sum(np.where(activeRows, data * weights, 0.0), axis=0, dtype=np.float64),
+            weightSum,
+            out=np.full(data.shape[1], np.nan, dtype=np.float64),
+            where=weightSum > 0.0,
+        )
+        pooledVar = np.divide(
+            1.0,
+            weightSum,
+            out=np.full(data.shape[1], np.nan, dtype=np.float64),
+            where=weightSum > 0.0,
+        )
+        valid = (
+            np.isfinite(pooledMean[1:])
+            & np.isfinite(pooledMean[:-1])
+            & np.isfinite(pooledVar[1:])
+            & np.isfinite(pooledVar[:-1])
+        )
+        sampling = pooledVar[1:][valid] + pooledVar[:-1][valid]
+        return (
+            pooledMean[1:][valid] - pooledMean[:-1][valid],
+            sampling,
+            1.0 / np.maximum(sampling, np.finfo(np.float64).tiny),
+        )
+
+    def weightedQuantile(values, weights, q):
+        return float(
+            core._weightedQuantile(
+                np.asarray(values, dtype=np.float64),
+                np.asarray(weights, dtype=np.float64),
+                np.asarray([q], dtype=np.float64),
+            )[0]
+        )
+
+    def posteriorReference(deltas, sampling, weights, source):
+        qFloor = 1.0e-5
+        qCap = 1.0
+        delta = np.asarray(deltas, dtype=np.float64)
+        s2 = np.asarray(sampling, dtype=np.float64)
+        transitionWeight = np.asarray(weights, dtype=np.float64)
+        sumW = float(np.sum(transitionWeight))
+        sumW2 = float(np.sum(transitionWeight * transitionWeight))
+        effectiveCount = (sumW * sumW) / sumW2
+        center = weightedQuantile(delta, transitionWeight, 0.5)
+        robustScale = 1.4826 * weightedQuantile(
+            np.abs(delta - center), transitionWeight, 0.5
+        )
+        medianS2 = weightedQuantile(s2, transitionWeight, 0.5)
+        qPrior = max(robustScale * robustScale - medianS2, qFloor)
+        deconvolved = np.maximum(delta * delta - s2, 0.0)
+        qTransition90 = weightedQuantile(deconvolved, transitionWeight, 0.9)
+        grid = np.exp(np.linspace(math.log(qFloor), math.log(qCap), 256))
+        nu = 8.0
+        normalizedWeights = transitionWeight / max(
+            weightedQuantile(transitionWeight, transitionWeight, 0.5),
+            np.finfo(np.float64).tiny,
+        )
+        normalizedWeights = np.clip(normalizedWeights, 0.25, 4.0)
+        logPriorCenter = math.log(max(qPrior, qFloor))
+        logPriorSd = core._QINIT_PRIOR_LOG_SD
+        logPost = np.empty(grid.shape, dtype=np.float64)
+        for idx, q in enumerate(grid):
+            var = np.maximum(q + s2, np.finfo(np.float64).tiny)
+            scale = np.sqrt(var)
+            logLike = stats.t.logpdf(delta / scale, df=nu) - np.log(scale)
+            logPrior = -0.5 * ((math.log(q) - logPriorCenter) / logPriorSd) ** 2
+            logPost[idx] = float(np.sum(normalizedWeights * logLike) + logPrior)
+        posterior = np.exp(logPost - np.max(logPost))
+        posterior = posterior / float(np.sum(posterior))
+        cdf = np.cumsum(posterior)
+        return {
+            "ok": True,
+            "source": source,
+            "reason": "ok",
+            "transitionCount": int(delta.size),
+            "effectiveTransitionCount": float(effectiveCount),
+            "medianSamplingVariance": float(medianS2),
+            "priorLevel": float(qPrior),
+            "posteriorModeLevel": float(grid[int(np.argmax(posterior))]),
+            "posteriorMedianLevel": float(np.interp(0.5, cdf, grid)),
+            "posteriorQ05Level": float(np.interp(0.05, cdf, grid)),
+            "posteriorQ95Level": float(np.interp(0.95, cdf, grid)),
+            "transitionQ90": float(qTransition90),
+        }
+
+    sameExpected = sameTrackReference(matrixData, obsVar, active)
+    sameActual = cconsenrich.cEstimateSameTrackProcessNoiseTransitions(
+        matrixData,
+        obsVar,
+        active,
+        core._QINIT_PRECISION_CAP_QUANTILE,
+        core._QINIT_PRECISION_CAP_MULTIPLIER,
+    )
+    sameWrapper = core._estimateSameTrackProcessNoiseTransitions(
+        matrixData=matrixData,
+        obsVar=obsVar,
+        finiteMask=active,
+    )
+    for actual in (sameActual, sameWrapper):
+        np.testing.assert_allclose(actual[0], sameExpected[0], rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(actual[1], sameExpected[1], rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(actual[2], sameExpected[2], rtol=2e-12, atol=2e-12)
+        assert actual[3]["pairCount"] == sameExpected[3]["pairCount"]
+        assert actual[3]["precisionCap"] == pytest.approx(
+            sameExpected[3]["precisionCap"], rel=2e-12, abs=2e-12
+        )
+        assert actual[3]["precisionCapFraction"] == pytest.approx(
+            sameExpected[3]["precisionCapFraction"], rel=2e-12, abs=2e-12
+        )
+
+    pooledExpected = pooledReference(matrixData, obsVar, active)
+    pooledActual = cconsenrich.cEstimatePooledProcessNoiseTransitions(
+        matrixData,
+        obsVar,
+        active,
+    )
+    pooledWrapper = core._estimatePooledProcessNoiseTransitions(
+        matrixData=matrixData,
+        obsVar=obsVar,
+        finiteMask=active,
+    )
+    for actual in (pooledActual, pooledWrapper):
+        np.testing.assert_allclose(actual[0], pooledExpected[0], rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(actual[1], pooledExpected[1], rtol=2e-12, atol=2e-12)
+        np.testing.assert_allclose(actual[2], pooledExpected[2], rtol=2e-12, atol=2e-12)
+
+    posteriorExpected = posteriorReference(
+        sameExpected[0], sameExpected[1], sameExpected[2], "sameTrackEB"
+    )
+    posteriorActual = core._qSeedPosteriorFromTransitions(
+        deltas=sameActual[0],
+        samplingVariances=sameActual[1],
+        transitionWeights=sameActual[2],
+        qFloor=1.0e-5,
+        qCap=1.0,
+        robustTNu=8.0,
+        source="sameTrackEB",
+        qSeedPriorLevel=1.0e-5,
+    )
+    for key in ("ok", "source", "reason", "transitionCount"):
+        assert posteriorActual[key] == posteriorExpected[key]
+    for key in (
+        "effectiveTransitionCount",
+        "medianSamplingVariance",
+        "priorLevel",
+        "posteriorModeLevel",
+        "posteriorMedianLevel",
+        "posteriorQ05Level",
+        "posteriorQ95Level",
+        "transitionQ90",
+    ):
+        assert posteriorActual[key] == pytest.approx(
+            posteriorExpected[key], rel=1e-8, abs=1e-12
+        )
+
+    with pytest.raises(ValueError, match="samplingVariances"):
+        cconsenrich.cQSeedPosteriorFromTransitions(
+            np.ones(8, dtype=np.float64),
+            -np.ones(8, dtype=np.float64),
+            np.ones(8, dtype=np.float64),
+            1.0e-5,
+            1.0,
+            8.0,
+            "bad",
+            1.0e-5,
+            core._QINIT_MIN_TRANSITIONS,
+            core._QINIT_PRIOR_LOG_SD,
+            core._QINIT_DEFAULT_T_NU,
+            256,
+        )
 
 
 @pytest.mark.correctness
@@ -6458,6 +6754,10 @@ def test_core_numeric_kernel_contracts(contract_case):
             "fixed ECM precision equations",
             _caseCFixedBackgroundPrecisionUpdatesMatchStudentTEquations,
         ),
+        (
+            "background solve stat reuse",
+            _caseBackgroundUpdateReusesStatsAndInitialActiveSet,
+        ),
     ):
         contract_case(label, func)
 
@@ -6524,6 +6824,10 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         (
             "robust Q seed pooled EB fallback",
             _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap,
+        ),
+        (
+            "MUNC seed Q Cython kernels",
+            _caseMuncSeedQCythonKernelsMatchReference,
         ),
         (
             "PUNC deadband prior shrinks near null",
