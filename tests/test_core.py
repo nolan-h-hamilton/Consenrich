@@ -1059,6 +1059,58 @@ def _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows():
 
 
 @pytest.mark.correctness
+def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
+    essKernel = getattr(cconsenrich, "cEstimateEffectiveSampleSize", None)
+    if essKernel is None:
+        pytest.skip("cEstimateEffectiveSampleSize is not exposed by the loaded extension")
+
+    oscillatingEvidence = np.exp(
+        np.asarray([1.0, -1.0, 1.0, -1.0, 1.0, -1.0], dtype=np.float64)
+    )
+    correlatedEvidence = np.exp(
+        np.asarray([0.0, 0.5, 1.0, 1.5, 2.0, 2.5], dtype=np.float64)
+    )
+    activeMask = np.ones(oscillatingEvidence.size, dtype=np.uint8)
+    _essOsc, etaOsc, lagsOsc = essKernel(
+        oscillatingEvidence,
+        1,
+        activeMask=activeMask,
+        logPositive=True,
+        windowIntervals=4,
+    )
+    _essCorr, etaCorr, lagsCorr = essKernel(
+        correlatedEvidence,
+        3,
+        activeMask=activeMask,
+        logPositive=True,
+        windowIntervals=4,
+    )
+    assert etaOsc == pytest.approx(1.0)
+    assert lagsOsc == 0
+    assert 1.0 < etaCorr <= 4.0
+    assert lagsCorr > 0
+
+    maskedEvidence = np.asarray([1.0, 2.0, 0.0, 4.0, 8.0], dtype=np.float64)
+    maskedActive = np.asarray([1, 1, 0, 1, 1], dtype=np.uint8)
+    _essMasked, etaMasked, _lagsMasked = essKernel(
+        maskedEvidence,
+        2,
+        activeMask=maskedActive,
+        logPositive=True,
+        windowIntervals=4,
+    )
+    assert 1.0 <= etaMasked <= 4.0
+    with pytest.raises(ValueError, match="positive"):
+        essKernel(
+            maskedEvidence,
+            2,
+            activeMask=np.ones(maskedEvidence.size, dtype=np.uint8),
+            logPositive=True,
+            windowIntervals=4,
+        )
+
+
+@pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64(dtype):
     x = np.array([-3.0, -0.25, 0.0, 2.5, 9.0], dtype=dtype)
@@ -3104,7 +3156,7 @@ def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
 
 
 @pytest.mark.correctness
-def _caseMuncSeedQCythonKernelsMatchReference():
+def _caseMuncSeedQKernelsMatchReference():
     base = np.linspace(-0.25, 0.95, 14, dtype=np.float64)
     matrixData = np.vstack(
         [
@@ -4527,7 +4579,7 @@ def _casePSplinePredictionClampsToTrainingBoundary():
 
 
 @pytest.mark.correctness
-def _casePSplineCythonEvaluationMatchesDenseDesign():
+def _casePSplineEvaluationMatchesDenseDesign():
     amplitudes = np.linspace(-20.0, 20.0, 80, dtype=np.float64)
     signedPredictor = np.sign(amplitudes) * np.log1p(np.abs(amplitudes))
     variances = np.exp(0.2 + 0.1 * np.sin(signedPredictor))
@@ -5321,37 +5373,48 @@ def test_core_munc_uses_kalman_local_evidence_for_shrinkage(
     )
     monkeypatch.setattr(core, "EB_computePriorStrength", _fakePriorStrength)
 
-    muncTrack, _ = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=250,
-        samplingIters=64,
-        EB_localQuantile=-1.0,
-        EB_use=True,
-        pooledTrend=pooledTrend,
-        localVarianceTrack=localVarTrack,
-        countModelVarianceFloor=countModelVarianceFloor,
-        varianceFloor=0.0,
-        varianceCap=20.0,
-    )
+    for nuLKwargs, expectedNuL in (
+        ({}, 7.0),
+        ({"EB_effectiveNuL": 12.0}, 12.0),
+        ({"EB_setNuL": 9, "EB_effectiveNuL": 12.0}, 9.0),
+    ):
+        seen.clear()
+        muncTrack, _ = core.getMuncTrack(
+            chromosome="chrTest",
+            intervals=intervals,
+            values=values,
+            intervalSizeBP=25,
+            muncTrendBlockSizeBP=125,
+            muncLocalWindowSizeBP=250,
+            samplingIters=64,
+            EB_localQuantile=-1.0,
+            EB_use=True,
+            pooledTrend=pooledTrend,
+            localVarianceTrack=localVarTrack,
+            countModelVarianceFloor=countModelVarianceFloor,
+            varianceFloor=0.0,
+            varianceCap=20.0,
+            **nuLKwargs,
+        )
 
-    expectedNuL = 7.0
-    weighted = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
-        expectedNuL + 4.0
-    )
-    expected = weighted + countModelVarianceFloor
+        weighted = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
+            expectedNuL + 4.0
+        )
+        expected = weighted + countModelVarianceFloor
 
-    assert seen["Nu_L"] == pytest.approx(expectedNuL)
-    np.testing.assert_array_equal(seen["candidateMask"], expectedCandidateMask)
-    np.testing.assert_allclose(
-        muncTrack[tinyMask],
-        expected[tinyMask].astype(np.float32),
-    )
-    np.testing.assert_allclose(muncTrack, expected.astype(np.float32))
-    assert np.all(muncTrack >= countModelVarianceFloor)
+        assert seen["Nu_L"] == pytest.approx(expectedNuL)
+        np.testing.assert_array_equal(seen["candidateMask"], expectedCandidateMask)
+        np.testing.assert_allclose(
+            muncTrack[tinyMask],
+            expected[tinyMask].astype(np.float32),
+            rtol=1.0e-6,
+        )
+        np.testing.assert_allclose(
+            muncTrack,
+            expected.astype(np.float32),
+            rtol=1.0e-6,
+        )
+        assert np.all(muncTrack >= countModelVarianceFloor)
 
 
 def test_core_munc_eb_finalization_uses_native_count_floor_nan_sentinel(
@@ -5672,7 +5735,7 @@ def test_core_pooled_prior_strength_uses_block_log_variance_noise():
 
 
 @pytest.mark.correctness
-def _caseMuncSizingAndCythonVarianceModels():
+def _caseMuncSizingAndVarianceModels():
     intervalSizeBP = 25
     fallbackSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
@@ -7206,8 +7269,12 @@ def test_core_numeric_kernel_contracts(contract_case):
             _caseFinalizeMuncEBTrackPreservesCountFloorSentinel,
         ),
         (
-            "MUNC dense evidence smoothing",
+            "MUNC local evidence windows",
             _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows,
+        ),
+        (
+            "MUNC ESS local evidence mode",
+            _caseEffectiveSampleSizeSupportsMuncEvidenceMode,
         ),
         ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
         ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
@@ -7311,8 +7378,8 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
             _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap,
         ),
         (
-            "MUNC seed Q Cython kernels",
-            _caseMuncSeedQCythonKernelsMatchReference,
+            "MUNC seed Q reference match",
+            _caseMuncSeedQKernelsMatchReference,
         ),
         (
             "PUNC deadband prior shrinks near null",
@@ -7451,7 +7518,7 @@ def test_core_pspline_sparse_support_and_trend_contracts(
             _casePSplineSignedPredictorDistinguishesPositiveAndNegativeMeans,
         ),
         ("P-spline boundary clamp", _casePSplinePredictionClampsToTrainingBoundary),
-        ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
+        ("P-spline eval", _casePSplineEvaluationMatchesDenseDesign),
         ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
         (
             "pooled MUNC shared trend",

@@ -9,8 +9,7 @@ cimport numpy as cnp
 
 from libc.math cimport fabs, exp, log, sqrt, isfinite, NAN
 
-IF USE_OPENMP:
-    from cython.parallel cimport prange
+from cython.parallel cimport prange
 
 cnp.import_array()
 
@@ -797,7 +796,7 @@ cpdef tuple cevaluateFactor(
     cdef Py_ssize_t i, col
     cdef double eta, fac, pVal
 
-    IF USE_OPENMP:
+    if USE_OPENMP:
         if n >= OPENMP_FACTOR_MIN_ROWS:
             for i in prange(n, nogil=True, schedule="static"):
                 eta = 0.0
@@ -823,7 +822,7 @@ cpdef tuple cevaluateFactor(
                         pVal = 0.0
                     factorView[i] = <cnp.float32_t>fac
                     calView[i] = <cnp.float32_t>sqrt(fac * pVal)
-    ELSE:
+    else:
         with nogil:
             for i in range(n):
                 eta = 0.0
@@ -1222,7 +1221,7 @@ cpdef tuple csegShrinkApplyFactors(
     cdef Py_ssize_t logCount = logArr.shape[0]
     cdef cnp.int32_t segment
     cdef double f, variance
-    IF USE_OPENMP:
+    if USE_OPENMP:
         if n >= OPENMP_APPLY_MIN_ROWS:
             for i in prange(n, nogil=True, schedule="static"):
                 segment = segmentView[i]
@@ -1248,7 +1247,7 @@ cpdef tuple csegShrinkApplyFactors(
                     if variance < positiveFloor or not isfinite(variance):
                         variance = positiveFloor
                     calView[i] = <cnp.float32_t>sqrt(variance)
-    ELSE:
+    else:
         with nogil:
             for i in range(n):
                 segment = segmentView[i]

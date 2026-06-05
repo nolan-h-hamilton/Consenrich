@@ -19,9 +19,7 @@ from libc.float cimport DBL_MIN
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
-
-IF USE_OPENMP:
-    from cython.parallel cimport prange
+from cython.parallel cimport prange
 
 cdef extern from "htslib/hts.h":
     ctypedef struct htsFile
@@ -4715,7 +4713,7 @@ cpdef tuple cMuncObservationMomentSeedPass(
     localPtr = <cnp.float32_t*>localArr.data
     variancePtr = <cnp.float32_t*>varianceArr.data
 
-    IF USE_OPENMP:
+    if USE_OPENMP:
         if intervalCount >= OPENMP_APPLY_MIN_ROWS:
             for intervalIndex in prange(intervalCount, nogil=True, schedule="static"):
                 _muncObservationMomentSeedPassInterval(
@@ -4793,7 +4791,7 @@ cpdef tuple cMuncObservationMomentSeedPass(
                         useGVariance,
                         useCountFloor,
                     )
-    ELSE:
+    else:
         with nogil:
             for intervalIndex in range(intervalCount):
                 _muncObservationMomentSeedPassInterval(
@@ -5183,7 +5181,7 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
     outArr = np.empty((trackCount, intervalCount), dtype=np.float32)
     outPtr = <cnp.float32_t*>outArr.data
 
-    IF USE_OPENMP:
+    if USE_OPENMP:
         if cellCount >= OPENMP_APPLY_MIN_ROWS:
             for rowIndex in prange(trackCount, nogil=True, schedule="static"):
                 _muncSmoothDenseLocalEvidenceRow(
@@ -5209,7 +5207,7 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
                         excludeMode,
                         epsValue,
                     )
-    ELSE:
+    else:
         with nogil:
             for rowIndex in range(trackCount):
                 _muncSmoothDenseLocalEvidenceRow(
@@ -8710,41 +8708,126 @@ def cMovingAverageSame(object values, int window):
     return out
 
 
-def cEstimateEffectiveSampleSize(object values, int maxLag):
+def cEstimateEffectiveSampleSize(
+    object values,
+    int maxLag,
+    object activeMask=None,
+    bint logPositive=False,
+    int windowIntervals=0,
+):
     r"""Positive-autocorrelation effective sample size scan."""
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr
+    cdef cnp.uint8_t[::1] activeView = None
     cdef Py_ssize_t n = x.shape[0]
+    cdef Py_ssize_t activeCount = 0
+    cdef Py_ssize_t pairCount
     cdef Py_ssize_t i, lag, maxLag_, lagsUsed = 0
     cdef double mean = 0.0
     cdef double var = 0.0
-    cdef double cov, rho, tau = 1.0
-    if n < 2:
-        return float(n), 1.0, 0
+    cdef double cov, rho, value, taper, tau = 1.0
+    cdef bint useActiveMask = activeMask is not None
+    cdef bint badRho = False
+    cdef int windowIntervals_ = windowIntervals
+    if windowIntervals_ < 0:
+        raise ValueError("windowIntervals must be nonnegative")
+    if not useActiveMask and not logPositive and windowIntervals_ == 0:
+        if n < 2:
+            return float(n), 1.0, 0
+        for i in range(n):
+            mean += x[i]
+        mean /= <double>n
+        with nogil:
+            for i in range(n):
+                x[i] = x[i] - mean
+                var += x[i] * x[i]
+        var /= <double>max(n, 1)
+        if (not isfinite(var)) or var <= 2.2250738585072014e-308:
+            return float(n), 1.0, 0
+        maxLag_ = max(1, min(int(maxLag), n - 1))
+        with nogil:
+            for lag in range(1, maxLag_ + 1):
+                cov = 0.0
+                for i in range(n - lag):
+                    cov += x[i] * x[i + lag]
+                cov /= <double>max(n - lag, 1)
+                rho = cov / var
+                if (not isfinite(rho)) or rho <= 0.0:
+                    break
+                tau += 2.0 * rho
+                lagsUsed = lag
+        if tau < 1.0:
+            tau = 1.0
+        return float(n / tau), float(tau), int(lagsUsed)
+    if useActiveMask:
+        activeArr = np.ascontiguousarray(np.asarray(activeMask, dtype=np.uint8).reshape(-1), dtype=np.uint8)
+        if activeArr.shape[0] != n:
+            raise ValueError("activeMask length must match values length")
+        activeView = activeArr
     for i in range(n):
-        mean += x[i]
-    mean /= <double>n
+        if useActiveMask and activeView[i] == 0:
+            continue
+        value = x[i]
+        if logPositive:
+            if (not isfinite(value)) or value <= 0.0:
+                raise ValueError("active values must be positive finite")
+            value = log(value)
+        elif not isfinite(value):
+            raise ValueError("active values must be finite")
+        x[i] = value
+        mean += value
+        activeCount += 1
+    if activeCount < 2:
+        return float(activeCount), 1.0, 0
+    mean /= <double>activeCount
     with nogil:
         for i in range(n):
+            if useActiveMask and activeView[i] == 0:
+                continue
             x[i] = x[i] - mean
             var += x[i] * x[i]
-    var /= <double>max(n, 1)
-    if (not isfinite(var)) or var <= 2.2250738585072014e-308:
-        return float(n), 1.0, 0
+    var /= <double>activeCount
+    if not isfinite(var):
+        raise ValueError("variance estimate must be finite")
+    if var <= 2.2250738585072014e-308:
+        return float(activeCount), 1.0, 0
     maxLag_ = max(1, min(int(maxLag), n - 1))
+    if windowIntervals_ > 0 and windowIntervals_ - 1 < maxLag_:
+        maxLag_ = windowIntervals_ - 1
     with nogil:
         for lag in range(1, maxLag_ + 1):
             cov = 0.0
+            pairCount = 0
             for i in range(n - lag):
+                if useActiveMask and (activeView[i] == 0 or activeView[i + lag] == 0):
+                    continue
                 cov += x[i] * x[i + lag]
-            cov /= <double>max(n - lag, 1)
+                pairCount += 1
+            if pairCount <= 0:
+                continue
+            cov /= <double>pairCount
             rho = cov / var
-            if (not isfinite(rho)) or rho <= 0.0:
+            if not isfinite(rho):
+                badRho = True
                 break
-            tau += 2.0 * rho
-            lagsUsed = lag
+            if windowIntervals_ <= 0:
+                if rho <= 0.0:
+                    break
+                tau += 2.0 * rho
+                lagsUsed = lag
+            else:
+                if rho > 0.0:
+                    taper = 1.0 - (<double>lag / <double>windowIntervals_)
+                    if taper > 0.0:
+                        tau += 2.0 * taper * rho
+                        lagsUsed = lag
+    if badRho:
+        raise ValueError("autocorrelation estimate must be finite")
     if tau < 1.0:
         tau = 1.0
-    return float(n / tau), float(tau), int(lagsUsed)
+    if windowIntervals_ > 0 and tau > <double>windowIntervals_:
+        tau = <double>windowIntervals_
+    return float(activeCount / tau), float(tau), int(lagsUsed)
 
 # Additional ROCCO/DWB helper kernels added during the runtime cleanup pass.
 

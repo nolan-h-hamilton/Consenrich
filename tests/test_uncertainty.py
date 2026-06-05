@@ -600,6 +600,76 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     modelPath = tmp_path / "cal.model.json"
     assert not modelPath.exists()
     model = result.model
+    factorValues = np.asarray(result.factor, dtype=np.float64)
+    factorMedian = float(np.median(factorValues))
+    factorDistribution = model["delete_block_factor_distribution"]
+    assert factorDistribution["count"] == int(factorValues.size)
+    assert factorDistribution["median"] == pytest.approx(factorMedian)
+    assert factorDistribution["unscaled_mad"] == pytest.approx(
+        float(np.median(np.abs(factorValues - factorMedian)))
+    )
+    assert factorDistribution["q05"] == pytest.approx(
+        float(
+            np.quantile(
+                factorValues,
+                0.05,
+                method=factorDistribution["quantile_method"],
+            )
+        )
+    )
+    assert factorDistribution["q95"] == pytest.approx(
+        float(
+            np.quantile(
+                factorValues,
+                0.95,
+                method=factorDistribution["quantile_method"],
+            )
+        )
+    )
+    assert factorDistribution["min"] == pytest.approx(float(np.min(factorValues)))
+    assert factorDistribution["max"] == pytest.approx(float(np.max(factorValues)))
+    sdFactorValues = np.sqrt(factorValues)
+    sdFactorMedian = float(np.median(sdFactorValues))
+    assert factorDistribution["sd_multiplier_median"] == pytest.approx(
+        sdFactorMedian
+    )
+    assert factorDistribution["sd_multiplier_unscaled_mad"] == pytest.approx(
+        float(np.median(np.abs(sdFactorValues - sdFactorMedian)))
+    )
+    assert factorDistribution["sd_multiplier_q05"] == pytest.approx(
+        float(
+            np.quantile(
+                sdFactorValues,
+                0.05,
+                method=factorDistribution["quantile_method"],
+            )
+        )
+    )
+    assert factorDistribution["sd_multiplier_q95"] == pytest.approx(
+        float(
+            np.quantile(
+                sdFactorValues,
+                0.95,
+                method=factorDistribution["quantile_method"],
+            )
+        )
+    )
+    assert factorDistribution["sd_multiplier_min"] == pytest.approx(
+        float(np.min(sdFactorValues))
+    )
+    assert factorDistribution["sd_multiplier_max"] == pytest.approx(
+        float(np.max(sdFactorValues))
+    )
+    flatFactorKeys = {
+        "factor_count",
+        "factor_min",
+        "factor_median",
+        "factor_unscaled_mad",
+        "factor_q05",
+        "factor_q95",
+        "factor_max",
+        "factor_sd_multiplier_median",
+    }
     assert model["mode"] == "delete_block_state"
     assert model["score_definition"] == "deleted_state_delta_over_deleted_state_delta_sd"
     assert model["factor_model"] == "segShrink"
@@ -629,7 +699,7 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
             model["target_calibration"]["uncertainty_track_scale_q"]
             / model["target_calibration"]["uncertainty_track_scale_target_z"]
         )
-    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(model)
+    assert flatFactorKeys.isdisjoint(model)
     assert {"holdout_replicates_per_block", "heldout_cells", "fit_heldout_cells"}.isdisjoint(
         model
     )
@@ -666,7 +736,11 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     modelRecord = next(
         record for record in diagnostics if record["record_type"] == "model"
     )
-    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(modelRecord)
+    assert flatFactorKeys.isdisjoint(modelRecord)
+    assert (
+        modelRecord["delete_block_factor_distribution"]
+        == model["delete_block_factor_distribution"]
+    )
     assert not (tmp_path / "cal.summary.tsv").exists()
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
     assert "uncertaintyCalibration.target enabled=True" in caplog.text

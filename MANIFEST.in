@@ -5,9 +5,17 @@ include README.md
 include THIRD_PARTY_LICENSES.md
 include vendor/htslib/LICENSE
 include vendor/htslib/htscodecs/LICENSE.md
-recursive-include src/consenrich *.pyx *.c *.h
+recursive-include src/consenrich *.pyx *.h
+recursive-include src/consenrich/native *.c *.h
 recursive-include src/consenrich/data *.bed *.sizes
 graft vendor/htslib
+prune tests
+prune docs/build
+prune build
+prune dist
+prune output
+prune tmp
+prune vendor/htslib/.git
 prune vendor/htslib/.github
 prune vendor/htslib/htscodecs/.github
 prune vendor/htslib/ref_cache
@@ -15,5 +23,8 @@ prune vendor/htslib/test
 prune vendor/htslib/samples
 prune vendor/htslib/htscodecs/tests
 prune vendor/htslib/htscodecs/javascript
-recursive-exclude vendor/htslib *.o *.a
+exclude vendor/htslib/config.h
+exclude vendor/htslib/config.mk
+global-exclude __pycache__ *.py[cod] .DS_Store .Rhistory *~
+global-exclude *.so *.dylib *.dll *.o *.a
 global-exclude .git .gitignore .gitattributes .gitmodules .cirrus.yml

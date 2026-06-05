@@ -412,6 +412,7 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     lines = outPath.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 1
     assert lines[0].startswith("chr")
+    assert all(line.split("\t")[7:9] == ["-1", "-1"] for line in lines)
 
 
 def _caseRunROCCOLowerConfidenceRecordsMetadata(tmp_path):
@@ -910,16 +911,7 @@ def _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ(tmp_path):
         if line.strip()
     ]
     assert len(narrowRows) == len(peakDetails)
-    for row, peak in zip(narrowRows, peakDetails):
-        expectedP = min(-np.log10(max(float(peak["dwb_empirical_p"]), 1.0e-300)), 1000.0)
-        expectedQ = (
-            1000.0
-            if float(peak["dwb_empirical_q"]) <= 0.0
-            else min(-np.log10(float(peak["dwb_empirical_q"])), 1000.0)
-        )
-        assert float(row[7]) == pytest.approx(expectedP)
-        assert float(row[8]) == pytest.approx(expectedQ)
-        assert float(row[8]) <= float(row[7]) + 1.0e-12
+    assert all(row[7:9] == ["-1", "-1"] for row in narrowRows)
     _assertNoBoundaryGammaMetadata(peakDetails)
 
 

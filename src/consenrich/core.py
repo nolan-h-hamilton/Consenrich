@@ -95,6 +95,7 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_SUPPORT_MIN_Q,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_COUNT,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_TILE_SIZE_BP,
+    OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_ECM_ITERS,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_OUTER_PASSES,
     OBSERVATION_DEFAULT_MIN_R,
@@ -121,12 +122,15 @@ from .constants import (
     PROCESS_DEFAULT_Q_PRIOR_TREND,
     PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
     PROCESS_DEFAULT_PUNC_DEPENDENCE_MULTIPLIER,
+    PROCESS_DEFAULT_PUNC_DEADBAND_PRIOR_WEIGHT,
     PROCESS_DEFAULT_PUNC_LOCAL_WINDOW_MULTIPLIER,
     PROCESS_DEFAULT_PUNC_MAX_SCALE,
     PROCESS_DEFAULT_PUNC_MIN_SCALE,
     PROCESS_DEFAULT_PUNC_MIN_WINDOW_WEIGHT,
     PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
     PROCESS_DEFAULT_PUNC_PRIOR_DF,
+    PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_MIN_WINDOWS,
+    PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_WINSOR_TAIL,
     PROCESS_DEFAULT_PUNC_PRIOR_RIDGE,
     PROCESS_DEFAULT_PUNC_USE_BOUNDARY_CLAMPS,
     PROCESS_DEFAULT_PUNC_USE_GLOBAL_SCALE,
@@ -264,7 +268,6 @@ _QINIT_PRECISION_CAP_QUANTILE = 0.95
 _QINIT_PRECISION_CAP_MULTIPLIER = 20.0
 _QINIT_PRIOR_LOG_SD = math.log(4.0)
 _QINIT_DEFAULT_T_NU = 8.0
-_PUNC_DEADBAND_PRIOR_WEIGHT = 0.5
 _PUNC_DEADBAND_HIGH_PROBABILITY = 0.8
 _PUNC_STAGE_TOGGLE_KEYS = (
     "puncUseWarmupFit",
@@ -3761,8 +3764,8 @@ def _estimatePuncPriorDfMethodOfMoments(
     *,
     minPriorDf: float = 4.0,
     maxPriorDf: float = 1.0e6,
-    minWindows: int = 8,
-    winsorTail: float = 0.01,
+    minWindows: int = PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_MIN_WINDOWS,
+    winsorTail: float = PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_WINSOR_TAIL,
     minScale: float = PROCESS_DEFAULT_PUNC_MIN_SCALE,
     maxScale: float = PROCESS_DEFAULT_PUNC_MAX_SCALE,
 ) -> tuple[float, float, dict[str, Any]]:
@@ -4232,7 +4235,7 @@ def _fitPuncProcessNoise(
             1.0,
         )
         deadbandWeight = np.clip(
-            float(_PUNC_DEADBAND_PRIOR_WEIGHT) * deadbandProbability,
+            float(PROCESS_DEFAULT_PUNC_DEADBAND_PRIOR_WEIGHT) * deadbandProbability,
             0.0,
             1.0,
         )
@@ -10035,6 +10038,7 @@ def getMuncTrack(
     countModelVarianceFloor: Optional[np.ndarray] = None,
     localVarianceTrack: Optional[np.ndarray] = None,
     priorVarianceTrack: Optional[np.ndarray] = None,
+    EB_effectiveNuL: float | None = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -10302,6 +10306,10 @@ def getMuncTrack(
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
         logger.info(f"Using fixed/specified Nu_L={Nu_L:.2f}")
+    elif EB_effectiveNuL is not None:
+        Nu_L = float(EB_effectiveNuL)
+        if not np.isfinite(Nu_L) or Nu_L < 4.0:
+            raise ValueError("EB_effectiveNuL must be finite and at least 4.0")
     else:
         Nu_L = float(max(4, localWindowIntervals - 3))
 
@@ -10440,8 +10448,9 @@ def _computePriorStrengthFromCandidateIdx(
         return float(1.0e6)
 
     if logVarRatioArr.size >= 20:
-        clipSmall = np.quantile(logVarRatioArr, 0.01)
-        clipBig = np.quantile(logVarRatioArr, 0.99)
+        tail = float(OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL)
+        clipSmall = np.quantile(logVarRatioArr, tail)
+        clipBig = np.quantile(logVarRatioArr, 1.0 - tail)
         np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))

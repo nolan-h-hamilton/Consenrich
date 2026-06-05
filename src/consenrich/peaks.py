@@ -2114,19 +2114,6 @@ def _bhQValues(pValues: npt.ArrayLike) -> np.ndarray:
     return out
 
 
-def _negativeLog10Probability(value: Any, cap: float = 1000.0) -> float | str:
-    try:
-        pValue = float(value)
-    except (TypeError, ValueError):
-        return "."
-    if not np.isfinite(pValue):
-        return "."
-    cap_ = float(max(float(cap), 0.0))
-    if pValue <= 0.0:
-        return cap_
-    return float(min(max(-math.log10(float(min(pValue, 1.0))), 0.0), cap_))
-
-
 def _empiricalReplaySegmentPValues(
     observedStats: npt.ArrayLike,
     nullStatsByDraw: Iterable[npt.ArrayLike],
@@ -5399,8 +5386,8 @@ def _solutionToChromNarrowPeakRows(
                 int(round(scaled)),
                 ".",
                 float(row["signal"]),
-                ".",
-                ".",
+                -1,
+                -1,
                 int(row["peak"]),
             ]
         )
@@ -6231,9 +6218,6 @@ def solveRocco(
             intervals=intervals,
             ends=ends,
         )
-        for row, peak in zip(rows, peakMeta):
-            row[7] = _negativeLog10Probability(peak.get("dwb_empirical_p"))
-            row[8] = _negativeLog10Probability(peak.get("dwb_empirical_q"))
         exportDetails["min_peak_score"] = (
             None if minPeakScore_ is None else float(minPeakScore_)
         )

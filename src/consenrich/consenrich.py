@@ -268,6 +268,16 @@ RUN_SUMMARY_COLUMNS = [
     "state_roughness_block_median",
     "state_roughness_block_q90",
     "delete_block_global_factor",
+    "delete_block_factor_model",
+    "delete_block_variance_multiplier_global",
+    "delete_block_variance_multiplier_min",
+    "delete_block_variance_multiplier_q05",
+    "delete_block_variance_multiplier_median",
+    "delete_block_variance_multiplier_mad",
+    "delete_block_variance_multiplier_q95",
+    "delete_block_variance_multiplier_max",
+    "delete_block_sd_multiplier_median",
+    "delete_block_track_sd_scale",
     "delete_block_rows_valid",
     "delete_block_rows_fit",
     "delete_block_scale",
@@ -1488,6 +1498,138 @@ def _summaryMapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _deleteBlockFactorDistributionFromArray(factor: Any) -> dict[str, Any]:
+    factorArr = np.asarray(factor, dtype=np.float64).reshape(-1)
+    if factorArr.size == 0:
+        raise RuntimeError("delete-block factor array is empty")
+    if not np.all(np.isfinite(factorArr)):
+        raise RuntimeError("delete-block factor array contains non-finite values")
+    if np.any(factorArr <= 0.0):
+        raise RuntimeError("delete-block factor array contains non-positive values")
+    factorMedian = float(np.median(factorArr))
+    sdFactorArr = np.sqrt(factorArr)
+    sdFactorMedian = float(np.median(sdFactorArr))
+    factorQuantileMethod = "linear"
+    factorQ05, factorQ95 = np.quantile(
+        factorArr,
+        [0.05, 0.95],
+        method=factorQuantileMethod,
+    )
+    sdFactorQ05, sdFactorQ95 = np.quantile(
+        sdFactorArr,
+        [0.05, 0.95],
+        method=factorQuantileMethod,
+    )
+    return {
+        "count": int(factorArr.size),
+        "median": factorMedian,
+        "unscaled_mad": float(np.median(np.abs(factorArr - factorMedian))),
+        "q05": float(factorQ05),
+        "q95": float(factorQ95),
+        "min": float(np.min(factorArr)),
+        "max": float(np.max(factorArr)),
+        "sd_multiplier_median": sdFactorMedian,
+        "sd_multiplier_unscaled_mad": float(
+            np.median(np.abs(sdFactorArr - sdFactorMedian))
+        ),
+        "sd_multiplier_q05": float(sdFactorQ05),
+        "sd_multiplier_q95": float(sdFactorQ95),
+        "sd_multiplier_min": float(np.min(sdFactorArr)),
+        "sd_multiplier_max": float(np.max(sdFactorArr)),
+        "quantile_method": factorQuantileMethod,
+    }
+
+
+def _deleteBlockFactorSummaryFields(
+    calibrationModel: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    calibration = _summaryMapping(calibrationModel)
+    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    factorDistribution = _summaryMapping(
+        calibration.get("delete_block_factor_distribution")
+    )
+    factorModel = calibration.get("factor_model")
+    globalFactor = (
+        _summaryNumber(calibration.get("global_factor"))
+        if factorModel == "global"
+        else None
+    )
+    return {
+        "delete_block_global_factor": globalFactor,
+        "delete_block_factor_model": factorModel,
+        "delete_block_variance_multiplier_global": globalFactor,
+        "delete_block_variance_multiplier_min": _summaryNumber(
+            factorDistribution.get("min")
+        ),
+        "delete_block_variance_multiplier_q05": _summaryNumber(
+            factorDistribution.get("q05")
+        ),
+        "delete_block_variance_multiplier_median": _summaryNumber(
+            factorDistribution.get("median")
+        ),
+        "delete_block_variance_multiplier_mad": _summaryNumber(
+            factorDistribution.get("unscaled_mad")
+        ),
+        "delete_block_variance_multiplier_q95": _summaryNumber(
+            factorDistribution.get("q95")
+        ),
+        "delete_block_variance_multiplier_max": _summaryNumber(
+            factorDistribution.get("max")
+        ),
+        "delete_block_sd_multiplier_median": _summaryNumber(
+            factorDistribution.get("sd_multiplier_median")
+        ),
+        "delete_block_track_sd_scale": _summaryNumber(
+            targetCalibration.get("uncertainty_track_scale")
+        ),
+        "delete_block_rows_valid": _summaryInt(calibration.get("rows_valid")),
+        "delete_block_rows_fit": _summaryInt(calibration.get("rows_fit")),
+        "delete_block_scale": _summaryNumber(
+            targetCalibration.get("uncertainty_track_scale")
+        ),
+        "delete_block_scale_reason": targetCalibration.get(
+            "uncertainty_track_scale_reason"
+        ),
+    }
+
+
+def _deleteBlockFactorLogFields(
+    calibrationModel: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    calibration = _summaryMapping(calibrationModel)
+    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    factorDistribution = _summaryMapping(
+        calibration.get("delete_block_factor_distribution")
+    )
+    factorModel = calibration.get("factor_model")
+    globalSDMultiplier = None
+    if factorModel == "global":
+        globalSDMultiplier = _summaryNumber(calibration.get("global_sd_multiplier"))
+        if globalSDMultiplier is None:
+            globalFactor = _summaryNumber(calibration.get("global_factor"))
+            if globalFactor is not None and globalFactor >= 0.0:
+                globalSDMultiplier = float(math.sqrt(float(globalFactor)))
+    return {
+        "delete_block_factor_model": factorModel,
+        "delete_block_sd_global": globalSDMultiplier,
+        "delete_block_sd_median": _summaryNumber(
+            factorDistribution.get("sd_multiplier_median")
+        ),
+        "delete_block_sd_mad": _summaryNumber(
+            factorDistribution.get("sd_multiplier_unscaled_mad")
+        ),
+        "delete_block_sd_q05": _summaryNumber(
+            factorDistribution.get("sd_multiplier_q05")
+        ),
+        "delete_block_sd_q95": _summaryNumber(
+            factorDistribution.get("sd_multiplier_q95")
+        ),
+        "delete_block_track_sd_scale": _summaryNumber(
+            targetCalibration.get("uncertainty_track_scale")
+        ),
+    }
+
+
 def _runSummaryRow(
     *,
     chromosome: str,
@@ -1508,8 +1650,7 @@ def _runSummaryRow(
     processQ = _summaryMapping(runDiagnostics.get("process_q_diagnostics"))
     observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
     processNoise = _summaryMapping(runDiagnostics.get("process_noise_calibration"))
-    calibration = _summaryMapping(calibrationModel)
-    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    deleteBlockFields = _deleteBlockFactorSummaryFields(calibrationModel)
     return {
         "record_type": "chromosome",
         "chromosome": chromosome,
@@ -1541,15 +1682,7 @@ def _runSummaryRow(
         "state_roughness_block_q90": _summaryNumber(
             stateRoughness.get("block_mean_abs_diff_q90")
         ),
-        "delete_block_global_factor": _summaryNumber(calibration.get("global_factor")),
-        "delete_block_rows_valid": _summaryInt(calibration.get("rows_valid")),
-        "delete_block_rows_fit": _summaryInt(calibration.get("rows_fit")),
-        "delete_block_scale": _summaryNumber(
-            targetCalibration.get("uncertainty_track_scale")
-        ),
-        "delete_block_scale_reason": targetCalibration.get(
-            "uncertainty_track_scale_reason"
-        ),
+        **deleteBlockFields,
         "precision_log": str(diagnosticLogPaths.precision),
         "convergence_log": str(diagnosticLogPaths.convergence),
         "delete_block_calibration_log": str(
@@ -3453,6 +3586,8 @@ def main():
     pooledChromIndexParts: list[np.ndarray] = []
     pooledBlockStartsParts: list[np.ndarray] = []
     pooledTrendWeightsParts: list[np.ndarray] = []
+    pooledNuLTauWeightSum = 0.0
+    pooledNuLWeightSum = 0.0
     useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
     if useReplicateTrends:
         raise ValueError("observationParams.useReplicateTrends is not supported")
@@ -4458,6 +4593,7 @@ def main():
         chromCovariates: np.ndarray | None = None,
         countModelVarianceFloorMat: np.ndarray | None = None,
     ) -> np.ndarray:
+        nonlocal pooledNuLTauWeightSum, pooledNuLWeightSum
         chromosomeName = str(chromosomePlans[c_]["chromosome"])
         muncSizing = core._resolveMuncRuntimeSizing(
             intervalSizeBP=intervalSizeBP,
@@ -4688,7 +4824,7 @@ def main():
 
         def _smoothDenseLocalEvidence(
             localEvidence: np.ndarray,
-        ) -> tuple[np.ndarray, str]:
+        ) -> np.ndarray:
             cythonSmooth = getattr(
                 cconsenrich,
                 "cMuncSmoothDenseLocalEvidence",
@@ -4696,17 +4832,14 @@ def main():
             )
             if not callable(cythonSmooth):
                 raise RuntimeError("cMuncSmoothDenseLocalEvidence is required")
-            return (
-                np.ascontiguousarray(
-                    cythonSmooth(
-                        np.ascontiguousarray(localEvidence, dtype=np.float32),
-                        int(muncSizing.localWindowIntervals),
-                        excludeMask=blacklistExcludeMask,
-                        eps=float(_MUNC_NUMERIC_VARIANCE_FLOOR),
-                    ),
-                    dtype=np.float32,
+            return np.ascontiguousarray(
+                cythonSmooth(
+                    np.ascontiguousarray(localEvidence, dtype=np.float32),
+                    int(muncSizing.localWindowIntervals),
+                    excludeMask=blacklistExcludeMask,
+                    eps=float(_MUNC_NUMERIC_VARIANCE_FLOOR),
                 ),
-                "cython",
+                dtype=np.float32,
             )
 
         def _localEvidenceToTotalVariance(localEvidence: np.ndarray) -> np.ndarray:
@@ -5053,9 +5186,42 @@ def main():
             rhoIn=np.ascontiguousarray(rhoTrack, dtype=np.float32),
             updateWeights=False,
         )
-        localEvidenceMatrix, denseSmoothingSource = _smoothDenseLocalEvidence(
-            localPointwise
-        )
+        if not (
+            observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3
+        ):
+            nuLSpanIntervals = muncSizing.dependenceSpanIntervals
+            if nuLSpanIntervals is None:
+                raise RuntimeError("MUNC ESS Nu_L requires a dependence span")
+            nuLHorizon = min(
+                int(nuLSpanIntervals),
+                int(muncSizing.localWindowIntervals) - 1,
+            )
+            if nuLHorizon < 1:
+                raise RuntimeError(
+                    "MUNC ESS Nu_L requires a positive truncation horizon"
+                )
+            nuLActiveMask = np.ascontiguousarray(
+                blacklistExcludeMask == 0,
+                dtype=np.uint8,
+            )
+            nuLActiveCount = int(np.count_nonzero(nuLActiveMask))
+            if nuLActiveCount >= 2:
+                for sampleIndex in range(int(localPointwise.shape[0])):
+                    _ess, tau, _lagsUsed = cconsenrich.cEstimateEffectiveSampleSize(
+                        localPointwise[sampleIndex, :],
+                        int(nuLHorizon),
+                        activeMask=nuLActiveMask,
+                        logPositive=True,
+                        windowIntervals=int(muncSizing.localWindowIntervals),
+                    )
+                    if not np.isfinite(tau) or tau <= 0.0:
+                        raise RuntimeError(
+                            "MUNC ESS Nu_L design effect is invalid for "
+                            f"{chromosomeName}"
+                        )
+                    pooledNuLTauWeightSum += float(tau) * float(nuLActiveCount)
+                    pooledNuLWeightSum += float(nuLActiveCount)
+        localEvidenceMatrix = _smoothDenseLocalEvidence(localPointwise)
         seedMuncArr = _localEvidenceToTotalVariance(localEvidenceMatrix)
         if seedUseWeights:
             responseWeightMatrix = np.ascontiguousarray(
@@ -5071,8 +5237,7 @@ def main():
         qStats = _summarizeFiniteArray(responseWeightMatrix)
         logger.info(
             "MUNC dense score %s L_pt[q05,q50,q95]=[%s,%s,%s] "
-            "V_pt[q05,q50,q95]=[%s,%s,%s] q_ji[q05,q50,q95]=[%s,%s,%s] "
-            "smoothing=%s nu_L=%.4g",
+            "V_pt[q05,q50,q95]=[%s,%s,%s] q_ji[q05,q50,q95]=[%s,%s,%s]",
             chromosomeName,
             _fmtDiagnosticFloat(localStats["p05"]),
             _fmtDiagnosticFloat(localStats["median"]),
@@ -5083,8 +5248,6 @@ def main():
             _fmtDiagnosticFloat(qStats["p05"]),
             _fmtDiagnosticFloat(qStats["median"]),
             _fmtDiagnosticFloat(qStats["p95"]),
-            denseSmoothingSource,
-            float(max(4, int(muncSizing.localWindowIntervals) - 3)),
         )
 
         coveredMask = np.zeros(intervalCount, dtype=bool)
@@ -5246,8 +5409,7 @@ def main():
         logger.info(
             "MUNC deterministic block summary %s blocks=%d valid_blocks=%d "
             "rows=%d coverage_fraction=%.6g block_intervals_median=%.4g "
-            "n_eff_median=%.4g tau2_median=%.4g trend_weight_median=%.4g "
-            "nu_L=%.4g",
+            "n_eff_median=%.4g tau2_median=%.4g trend_weight_median=%.4g",
             chromosomeName,
             int(startsArr.size),
             int(np.count_nonzero(blockIncludedCounts > 0)),
@@ -5273,7 +5435,6 @@ def main():
                 if blockTrendWeightPositive.size
                 else 0.0
             ),
-            float(max(4, int(muncSizing.localWindowIntervals) - 3)),
         )
         if diagnosticRawMat is not None and rawDiagnosticMeansParts:
             _logMuncTrendInputSummary(
@@ -5473,13 +5634,35 @@ def main():
                 float(np.median(blockNoise)),
                 float(np.median(1.0 / blockNoise)),
                 float(np.median(blockEffNu)) if blockEffNu.size else float("nan"),
-            )
+    )
     pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
     pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
+    pooledNuLHorizon = (
+        0
+        if pooledMuncSizing.dependenceSpanIntervals is None
+        else min(
+            int(pooledMuncSizing.dependenceSpanIntervals),
+            int(pooledLocalWindowIntervals) - 1,
+        )
+    )
+    pooledNuLEta = 1.0
     if observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3:
         pooledNuL = float(observationArgs.EB_setNuL)
     else:
-        pooledNuL = float(max(4, pooledLocalWindowIntervals - 3))
+        if pooledMuncSizing.dependenceSpanIntervals is None:
+            raise RuntimeError("MUNC ESS Nu_L requires a dependence span")
+        if pooledNuLHorizon < 1:
+            raise RuntimeError(
+                "MUNC ESS Nu_L requires a positive truncation horizon"
+            )
+        if pooledNuLWeightSum <= 0.0:
+            raise RuntimeError("MUNC Nu_L ESS has no active pointwise evidence")
+        pooledNuLEta = float(pooledNuLTauWeightSum / pooledNuLWeightSum)
+        if not np.isfinite(pooledNuLEta) or pooledNuLEta <= 0.0:
+            raise RuntimeError(f"MUNC Nu_L ESS eta is invalid: {pooledNuLEta}")
+        pooledNuL = float(
+            max(4, (float(pooledLocalWindowIntervals) / pooledNuLEta) - 3.0)
+        )
     pooledNu0Cap = 100.0 * float(pooledNuL)
 
     varianceFloorForTrend = _MUNC_NUMERIC_VARIANCE_FLOOR
@@ -5576,10 +5759,14 @@ def main():
 
     logger.info(
         "pooled MUNC deterministic block trend: pairs=%d samples=%d "
-        "nu_L=%.2f sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
+        "nu_L=%.2f nu_L_W=%d nu_L_H=%d nu_L_eta=%.4g "
+        "sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
         int(pooledBlockMeans.size),
         int(numSamples),
         float(pooledNuL),
+        int(pooledLocalWindowIntervals),
+        int(pooledNuLHorizon),
+        float(pooledNuLEta),
         np.array2string(
             np.asarray(pooledMuncNu0BySample, dtype=np.float64),
             precision=2,
@@ -5905,6 +6092,7 @@ def main():
                 randomSeed=42 + j,
                 EB_use=observationArgs.EB_use,
                 EB_setNuL=observationArgs.EB_setNuL,
+                EB_effectiveNuL=pooledNuL,
                 trendNumBasis=trendNumBasis_,
                 trendMinObsPerBasis=trendMinObsPerBasis_,
                 trendMinEdf=trendMinEdf_,
@@ -6367,6 +6555,7 @@ def main():
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
         calibrationResult = None
         calibrationModel = None
+        deleteBlockFactor = None
 
         if useUncertaintyCalibration:
             core._logAsciiBlock(
@@ -6452,16 +6641,30 @@ def main():
                 chromosome=chromosome,
             )
             calibrationModel = calibrationResult.model
+            deleteBlockFactor = np.asarray(
+                calibrationResult.factor,
+                dtype=np.float64,
+            )
+            calibrationModel["delete_block_factor_distribution"] = (
+                _deleteBlockFactorDistributionFromArray(deleteBlockFactor)
+            )
+            deleteBlockLogFields = _deleteBlockFactorLogFields(calibrationModel)
             uncertaintyTrack = np.asarray(
                 calibrationResult.calibratedUncertainty,
                 dtype=np.float32,
             )
             logger.info(
                 "Delete-block state uncertainty calibration applied for %s: "
-                "globalFactor=%.6g rowsValid=%d",
+                "factorModel=%s sdGlobal=%s sdMedian=%s sdMAD=%s",
                 chromosome,
-                float(calibrationResult.model.get("global_factor", np.nan)),
-                int(calibrationResult.model.get("rows_valid", 0)),
+                str(deleteBlockLogFields.get("delete_block_factor_model") or "NA"),
+                _fmtDiagnosticFloat(
+                    deleteBlockLogFields.get("delete_block_sd_global")
+                ),
+                _fmtDiagnosticFloat(
+                    deleteBlockLogFields.get("delete_block_sd_median")
+                ),
+                _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_mad")),
             )
             if segShrinkGenomeRequested:
                 segShrinkDeferredUncertainty.append(
@@ -6470,9 +6673,7 @@ def main():
                         "intervals": np.asarray(intervals, dtype=np.int64).copy(),
                         "fullP": np.asarray(P00_, dtype=np.float64).copy(),
                         "model": dict(calibrationResult.model),
-                        "factor": np.asarray(
-                            calibrationResult.factor, dtype=np.float64
-                        ),
+                        "factor": deleteBlockFactor.copy(),
                         "calibrated": np.asarray(
                             calibrationResult.calibratedUncertainty,
                             dtype=np.float32,
@@ -6488,25 +6689,33 @@ def main():
             runDiagnostics.get("process_q_diagnostics")
         )
         observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
-        calibrationFactor = (
-            calibrationModel.get("global_factor")
-            if isinstance(calibrationModel, Mapping)
-            else None
-        )
+        deleteBlockLogFields = _deleteBlockFactorLogFields(calibrationModel)
         _logCliMilestone(
-            "Final %s: finalNLL=%s finalForwardNIS=%s calibrationFactor=%s "
-            "processQTraceMin=%s processQTraceMedian=%s processQTraceMax=%s "
-            "observationRTraceMin=%s observationRTraceMedian=%s "
+            "Final %s: finalNLL=%s finalForwardNIS=%s "
+            "deleteBlockFactorModel=%s deleteBlockSDGlobal=%s "
+            "deleteBlockSDMedian=%s deleteBlockSDMAD=%s "
+            "deleteBlockSDQ05=%s deleteBlockSDQ95=%s "
+            "deleteBlockTrackSDScale=%s "
+            "processQTraceMin=%s processQTraceMax=%s "
+            "observationRTraceMin=%s "
             "observationRTraceMax=%s signChangePerKB=%s",
             chromosome,
             _fmtDiagnosticFloat(runDiagnostics.get("final_nll")),
             _fmtDiagnosticFloat(runDiagnostics.get("final_forward_nis")),
-            _fmtDiagnosticFloat(calibrationFactor),
+            str(deleteBlockLogFields.get("delete_block_factor_model") or "NA"),
+            _fmtDiagnosticFloat(
+                deleteBlockLogFields.get("delete_block_sd_global")
+            ),
+            _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_median")),
+            _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_mad")),
+            _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_q05")),
+            _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_q95")),
+            _fmtDiagnosticFloat(
+                deleteBlockLogFields.get("delete_block_track_sd_scale")
+            ),
             _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMin")),
-            _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMedian")),
             _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMax")),
             _fmtDiagnosticFloat(observationRTrace.get("min")),
-            _fmtDiagnosticFloat(observationRTrace.get("median")),
             _fmtDiagnosticFloat(observationRTrace.get("max")),
             _fmtDiagnosticFloat(postFitDiagnostics.get("relative_sign_change_per_kb")),
             blue=True,
@@ -6666,6 +6875,12 @@ def main():
             chromosome = str(item["chromosome"])
             intervals = np.asarray(item["intervals"], dtype=np.int64)
             calibrated = np.asarray(item["calibrated"], dtype=np.float32)
+            itemModel = item["model"]
+            itemModel["delete_block_factor_distribution"] = (
+                _deleteBlockFactorDistributionFromArray(item["factor"])
+            )
+            itemDeleteBlockFields = _deleteBlockFactorSummaryFields(itemModel)
+            itemDeleteBlockLogFields = _deleteBlockFactorLogFields(itemModel)
             dfUncertainty = pd.DataFrame(
                 {
                     "Chromosome": chromosome,
@@ -6687,22 +6902,32 @@ def main():
             if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(
                 runSummaryRows
             ):
-                runSummaryRows[summaryRowIndex]["delete_block_global_factor"] = (
-                    _summaryNumber(item["model"].get("global_factor"))
-                )
-                runSummaryRows[summaryRowIndex]["delete_block_rows_valid"] = (
-                    _summaryInt(item["model"].get("rows_valid"))
-                )
-                runSummaryRows[summaryRowIndex]["delete_block_rows_fit"] = _summaryInt(
-                    item["model"].get("rows_fit")
-                )
+                runSummaryRows[summaryRowIndex].update(itemDeleteBlockFields)
+            logger.info(
+                "deleteBlockFactor.finalized %s factorModel=%s "
+                "sdMedian=%s sdMAD=%s sdQ05=%s sdQ95=%s",
+                chromosome,
+                str(
+                    itemDeleteBlockLogFields.get("delete_block_factor_model") or "NA"
+                ),
+                _fmtDiagnosticFloat(
+                    itemDeleteBlockLogFields.get("delete_block_sd_median")
+                ),
+                _fmtDiagnosticFloat(itemDeleteBlockLogFields.get("delete_block_sd_mad")),
+                _fmtDiagnosticFloat(
+                    itemDeleteBlockLogFields.get("delete_block_sd_q05")
+                ),
+                _fmtDiagnosticFloat(
+                    itemDeleteBlockLogFields.get("delete_block_sd_q95")
+                ),
+            )
             if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
                 _appendMappingDiagnostics(
                     diagnosticLogPaths.delete_block_calibration,
                     recordType="model",
                     event="delete_block_calibration.segShrink.processed_genome_model",
                     chromosome=chromosome,
-                    values=item["model"],
+                    values=itemModel,
                 )
         logger.info(
             "segShrink processed-genome finalization wrote uncertainty bedGraph for %d contigs: %s",

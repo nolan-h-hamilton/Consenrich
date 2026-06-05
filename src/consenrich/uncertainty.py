@@ -1880,6 +1880,42 @@ def calibrateChromosomeStateUncertainty(
     finiteTotalInfo = totalInfoAll[np.isfinite(totalInfoAll) & (totalInfoAll > 0.0)]
     finiteHeldInfo = heldInfoAll[np.isfinite(heldInfoAll) & (heldInfoAll > 0.0)]
     factorMin, factorMax = _factorBounds(params)
+    factorOut = factor.astype(np.float32)
+    factorDistributionValues = np.asarray(factorOut, dtype=np.float64).reshape(-1)
+    factorQuantileMethod = "linear"
+    factorQ05, factorQ95 = np.quantile(
+        factorDistributionValues,
+        [0.05, 0.95],
+        method=factorQuantileMethod,
+    )
+    factorMedian = float(np.median(factorDistributionValues))
+    sdFactorDistributionValues = np.sqrt(factorDistributionValues)
+    sdFactorMedian = float(np.median(sdFactorDistributionValues))
+    sdFactorQ05, sdFactorQ95 = np.quantile(
+        sdFactorDistributionValues,
+        [0.05, 0.95],
+        method=factorQuantileMethod,
+    )
+    deleteBlockFactorDistribution = {
+        "count": int(factorDistributionValues.size),
+        "median": factorMedian,
+        "unscaled_mad": float(
+            np.median(np.abs(factorDistributionValues - factorMedian))
+        ),
+        "q05": float(factorQ05),
+        "q95": float(factorQ95),
+        "min": float(np.min(factorDistributionValues)),
+        "max": float(np.max(factorDistributionValues)),
+        "sd_multiplier_median": sdFactorMedian,
+        "sd_multiplier_unscaled_mad": float(
+            np.median(np.abs(sdFactorDistributionValues - sdFactorMedian))
+        ),
+        "sd_multiplier_q05": float(sdFactorQ05),
+        "sd_multiplier_q95": float(sdFactorQ95),
+        "sd_multiplier_min": float(np.min(sdFactorDistributionValues)),
+        "sd_multiplier_max": float(np.max(sdFactorDistributionValues)),
+        "quantile_method": factorQuantileMethod,
+    }
     model = {
         **modelMeta,
         "mode": calibrationMode,
@@ -1893,6 +1929,7 @@ def calibrateChromosomeStateUncertainty(
         "feature_scale": [float(x) for x in featureScale],
         "factor_bound_min": float(factorMin),
         "factor_bound_max": float(factorMax),
+        "delete_block_factor_distribution": deleteBlockFactorDistribution,
         "rows_total": int(rowsTotal),
         "rows_valid": int(totalDeleteBlockRows),
         "rows_fit": int(residualFit.size),
@@ -2037,7 +2074,7 @@ def calibrateChromosomeStateUncertainty(
             level=logging.INFO,
         )
     return uncertaintyCalibrationResult(
-        factor=factor.astype(np.float32),
+        factor=factorOut,
         calibratedUncertainty=calibrated,
         summary=summary,
         scores=scores,

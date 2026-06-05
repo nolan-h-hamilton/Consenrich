@@ -1063,6 +1063,17 @@ def _case_runtime_defaults_are_centralized(
         is constants.DEFAULT_CONFIGURATION_KEYS
     )
     assert hasattr(constants, "PROCESS_DEFAULT_PUNC_PRIOR_DF")
+    assert constants.PROCESS_DEFAULT_PUNC_DEADBAND_PRIOR_WEIGHT == pytest.approx(0.99)
+    assert constants.PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_MIN_WINDOWS == 16
+    assert constants.EB_PRIOR_STRENGTH_WINSOR_TAIL == pytest.approx(0.01)
+    assert (
+        constants.PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_WINSOR_TAIL
+        == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
+    )
+    assert (
+        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL
+        == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
+    )
 
     assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
     assert (
@@ -3047,7 +3058,19 @@ def test_run_summary_output_helpers(tmp_path):
             "block_mean_abs_diff_q90": 0.3,
         },
         calibrationModel={
+            "factor_model": "segShrink",
             "global_factor": 1.5,
+            "delete_block_factor_distribution": {
+                "count": 3,
+                "median": 4.0,
+                "unscaled_mad": 3.0,
+                "q05": 1.3,
+                "q95": 8.5,
+                "min": 1.0,
+                "max": 9.0,
+                "sd_multiplier_median": 2.0,
+                "quantile_method": "linear",
+            },
             "rows_valid": 10,
             "rows_fit": 5,
             "target_calibration": {
@@ -3079,7 +3102,29 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[0, "observation_r_trace_median"] == pytest.approx(2.0)
     assert frame.loc[0, "state_roughness_block_median"] == pytest.approx(0.2)
     assert frame.loc[0, "state_roughness_block_q90"] == pytest.approx(0.3)
-    assert frame.loc[0, "delete_block_global_factor"] == pytest.approx(1.5)
+    assert "delete_block_global_factor" not in frame.columns
+    assert frame.loc[0, "delete_block_factor_model"] == "segShrink"
+    assert "delete_block_variance_multiplier_global" not in frame.columns
+    assert frame.loc[
+        0, "delete_block_variance_multiplier_min"
+    ] == pytest.approx(1.0)
+    assert frame.loc[
+        0, "delete_block_variance_multiplier_q05"
+    ] == pytest.approx(1.3)
+    assert frame.loc[0, "delete_block_variance_multiplier_median"] == pytest.approx(
+        4.0
+    )
+    assert frame.loc[
+        0, "delete_block_variance_multiplier_mad"
+    ] == pytest.approx(3.0)
+    assert frame.loc[
+        0, "delete_block_variance_multiplier_q95"
+    ] == pytest.approx(8.5)
+    assert frame.loc[
+        0, "delete_block_variance_multiplier_max"
+    ] == pytest.approx(9.0)
+    assert frame.loc[0, "delete_block_sd_multiplier_median"] == pytest.approx(2.0)
+    assert frame.loc[0, "delete_block_track_sd_scale"] == pytest.approx(1.1)
     assert frame.loc[0, "delete_block_rows_valid"] == 10
     assert frame.loc[0, "delete_block_rows_fit"] == 5
     assert frame.loc[0, "delete_block_scale"] == pytest.approx(1.1)
@@ -3088,6 +3133,13 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[1, "intervals"] == 12
     assert frame.loc[1, "output_track_count"] == 2
     assert frame.loc[1, "precision_log"].endswith(".jsonl")
+    globalDeleteBlockFields = consenrich_cli._deleteBlockFactorSummaryFields(
+        {"factor_model": "global", "global_factor": 1.5}
+    )
+    assert globalDeleteBlockFields["delete_block_global_factor"] == pytest.approx(1.5)
+    assert globalDeleteBlockFields[
+        "delete_block_variance_multiplier_global"
+    ] == pytest.approx(1.5)
 
 
 def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):
