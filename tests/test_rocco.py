@@ -520,6 +520,40 @@ def _caseSolveRoccoMetadataCapFallsBackToBounded(tmp_path, caplog):
 
 def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
+    assert peaks._ROCCO_CUTOFF_REPORT_SWEEPS == (
+        (
+            "thresholdZ",
+            "matchingParams.thresholdZ",
+            "thresholdZ",
+            (1.5, 2.5, 3.0),
+            {},
+            False,
+        ),
+        (
+            "gamma",
+            "matchingParams.gamma",
+            "gamma",
+            (0.1, 0.5, 1.0),
+            {},
+            False,
+        ),
+        (
+            "uncertaintyScoreZ",
+            "matchingParams.uncertaintyScoreZ",
+            "uncertaintyScoreZ",
+            (0.5, 1.0, 1.5),
+            {"uncertaintyScoreMode": "lower_confidence"},
+            True,
+        ),
+        (
+            "nestedRoccoBudgetScale",
+            "matchingParams.nestedRoccoBudgetScale",
+            "nestedRoccoBudgetScale",
+            (0.5, 1.0),
+            {},
+            False,
+        ),
+    )
     monkeypatch.setattr(
         peaks,
         "_ROCCO_CUTOFF_REPORT_SWEEPS",
@@ -528,7 +562,15 @@ def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
                 "thresholdZ",
                 "matchingParams.thresholdZ",
                 "thresholdZ",
-                (1.5,),
+                (1.5, 1.5),
+                {},
+                False,
+            ),
+            (
+                "gamma",
+                "matchingParams.gamma",
+                "gamma",
+                (constants.MATCHING_DEFAULT_GAMMA, 0.5),
                 {},
                 False,
             ),
@@ -557,6 +599,7 @@ def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
             uncertaintyBedGraphFile=str(uncPath),
             numBootstrap=12,
             dependenceSpan=8,
+            gamma=constants.MATCHING_DEFAULT_GAMMA,
             randSeed=13,
         )
     )
@@ -569,16 +612,19 @@ def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
     assert list(summary["sweep"]) == [
         "baseline",
         "thresholdZ",
+        "gamma",
         "uncertaintyScoreZ",
         "nestedRoccoBudgetScale",
     ]
     assert set(summary["parameter"]) == {
         "",
         "matchingParams.thresholdZ",
+        "matchingParams.gamma",
         "matchingParams.uncertaintyScoreZ",
         "matchingParams.nestedRoccoBudgetScale",
     }
     assert set(summary["uncertaintyScoreMode"]) == {"state", "lower_confidence"}
+    assert len(list(reportDir.glob("*.narrowPeak"))) == len(summary)
     for pathText in summary["narrowPeak_path"]:
         assert Path(pathText).exists()
     assert "metadata_json_path" not in summary.columns
@@ -1053,6 +1099,86 @@ def _caseDWBPeakScoringModerateReplayStaysBoundedAndSane():
 
 
 @pytest.mark.correctness
+def _caseDWBPeakScoringLogsCandidateCapHits(monkeypatch, caplog):
+    addScoring = getattr(peaks, "_addDWBPeakScoringToPeakMeta", None)
+    assert addScoring is not None
+
+    n = 160
+    scores = np.tile(np.asarray([2.0, -2.0], dtype=np.float64), n // 2)
+    thresholdViews = {
+        "primary": {
+            "threshold_z": 0.0,
+            "threshold": 0.0,
+            "null_scale": 1.0,
+            "null_center": 0.0,
+        }
+    }
+    prepared = {
+        "threshold_views": thresholdViews,
+        "template": np.zeros(n, dtype=np.float64),
+        "dwb_calibration": {
+            "dependence_span": 2,
+            "dependence_span_lower": 2,
+            "dependence_span_upper": 2,
+            "kernel": "bartlett",
+            "num_bootstrap": 4,
+            "random_seed": 5,
+            "dwb_panel_id": "cap-hit-test",
+        },
+    }
+    peakMeta = [
+        {
+            "name": "cap_peak",
+            "start_idx": 0,
+            "end_idx": 0,
+            "start": 0,
+            "end": 25,
+            "summit_idx": 0,
+        }
+    ]
+    intervals = np.arange(n, dtype=np.int64) * 25
+    ends = intervals + 25
+    exportDetails = {}
+
+    with monkeypatch.context() as mp:
+        mp.setattr(peaks, "_DWB_PEAK_SCORING_MAX_SEGMENTS", 4)
+        mp.setattr(peaks, "_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW", 2)
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="consenrich.peaks"):
+            summary = addScoring(
+                peakMeta,
+                scores,
+                prepared,
+                exportDetails=exportDetails,
+                minRunBins=1,
+                intervals=intervals,
+                ends=ends,
+            )
+
+    generation = exportDetails["multiscale_candidate_generation"]
+    falseSegmentDiagnostics = exportDetails[
+        "null_replay_false_segment_diagnostics"
+    ]
+    assert generation["cap_hit"] is True
+    assert generation["per_view_cap_hit_count"] >= 1
+    assert generation["discarded_by_per_view_cap"] > 0
+    assert generation["eligible_candidate_count"] > generation["num_candidates"]
+    assert generation["max_segments"] == 4
+    assert generation["max_segments_per_scale_threshold"] == 2
+    assert summary["observed_candidate_cap_hit"] is True
+    assert summary["null_replay_candidate_cap_hit_draws"] >= 0
+    assert falseSegmentDiagnostics["max_segments"] == 4
+    assert falseSegmentDiagnostics["max_segments_per_scale_threshold"] == 2
+    assert falseSegmentDiagnostics["candidate_cap_hit_draws"] >= 0
+    assert any(
+        "DWB peak-scoring candidate caps hit panel=cap-hit-test observed=True"
+        in record.getMessage()
+        and "observed_discarded=" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.correctness
 def _caseGetBudgetForROCCOIsStableUnderFixedSeed():
     state, uncertainty = _toyChromState(seed=13, n=384)
     budget1, details1 = peaks.getROCCOBudget(
@@ -1400,10 +1526,13 @@ def _caseMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
 
     policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
 
+    assert constants.MASSIVE_SUBPEAK_MIN_BP == 7_500
     assert policy["active"] is True
     assert policy["gap_width_threshold_bp"] == 60000
     assert policy["width_threshold_bp"] == policy["width_cap_bp"]
-    assert 10000 <= policy["width_threshold_bp"] < 20000
+    assert constants.MASSIVE_SUBPEAK_MIN_BP <= policy["width_threshold_bp"] < 20000
+    assert policy["min_bp"] == 7_500
+    assert policy["contract_width_bp"] == 7_500
     assert policy["num_width_tail_gap_candidates"] == 2
     assert policy["num_width_cluster_candidates"] == 3
 
@@ -1423,7 +1552,7 @@ def _caseMassiveSubpeakWidthPolicyCapsExtremeTailGap():
     assert policy["active"] is True
     assert policy["gap_width_threshold_bp"] >= 30000
     assert policy["width_threshold_bp"] == policy["width_cap_bp"]
-    assert 10000 <= policy["width_threshold_bp"] <= 20000
+    assert constants.MASSIVE_SUBPEAK_MIN_BP <= policy["width_threshold_bp"] <= 20000
 
 
 @pytest.mark.correctness
@@ -2232,7 +2361,12 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
         return func(*args, mp)
 
 
-def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, tmp_path, contract_case):
+def test_rocco_score_null_gamma_and_budget_contracts(
+    monkeypatch,
+    tmp_path,
+    caplog,
+    contract_case,
+):
     for label, func, args in (
         ("empirical mirrored null", _caseEmpiricalMirroredNullStrengthensThreshold, ()),
         (
@@ -2259,6 +2393,11 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, tmp_path, cont
         ("peak-level DWB empirical p/q", _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ, (tmp_path,)),
         ("replay FDR moderate panel performance", _caseReplayFDRModeratePanelsStaySubquadratic, ()),
         ("DWB peak scoring moderate replay performance", _caseDWBPeakScoringModerateReplayStaysBoundedAndSane, ()),
+        (
+            "DWB peak scoring cap-hit log",
+            _caseDWBPeakScoringLogsCandidateCapHits,
+            (monkeypatch, caplog),
+        ),
         ("budget fixed-seed stability", _caseGetBudgetForROCCOIsStableUnderFixedSeed, ()),
         ("centered excess gamma", _caseEstimateGammaForROCCOUsesCenteredExcessWhenAvailable, ()),
     ):

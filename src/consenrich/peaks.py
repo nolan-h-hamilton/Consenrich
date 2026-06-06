@@ -101,7 +101,7 @@ _MASSIVE_SUBPEAK_MAX_DEPTH = MASSIVE_SUBPEAK_MAX_DEPTH
 _MASSIVE_SUBPEAK_MIN_CHILD_BP = MASSIVE_SUBPEAK_MIN_CHILD_BP
 _MASSIVE_SUBPEAK_MIN_CHILD_FRACTION = MASSIVE_SUBPEAK_MIN_CHILD_FRACTION
 _MASSIVE_SUBPEAK_TRIGGER_Z_CAP = 3.0
-_DWB_PEAK_SCORING_MAX_REPLAYS = 32
+_DWB_PEAK_SCORING_MAX_REPLAYS = 48
 _DWB_PEAK_SCORING_MAX_SEGMENTS = 10000
 _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW = 500
 
@@ -2347,7 +2347,8 @@ def _multiscaleCandidateSegments(
     maxGapBins: int = 0,
     maxSegments: int | None = _DWB_PEAK_SCORING_MAX_SEGMENTS,
     maxSegmentsPerView: int | None = _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
-) -> List[Dict[str, Any]]:
+    returnDiagnostics: bool = False,
+) -> List[Dict[str, Any]] | Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     scores_ = _asFloatVector("scores", scores)
     scales = _resolveMultiscaleCandidateBins(
         int(scores_.size),
@@ -2367,6 +2368,9 @@ def _multiscaleCandidateSegments(
     )
     candidates: List[Dict[str, Any]] = []
     seen: set[Tuple[int, int, int, str]] = set()
+    eligibleCount = 0
+    perViewCapHitCount = 0
+    perViewDiscardedCount = 0
 
     for scale in scales:
         smoothed = _movingAverageSame(scores_, int(scale))
@@ -2385,6 +2389,7 @@ def _multiscaleCandidateSegments(
             starts = starts[keep]
             ends = ends[keep]
             lengths = lengths[keep].astype(np.float64, copy=False)
+            eligibleCount += int(starts.size)
             nullScale = float(max(float(viewAny.get("null_scale", 1.0)), _TINY))
             excess = np.clip((scores_ - threshold) / nullScale, 0.0, None)
             prefix = np.concatenate(([0.0], np.cumsum(excess, dtype=np.float64)))
@@ -2395,6 +2400,8 @@ def _multiscaleCandidateSegments(
                 maxSegmentsPerView_ is not None
                 and selected.size > maxSegmentsPerView_
             ):
+                perViewCapHitCount += 1
+                perViewDiscardedCount += int(selected.size - maxSegmentsPerView_)
                 selected = np.argpartition(
                     -runScores,
                     maxSegmentsPerView_ - 1,
@@ -2428,7 +2435,11 @@ def _multiscaleCandidateSegments(
                         ),
                     }
                 )
-    if maxSegments_ is not None and len(candidates) > maxSegments_:
+    preTotalCapCount = int(len(candidates))
+    totalCapHit = bool(maxSegments_ is not None and len(candidates) > maxSegments_)
+    totalDiscardedCount = 0
+    if totalCapHit:
+        totalDiscardedCount = int(len(candidates) - int(maxSegments_))
         candidates = sorted(
             candidates,
             key=lambda candidate: float(candidate.get("score", 0.0)),
@@ -2442,6 +2453,22 @@ def _multiscaleCandidateSegments(
                 str(candidate["threshold_key"]),
             )
         )
+    if returnDiagnostics:
+        diagnostics = {
+            "eligible_candidate_count": int(eligibleCount),
+            "candidate_count_before_total_cap": int(preTotalCapCount),
+            "candidate_count": int(len(candidates)),
+            "cap_hit": bool(perViewCapHitCount > 0 or totalCapHit),
+            "per_view_cap_hit_count": int(perViewCapHitCount),
+            "total_cap_hit": bool(totalCapHit),
+            "discarded_by_per_view_cap": int(perViewDiscardedCount),
+            "discarded_by_total_cap": int(totalDiscardedCount),
+            "max_segments": None if maxSegments_ is None else int(maxSegments_),
+            "max_segments_per_view": (
+                None if maxSegmentsPerView_ is None else int(maxSegmentsPerView_)
+            ),
+        }
+        return candidates, diagnostics
     return candidates
 
 
@@ -2501,11 +2528,12 @@ def _generateROCCOMultiscaleCandidateSegments(
             "null_scale": 1.0,
         }
     }
-    rawCandidates = _multiscaleCandidateSegments(
+    rawCandidates, candidateDiagnostics = _multiscaleCandidateSegments(
         scores_,
         thresholdViews,
         scaleBins=scaleBins,
         minRunBins=int(max(int(minRunBins), 1)),
+        returnDiagnostics=True,
     )
     candidates: List[Dict[str, Any]] = []
     for candidate in rawCandidates:
@@ -2527,6 +2555,17 @@ def _generateROCCOMultiscaleCandidateSegments(
         "scales": [int(scale) for scale in scaleBins],
         "min_run_bins": int(max(int(minRunBins), 1)),
         "num_candidates": int(len(candidates)),
+        "cap_hit": bool(candidateDiagnostics["cap_hit"]),
+        "per_view_cap_hit_count": int(
+            candidateDiagnostics["per_view_cap_hit_count"]
+        ),
+        "total_cap_hit": bool(candidateDiagnostics["total_cap_hit"]),
+        "discarded_by_per_view_cap": int(
+            candidateDiagnostics["discarded_by_per_view_cap"]
+        ),
+        "discarded_by_total_cap": int(
+            candidateDiagnostics["discarded_by_total_cap"]
+        ),
         "candidate_scales": sorted(
             {int(candidate["scale_bins"]) for candidate in candidates}
             | {int(scale) for scale in scaleBins}
@@ -2634,13 +2673,14 @@ def _addDWBPeakScoringToPeakMeta(
         upperSpan=upperSpan,
     )
     minRunBins_ = int(max(int(minRunBins), 1))
-    observedCandidates = _multiscaleCandidateSegments(
+    observedCandidates, observedCandidateDiagnostics = _multiscaleCandidateSegments(
         scores_,
         thresholdViews,
         scaleBins=scaleBins,
         minRunBins=minRunBins_,
         maxSegments=_DWB_PEAK_SCORING_MAX_SEGMENTS,
         maxSegmentsPerView=_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
+        returnDiagnostics=True,
     )
     candidateBySpan: Dict[Tuple[int, int], Dict[str, Any]] = {}
 
@@ -2785,6 +2825,23 @@ def _addDWBPeakScoringToPeakMeta(
             _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW
         ),
         **_summarizeMultiscaleCandidates(observedCandidates),
+        "cap_hit": bool(observedCandidateDiagnostics["cap_hit"]),
+        "per_view_cap_hit_count": int(
+            observedCandidateDiagnostics["per_view_cap_hit_count"]
+        ),
+        "total_cap_hit": bool(observedCandidateDiagnostics["total_cap_hit"]),
+        "discarded_by_per_view_cap": int(
+            observedCandidateDiagnostics["discarded_by_per_view_cap"]
+        ),
+        "discarded_by_total_cap": int(
+            observedCandidateDiagnostics["discarded_by_total_cap"]
+        ),
+        "eligible_candidate_count": int(
+            observedCandidateDiagnostics["eligible_candidate_count"]
+        ),
+        "candidate_count_before_total_cap": int(
+            observedCandidateDiagnostics["candidate_count_before_total_cap"]
+        ),
         "deduplicated_candidate_regions": int(len(candidateDetails)),
         "exported_peak_regions": int(len(peakMeta)),
     }
@@ -2807,6 +2864,11 @@ def _addDWBPeakScoringToPeakMeta(
     nullMetricStatsByDraw: Dict[str, List[np.ndarray]] = {
         metric: [] for metric in metricKeys
     }
+    nullCapHitDraws = 0
+    nullPerViewCapHitDraws = 0
+    nullTotalCapHitDraws = 0
+    nullDiscardedByPerViewCap = 0
+    nullDiscardedByTotalCap = 0
     for drawIdx in range(numReplay):
         draw = _generateStationaryNullDWBDraw(
             template_,
@@ -2814,13 +2876,26 @@ def _addDWBPeakScoringToPeakMeta(
             rng,
             kernel=kernel,
         )
-        nullCandidates = _multiscaleCandidateSegments(
+        nullCandidates, nullCandidateDiagnostics = _multiscaleCandidateSegments(
             draw,
             replayViews,
             scaleBins=scaleBins,
             minRunBins=minRunBins_,
             maxSegments=_DWB_PEAK_SCORING_MAX_SEGMENTS,
             maxSegmentsPerView=_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
+            returnDiagnostics=True,
+        )
+        if bool(nullCandidateDiagnostics["cap_hit"]):
+            nullCapHitDraws += 1
+        if int(nullCandidateDiagnostics["per_view_cap_hit_count"]) > 0:
+            nullPerViewCapHitDraws += 1
+        if bool(nullCandidateDiagnostics["total_cap_hit"]):
+            nullTotalCapHitDraws += 1
+        nullDiscardedByPerViewCap += int(
+            nullCandidateDiagnostics["discarded_by_per_view_cap"]
+        )
+        nullDiscardedByTotalCap += int(
+            nullCandidateDiagnostics["discarded_by_total_cap"]
         )
         nullCandidateCounts[drawIdx] = int(len(nullCandidates))
         for metric, sourceKey in metricKeys.items():
@@ -2896,7 +2971,39 @@ def _addDWBPeakScoringToPeakMeta(
         "kernel": str(kernel),
         "dependence_span": int(dependenceSpan),
         "scale_bins": [int(scale) for scale in scaleBins],
+        "candidate_cap_hit": bool(nullCapHitDraws > 0),
+        "candidate_cap_hit_draws": int(nullCapHitDraws),
+        "candidate_per_view_cap_hit_draws": int(nullPerViewCapHitDraws),
+        "candidate_total_cap_hit_draws": int(nullTotalCapHitDraws),
+        "candidate_discarded_by_per_view_cap": int(nullDiscardedByPerViewCap),
+        "candidate_discarded_by_total_cap": int(nullDiscardedByTotalCap),
+        "max_segments": int(_DWB_PEAK_SCORING_MAX_SEGMENTS),
+        "max_segments_per_scale_threshold": int(
+            _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW
+        ),
     }
+    if bool(observedCandidateDiagnostics["cap_hit"]) or nullCapHitDraws > 0:
+        observedDiscardedCount = int(
+            observedCandidateDiagnostics["discarded_by_per_view_cap"]
+        ) + int(observedCandidateDiagnostics["discarded_by_total_cap"])
+        nullDiscardedCount = int(nullDiscardedByPerViewCap) + int(
+            nullDiscardedByTotalCap
+        )
+        logger.info(
+            "DWB peak-scoring candidate caps hit panel=%s observed=%s "
+            "null_draws=%d null_per_view_draws=%d null_total_draws=%d "
+            "observed_discarded=%d null_discarded=%d max_segments=%d "
+            "max_segments_per_view=%d",
+            str(panelId),
+            bool(observedCandidateDiagnostics["cap_hit"]),
+            int(nullCapHitDraws),
+            int(nullPerViewCapHitDraws),
+            int(nullTotalCapHitDraws),
+            int(observedDiscardedCount),
+            int(nullDiscardedCount),
+            int(_DWB_PEAK_SCORING_MAX_SEGMENTS),
+            int(_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW),
+        )
     details["null_replay_false_segment_diagnostics"] = falseSegmentDiagnostics
     primaryNullStats = (
         np.concatenate(nullMetricStatsByDraw["width_adjusted_mass"])
@@ -3023,6 +3130,9 @@ def _addDWBPeakScoringToPeakMeta(
         "min_run_bins": int(minRunBins_),
         "observed_candidate_count": int(len(candidateDetails)),
         "raw_multiscale_candidate_count": int(len(observedCandidates)),
+        "observed_candidate_cap_hit": bool(observedCandidateDiagnostics["cap_hit"]),
+        "null_replay_candidate_cap_hit": bool(nullCapHitDraws > 0),
+        "null_replay_candidate_cap_hit_draws": int(nullCapHitDraws),
         "null_replay_candidate_count_mean": float(nullCandidateMean),
         "null_replay_candidate_count_q95": float(nullCandidateQ95),
         "null_replay_max_score_mean": float(nullMaxMean),
@@ -6379,7 +6489,15 @@ _ROCCO_CUTOFF_REPORT_SWEEPS: Tuple[
         "thresholdZ",
         "matchingParams.thresholdZ",
         "thresholdZ",
-        (1.5, 2.0, 2.5, 3.0, 3.5, 4.0),
+        (1.5, 2.5, 3.0),
+        {},
+        False,
+    ),
+    (
+        "gamma",
+        "matchingParams.gamma",
+        "gamma",
+        (0.1, 0.5, 1.0),
         {},
         False,
     ),
@@ -6387,7 +6505,7 @@ _ROCCO_CUTOFF_REPORT_SWEEPS: Tuple[
         "uncertaintyScoreZ",
         "matchingParams.uncertaintyScoreZ",
         "uncertaintyScoreZ",
-        (0.25, 0.5, 1.0, 1.5, 2.0),
+        (0.5, 1.0, 1.5),
         {"uncertaintyScoreMode": "lower_confidence"},
         True,
     ),
@@ -6395,7 +6513,7 @@ _ROCCO_CUTOFF_REPORT_SWEEPS: Tuple[
         "nestedRoccoBudgetScale",
         "matchingParams.nestedRoccoBudgetScale",
         "nestedRoccoBudgetScale",
-        (0.5, 0.65, 0.75, 0.9, 1.0),
+        (0.5, 1.0),
         {},
         False,
     ),
@@ -6632,6 +6750,8 @@ def solveRoccoCutoffReport(
     }
 
     rows: List[Dict[str, str]] = []
+    settingFields = tuple(baselineSettings.keys())
+    seenSettings = {tuple(baselineSettings[field] for field in settingFields)}
 
     def runSweep(
         *,
@@ -6720,6 +6840,10 @@ def solveRoccoCutoffReport(
             settings = dict(baselineSettings)
             settings[settingName] = value
             settings.update(dict(overrides))
+            settingValues = tuple(settings[field] for field in settingFields)
+            if settingValues in seenSettings:
+                continue
+            seenSettings.add(settingValues)
             runSweep(
                 sweep=settingKey,
                 parameter=configName,
