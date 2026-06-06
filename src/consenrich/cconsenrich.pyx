@@ -9059,6 +9059,9 @@ def crebasePuncIntervalScales(object seedQ, object baseQ, object rawScale, objec
             scalar = rawArr[i]
             if (not isfinite(scalar)) or scalar < 1.0e-12:
                 scalar = 1.0e-12
+            # Compute the geometric mean ratio of the scaled warmup-Q diagonals to the base-Q diagonals,
+            # ... and use that as a local scale factor interval-wise to preserve the overall scale
+            # ... while allowing the relative seed-Q diagonal ratios to inform the final scale
             logSum = 0.0
             validCount = 0
             for d in range(dim):
@@ -9070,6 +9073,7 @@ def crebasePuncIntervalScales(object seedQ, object baseQ, object rawScale, objec
                         ratio = 1.0e-300
                     logSum += log(ratio)
                     validCount += 1
+            # geometric mean of diagonal ratios between seed-Q and base-Q
             localScale = 1.0 if validCount <= 0 else exp(logSum / <double>validCount)
             scaleArr[i] = <float>localScale
             for d in range(dim):

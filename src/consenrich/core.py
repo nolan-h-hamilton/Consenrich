@@ -2388,19 +2388,6 @@ def _warnIfProcessKappaMinAllowsProfiledNonconvexity(
         )
     except ValueError:
         return
-    if float(kappaMin) < threshold and float(kappaMin) < float(kappaMax):
-        logger.warning(
-            "processParams.precisionMultiplierMin=%.6g is below the "
-            "convexity-preserving lower bound %.6g for profiled Student-t "
-            "process reweighting (ECM_robustTNu=%.6g, stateDim=%d). The "
-            "profiled process penalty may have negative curvature; increase "
-            "processParams.precisionMultiplierMin to at least this bound to "
-            "preserve convexity of the bounded process Student block.",
-            float(kappaMin),
-            float(threshold),
-            float(robustTNu),
-            int(stateDim),
-        )
 
 
 def _diagnosticScalar(value: Any) -> Any:
@@ -2744,6 +2731,7 @@ def _relativeSignChangePerKB(
     background: np.ndarray | None = None,
     pad: float = 0.0,
 ) -> Any:
+    r"""Computes a proxy for sign-change density as the average per-KB residual between estimated states and weighted means of observations"""
     if stateValues is None or matrixData is None or matrixMunc is None:
         return None
     stateArr = np.asarray(stateValues, dtype=np.float64).reshape(-1)
@@ -9723,11 +9711,10 @@ def solveZeroCenteredBackground(
             raise ValueError("weightTrack and rhsTrack must be supplied together")
         weightTrack = np.asarray(weightTrack, dtype=np.float64).reshape(-1)
         rhsTrack = np.asarray(rhsTrack, dtype=np.float64).reshape(-1)
-        if (
-            weightTrack.shape[0] != intervalCount
-            or rhsTrack.shape[0] != intervalCount
-        ):
-            raise ValueError("weightTrack and rhsTrack length must match interval count")
+        if weightTrack.shape[0] != intervalCount or rhsTrack.shape[0] != intervalCount:
+            raise ValueError(
+                "weightTrack and rhsTrack length must match interval count"
+            )
     elif hasattr(cconsenrich, "cbackgroundWeightedStats"):
         weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
             residualArr,
@@ -10281,10 +10268,13 @@ def getMuncTrack(
             covariateTrack,
             replicateIndex,
         ).astype(np.float64, copy=False)
-        priorTrack = np.asarray(
-            priorTrack,
-            dtype=np.float64,
-        ).reshape(-1) + additionalTrack
+        priorTrack = (
+            np.asarray(
+                priorTrack,
+                dtype=np.float64,
+            ).reshape(-1)
+            + additionalTrack
+        )
         finiteAdditional = additionalTrack[np.isfinite(additionalTrack)]
         if finiteAdditional.size:
             logger.info(
