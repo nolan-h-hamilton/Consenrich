@@ -1061,9 +1061,9 @@ class matchingParams(NamedTuple):
         candidate-detail arrays.
     :type metadataDetail: str
     :param useShrunkStateScores: If True, integrated ROCCO peak calling uses the
-        post-fit EB-shrunken state track as its score input instead of the raw
-        fitted state track. This only affects ROCCO scoring/export and does not
-        alter the Kalman/ECM fit.
+        post-fit EB-shrunken state track as its score input and the shrinkage
+        posterior standard deviation as the paired uncertainty track. This only
+        affects ROCCO scoring/export and does not alter the Kalman/ECM fit.
     :type useShrunkStateScores: bool
     :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
@@ -1104,17 +1104,14 @@ class outputParams(NamedTuple):
         does not affect the Kalman/ECM fit.
     :type writeStateShrinkage: bool
     :param stateShrinkageModel: Post-fit state shrinkage model. The default
-        ``"adaptiveNormalMixture"`` uses an ashr-like zero-centered Normal
-        mixture with an exact-zero component. ``"spikeAndNormal"`` preserves
-        the earlier single-slab spike-and-normal shrinker.
+        ``"spikeAndNormal"`` uses a point mass at zero plus one zero-centered
+        Normal slab, with genome-level EB hyperparameters.
     :type stateShrinkageModel: str
     :param stateShrinkagePriorNull: Optional fixed point-null prior probability
         for state shrinkage. If unset, it is estimated by empirical Bayes.
     :type stateShrinkagePriorNull: Optional[float]
     :param stateShrinkagePriorScale: Optional fixed prior scale. For
-        ``"spikeAndNormal"`` this fixes the slab standard deviation. For
-        ``"adaptiveNormalMixture"`` this fixes the largest positive component
-        scale in the mixture grid.
+        ``"spikeAndNormal"`` this fixes the slab standard deviation.
     :type stateShrinkagePriorScale: Optional[float]
     :param saveBackgroundTracks: If True, write the fitted shared background
         track :math:`g_{[i]}` to bedGraph and optional bigWig output.

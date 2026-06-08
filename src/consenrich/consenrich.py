@@ -5911,7 +5911,12 @@ def main():
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
     if writeStateShrunkTrack:
-        bedGraphTracks.append(("stateShrunk", "stateShrunk"))
+        bedGraphTracks.extend(
+            [
+                ("stateShrunk", "stateShrunk"),
+                ("stateShrunkUncertainty", "stateShrunkUncertainty"),
+            ]
+        )
     if writeStateShrinkageTracks:
         bedGraphTracks.extend(
             [
@@ -5955,6 +5960,27 @@ def main():
         == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_SEG_SHRINK
     )
     segShrinkDeferredUncertainty: List[Dict[str, Any]] = []
+    stateShrinkDeferred: List[Dict[str, Any]] = []
+    stateShrinkDeferredByChromosome: Dict[str, Dict[str, Any]] = {}
+    stateShrinkTempPaths: List[str] = []
+    stateShrinkDeferredSuffixes = {
+        "stateShrunk",
+        "stateShrunkUncertainty",
+        "stateShrinkageFactor",
+        "stateNullProbability",
+    }
+    if writeStateShrunkTrack:
+        maxShrinkIntervals = max(
+            (int(chromPlan["numIntervals"]) for chromPlan in chromosomePlans),
+            default=1,
+        )
+        stateShrinkBlockIntervals = diagnostics.resolveUncertaintyBlockSizeIntervals(
+            getattr(uncertaintyCalibrationArgs, "blockSizeBP", None),
+            intervalSizeBP,
+            maxShrinkIntervals,
+        )
+    else:
+        stateShrinkBlockIntervals = 1
     saveGains = bool(
         getattr(outputArgs, "saveGains", constants.OUTPUT_DEFAULT_SAVE_GAINS)
     )
@@ -6737,38 +6763,31 @@ def main():
             shrinkVariance = np.maximum(
                 np.asarray(uncertaintyTrack, dtype=np.float64) ** 2,
                 float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            ).astype(np.float32, copy=False)
+            stateTemp = tempfile.NamedTemporaryFile(
+                prefix="consenrich_stateShrink_state_",
+                suffix=".npy",
+                delete=False,
             )
-            stateShrinkageResult = shrinkState.shrinkStateEB(
-                x_,
-                shrinkVariance,
-                model=getattr(outputArgs, "stateShrinkageModel", None),
-                priorNull=getattr(outputArgs, "stateShrinkagePriorNull", None),
-                priorScale=getattr(outputArgs, "stateShrinkagePriorScale", None),
+            stateTemp.close()
+            varianceTemp = tempfile.NamedTemporaryFile(
+                prefix="consenrich_stateShrink_variance_",
+                suffix=".npy",
+                delete=False,
             )
-            stateDiagnosticsByChromosome[chromosome]["state_shrinkage"] = dict(
-                stateShrinkageResult.metadata
-            )
-            logger.info(
-                "stateShrinkage[%s]: model=%s priorNull=%s priorScale=%s "
-                "absMedianBefore=%s absMedianAfter=%s nullProbMedian=%s "
-                "shrinkageFactorMedian=%s",
-                chromosome,
-                str(stateShrinkageResult.metadata.get("model") or "NA"),
-                _fmtDiagnosticFloat(stateShrinkageResult.metadata.get("prior_null")),
-                _fmtDiagnosticFloat(stateShrinkageResult.metadata.get("prior_scale")),
-                _fmtDiagnosticFloat(
-                    stateShrinkageResult.metadata.get("state_abs_median_before")
-                ),
-                _fmtDiagnosticFloat(
-                    stateShrinkageResult.metadata.get("state_abs_median_after")
-                ),
-                _fmtDiagnosticFloat(
-                    stateShrinkageResult.metadata.get("null_probability_median")
-                ),
-                _fmtDiagnosticFloat(
-                    stateShrinkageResult.metadata.get("shrinkage_factor_median")
-                ),
-            )
+            varianceTemp.close()
+            np.save(stateTemp.name, np.asarray(x_, dtype=np.float32))
+            np.save(varianceTemp.name, shrinkVariance)
+            stateShrinkTempPaths.extend([stateTemp.name, varianceTemp.name])
+            stateShrinkItem = {
+                "chromosome": chromosome,
+                "start": int(chromosomeStart),
+                "intervals": int(len(x_)),
+                "statePath": stateTemp.name,
+                "variancePath": varianceTemp.name,
+            }
+            stateShrinkDeferred.append(stateShrinkItem)
+            stateShrinkDeferredByChromosome[chromosome] = stateShrinkItem
 
         postFitDiagnostics = _summaryMapping(
             runDiagnostics.get("post_process_noise_fit")
@@ -6880,8 +6899,13 @@ def main():
                 )
             df["background"] = backgroundTrack
 
+        immediateBedGraphTracks = [
+            (col, suffix)
+            for col, suffix in bedGraphTracks
+            if suffix not in stateShrinkDeferredSuffixes
+        ]
         cols_ = ["Chromosome", "Start", "End"] + [
-            column for column, _suffix in bedGraphTracks
+            column for column, _suffix in immediateBedGraphTracks
         ]
         df = df[cols_].sort_values(
             by=["Start", "End"],
@@ -6891,7 +6915,7 @@ def main():
         writeStart = time.perf_counter()
         tracksForChromosome = [
             (col, suffix)
-            for col, suffix in bedGraphTracks
+            for col, suffix in immediateBedGraphTracks
             if not (segShrinkGenomeRequested and suffix == "uncertainty")
         ]
         for col, suffix in tracksForChromosome:
@@ -6968,6 +6992,14 @@ def main():
             chromosome = str(item["chromosome"])
             intervals = np.asarray(item["intervals"], dtype=np.int64)
             calibrated = np.asarray(item["calibrated"], dtype=np.float32)
+            if writeStateShrunkTrack:
+                shrinkItem = stateShrinkDeferredByChromosome.get(chromosome)
+                if shrinkItem is not None:
+                    finalShrinkVariance = np.maximum(
+                        np.asarray(calibrated, dtype=np.float64) ** 2,
+                        float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+                    ).astype(np.float32, copy=False)
+                    np.save(str(shrinkItem["variancePath"]), finalShrinkVariance)
             itemModel = item["model"]
             itemModel["delete_block_factor_distribution"] = (
                 _deleteBlockFactorDistributionFromArray(item["factor"])
@@ -7027,6 +7059,120 @@ def main():
             int(len(finalizedSegShrink)),
             uncertaintyBedGraphPath,
         )
+
+    if writeStateShrunkTrack:
+        if not stateShrinkDeferred:
+            raise ValueError("state shrinkage requested but no contigs were processed")
+        try:
+            stateShrinkPrior = shrinkState.fitStateShrinkagePrior(
+                stateShrinkDeferred,
+                model=getattr(outputArgs, "stateShrinkageModel", None),
+                priorNull=getattr(outputArgs, "stateShrinkagePriorNull", None),
+                priorScale=getattr(outputArgs, "stateShrinkagePriorScale", None),
+                blockSize=int(stateShrinkBlockIntervals),
+            )
+            logger.info(
+                "stateShrinkage.prior: model=%s scope=%s blockIntervals=%d "
+                "effectiveBlocks=%s priorNull=%s priorScale=%s iterations=%d converged=%s",
+                str(stateShrinkPrior.metadata.get("model") or "NA"),
+                str(stateShrinkPrior.metadata.get("scope") or "NA"),
+                int(stateShrinkPrior.metadata.get("block_size_intervals") or 1),
+                _fmtDiagnosticFloat(
+                    stateShrinkPrior.metadata.get("effective_block_count")
+                ),
+                _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_null")),
+                _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_scale")),
+                int(stateShrinkPrior.metadata.get("iterations") or 0),
+                bool(stateShrinkPrior.metadata.get("converged")),
+            )
+            shrinkOutputTracks = [
+                ("stateShrunk", "stateShrunk"),
+                ("stateShrunkUncertainty", "stateShrunkUncertainty"),
+            ]
+            if writeStateShrinkageTracks:
+                shrinkOutputTracks.extend(
+                    [
+                        ("stateShrinkageFactor", "stateShrinkageFactor"),
+                        ("stateNullProbability", "stateNullProbability"),
+                    ]
+                )
+            for idx, item in enumerate(stateShrinkDeferred):
+                chromosome = str(item["chromosome"])
+                intervalCount = int(item["intervals"])
+                intervals = np.arange(
+                    int(item["start"]),
+                    int(item["start"]) + intervalCount * intervalSizeBP,
+                    intervalSizeBP,
+                    dtype=np.int64,
+                )
+                stateForShrink = np.load(
+                    str(item["statePath"]),
+                    allow_pickle=False,
+                    mmap_mode="r",
+                )
+                varianceForShrink = np.load(
+                    str(item["variancePath"]),
+                    allow_pickle=False,
+                    mmap_mode="r",
+                )
+                stateShrinkageResult = shrinkState.applyStateShrinkagePrior(
+                    stateForShrink,
+                    varianceForShrink,
+                    stateShrinkPrior,
+                )
+                stateDiagnosticsByChromosome.setdefault(chromosome, {})[
+                    "state_shrinkage"
+                ] = dict(stateShrinkageResult.metadata)
+                dfShrink = pd.DataFrame(
+                    {
+                        "Chromosome": chromosome,
+                        "Start": intervals,
+                        "End": intervals + intervalSizeBP,
+                        "stateShrunk": stateShrinkageResult.shrunkState,
+                        "stateShrunkUncertainty": stateShrinkageResult.posteriorSd,
+                    }
+                )
+                if writeStateShrinkageTracks:
+                    dfShrink["stateShrinkageFactor"] = (
+                        stateShrinkageResult.shrinkageFactor
+                    )
+                    dfShrink["stateNullProbability"] = (
+                        stateShrinkageResult.nullProbability
+                    )
+                dfShrink = dfShrink.sort_values(
+                    by=["Start", "End"],
+                    kind="mergesort",
+                )
+                for col, suffix in shrinkOutputTracks:
+                    bedgraphPath = (
+                        f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
+                    )
+                    logger.info(
+                        "%s: writing genome-ordered state-shrinkage chunk to: %s",
+                        chromosome,
+                        bedgraphPath,
+                    )
+                    dfShrink[["Chromosome", "Start", "End", col]].to_csv(
+                        bedgraphPath,
+                        sep="\t",
+                        header=False,
+                        index=False,
+                        mode="w" if idx == 0 else "a",
+                        float_format="%.4f",
+                        lineterminator="\n",
+                    )
+        finally:
+            for tempPath in stateShrinkTempPaths:
+                try:
+                    os.unlink(tempPath)
+                except FileNotFoundError:
+                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to remove temporary state-shrinkage file %s: %s",
+                        tempPath,
+                        exc,
+                    )
 
     if replicateGainAccumulator is not None:
         gainRows = _replicateGainSummaryRows(
@@ -7097,16 +7243,20 @@ def main():
     if peakCallingEnabled:
         try:
             stateScoreSuffix = "stateShrunk" if useShrunkStateScores else "state"
+            uncertaintyScoreSuffix = (
+                "stateShrunkUncertainty" if useShrunkStateScores else "uncertainty"
+            )
             stateBedGraphPath = (
                 f"consenrichOutput_{experimentName}_{stateScoreSuffix}.v{__version__}.bedGraph"
             )
             uncertaintyBedGraphPath = (
-                f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
+                f"consenrichOutput_{experimentName}_{uncertaintyScoreSuffix}.v{__version__}.bedGraph"
             )
             _logCliSubphase(
-                "ROCCO peaks: scoreTrack=%s path=%s",
+                "ROCCO peaks: scoreTrack=%s path=%s uncertaintyTrack=%s",
                 stateScoreSuffix,
                 stateBedGraphPath,
+                uncertaintyScoreSuffix,
             )
             if not os.path.exists(uncertaintyBedGraphPath):
                 if matchingArgs.uncertaintyScoreMode == "lower_confidence":

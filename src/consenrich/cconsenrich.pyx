@@ -9145,3 +9145,256 @@ def cbooleanRunBounds(object above, int maxGapBins=0):
             if i <= lastTrue:
                 i = lastTrue + 1
     return startsArr[:count].copy(), endsArr[:count].copy()
+
+# ==============================================
+# Post-fit state-shrinkage helpers
+# ==============================================
+
+cdef inline double _state_shrink_safe_variance(double v) noexcept nogil:
+    if (not isfinite(v)) or v <= 1.0e-12:
+        return 1.0e-12
+    return v
+
+cdef inline bint _state_shrink_valid(double x, double v) noexcept nogil:
+    return isfinite(x) and isfinite(v) and v > 0.0
+
+cdef inline double _state_shrink_log_zero_density(double x, double v) noexcept nogil:
+    cdef double vv = _state_shrink_safe_variance(v)
+    return -0.5 * (log(2.0 * __PI_DOUBLE * vv) + (x * x) / vv)
+
+cdef inline double _state_shrink_logaddexp2(double a, double b) noexcept nogil:
+    if a > b:
+        return a + log1p(exp(b - a))
+    return b + log1p(exp(a - b))
+
+cpdef tuple cstateShrinkSpikeNormalInitialSums(
+    object state,
+    object variance,
+    double nullZ,
+    int blockSize=1,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
+        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
+        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = xArr.shape[0]
+    if vArr.shape[0] != n:
+        raise ValueError("state and variance must have the same length")
+    cdef double[::1] xView = xArr
+    cdef double[::1] vView = vArr
+    cdef Py_ssize_t start, end, i
+    cdef Py_ssize_t validInBlock
+    cdef int block = blockSize if blockSize > 0 else 1
+    cdef double x, v, z, weight
+    cdef double totalWeight = 0.0
+    cdef double centralWeight = 0.0
+    cdef double excessMomentSum = 0.0
+    cdef double varianceSum = 0.0
+    cdef double stateSqSum = 0.0
+    cdef Py_ssize_t finiteCount = 0
+    cdef double nullZSafe = nullZ if nullZ > 1.0e-12 else 1.0e-12
+
+    with nogil:
+        start = 0
+        while start < n:
+            end = start + block
+            if end > n:
+                end = n
+            validInBlock = 0
+            for i in range(start, end):
+                if _state_shrink_valid(xView[i], vView[i]):
+                    validInBlock += 1
+            if validInBlock > 0:
+                weight = 1.0 / <double>validInBlock
+                for i in range(start, end):
+                    x = xView[i]
+                    v = vView[i]
+                    if _state_shrink_valid(x, v):
+                        v = _state_shrink_safe_variance(v)
+                        z = fabs(x) / sqrt(v)
+                        totalWeight += weight
+                        if z <= nullZSafe:
+                            centralWeight += weight
+                        excessMomentSum += weight * (x * x - v)
+                        varianceSum += weight * v
+                        stateSqSum += weight * x * x
+                        finiteCount += 1
+            start = end
+    return (
+        totalWeight,
+        centralWeight,
+        excessMomentSum,
+        varianceSum,
+        stateSqSum,
+        int(finiteCount),
+    )
+
+cpdef tuple cstateShrinkSpikeNormalEMStep(
+    object state,
+    object variance,
+    double priorNull,
+    double priorVariance,
+    int blockSize=1,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
+        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
+        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = xArr.shape[0]
+    if vArr.shape[0] != n:
+        raise ValueError("state and variance must have the same length")
+    cdef double[::1] xView = xArr
+    cdef double[::1] vView = vArr
+    cdef Py_ssize_t start, end, i
+    cdef Py_ssize_t validInBlock
+    cdef int block = blockSize if blockSize > 0 else 1
+    cdef double pi0 = priorNull
+    cdef double tau2 = priorVariance
+    cdef double oneMinusPi0
+    cdef double x, v, weight, logNull, logSlab, logDenom
+    cdef double nullProb, slabWeight, slabShrinkage, slabMean, slabVariance
+    cdef double totalWeight = 0.0
+    cdef double nullMass = 0.0
+    cdef double slabMass = 0.0
+    cdef double slabSecond = 0.0
+    cdef double logLikelihood = 0.0
+    cdef Py_ssize_t finiteCount = 0
+
+    if pi0 <= 1.0e-12:
+        pi0 = 1.0e-12
+    elif pi0 >= 1.0 - 1.0e-12:
+        pi0 = 1.0 - 1.0e-12
+    if tau2 <= 1.0e-12 or not isfinite(tau2):
+        tau2 = 1.0e-12
+    oneMinusPi0 = 1.0 - pi0
+
+    with nogil:
+        start = 0
+        while start < n:
+            end = start + block
+            if end > n:
+                end = n
+            validInBlock = 0
+            for i in range(start, end):
+                if _state_shrink_valid(xView[i], vView[i]):
+                    validInBlock += 1
+            if validInBlock > 0:
+                weight = 1.0 / <double>validInBlock
+                for i in range(start, end):
+                    x = xView[i]
+                    v = vView[i]
+                    if _state_shrink_valid(x, v):
+                        v = _state_shrink_safe_variance(v)
+                        logNull = log(pi0) + _state_shrink_log_zero_density(x, v)
+                        logSlab = log(oneMinusPi0) + _state_shrink_log_zero_density(x, v + tau2)
+                        logDenom = _state_shrink_logaddexp2(logNull, logSlab)
+                        nullProb = exp(logNull - logDenom)
+                        slabWeight = 1.0 - nullProb
+                        if slabWeight < 0.0:
+                            slabWeight = 0.0
+                        slabShrinkage = tau2 / (tau2 + v)
+                        slabMean = slabShrinkage * x
+                        slabVariance = slabShrinkage * v
+                        totalWeight += weight
+                        nullMass += weight * nullProb
+                        slabMass += weight * slabWeight
+                        slabSecond += weight * slabWeight * (slabVariance + slabMean * slabMean)
+                        logLikelihood += weight * logDenom
+                        finiteCount += 1
+            start = end
+    return (
+        totalWeight,
+        nullMass,
+        slabMass,
+        slabSecond,
+        logLikelihood,
+        int(finiteCount),
+    )
+
+cpdef tuple cstateShrinkSpikeNormalPosterior(
+    object state,
+    object variance,
+    double priorNull,
+    double priorVariance,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
+        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
+        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = xArr.shape[0]
+    if vArr.shape[0] != n:
+        raise ValueError("state and variance must have the same length")
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] shrunkArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] posteriorSdArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] factorArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] nullArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabMeanArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabWeightArr = np.empty(n, dtype=np.float32)
+    cdef double[::1] xView = xArr
+    cdef double[::1] vView = vArr
+    cdef cnp.float32_t[::1] shrunkView = shrunkArr
+    cdef cnp.float32_t[::1] posteriorSdView = posteriorSdArr
+    cdef cnp.float32_t[::1] factorView = factorArr
+    cdef cnp.float32_t[::1] nullView = nullArr
+    cdef cnp.float32_t[::1] slabMeanView = slabMeanArr
+    cdef cnp.float32_t[::1] slabWeightView = slabWeightArr
+    cdef double pi0 = priorNull
+    cdef double tau2 = priorVariance
+    cdef double oneMinusPi0
+    cdef double x, v, logNull, logSlab, logDenom, nullProb, slabWeight
+    cdef double slabShrinkage, slabMean, slabVariance, shrunk, postSecond, postVariance, posteriorSd
+    cdef Py_ssize_t i
+
+    if pi0 <= 1.0e-12:
+        pi0 = 1.0e-12
+    elif pi0 >= 1.0 - 1.0e-12:
+        pi0 = 1.0 - 1.0e-12
+    if tau2 <= 1.0e-12 or not isfinite(tau2):
+        tau2 = 1.0e-12
+    oneMinusPi0 = 1.0 - pi0
+
+    with nogil:
+        for i in range(n):
+            x = xView[i]
+            v = vView[i]
+            if _state_shrink_valid(x, v):
+                v = _state_shrink_safe_variance(v)
+                logNull = log(pi0) + _state_shrink_log_zero_density(x, v)
+                logSlab = log(oneMinusPi0) + _state_shrink_log_zero_density(x, v + tau2)
+                logDenom = _state_shrink_logaddexp2(logNull, logSlab)
+                nullProb = exp(logNull - logDenom)
+                slabWeight = 1.0 - nullProb
+                if slabWeight < 0.0:
+                    slabWeight = 0.0
+                slabShrinkage = tau2 / (tau2 + v)
+                slabMean = slabShrinkage * x
+                slabVariance = slabShrinkage * v
+                shrunk = slabWeight * slabMean
+                postSecond = slabWeight * (slabVariance + slabMean * slabMean)
+                postVariance = postSecond - shrunk * shrunk
+                if (not isfinite(postVariance)) or postVariance <= 1.0e-12:
+                    postVariance = 1.0e-12
+                posteriorSd = sqrt(postVariance)
+                shrunkView[i] = <cnp.float32_t>shrunk
+                posteriorSdView[i] = <cnp.float32_t>posteriorSd
+                if fabs(x) > 1.0e-12:
+                    factorView[i] = <cnp.float32_t>(shrunk / x)
+                else:
+                    factorView[i] = <cnp.float32_t>0.0
+                nullView[i] = <cnp.float32_t>nullProb
+                slabMeanView[i] = <cnp.float32_t>slabMean
+                slabWeightView[i] = <cnp.float32_t>slabWeight
+            else:
+                shrunkView[i] = <cnp.float32_t>x
+                posteriorSdView[i] = <cnp.float32_t>NAN
+                factorView[i] = <cnp.float32_t>1.0
+                nullView[i] = <cnp.float32_t>NAN
+                slabMeanView[i] = <cnp.float32_t>NAN
+                slabWeightView[i] = <cnp.float32_t>NAN
+    return shrunkArr, posteriorSdArr, factorArr, nullArr, slabMeanArr, slabWeightArr
