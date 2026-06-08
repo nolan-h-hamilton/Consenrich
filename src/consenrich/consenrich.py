@@ -21,6 +21,7 @@ import consenrich.core as core
 import consenrich.diagnostics as diagnostics
 import consenrich.detrorm as detrorm
 import consenrich.peaks as peaks
+import consenrich.shrinkState as shrinkState
 from . import cconsenrich
 from . import constants
 from . import _logging as logging_utils
@@ -2085,6 +2086,16 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
+        (
+            "ROCCO shrunk-state scores",
+            yn(
+                getattr(
+                    matchingArgs,
+                    "useShrunkStateScores",
+                    constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
+                )
+            ),
+        ),
     )
     core._logEvent("config.initial", rows, logger_=logger)
 
@@ -2098,7 +2109,9 @@ def _resolveGlobalMedianCenterStatus(
     return True, "yes"
 
 
-_DEPENDENCE_MIN_CONTEXT_BP = 500
+_DEPENDENCE_MIN_CONTEXT_BP = (
+    constants.OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
+)
 _DEPENDENCE_MAX_CONTEXT_BP = 100_000
 
 
@@ -2860,6 +2873,24 @@ def main():
         "muncLocalWindowSizeBP",
         constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     )
+    muncDependenceMinContextSizeBPRaw = getattr(
+        observationArgs,
+        "muncDependenceMinContextSizeBP",
+        constants.OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP,
+    )
+    if muncDependenceMinContextSizeBPRaw is None:
+        muncDependenceMinContextSizeBPRaw = (
+            constants.OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
+        )
+    if isinstance(muncDependenceMinContextSizeBPRaw, bool):
+        raise ValueError(
+            "observationParams.muncDependenceMinContextSizeBP must be positive"
+        )
+    muncDependenceMinContextSizeBP_ = int(muncDependenceMinContextSizeBPRaw)
+    if muncDependenceMinContextSizeBP_ <= 0:
+        raise ValueError(
+            "observationParams.muncDependenceMinContextSizeBP must be positive"
+        )
     muncTrendBlockDependenceMultiplier_ = float(
         getattr(
             observationArgs,
@@ -4533,7 +4564,7 @@ def main():
                 blockSigma=1.0,
                 blockMinBP=1_000,
                 blockMaxBP=1_000_000,
-                minContextBP=int(_DEPENDENCE_MIN_CONTEXT_BP),
+                minContextBP=int(muncDependenceMinContextSizeBP_),
                 maxContextBP=int(_DEPENDENCE_MAX_CONTEXT_BP),
                 priorMedianSpan=80.0,
                 priorLogSd=1.0,
@@ -5866,9 +5897,28 @@ def main():
     )
 
     stateDiagnosticsByChromosome: Dict[str, Any] = {}
+    writeStateShrinkageTracks = bool(getattr(outputArgs, "writeStateShrinkage", False))
+    useShrunkStateScores = bool(
+        peakCallingEnabled
+        and getattr(
+            matchingArgs,
+            "useShrunkStateScores",
+            constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
+        )
+    )
+    writeStateShrunkTrack = bool(writeStateShrinkageTracks or useShrunkStateScores)
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
+    if writeStateShrunkTrack:
+        bedGraphTracks.append(("stateShrunk", "stateShrunk"))
+    if writeStateShrinkageTracks:
+        bedGraphTracks.extend(
+            [
+                ("stateShrinkageFactor", "stateShrinkageFactor"),
+                ("stateNullProbability", "stateNullProbability"),
+            ]
+        )
     diagnosticTrackNames = tuple(getattr(outputArgs, "diagnosticTracks", ()) or ())
     stateDiagnosticTrackNames = tuple(
         trackName for trackName in diagnosticTrackNames if trackName == "slope"
@@ -6682,6 +6732,44 @@ def main():
                     }
                 )
 
+        stateShrinkageResult = None
+        if writeStateShrunkTrack:
+            shrinkVariance = np.maximum(
+                np.asarray(uncertaintyTrack, dtype=np.float64) ** 2,
+                float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            )
+            stateShrinkageResult = shrinkState.shrinkStateEB(
+                x_,
+                shrinkVariance,
+                model=getattr(outputArgs, "stateShrinkageModel", None),
+                priorNull=getattr(outputArgs, "stateShrinkagePriorNull", None),
+                priorScale=getattr(outputArgs, "stateShrinkagePriorScale", None),
+            )
+            stateDiagnosticsByChromosome[chromosome]["state_shrinkage"] = dict(
+                stateShrinkageResult.metadata
+            )
+            logger.info(
+                "stateShrinkage[%s]: model=%s priorNull=%s priorScale=%s "
+                "absMedianBefore=%s absMedianAfter=%s nullProbMedian=%s "
+                "shrinkageFactorMedian=%s",
+                chromosome,
+                str(stateShrinkageResult.metadata.get("model") or "NA"),
+                _fmtDiagnosticFloat(stateShrinkageResult.metadata.get("prior_null")),
+                _fmtDiagnosticFloat(stateShrinkageResult.metadata.get("prior_scale")),
+                _fmtDiagnosticFloat(
+                    stateShrinkageResult.metadata.get("state_abs_median_before")
+                ),
+                _fmtDiagnosticFloat(
+                    stateShrinkageResult.metadata.get("state_abs_median_after")
+                ),
+                _fmtDiagnosticFloat(
+                    stateShrinkageResult.metadata.get("null_probability_median")
+                ),
+                _fmtDiagnosticFloat(
+                    stateShrinkageResult.metadata.get("shrinkage_factor_median")
+                ),
+            )
+
         postFitDiagnostics = _summaryMapping(
             runDiagnostics.get("post_process_noise_fit")
         )
@@ -6732,6 +6820,11 @@ def main():
 
         if outputArgs.writeUncertainty:
             df["uncertainty"] = uncertaintyTrack
+        if stateShrinkageResult is not None:
+            df["stateShrunk"] = stateShrinkageResult.shrunkState
+            if writeStateShrinkageTracks:
+                df["stateShrinkageFactor"] = stateShrinkageResult.shrinkageFactor
+                df["stateNullProbability"] = stateShrinkageResult.nullProbability
         if stateDiagnosticTrackNames:
             outputTracks = (
                 precisionDiagnostics.get("outputTracks", {})
@@ -7003,14 +7096,16 @@ def main():
 
     if peakCallingEnabled:
         try:
+            stateScoreSuffix = "stateShrunk" if useShrunkStateScores else "state"
             stateBedGraphPath = (
-                f"consenrichOutput_{experimentName}_state.v{__version__}.bedGraph"
+                f"consenrichOutput_{experimentName}_{stateScoreSuffix}.v{__version__}.bedGraph"
             )
             uncertaintyBedGraphPath = (
                 f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
             )
             _logCliSubphase(
-                "ROCCO peaks: state=%s",
+                "ROCCO peaks: scoreTrack=%s path=%s",
+                stateScoreSuffix,
                 stateBedGraphPath,
             )
             if not os.path.exists(uncertaintyBedGraphPath):

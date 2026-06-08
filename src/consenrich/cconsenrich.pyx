@@ -3366,7 +3366,7 @@ cpdef tuple cchooseDependenceSpan(
     double blockSigma=1.0,
     int blockMinBP=1000,
     int blockMaxBP=1000000,
-    int minContextBP=500,
+    int minContextBP=2500,
     int maxContextBP=100000,
     double priorMedianSpan=80.0,
     double priorLogSd=1.0,

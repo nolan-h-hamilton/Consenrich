@@ -5949,6 +5949,7 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert diagnostics["sampled_width_bp"] == repeat[3]["sampled_width_bp"]
     assert diagnostics["num_blocks"] == 100
     assert 3 <= lowerSpan <= pointSpan <= upperSpan
+    assert diagnostics["min_span"] == 50
     assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
     assert diagnostics["estimand"] == "acf_abs_three_lag_crossing"
     assert diagnostics["point_threshold"] == 0.10

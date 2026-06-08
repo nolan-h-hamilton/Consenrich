@@ -249,6 +249,33 @@ def _normalizeNonnegativeInt(value: Any, configName: str) -> int:
     return out
 
 
+def _normalizeOptionalOpenUnitInterval(value: Any, configName: str) -> float | None:
+    if value is None:
+        return None
+    out = float(value)
+    if not np.isfinite(out) or out <= 0.0 or out >= 1.0:
+        raise ValueError(f"{configName} must be finite and strictly between 0 and 1")
+    return out
+
+
+def _normalizeOptionalPositiveFloat(value: Any, configName: str) -> float | None:
+    if value is None:
+        return None
+    out = float(value)
+    if not np.isfinite(out) or out <= 0.0:
+        raise ValueError(f"{configName} must be finite and positive")
+    return out
+
+
+def _normalizeStateShrinkageModel(value: Any) -> str:
+    return _normalizeConfigEnum(
+        value,
+        default=constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
+        supported=constants.OUTPUT_STATE_SHRINKAGE_MODELS,
+        configName="outputParams.stateShrinkageModel",
+    )
+
+
 def _normalizeMatchingMetadataDetail(value: Any) -> str:
     raw = constants.MATCHING_DEFAULT_METADATA_DETAIL if value is None else value
     key = str(raw).strip().lower().replace("-", "_")
@@ -572,6 +599,34 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.writeUncertainty",
         constants.OUTPUT_DEFAULT_WRITE_UNCERTAINTY,
     )
+    writeStateShrinkage_ = _cfgGet(
+        configData,
+        "outputParams.writeStateShrinkage",
+        constants.OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE,
+    )
+    stateShrinkageModel_ = _normalizeStateShrinkageModel(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkageModel",
+            _cfgDefault(configData, "outputParams.stateShrinkageModel"),
+        )
+    )
+    stateShrinkagePriorNull_ = _normalizeOptionalOpenUnitInterval(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkagePriorNull",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL,
+        ),
+        "outputParams.stateShrinkagePriorNull",
+    )
+    stateShrinkagePriorScale_ = _normalizeOptionalPositiveFloat(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkagePriorScale",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE,
+        ),
+        "outputParams.stateShrinkagePriorScale",
+    )
     saveBackgroundTracks_ = _cfgGet(
         configData,
         "outputParams.saveBackgroundTracks",
@@ -637,6 +692,10 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
+        writeStateShrinkage=bool(writeStateShrinkage_),
+        stateShrinkageModel=stateShrinkageModel_,
+        stateShrinkagePriorNull=stateShrinkagePriorNull_,
+        stateShrinkagePriorScale=stateShrinkagePriorScale_,
         saveBackgroundTracks=saveBackgroundTracks_,
         saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
@@ -1814,6 +1873,29 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         and muncLocalWindowSizeBP is None
     ):
         muncLocalWindowSizeBP = -1
+    muncDependenceMinContextSizeBP = _cfgGet(
+        configData,
+        "observationParams.muncDependenceMinContextSizeBP",
+        _cfgDefault(configData, "observationParams.muncDependenceMinContextSizeBP"),
+    )
+    if isinstance(muncDependenceMinContextSizeBP, bool):
+        raise ValueError(
+            "`observationParams.muncDependenceMinContextSizeBP` must be positive."
+        )
+    if isinstance(muncDependenceMinContextSizeBP, (float, np.floating)) and not float(
+        muncDependenceMinContextSizeBP
+    ).is_integer():
+        raise ValueError(
+            "`observationParams.muncDependenceMinContextSizeBP` must be an integer."
+        )
+    muncDependenceMinContextSizeBP = _normalizeNonnegativeInt(
+        muncDependenceMinContextSizeBP,
+        "observationParams.muncDependenceMinContextSizeBP",
+    )
+    if muncDependenceMinContextSizeBP <= 0:
+        raise ValueError(
+            "`observationParams.muncDependenceMinContextSizeBP` must be positive."
+        )
     muncTrendBlockDependenceMultiplierRaw = _cfgGet(
         configData,
         "observationParams.muncTrendBlockDependenceMultiplier",
@@ -2273,6 +2355,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncVarianceModel": muncVarianceModel,
         "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
+        "muncDependenceMinContextSizeBP": muncDependenceMinContextSizeBP,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,
@@ -2581,6 +2664,13 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             )
         ),
         minPeakScore=minPeakScore,
+        useShrunkStateScores=bool(
+            _cfgGet(
+                configData,
+                "matchingParams.useShrunkStateScores",
+                constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
+            )
+        ),
     )
 
     return {

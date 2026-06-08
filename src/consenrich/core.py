@@ -63,6 +63,7 @@ from .constants import (
     INPUT_DEFAULT_ROLE,
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED,
@@ -99,6 +100,7 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_ECM_ITERS,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_OUTER_PASSES,
     OBSERVATION_DEFAULT_MIN_R,
+    OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX,
@@ -112,7 +114,11 @@ from .constants import (
     OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE,
     OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
+    OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE,
     LOGGING_DEFAULT_LOG_FILE,
     LOGGING_DEFAULT_PROGRESS,
     LOGGING_DEFAULT_VERBOSITY,
@@ -494,6 +500,9 @@ class observationParams(NamedTuple):
     muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
     muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
+    muncDependenceMinContextSizeBP: int | None = (
+        OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
+    )
     muncTrendBlockDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
     )
@@ -1051,6 +1060,11 @@ class matchingParams(NamedTuple):
         keeps summary diagnostics, while ``"full"`` also includes per-peak and
         candidate-detail arrays.
     :type metadataDetail: str
+    :param useShrunkStateScores: If True, integrated ROCCO peak calling uses the
+        post-fit EB-shrunken state track as its score input instead of the raw
+        fitted state track. This only affects ROCCO scoring/export and does not
+        alter the Kalman/ECM fit.
+    :type useShrunkStateScores: bool
     :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
 
@@ -1069,6 +1083,7 @@ class matchingParams(NamedTuple):
     uncertaintyScoreZ: float = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
     minPeakScore: Optional[float] = MATCHING_DEFAULT_MIN_PEAK_SCORE
+    useShrunkStateScores: bool = MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES
 
 
 class outputParams(NamedTuple):
@@ -1083,6 +1098,24 @@ class outputParams(NamedTuple):
         when uncertainty calibration is enabled, the caller may replace it with the
         delete-block calibrated state-variance track.
     :type writeUncertainty: bool
+    :param writeStateShrinkage: If True, write post-fit empirical-Bayes state
+        shrinkage tracks: ``stateShrunk``, ``stateShrinkageFactor``, and
+        ``stateNullProbability``. Shrinkage is applied only to reported tracks and
+        does not affect the Kalman/ECM fit.
+    :type writeStateShrinkage: bool
+    :param stateShrinkageModel: Post-fit state shrinkage model. The default
+        ``"adaptiveNormalMixture"`` uses an ashr-like zero-centered Normal
+        mixture with an exact-zero component. ``"spikeAndNormal"`` preserves
+        the earlier single-slab spike-and-normal shrinker.
+    :type stateShrinkageModel: str
+    :param stateShrinkagePriorNull: Optional fixed point-null prior probability
+        for state shrinkage. If unset, it is estimated by empirical Bayes.
+    :type stateShrinkagePriorNull: Optional[float]
+    :param stateShrinkagePriorScale: Optional fixed prior scale. For
+        ``"spikeAndNormal"`` this fixes the slab standard deviation. For
+        ``"adaptiveNormalMixture"`` this fixes the largest positive component
+        scale in the mixture grid.
+    :type stateShrinkagePriorScale: Optional[float]
     :param saveBackgroundTracks: If True, write the fitted shared background
         track :math:`g_{[i]}` to bedGraph and optional bigWig output.
     :type saveBackgroundTracks: bool
@@ -1118,6 +1151,10 @@ class outputParams(NamedTuple):
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
+    writeStateShrinkage: bool = OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE
+    stateShrinkageModel: str = OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
+    stateShrinkagePriorNull: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL
+    stateShrinkagePriorScale: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE
     saveBackgroundTracks: bool = OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
     plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS

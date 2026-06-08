@@ -91,6 +91,7 @@ def writeGenomeCovariateCache(
 def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     coarseMinSpan, coarseMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(50)
     fineMinSpan, fineMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(25)
+    assert 2 * fineMinSpan * 25 == 2_500
     assert fineMinSpan >= coarseMinSpan
     assert fineMaxSpan >= coarseMaxSpan
     assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
@@ -1125,6 +1126,10 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.muncLocalWindowSizeBP"]
     )
     assert (
+        parsed["observationArgs"].muncDependenceMinContextSizeBP
+        == profile["observationParams.muncDependenceMinContextSizeBP"]
+    )
+    assert (
         parsed["observationArgs"].muncTrendBlockDependenceMultiplier
         == profile["observationParams.muncTrendBlockDependenceMultiplier"]
     )
@@ -2058,6 +2063,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     observationParams.muncVarianceModel: kalman
     observationParams.muncTrendBlockSizeBP: 250
     observationParams.muncLocalWindowSizeBP: 500
+    observationParams.muncDependenceMinContextSizeBP: 5000
     observationParams.muncTrendBlockDependenceMultiplier: 1.5
     observationParams.muncLocalWindowDependenceMultiplier: 2.5
     observationParams.muncEBPrior.tileSizeBP: 1000
@@ -2086,6 +2092,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert not hasattr(explicitObservationArgs, "muncAR1VarianceFunctional")
     assert explicitObservationArgs.muncTrendBlockSizeBP == 250
     assert explicitObservationArgs.muncLocalWindowSizeBP == 500
+    assert explicitObservationArgs.muncDependenceMinContextSizeBP == 5000
     assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
     assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
     assert explicitObservationArgs.muncEBPriorTileSizeBP == 1000
@@ -2116,6 +2123,20 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     )
     with pytest.raises(ValueError, match="MUNC variance model"):
         readConfig(str(configInvalidModelPath))
+
+    configInvalidMinContext = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncDependenceMinContextSizeBP: 0
+    """
+    configInvalidMinContextPath = writeConfigFile(
+        tmp_path,
+        "config_invalid_munc_min_context.yaml",
+        configInvalidMinContext,
+    )
+    with pytest.raises(ValueError, match="muncDependenceMinContextSizeBP"):
+        readConfig(str(configInvalidMinContextPath))
 
     configInvalidFunctional = """
     experimentName: testExperiment
