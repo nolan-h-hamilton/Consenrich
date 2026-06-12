@@ -972,6 +972,10 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         parsed["observationArgs"].muncEBPriorGUncertaintyMode
         == constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
     )
+    assert (
+        parsed["outputArgs"].stateShrinkageModel
+        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE
+    )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -997,6 +1001,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.warmupOuterPasses",
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
+        "outputParams.stateShrinkageModel",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
         "uncertaintyCalibrationParams.deleteBlockTargetSignal",
@@ -1019,6 +1024,10 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS == (
         constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_GLOBAL,
         constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_SEG_SHRINK,
+    )
+    assert constants.OUTPUT_STATE_SHRINKAGE_MODELS == (
+        constants.OUTPUT_STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE,
+        constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
     )
     assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
@@ -1189,6 +1198,18 @@ def _case_runtime_defaults_are_centralized(
     assert (
         parsed["outputArgs"].saveBackgroundTracks
         == profile["outputParams.saveBackgroundTracks"]
+    )
+    assert (
+        parsed["outputArgs"].stateShrinkageModel
+        == profile["outputParams.stateShrinkageModel"]
+    )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).stateShrinkageModel
+        == constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
     )
     assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
@@ -1526,6 +1547,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
+    outputParams.stateShrinkageModel: spikeAndNormal
     uncertaintyCalibrationParams.enabled: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.75
@@ -1546,6 +1568,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False
+    assert (
+        parsed["outputArgs"].stateShrinkageModel
+        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL
+    )
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
     assert parsed["matchingArgs"].uncertaintyScoreMode == "lower_confidence"
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(1.75)
@@ -3038,6 +3064,19 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     )
 
 
+def test_state_shrinkage_output_helpers_keep_required_tracks():
+    assert consenrich_cli._stateShrinkageOutputTracks(False) == [
+        ("stateShrunk", "stateShrunk"),
+        ("stateShrunkUncertainty", "stateShrunkUncertainty"),
+    ]
+    assert consenrich_cli._stateShrinkageOutputTracks(True) == [
+        ("stateShrunk", "stateShrunk"),
+        ("stateShrunkUncertainty", "stateShrunkUncertainty"),
+        ("stateShrinkageFactor", "stateShrinkageFactor"),
+        ("stateNullProbability", "stateNullProbability"),
+    ]
+
+
 def test_run_summary_output_helpers(tmp_path):
     paths = consenrich_cli.DiagnosticLogPaths(
         precision=tmp_path / "precision.jsonl",
@@ -3161,6 +3200,60 @@ def test_run_summary_output_helpers(tmp_path):
     assert globalDeleteBlockFields[
         "delete_block_variance_multiplier_global"
     ] == pytest.approx(1.5)
+
+
+def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_path):
+    metadata = {
+        "scope": "genome",
+        "chunk_count": np.int64(2),
+        "interval_count": np.int64(12),
+        "finite_count": np.int64(10),
+        "effective_block_count": np.float64(6.0),
+        "block_size_intervals": np.int64(3),
+        "prior_null": np.float64(0.4),
+        "prior_scale": np.float64(1.25),
+        "prior_variance": np.float64(1.5625),
+        "slab_count": np.int64(2),
+        "slab_weight": np.array([0.25, 0.75], dtype=np.float64),
+        "slab_variance": [np.float64(0.5), np.float64(2.0)],
+        "component_weights": [
+            np.float64(0.4),
+            np.float64(0.15),
+            np.float64(0.45),
+        ],
+        "estimated_prior_null": np.bool_(True),
+        "estimated_prior_scale": np.bool_(True),
+        "estimated_slab_weights": np.bool_(True),
+        "estimated_slab_scales": np.bool_(True),
+        "iterations": np.int64(8),
+        "converged": np.bool_(True),
+        "log_likelihood": np.float64(-12.5),
+    }
+    row = {
+        "record_type": "genome",
+        "chromosome": "genome",
+        "intervals": 12,
+        "samples": 2,
+        "elapsed_seconds": 0.25,
+        "output_track_count": 4,
+    }
+    row.update(consenrich_cli._stateShrinkageSummaryFields(metadata))
+    summaryPath = tmp_path / "summary.jsonl"
+
+    consenrich_cli._writeRunSummary([row], summaryPath)
+
+    record = json.loads(summaryPath.read_text(encoding="utf-8"))
+    assert set(record) <= set(consenrich_cli.RUN_SUMMARY_COLUMNS)
+    assert record["state_shrinkage_slab_count"] == 2
+    assert record["state_shrinkage_slab_weight"] == [0.25, 0.75]
+    assert record["state_shrinkage_slab_variance"] == [0.5, 2.0]
+    assert record["state_shrinkage_component_weights"] == [0.4, 0.15, 0.45]
+    assert record["state_shrinkage_estimated_slab_weights"] is True
+    assert record["state_shrinkage_estimated_slab_scales"] is True
+    assert (
+        consenrich_cli._diagnosticJsonText(metadata["component_weights"])
+        == "[0.4,0.15,0.45]"
+    )
 
 
 def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):

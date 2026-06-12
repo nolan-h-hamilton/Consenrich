@@ -9,21 +9,30 @@ from typing import Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 
-try:  # cython is optional in this mod. for now
-    from . import cconsenrich as _cconsenrich
-except Exception:  # pragma: no cover - exercised only when extension is absent.
-    _cconsenrich = None
+from .cconsenrich import (
+    cstateShrinkInitialSums as _cstateShrinkInitialSums,
+    cstateShrinkMixtureEMStep as _cstateShrinkMixtureEMStep,
+    cstateShrinkMixtureEMStepPrepared as _cstateShrinkMixtureEMStepPrepared,
+    cstateShrinkMixturePosterior as _cstateShrinkMixturePosterior,
+    cstateShrinkMixturePosteriorPrepared as _cstateShrinkMixturePosteriorPrepared,
+)
 
 
+STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE = "adaptiveNormalMixture"
 STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL = "spikeAndNormal"
-STATE_SHRINKAGE_MODEL = STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL
-STATE_SHRINKAGE_MODELS = (STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,)
+STATE_SHRINKAGE_MODEL = STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE
+STATE_SHRINKAGE_MODELS = (
+    STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE,
+    STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
+)
 _STATE_SHRINKAGE_POSITIVE_FLOOR = 1.0e-12
+_STATE_SHRINKAGE_WEIGHT_FLOOR = 1.0e-12
 _STATE_SHRINKAGE_DEFAULT_MAX_ITER = 96
 _STATE_SHRINKAGE_DEFAULT_TOL = 1.0e-5
 _STATE_SHRINKAGE_DEFAULT_NULL_Z = 1.5
 _STATE_SHRINKAGE_DEFAULT_MIN_NULL = 1.0e-2
 _STATE_SHRINKAGE_DEFAULT_MAX_NULL = 1.0 - 1.0e-4
+_STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0)
 
 
 class stateShrinkPrior(NamedTuple):
@@ -35,6 +44,9 @@ class stateShrinkPrior(NamedTuple):
     priorVariance: float
     blockSize: int
     metadata: dict[str, Any]
+    slabVariance: tuple[float, ...] = ()
+    slabWeight: tuple[float, ...] = ()
+    componentWeights: tuple[float, ...] = ()
 
 
 class stateShrinkResult(NamedTuple):
@@ -68,10 +80,9 @@ def _metadataFloat(value: float) -> float | None:
 def _normalizeModel(model: str | None) -> str:
     if model is None:
         return STATE_SHRINKAGE_MODEL
-    key = str(model).strip().replace("-", "_").replace(" ", "_").lower()
-    keyCompact = key.replace("_", "")
-    if keyCompact in {"spikeandnormal", "spikenormal", "spike", "pointnormal"}:
-        return STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL
+    model_ = str(model)
+    if model_ in STATE_SHRINKAGE_MODELS:
+        return model_
     supported = ", ".join(STATE_SHRINKAGE_MODELS)
     raise ValueError(
         f"Unsupported state shrinkage model {model!r}; supported values: {supported}."
@@ -79,7 +90,7 @@ def _normalizeModel(model: str | None) -> str:
 
 
 def _asFloatVector(name: str, values: npt.ArrayLike) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    arr = np.asarray(values)
     if arr.ndim != 1:
         raise ValueError(f"`{name}` must be one-dimensional")
     if arr.size == 0:
@@ -91,18 +102,8 @@ def _loadStateVarianceItem(item: Any) -> tuple[np.ndarray, np.ndarray]:
     if isinstance(item, Mapping):
         stateSource = item.get("state")
         varianceSource = item.get("variance")
-        statePath = item.get("statePath") or item.get("stateFile")
-        variancePath = item.get("variancePath") or item.get("varianceFile")
-        if stateSource is None:
-            if statePath is None:
-                raise ValueError("state shrinkage item is missing `state`/`statePath`")
-            stateSource = np.load(statePath, allow_pickle=False, mmap_mode="r")
-        if varianceSource is None:
-            if variancePath is None:
-                raise ValueError(
-                    "state shrinkage item is missing `variance`/`variancePath`"
-                )
-            varianceSource = np.load(variancePath, allow_pickle=False, mmap_mode="r")
+        if stateSource is None or varianceSource is None:
+            raise ValueError("state shrinkage item is missing `state`/`variance`")
         state = _asFloatVector("state", stateSource)
         variance = _asFloatVector("stateVariance", varianceSource)
     else:
@@ -133,67 +134,53 @@ def _safeBlockSize(blockSize: int | None) -> int:
     return int(max(1, blockSize))
 
 
-def _logNormalZeroDensity(x: np.ndarray, variance: np.ndarray) -> np.ndarray:
-    var = np.maximum(
-        np.asarray(variance, dtype=np.float64),
-        _STATE_SHRINKAGE_POSITIVE_FLOOR,
-    )
-    return -0.5 * (
-        np.log(2.0 * math.pi * var) + (np.asarray(x, dtype=np.float64) ** 2) / var
-    )
+def _sortedPositiveWeights(
+    slabVariance: npt.ArrayLike,
+    slabWeight: npt.ArrayLike,
+) -> tuple[np.ndarray, np.ndarray]:
+    variance = np.asarray(slabVariance, dtype=np.float64).reshape(-1)
+    weight = np.asarray(slabWeight, dtype=np.float64).reshape(-1)
+    if variance.ndim != 1 or weight.ndim != 1 or variance.size == 0:
+        raise ValueError("state shrinkage slabs must be non-empty one-dimensional arrays")
+    if variance.shape != weight.shape:
+        raise ValueError("state shrinkage slab variance and weight shapes differ")
+    if np.any(~np.isfinite(variance)) or np.any(variance <= 0.0):
+        raise ValueError("state shrinkage slab variances must be finite and positive")
+    if np.any(~np.isfinite(weight)) or np.any(weight <= 0.0):
+        raise ValueError("state shrinkage slab weights must be finite and positive")
+    order = np.argsort(variance, kind="mergesort")
+    variance = np.maximum(variance[order], _STATE_SHRINKAGE_POSITIVE_FLOOR)
+    weight = np.maximum(weight[order], _STATE_SHRINKAGE_WEIGHT_FLOOR)
+    weight = weight / float(np.sum(weight))
+    return variance, weight
 
 
-def _iterBlockWeights(state: np.ndarray, variance: np.ndarray, blockSize: int):
-    blockSize_ = _safeBlockSize(blockSize)
-    n = int(state.size)
-    for start in range(0, n, blockSize_):
-        end = min(start + blockSize_, n)
-        blockValid = (
-            np.isfinite(state[start:end])
-            & np.isfinite(variance[start:end])
-            & (variance[start:end] > 0.0)
-        )
-        validCount = int(np.count_nonzero(blockValid))
-        if validCount <= 0:
-            continue
-        idx = np.nonzero(blockValid)[0] + start
-        yield idx, 1.0 / float(validCount)
+def _priorSlabArrays(prior: stateShrinkPrior) -> tuple[np.ndarray, np.ndarray]:
+    if len(prior.slabVariance) and len(prior.slabWeight):
+        return _sortedPositiveWeights(prior.slabVariance, prior.slabWeight)
+    return _sortedPositiveWeights((prior.priorVariance,), (1.0,))
 
 
-def _initialSumsPython(
-    state: np.ndarray,
-    variance: np.ndarray,
-    *,
-    nullZ: float,
-    blockSize: int,
-) -> tuple[float, float, float, float, float, int]:
-    totalWeight = 0.0
-    centralWeight = 0.0
-    excessMomentSum = 0.0
-    varianceSum = 0.0
-    stateSqSum = 0.0
-    finiteCount = 0
-    nullZ_ = float(max(nullZ, _STATE_SHRINKAGE_POSITIVE_FLOOR))
-    for idx, weight in _iterBlockWeights(state, variance, blockSize):
-        x = np.asarray(state[idx], dtype=np.float64)
-        v = np.maximum(
-            np.asarray(variance[idx], dtype=np.float64), _STATE_SHRINKAGE_POSITIVE_FLOOR
-        )
-        z = np.abs(x) / np.sqrt(v)
-        totalWeight += weight * float(x.size)
-        centralWeight += weight * float(np.count_nonzero(z <= nullZ_))
-        excessMomentSum += weight * float(np.sum(x * x - v))
-        varianceSum += weight * float(np.sum(v))
-        stateSqSum += weight * float(np.sum(x * x))
-        finiteCount += int(x.size)
-    return (
-        totalWeight,
-        centralWeight,
-        excessMomentSum,
-        varianceSum,
-        stateSqSum,
-        finiteCount,
-    )
+def _componentWeights(priorNull: float, slabWeight: np.ndarray) -> tuple[float, ...]:
+    pi0 = float(priorNull)
+    return tuple([pi0] + [float((1.0 - pi0) * weight) for weight in slabWeight])
+
+
+def _slabMultipliersForModel(model: str) -> tuple[float, ...]:
+    if model == STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL:
+        return (1.0,)
+    return _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS
+
+
+def _logSlabPrior(priorNull: float, slabWeight: np.ndarray) -> np.ndarray:
+    pi0 = float(priorNull)
+    if not np.isfinite(pi0) or pi0 <= 0.0 or pi0 >= 1.0:
+        raise ValueError("`priorNull` must be finite and strictly between 0 and 1")
+    weight = np.asarray(slabWeight, dtype=np.float64).reshape(-1)
+    weightTotal = float(np.sum(weight))
+    if weight.size == 0 or weightTotal <= 0.0 or not np.isfinite(weightTotal):
+        raise ValueError("state shrinkage slab weights must have positive total weight")
+    return np.log(weight) + (math.log(1.0 - pi0) - math.log(weightTotal))
 
 
 def _initialSums(
@@ -202,58 +189,10 @@ def _initialSums(
     *,
     nullZ: float,
     blockSize: int,
-) -> tuple[float, float, float, float, float, int]:
-    func = getattr(_cconsenrich, "cstateShrinkSpikeNormalInitialSums", None)
-    if func is not None:
-        return tuple(func(state, variance, float(nullZ), int(blockSize)))  # type: ignore[return-value]
-    # python if cython not available
-    return _initialSumsPython(state, variance, nullZ=nullZ, blockSize=blockSize)
-
-
-def _emStepPython(
-    state: np.ndarray,
-    variance: np.ndarray,
-    *,
-    priorNull: float,
-    priorVariance: float,
-    blockSize: int,
-) -> tuple[float, float, float, float, float, int]:
-    pi0 = float(
-        np.clip(
-            priorNull,
-            _STATE_SHRINKAGE_DEFAULT_MIN_NULL,
-            _STATE_SHRINKAGE_DEFAULT_MAX_NULL,
-        )
-    )
-    tau2 = float(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR))
-    totalWeight = 0.0
-    nullMass = 0.0
-    slabMass = 0.0
-    slabSecond = 0.0
-    logLikelihood = 0.0
-    finiteCount = 0
-    for idx, weight in _iterBlockWeights(state, variance, blockSize):
-        x = np.asarray(state[idx], dtype=np.float64)
-        v = np.maximum(
-            np.asarray(variance[idx], dtype=np.float64), _STATE_SHRINKAGE_POSITIVE_FLOOR
-        )
-        logNull = math.log(pi0) + _logNormalZeroDensity(x, v)
-        logSlab = math.log1p(-pi0) + _logNormalZeroDensity(x, v + tau2)
-        logDenom = np.logaddexp(logNull, logSlab)
-        nullProb = np.exp(logNull - logDenom)
-        slabWeight = np.maximum(1.0 - nullProb, 0.0)
-        slabShrinkage = tau2 / (tau2 + v)
-        slabMean = slabShrinkage * x
-        slabVariance = slabShrinkage * v
-        totalWeight += weight * float(x.size)
-        nullMass += weight * float(np.sum(nullProb))
-        slabMass += weight * float(np.sum(slabWeight))
-        slabSecond += weight * float(
-            np.sum(slabWeight * (slabVariance + slabMean * slabMean))
-        )
-        logLikelihood += weight * float(np.sum(logDenom))
-        finiteCount += int(x.size)
-    return totalWeight, nullMass, slabMass, slabSecond, logLikelihood, finiteCount
+) -> tuple[float, float, float, float, int]:
+    return tuple(
+        _cstateShrinkInitialSums(state, variance, float(nullZ), int(blockSize))
+    )  # type: ignore[return-value]
 
 
 def _emStep(
@@ -261,26 +200,25 @@ def _emStep(
     variance: np.ndarray,
     *,
     priorNull: float,
-    priorVariance: float,
+    slabVariance: np.ndarray,
+    logSlabPrior: np.ndarray,
     blockSize: int,
-) -> tuple[float, float, float, float, float, int]:
-    func = getattr(_cconsenrich, "cstateShrinkSpikeNormalEMStep", None)
-    if func is not None:
-        return tuple(
-            func(
-                state,
-                variance,
-                float(priorNull),
-                float(priorVariance),
-                int(blockSize),
-            )
-        )  # type: ignore[return-value]
-    return _emStepPython(
+) -> tuple[float, float, np.ndarray, np.ndarray, float, int]:
+    out = _cstateShrinkMixtureEMStepPrepared(
         state,
         variance,
-        priorNull=priorNull,
-        priorVariance=priorVariance,
-        blockSize=blockSize,
+        float(priorNull),
+        slabVariance,
+        logSlabPrior,
+        int(blockSize),
+    )
+    return (
+        float(out[0]),
+        float(out[1]),
+        np.asarray(out[2], dtype=np.float64),
+        np.asarray(out[3], dtype=np.float64),
+        float(out[4]),
+        int(out[5]),
     )
 
 
@@ -306,14 +244,10 @@ def fitStateShrinkagePrior(
     """
 
     model_ = _normalizeModel(model)
-    if model_ != STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL:
-        supported = ", ".join(STATE_SHRINKAGE_MODELS)
-        raise ValueError(
-            f"Unsupported state shrinkage model {model!r}; supported values: {supported}."
-        )
-    chunks_ = list(chunks)
-    if not chunks_:
+    chunkItems = list(chunks)
+    if not chunkItems:
         raise ValueError("state shrinkage prior fit requires at least one chunk")
+    chunks_ = [_loadStateVarianceItem(item) for item in chunkItems]
 
     minNull_, maxNull_ = _nullBounds(minNull, maxNull)
     blockSize_ = _safeBlockSize(blockSize)
@@ -321,26 +255,29 @@ def fitStateShrinkagePrior(
     centralWeight = 0.0
     excessMomentSum = 0.0
     varianceSum = 0.0
-    stateSqSum = 0.0
     finiteCount = 0
     intervalCount = 0
     chunkCount = 0
-    for item in chunks_:
-        state, variance = _loadStateVarianceItem(item)
+    for state, variance in chunks_:
         chunkCount += 1
         intervalCount += int(state.size)
-        sums = _initialSums(
+        (
+            chunkTotalWeight,
+            chunkCentralWeight,
+            chunkExcessMomentSum,
+            chunkVarianceSum,
+            chunkFiniteCount,
+        ) = _initialSums(
             state,
             variance,
             nullZ=float(nullZ),
             blockSize=blockSize_,
         )
-        totalWeight += float(sums[0])
-        centralWeight += float(sums[1])
-        excessMomentSum += float(sums[2])
-        varianceSum += float(sums[3])
-        stateSqSum += float(sums[4])
-        finiteCount += int(sums[5])
+        totalWeight += float(chunkTotalWeight)
+        centralWeight += float(chunkCentralWeight)
+        excessMomentSum += float(chunkExcessMomentSum)
+        varianceSum += float(chunkVarianceSum)
+        finiteCount += int(chunkFiniteCount)
 
     if totalWeight <= 0.0 or finiteCount <= 0:
         raise ValueError(
@@ -348,7 +285,6 @@ def fitStateShrinkagePrior(
         )
 
     estimateNull = priorNull is None
-    estimateScale = priorScale is None
 
     if priorNull is None:
         expectedCentral = float(
@@ -368,69 +304,133 @@ def fitStateShrinkagePrior(
         pi0 = float(np.clip(pi0, minNull_, maxNull_))
 
     if priorScale is None:
-        tau2 = excessMomentSum / max(totalWeight, _STATE_SHRINKAGE_POSITIVE_FLOOR)
-        if not np.isfinite(tau2) or tau2 <= _STATE_SHRINKAGE_POSITIVE_FLOOR:
-            tau2 = varianceSum / max(totalWeight, _STATE_SHRINKAGE_POSITIVE_FLOOR)
-        tau2 = float(max(tau2, _STATE_SHRINKAGE_POSITIVE_FLOOR))
+        momentVariance = excessMomentSum / max(
+            totalWeight,
+            _STATE_SHRINKAGE_POSITIVE_FLOOR,
+        )
+        if (
+            not np.isfinite(momentVariance)
+            or momentVariance <= _STATE_SHRINKAGE_POSITIVE_FLOOR
+        ):
+            momentVariance = varianceSum / max(
+                totalWeight,
+                _STATE_SHRINKAGE_POSITIVE_FLOOR,
+            )
+        if (
+            not np.isfinite(momentVariance)
+            or momentVariance <= _STATE_SHRINKAGE_POSITIVE_FLOOR
+        ):
+            raise ValueError("state shrinkage prior fit has no positive moment scale")
+        baseScale = float(math.sqrt(momentVariance))
+        estimateSlabScales = True
     else:
-        tau = float(priorScale)
-        if not np.isfinite(tau) or tau <= 0.0:
+        baseScale = float(priorScale)
+        if not np.isfinite(baseScale) or baseScale <= 0.0:
             raise ValueError("`priorScale` must be finite and positive")
-        tau2 = tau * tau
+        estimateSlabScales = False
+
+    slabMultipliers = np.asarray(
+        _slabMultipliersForModel(model_),
+        dtype=np.float64,
+    )
+    slabVariance = np.maximum(
+        np.square(float(baseScale) * slabMultipliers),
+        _STATE_SHRINKAGE_POSITIVE_FLOOR,
+    )
+    slabWeight = np.full(
+        slabVariance.shape,
+        1.0 / float(slabVariance.size),
+        dtype=np.float64,
+    )
+    slabVariance, slabWeight = _sortedPositiveWeights(slabVariance, slabWeight)
+    estimateSlabWeights = slabVariance.size > 1
 
     converged = False
     iterations = 0
     logLikelihood = float("nan")
     tol_ = float(max(tol, 0.0))
     maxIter_ = int(max(maxIter, 1))
-    if estimateNull or estimateScale:
+    if estimateNull or estimateSlabScales or estimateSlabWeights:
         for iteration in range(maxIter_):
             iterations = iteration + 1
             emTotalWeight = 0.0
             nullMass = 0.0
-            slabMass = 0.0
-            slabSecond = 0.0
+            slabMass = np.zeros_like(slabWeight, dtype=np.float64)
+            slabSecond = np.zeros_like(slabVariance, dtype=np.float64)
             logLikelihood = 0.0
-            for item in chunks_:
-                state, variance = _loadStateVarianceItem(item)
+            logSlabPrior = _logSlabPrior(pi0, slabWeight)
+            for state, variance in chunks_:
                 sums = _emStep(
                     state,
                     variance,
                     priorNull=pi0,
-                    priorVariance=tau2,
+                    slabVariance=slabVariance,
+                    logSlabPrior=logSlabPrior,
                     blockSize=blockSize_,
                 )
                 emTotalWeight += float(sums[0])
                 nullMass += float(sums[1])
-                slabMass += float(sums[2])
-                slabSecond += float(sums[3])
+                slabMass += np.asarray(sums[2], dtype=np.float64)
+                slabSecond += np.asarray(sums[3], dtype=np.float64)
                 logLikelihood += float(sums[4])
             nextPi0 = pi0
-            nextTau2 = tau2
+            nextSlabWeight = slabWeight.copy()
+            nextSlabVariance = slabVariance.copy()
             if estimateNull and emTotalWeight > 0.0:
                 nextPi0 = float(np.clip(nullMass / emTotalWeight, minNull_, maxNull_))
-            if estimateScale and slabMass > _STATE_SHRINKAGE_POSITIVE_FLOOR:
-                nextTau2 = slabSecond / slabMass
-                if (
-                    not np.isfinite(nextTau2)
-                    or nextTau2 <= _STATE_SHRINKAGE_POSITIVE_FLOOR
-                ):
-                    nextTau2 = tau2
-            relPi = abs(nextPi0 - pi0) / max(abs(pi0), _STATE_SHRINKAGE_POSITIVE_FLOOR)
-            relTau = abs(nextTau2 - tau2) / max(
-                abs(tau2),
-                _STATE_SHRINKAGE_POSITIVE_FLOOR,
+            if estimateSlabWeights:
+                massTotal = float(np.sum(slabMass))
+                if massTotal > _STATE_SHRINKAGE_POSITIVE_FLOOR:
+                    nextSlabWeight = np.maximum(
+                        slabMass / massTotal,
+                        _STATE_SHRINKAGE_WEIGHT_FLOOR,
+                    )
+                    nextSlabWeight = nextSlabWeight / float(np.sum(nextSlabWeight))
+            if estimateSlabScales:
+                active = slabMass > _STATE_SHRINKAGE_POSITIVE_FLOOR
+                nextSlabVariance[active] = slabSecond[active] / slabMass[active]
+                nextSlabVariance = np.maximum(
+                    nextSlabVariance,
+                    _STATE_SHRINKAGE_POSITIVE_FLOOR,
+                )
+                nextSlabVariance[~np.isfinite(nextSlabVariance)] = slabVariance[
+                    ~np.isfinite(nextSlabVariance)
+                ]
+            nextSlabVariance, nextSlabWeight = _sortedPositiveWeights(
+                nextSlabVariance,
+                nextSlabWeight,
             )
-            pi0, tau2 = nextPi0, max(nextTau2, _STATE_SHRINKAGE_POSITIVE_FLOOR)
-            if max(relPi, relTau) <= tol_:
+            relPi = abs(nextPi0 - pi0) / max(abs(pi0), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+            relWeight = float(
+                np.max(
+                    np.abs(nextSlabWeight - slabWeight)
+                    / np.maximum(np.abs(slabWeight), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+                )
+            )
+            relVariance = float(
+                np.max(
+                    np.abs(nextSlabVariance - slabVariance)
+                    / np.maximum(
+                        np.abs(slabVariance),
+                        _STATE_SHRINKAGE_POSITIVE_FLOOR,
+                    )
+                )
+            )
+            pi0 = nextPi0
+            slabVariance = nextSlabVariance
+            slabWeight = nextSlabWeight
+            if max(relPi, relWeight, relVariance) <= tol_:
                 converged = True
                 break
     else:
         converged = True
         iterations = 0
 
+    priorVariance = float(np.sum(slabWeight * slabVariance))
+    priorScaleOut = float(math.sqrt(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)))
+    componentWeights = _componentWeights(pi0, slabWeight)
     metadata = {
-        "model": STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
+        "model": model_,
         "scope": "genome",
         "chunk_count": int(chunkCount),
         "interval_count": int(intervalCount),
@@ -438,82 +438,31 @@ def fitStateShrinkagePrior(
         "effective_block_count": _metadataFloat(totalWeight),
         "block_size_intervals": int(blockSize_),
         "prior_null": _metadataFloat(pi0),
-        "prior_scale": _metadataFloat(math.sqrt(tau2)),
-        "prior_variance": _metadataFloat(tau2),
+        "prior_scale": _metadataFloat(priorScaleOut),
+        "prior_variance": _metadataFloat(priorVariance),
+        "slab_count": int(slabVariance.size),
+        "slab_variance": [float(value) for value in slabVariance],
+        "slab_weight": [float(value) for value in slabWeight],
+        "component_weights": [float(value) for value in componentWeights],
         "estimated_prior_null": bool(estimateNull),
-        "estimated_prior_scale": bool(estimateScale),
+        "estimated_prior_scale": bool(estimateSlabScales),
+        "estimated_slab_weights": bool(estimateSlabWeights),
+        "estimated_slab_scales": bool(estimateSlabScales),
         "iterations": int(iterations),
         "converged": bool(converged),
         "log_likelihood": _metadataFloat(logLikelihood),
     }
     return stateShrinkPrior(
-        model=STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
+        model=model_,
         priorNull=float(pi0),
-        priorScale=float(math.sqrt(tau2)),
-        priorVariance=float(tau2),
+        priorScale=priorScaleOut,
+        priorVariance=priorVariance,
         blockSize=int(blockSize_),
         metadata=metadata,
+        slabVariance=tuple(float(value) for value in slabVariance),
+        slabWeight=tuple(float(value) for value in slabWeight),
+        componentWeights=componentWeights,
     )
-
-
-def _safeShrinkageFactor(state: np.ndarray, shrunkState: np.ndarray) -> np.ndarray:
-    return np.divide(
-        shrunkState,
-        state,
-        out=np.zeros_like(shrunkState, dtype=np.float64),
-        where=np.abs(state) > _STATE_SHRINKAGE_POSITIVE_FLOOR,
-    )
-
-
-def _posteriorPython(
-    state: np.ndarray,
-    variance: np.ndarray,
-    *,
-    priorNull: float,
-    priorVariance: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    pi0 = float(
-        np.clip(
-            priorNull,
-            _STATE_SHRINKAGE_DEFAULT_MIN_NULL,
-            _STATE_SHRINKAGE_DEFAULT_MAX_NULL,
-        )
-    )
-    tau2 = float(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR))
-    valid = np.isfinite(state) & np.isfinite(variance) & (variance > 0.0)
-    varianceSafe = np.maximum(variance[valid], _STATE_SHRINKAGE_POSITIVE_FLOOR)
-    stateValid = state[valid]
-
-    logNull = math.log(pi0) + _logNormalZeroDensity(stateValid, varianceSafe)
-    logSlab = math.log1p(-pi0) + _logNormalZeroDensity(stateValid, varianceSafe + tau2)
-    logDenom = np.logaddexp(logNull, logSlab)
-    nullProb = np.exp(logNull - logDenom)
-    slabWeight = np.maximum(1.0 - nullProb, 0.0)
-    slabShrinkage = tau2 / (tau2 + varianceSafe)
-    slabMean = slabShrinkage * stateValid
-    slabVariance = slabShrinkage * varianceSafe
-    shrunkValid = slabWeight * slabMean
-    posteriorSecond = slabWeight * (slabVariance + slabMean * slabMean)
-    posteriorVariance = np.maximum(
-        posteriorSecond - shrunkValid * shrunkValid,
-        _STATE_SHRINKAGE_POSITIVE_FLOOR,
-    )
-    posteriorSdValid = np.sqrt(posteriorVariance)
-    shrinkFactorValid = _safeShrinkageFactor(stateValid, shrunkValid)
-
-    shrunk = state.astype(np.float64, copy=True)
-    posteriorSd = np.full_like(state, np.nan, dtype=np.float64)
-    shrinkFactor = np.ones_like(state, dtype=np.float64)
-    nullOut = np.full_like(state, np.nan, dtype=np.float64)
-    slabMeanOut = np.full_like(state, np.nan, dtype=np.float64)
-    slabWeightOut = np.full_like(state, np.nan, dtype=np.float64)
-    shrunk[valid] = shrunkValid
-    posteriorSd[valid] = posteriorSdValid
-    shrinkFactor[valid] = shrinkFactorValid
-    nullOut[valid] = nullProb
-    slabMeanOut[valid] = slabMean
-    slabWeightOut[valid] = slabWeight
-    return shrunk, posteriorSd, shrinkFactor, nullOut, slabMeanOut, slabWeightOut
 
 
 def _posterior(
@@ -521,24 +470,18 @@ def _posterior(
     variance: np.ndarray,
     *,
     priorNull: float,
-    priorVariance: float,
+    slabVariance: np.ndarray,
+    slabWeight: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    func = getattr(_cconsenrich, "cstateShrinkSpikeNormalPosterior", None)
-    if func is not None:
-        return tuple(
-            func(
-                state,
-                variance,
-                float(priorNull),
-                float(priorVariance),
-            )
-        )  # type: ignore[return-value]
-    return _posteriorPython(
-        state,
-        variance,
-        priorNull=priorNull,
-        priorVariance=priorVariance,
-    )
+    return tuple(
+        _cstateShrinkMixturePosteriorPrepared(
+            state,
+            variance,
+            float(priorNull),
+            slabVariance,
+            _logSlabPrior(priorNull, slabWeight),
+        )
+    )  # type: ignore[return-value]
 
 
 def applyStateShrinkagePrior(
@@ -552,6 +495,7 @@ def applyStateShrinkagePrior(
     varianceArr = _asFloatVector("stateVariance", stateVariance)
     if stateArr.shape != varianceArr.shape:
         raise ValueError("`state` and `stateVariance` must have the same length")
+    priorSlabVariance, priorSlabWeight = _priorSlabArrays(prior)
     (
         shrunk,
         posteriorSd,
@@ -563,7 +507,8 @@ def applyStateShrinkagePrior(
         stateArr,
         varianceArr,
         priorNull=prior.priorNull,
-        priorVariance=prior.priorVariance,
+        slabVariance=priorSlabVariance,
+        slabWeight=priorSlabWeight,
     )
     valid = np.isfinite(stateArr) & np.isfinite(varianceArr) & (varianceArr > 0.0)
     metadata = {
@@ -571,6 +516,12 @@ def applyStateShrinkagePrior(
         "scope": "contig_apply",
         "interval_count": int(stateArr.size),
         "finite_count": int(np.count_nonzero(valid)),
+        "slab_count": int(priorSlabVariance.size),
+        "slab_variance": [float(value) for value in priorSlabVariance],
+        "slab_weight": [float(value) for value in priorSlabWeight],
+        "component_weights": [
+            float(value) for value in _componentWeights(prior.priorNull, priorSlabWeight)
+        ],
         "state_abs_median_before": _metadataFloat(
             np.median(np.abs(stateArr[valid])) if np.any(valid) else float("nan")
         ),

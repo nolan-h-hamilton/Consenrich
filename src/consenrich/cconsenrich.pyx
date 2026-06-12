@@ -9158,16 +9158,7 @@ cdef inline double _state_shrink_safe_variance(double v) noexcept nogil:
 cdef inline bint _state_shrink_valid(double x, double v) noexcept nogil:
     return isfinite(x) and isfinite(v) and v > 0.0
 
-cdef inline double _state_shrink_log_zero_density(double x, double v) noexcept nogil:
-    cdef double vv = _state_shrink_safe_variance(v)
-    return -0.5 * (log(2.0 * __PI_DOUBLE * vv) + (x * x) / vv)
-
-cdef inline double _state_shrink_logaddexp2(double a, double b) noexcept nogil:
-    if a > b:
-        return a + log1p(exp(b - a))
-    return b + log1p(exp(a - b))
-
-cpdef tuple cstateShrinkSpikeNormalInitialSums(
+cpdef tuple cstateShrinkInitialSums(
     object state,
     object variance,
     double nullZ,
@@ -9192,7 +9183,7 @@ cpdef tuple cstateShrinkSpikeNormalInitialSums(
     cdef double centralWeight = 0.0
     cdef double excessMomentSum = 0.0
     cdef double varianceSum = 0.0
-    cdef double stateSqSum = 0.0
+    cdef double x2
     cdef Py_ssize_t finiteCount = 0
     cdef double nullZSafe = nullZ if nullZ > 1.0e-12 else 1.0e-12
 
@@ -9213,13 +9204,13 @@ cpdef tuple cstateShrinkSpikeNormalInitialSums(
                     v = vView[i]
                     if _state_shrink_valid(x, v):
                         v = _state_shrink_safe_variance(v)
+                        x2 = x * x
                         z = fabs(x) / sqrt(v)
                         totalWeight += weight
                         if z <= nullZSafe:
                             centralWeight += weight
-                        excessMomentSum += weight * (x * x - v)
+                        excessMomentSum += weight * (x2 - v)
                         varianceSum += weight * v
-                        stateSqSum += weight * x * x
                         finiteCount += 1
             start = end
     return (
@@ -9227,15 +9218,83 @@ cpdef tuple cstateShrinkSpikeNormalInitialSums(
         centralWeight,
         excessMomentSum,
         varianceSum,
-        stateSqSum,
         int(finiteCount),
     )
 
-cpdef tuple cstateShrinkSpikeNormalEMStep(
+cpdef tuple cstateShrinkMixtureEMStep(
     object state,
     object variance,
     double priorNull,
-    double priorVariance,
+    object slabVariance,
+    object slabWeight,
+    int blockSize=1,
+):
+    cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
+    cdef object slabWeightObj = np.asarray(slabWeight, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slabPriorWeightArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
+    cdef Py_ssize_t slabCount
+    cdef Py_ssize_t j
+    cdef double pi0 = priorNull
+    cdef double slabWeightTotal = 0.0
+    cdef double logPriorScale
+
+    if getattr(tauObj, "ndim", 0) != 1:
+        raise ValueError("slabVariance must be one-dimensional")
+    if getattr(slabWeightObj, "ndim", 0) != 1:
+        raise ValueError("slabWeight must be one-dimensional")
+    tauArr = np.ascontiguousarray(tauObj, dtype=np.float64)
+    slabPriorWeightArr = np.ascontiguousarray(slabWeightObj, dtype=np.float64)
+    slabCount = tauArr.shape[0]
+    if slabCount <= 0:
+        raise ValueError("slab arrays must be nonempty")
+    if slabPriorWeightArr.shape[0] != slabCount:
+        raise ValueError("slabVariance and slabWeight must have the same length")
+    if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
+        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+
+    cdef double[::1] tauView = tauArr
+    cdef double[::1] slabPriorWeightView = slabPriorWeightArr
+
+    with nogil:
+        for j in range(slabCount):
+            if (not isfinite(tauView[j])) or tauView[j] <= 0.0:
+                slabWeightTotal = -1.0
+                break
+            if (not isfinite(slabPriorWeightView[j])) or slabPriorWeightView[j] < 0.0:
+                slabWeightTotal = -2.0
+                break
+            slabWeightTotal += slabPriorWeightView[j]
+    if slabWeightTotal == -1.0:
+        raise ValueError("slabVariance must contain only positive finite values")
+    if slabWeightTotal == -2.0 or slabWeightTotal <= 0.0 or not isfinite(slabWeightTotal):
+        raise ValueError("slabWeight must contain only finite nonnegative values with positive sum")
+
+    logPriorScale = log(1.0 - pi0) - log(slabWeightTotal)
+    logSlabPriorArr = np.empty(slabCount, dtype=np.float64)
+    cdef double[::1] logSlabPriorView = logSlabPriorArr
+    with nogil:
+        for j in range(slabCount):
+            if slabPriorWeightView[j] > 0.0:
+                logSlabPriorView[j] = logPriorScale + log(slabPriorWeightView[j])
+            else:
+                logSlabPriorView[j] = -INFINITY
+    return cstateShrinkMixtureEMStepPrepared(
+        state,
+        variance,
+        pi0,
+        tauArr,
+        logSlabPriorArr,
+        blockSize,
+    )
+
+cpdef tuple cstateShrinkMixtureEMStepPrepared(
+    object state,
+    object variance,
+    double priorNull,
+    object slabVariance,
+    object logSlabPrior,
     int blockSize=1,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
@@ -9244,82 +9303,206 @@ cpdef tuple cstateShrinkSpikeNormalEMStep(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
         np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
     )
+    cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
+    cdef object logSlabPriorObj = np.asarray(logSlabPrior, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slabMassArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slabSecondArr
     cdef Py_ssize_t n = xArr.shape[0]
-    if vArr.shape[0] != n:
-        raise ValueError("state and variance must have the same length")
-    cdef double[::1] xView = xArr
-    cdef double[::1] vView = vArr
-    cdef Py_ssize_t start, end, i
+    cdef Py_ssize_t slabCount
+    cdef Py_ssize_t start, end, i, j, blockIndex, blockCount
     cdef Py_ssize_t validInBlock
     cdef int block = blockSize if blockSize > 0 else 1
     cdef double pi0 = priorNull
-    cdef double tau2 = priorVariance
-    cdef double oneMinusPi0
-    cdef double x, v, weight, logNull, logSlab, logDenom
-    cdef double nullProb, slabWeight, slabShrinkage, slabMean, slabVariance
+    cdef double x, v, weight, logNull, logDenom
+    cdef double maxLog, denomSum, resp, tau2, slabShrinkage, slabMean
+    cdef double slabPosteriorVariance, logNullPrior, logValue, x2, vPlusTau
     cdef double totalWeight = 0.0
     cdef double nullMass = 0.0
-    cdef double slabMass = 0.0
-    cdef double slabSecond = 0.0
     cdef double logLikelihood = 0.0
     cdef Py_ssize_t finiteCount = 0
+    cdef double* logSlabScratch = NULL
+    cdef double* respScratch = NULL
 
-    if pi0 <= 1.0e-12:
-        pi0 = 1.0e-12
-    elif pi0 >= 1.0 - 1.0e-12:
-        pi0 = 1.0 - 1.0e-12
-    if tau2 <= 1.0e-12 or not isfinite(tau2):
-        tau2 = 1.0e-12
-    oneMinusPi0 = 1.0 - pi0
+    if vArr.shape[0] != n:
+        raise ValueError("state and variance must have the same length")
+    if getattr(tauObj, "ndim", 0) != 1:
+        raise ValueError("slabVariance must be one-dimensional")
+    if getattr(logSlabPriorObj, "ndim", 0) != 1:
+        raise ValueError("logSlabPrior must be one-dimensional")
+    tauArr = np.ascontiguousarray(tauObj, dtype=np.float64)
+    logSlabPriorArr = np.ascontiguousarray(logSlabPriorObj, dtype=np.float64)
+    slabCount = tauArr.shape[0]
+    if slabCount <= 0:
+        raise ValueError("slab arrays must be nonempty")
+    if logSlabPriorArr.shape[0] != slabCount:
+        raise ValueError("slabVariance and logSlabPrior must have the same length")
+    if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
+        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+
+    cdef double[::1] xView = xArr
+    cdef double[::1] vView = vArr
+    cdef double[::1] tauView = tauArr
+    cdef double[::1] logSlabPriorView = logSlabPriorArr
 
     with nogil:
-        start = 0
-        while start < n:
-            end = start + block
-            if end > n:
-                end = n
-            validInBlock = 0
-            for i in range(start, end):
-                if _state_shrink_valid(xView[i], vView[i]):
-                    validInBlock += 1
-            if validInBlock > 0:
-                weight = 1.0 / <double>validInBlock
+        for j in range(slabCount):
+            if (not isfinite(tauView[j])) or tauView[j] <= 0.0:
+                totalWeight = -1.0
+                break
+    if totalWeight == -1.0:
+        raise ValueError("slabVariance must contain only positive finite values")
+
+    logNullPrior = log(pi0)
+    slabMassArr = np.zeros(slabCount, dtype=np.float64)
+    slabSecondArr = np.zeros(slabCount, dtype=np.float64)
+    cdef double[::1] slabMassView = slabMassArr
+    cdef double[::1] slabSecondView = slabSecondArr
+
+    logSlabScratch = <double*>malloc(slabCount * sizeof(double))
+    if logSlabScratch == NULL:
+        raise MemoryError()
+    respScratch = <double*>malloc(slabCount * sizeof(double))
+    if respScratch == NULL:
+        free(logSlabScratch)
+        raise MemoryError()
+    try:
+        blockCount = (n + block - 1) // block
+        with nogil:
+            for blockIndex in range(blockCount):
+                start = blockIndex * block
+                end = start + block
+                if end > n:
+                    end = n
+                validInBlock = 0
                 for i in range(start, end):
-                    x = xView[i]
-                    v = vView[i]
-                    if _state_shrink_valid(x, v):
-                        v = _state_shrink_safe_variance(v)
-                        logNull = log(pi0) + _state_shrink_log_zero_density(x, v)
-                        logSlab = log(oneMinusPi0) + _state_shrink_log_zero_density(x, v + tau2)
-                        logDenom = _state_shrink_logaddexp2(logNull, logSlab)
-                        nullProb = exp(logNull - logDenom)
-                        slabWeight = 1.0 - nullProb
-                        if slabWeight < 0.0:
-                            slabWeight = 0.0
-                        slabShrinkage = tau2 / (tau2 + v)
-                        slabMean = slabShrinkage * x
-                        slabVariance = slabShrinkage * v
-                        totalWeight += weight
-                        nullMass += weight * nullProb
-                        slabMass += weight * slabWeight
-                        slabSecond += weight * slabWeight * (slabVariance + slabMean * slabMean)
-                        logLikelihood += weight * logDenom
-                        finiteCount += 1
-            start = end
+                    if _state_shrink_valid(xView[i], vView[i]):
+                        validInBlock += 1
+                if validInBlock > 0:
+                    weight = 1.0 / <double>validInBlock
+                    for i in range(start, end):
+                        x = xView[i]
+                        v = vView[i]
+                        if _state_shrink_valid(x, v):
+                            v = _state_shrink_safe_variance(v)
+                            x2 = x * x
+                            logNull = logNullPrior - 0.5 * (
+                                log(2.0 * __PI_DOUBLE * v) + x2 / v
+                            )
+                            maxLog = logNull
+                            for j in range(slabCount):
+                                vPlusTau = v + tauView[j]
+                                logValue = logSlabPriorView[j] - 0.5 * (
+                                    log(2.0 * __PI_DOUBLE * vPlusTau)
+                                    + x2 / vPlusTau
+                                )
+                                logSlabScratch[j] = logValue
+                                if logValue > maxLog:
+                                    maxLog = logValue
+                            denomSum = exp(logNull - maxLog)
+                            for j in range(slabCount):
+                                respScratch[j] = exp(logSlabScratch[j] - maxLog)
+                                denomSum += respScratch[j]
+                            logDenom = maxLog + log(denomSum)
+                            nullMass += weight * (exp(logNull - maxLog) / denomSum)
+                            for j in range(slabCount):
+                                resp = respScratch[j] / denomSum
+                                tau2 = tauView[j]
+                                slabShrinkage = tau2 / (tau2 + v)
+                                slabMean = slabShrinkage * x
+                                slabPosteriorVariance = slabShrinkage * v
+                                slabMassView[j] += weight * resp
+                                slabSecondView[j] += weight * resp * (
+                                    slabPosteriorVariance + slabMean * slabMean
+                                )
+                            totalWeight += weight
+                            logLikelihood += weight * logDenom
+                            finiteCount += 1
+    finally:
+        free(respScratch)
+        free(logSlabScratch)
     return (
         totalWeight,
         nullMass,
-        slabMass,
-        slabSecond,
+        slabMassArr,
+        slabSecondArr,
         logLikelihood,
         int(finiteCount),
     )
 
-cpdef tuple cstateShrinkSpikeNormalPosterior(
+cpdef tuple cstateShrinkMixturePosterior(
     object state,
     object variance,
     double priorNull,
-    double priorVariance,
+    object slabVariance,
+    object slabWeight,
+):
+    cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
+    cdef object slabWeightObj = np.asarray(slabWeight, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slabPriorWeightArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
+    cdef Py_ssize_t slabCount
+    cdef Py_ssize_t j
+    cdef double pi0 = priorNull
+    cdef double slabWeightTotal = 0.0
+    cdef double logPriorScale
+
+    if getattr(tauObj, "ndim", 0) != 1:
+        raise ValueError("slabVariance must be one-dimensional")
+    if getattr(slabWeightObj, "ndim", 0) != 1:
+        raise ValueError("slabWeight must be one-dimensional")
+    tauArr = np.ascontiguousarray(tauObj, dtype=np.float64)
+    slabPriorWeightArr = np.ascontiguousarray(slabWeightObj, dtype=np.float64)
+    slabCount = tauArr.shape[0]
+    if slabCount <= 0:
+        raise ValueError("slab arrays must be nonempty")
+    if slabPriorWeightArr.shape[0] != slabCount:
+        raise ValueError("slabVariance and slabWeight must have the same length")
+    if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
+        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+
+    cdef double[::1] tauView = tauArr
+    cdef double[::1] slabPriorWeightView = slabPriorWeightArr
+
+    with nogil:
+        for j in range(slabCount):
+            if (not isfinite(tauView[j])) or tauView[j] <= 0.0:
+                slabWeightTotal = -1.0
+                break
+            if (not isfinite(slabPriorWeightView[j])) or slabPriorWeightView[j] < 0.0:
+                slabWeightTotal = -2.0
+                break
+            slabWeightTotal += slabPriorWeightView[j]
+    if slabWeightTotal == -1.0:
+        raise ValueError("slabVariance must contain only positive finite values")
+    if slabWeightTotal == -2.0 or slabWeightTotal <= 0.0 or not isfinite(slabWeightTotal):
+        raise ValueError("slabWeight must contain only finite nonnegative values with positive sum")
+
+    logPriorScale = log(1.0 - pi0) - log(slabWeightTotal)
+    logSlabPriorArr = np.empty(slabCount, dtype=np.float64)
+    cdef double[::1] logSlabPriorView = logSlabPriorArr
+    with nogil:
+        for j in range(slabCount):
+            if slabPriorWeightView[j] > 0.0:
+                logSlabPriorView[j] = logPriorScale + log(slabPriorWeightView[j])
+            else:
+                logSlabPriorView[j] = -INFINITY
+    return cstateShrinkMixturePosteriorPrepared(
+        state,
+        variance,
+        pi0,
+        tauArr,
+        logSlabPriorArr,
+    )
+
+cpdef tuple cstateShrinkMixturePosteriorPrepared(
+    object state,
+    object variance,
+    double priorNull,
+    object slabVariance,
+    object logSlabPrior,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
         np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
@@ -9327,74 +9510,137 @@ cpdef tuple cstateShrinkSpikeNormalPosterior(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
         np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
     )
+    cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
+    cdef object logSlabPriorObj = np.asarray(logSlabPrior, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
     cdef Py_ssize_t n = xArr.shape[0]
+    cdef Py_ssize_t slabCount
+    cdef double pi0 = priorNull
+    cdef double logNullPrior, x, v, logNull, maxLog, denomSum, resp
+    cdef double logValue, nullProb, tau2, slabShrinkage, slabMean
+    cdef double slabPosteriorVariance, shrunk, postSecond, postVariance, posteriorSd
+    cdef double slabPosteriorWeight
+    cdef double x2, vPlusTau
+    cdef double badTau = 0.0
+    cdef Py_ssize_t i, j
+    cdef double* logSlabScratch = NULL
+    cdef double* respScratch = NULL
+
     if vArr.shape[0] != n:
         raise ValueError("state and variance must have the same length")
+    if getattr(tauObj, "ndim", 0) != 1:
+        raise ValueError("slabVariance must be one-dimensional")
+    if getattr(logSlabPriorObj, "ndim", 0) != 1:
+        raise ValueError("logSlabPrior must be one-dimensional")
+    tauArr = np.ascontiguousarray(tauObj, dtype=np.float64)
+    logSlabPriorArr = np.ascontiguousarray(logSlabPriorObj, dtype=np.float64)
+    slabCount = tauArr.shape[0]
+    if slabCount <= 0:
+        raise ValueError("slab arrays must be nonempty")
+    if logSlabPriorArr.shape[0] != slabCount:
+        raise ValueError("slabVariance and logSlabPrior must have the same length")
+    if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
+        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+
+    cdef double[::1] xView = xArr
+    cdef double[::1] vView = vArr
+    cdef double[::1] tauView = tauArr
+    cdef double[::1] logSlabPriorView = logSlabPriorArr
+
+    with nogil:
+        for j in range(slabCount):
+            if (not isfinite(tauView[j])) or tauView[j] <= 0.0:
+                badTau = 1.0
+                break
+    if badTau > 0.0:
+        raise ValueError("slabVariance must contain only positive finite values")
+
+    logNullPrior = log(pi0)
+
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] shrunkArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] posteriorSdArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] factorArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] nullArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabMeanArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabWeightArr = np.empty(n, dtype=np.float32)
-    cdef double[::1] xView = xArr
-    cdef double[::1] vView = vArr
     cdef cnp.float32_t[::1] shrunkView = shrunkArr
     cdef cnp.float32_t[::1] posteriorSdView = posteriorSdArr
     cdef cnp.float32_t[::1] factorView = factorArr
     cdef cnp.float32_t[::1] nullView = nullArr
     cdef cnp.float32_t[::1] slabMeanView = slabMeanArr
     cdef cnp.float32_t[::1] slabWeightView = slabWeightArr
-    cdef double pi0 = priorNull
-    cdef double tau2 = priorVariance
-    cdef double oneMinusPi0
-    cdef double x, v, logNull, logSlab, logDenom, nullProb, slabWeight
-    cdef double slabShrinkage, slabMean, slabVariance, shrunk, postSecond, postVariance, posteriorSd
-    cdef Py_ssize_t i
 
-    if pi0 <= 1.0e-12:
-        pi0 = 1.0e-12
-    elif pi0 >= 1.0 - 1.0e-12:
-        pi0 = 1.0 - 1.0e-12
-    if tau2 <= 1.0e-12 or not isfinite(tau2):
-        tau2 = 1.0e-12
-    oneMinusPi0 = 1.0 - pi0
-
-    with nogil:
-        for i in range(n):
-            x = xView[i]
-            v = vView[i]
-            if _state_shrink_valid(x, v):
-                v = _state_shrink_safe_variance(v)
-                logNull = log(pi0) + _state_shrink_log_zero_density(x, v)
-                logSlab = log(oneMinusPi0) + _state_shrink_log_zero_density(x, v + tau2)
-                logDenom = _state_shrink_logaddexp2(logNull, logSlab)
-                nullProb = exp(logNull - logDenom)
-                slabWeight = 1.0 - nullProb
-                if slabWeight < 0.0:
-                    slabWeight = 0.0
-                slabShrinkage = tau2 / (tau2 + v)
-                slabMean = slabShrinkage * x
-                slabVariance = slabShrinkage * v
-                shrunk = slabWeight * slabMean
-                postSecond = slabWeight * (slabVariance + slabMean * slabMean)
-                postVariance = postSecond - shrunk * shrunk
-                if (not isfinite(postVariance)) or postVariance <= 1.0e-12:
-                    postVariance = 1.0e-12
-                posteriorSd = sqrt(postVariance)
-                shrunkView[i] = <cnp.float32_t>shrunk
-                posteriorSdView[i] = <cnp.float32_t>posteriorSd
-                if fabs(x) > 1.0e-12:
-                    factorView[i] = <cnp.float32_t>(shrunk / x)
+    logSlabScratch = <double*>malloc(slabCount * sizeof(double))
+    if logSlabScratch == NULL:
+        raise MemoryError()
+    respScratch = <double*>malloc(slabCount * sizeof(double))
+    if respScratch == NULL:
+        free(logSlabScratch)
+        raise MemoryError()
+    try:
+        with nogil:
+            for i in range(n):
+                x = xView[i]
+                v = vView[i]
+                if _state_shrink_valid(x, v):
+                    v = _state_shrink_safe_variance(v)
+                    x2 = x * x
+                    logNull = logNullPrior - 0.5 * (
+                        log(2.0 * __PI_DOUBLE * v) + x2 / v
+                    )
+                    maxLog = logNull
+                    for j in range(slabCount):
+                        vPlusTau = v + tauView[j]
+                        logValue = logSlabPriorView[j] - 0.5 * (
+                            log(2.0 * __PI_DOUBLE * vPlusTau) + x2 / vPlusTau
+                        )
+                        logSlabScratch[j] = logValue
+                        if logValue > maxLog:
+                            maxLog = logValue
+                    denomSum = exp(logNull - maxLog)
+                    for j in range(slabCount):
+                        respScratch[j] = exp(logSlabScratch[j] - maxLog)
+                        denomSum += respScratch[j]
+                    nullProb = exp(logNull - maxLog) / denomSum
+                    shrunk = 0.0
+                    postSecond = 0.0
+                    slabPosteriorWeight = 0.0
+                    for j in range(slabCount):
+                        resp = respScratch[j] / denomSum
+                        tau2 = tauView[j]
+                        slabShrinkage = tau2 / (tau2 + v)
+                        slabMean = slabShrinkage * x
+                        slabPosteriorVariance = slabShrinkage * v
+                        slabPosteriorWeight += resp
+                        shrunk += resp * slabMean
+                        postSecond += resp * (
+                            slabPosteriorVariance + slabMean * slabMean
+                        )
+                    postVariance = postSecond - shrunk * shrunk
+                    if (not isfinite(postVariance)) or postVariance <= 1.0e-12:
+                        postVariance = 1.0e-12
+                    posteriorSd = sqrt(postVariance)
+                    shrunkView[i] = <cnp.float32_t>shrunk
+                    posteriorSdView[i] = <cnp.float32_t>posteriorSd
+                    if fabs(x) > 1.0e-12:
+                        factorView[i] = <cnp.float32_t>(shrunk / x)
+                    else:
+                        factorView[i] = <cnp.float32_t>0.0
+                    nullView[i] = <cnp.float32_t>nullProb
+                    if slabPosteriorWeight > 1.0e-12:
+                        slabMeanView[i] = <cnp.float32_t>(shrunk / slabPosteriorWeight)
+                    else:
+                        slabMeanView[i] = <cnp.float32_t>0.0
+                    slabWeightView[i] = <cnp.float32_t>slabPosteriorWeight
                 else:
-                    factorView[i] = <cnp.float32_t>0.0
-                nullView[i] = <cnp.float32_t>nullProb
-                slabMeanView[i] = <cnp.float32_t>slabMean
-                slabWeightView[i] = <cnp.float32_t>slabWeight
-            else:
-                shrunkView[i] = <cnp.float32_t>x
-                posteriorSdView[i] = <cnp.float32_t>NAN
-                factorView[i] = <cnp.float32_t>1.0
-                nullView[i] = <cnp.float32_t>NAN
-                slabMeanView[i] = <cnp.float32_t>NAN
-                slabWeightView[i] = <cnp.float32_t>NAN
+                    shrunkView[i] = <cnp.float32_t>x
+                    posteriorSdView[i] = <cnp.float32_t>NAN
+                    factorView[i] = <cnp.float32_t>1.0
+                    nullView[i] = <cnp.float32_t>NAN
+                    slabMeanView[i] = <cnp.float32_t>NAN
+                    slabWeightView[i] = <cnp.float32_t>NAN
+    finally:
+        free(respScratch)
+        free(logSlabScratch)
     return shrunkArr, posteriorSdArr, factorArr, nullArr, slabMeanArr, slabWeightArr

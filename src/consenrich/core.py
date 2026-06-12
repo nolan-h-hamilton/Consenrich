@@ -1104,8 +1104,8 @@ class outputParams(NamedTuple):
         does not affect the Kalman/ECM fit.
     :type writeStateShrinkage: bool
     :param stateShrinkageModel: Post-fit state shrinkage model. The default
-        ``"spikeAndNormal"`` uses a point mass at zero plus one zero-centered
-        Normal slab, with genome-level EB hyperparameters.
+        ``"adaptiveNormalMixture"`` uses a point mass at zero plus several
+        zero-centered Normal slabs, with genome-level EB hyperparameters.
     :type stateShrinkageModel: str
     :param stateShrinkagePriorNull: Optional fixed point-null prior probability
         for state shrinkage. If unset, it is estimated by empirical Bayes.

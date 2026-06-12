@@ -111,7 +111,7 @@ markers = [
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 test-groups = ["test"]
-test-command = 'python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty"'
+test-command = 'python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"'
 
 [tool.cibuildwheel.linux]
 before-all = """
