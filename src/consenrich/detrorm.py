@@ -12,7 +12,7 @@ from scipy import signal, ndimage
 logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict
-from .constants import EFFECTIVE_GENOME_SIZES
+from .constants import COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP, EFFECTIVE_GENOME_SIZES
 from .cconsenrich import cgetFragmentLength, cEMA
 from . import ccounts
 from ._normalization import normalize_bam_input_mode as _sharedNormalizeBamInputMode
@@ -52,6 +52,7 @@ def getScaleFactor1x(
     minTemplateLength: int | None = -1,
     maxInsertSize: int | None = 1000,
     extendBP: int | None = 0,
+    intervalSizeBP: int | None = None,
     countReadLength: int | None = None,
 ) -> float:
     r"""Generic normalization factor based on effective genome size and number of mapped reads in non-excluded chromosomes.
@@ -90,30 +91,64 @@ def getScaleFactor1x(
         raise ValueError(
             "EGS/RPGC normalization is not supported for fragments sources use CPM/RPKM instead"
         )
-    if str(countMode or "coverage").strip().lower() != "coverage" or int(oneReadPerBin) != 0:
-        raise ValueError("EGS/RPGC normalization requires coverage count mode")
+    resolvedCountMode = str("coverage" if countMode is None else countMode).strip()
+    conservedFractional = (
+        resolvedCountMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
+    if int(oneReadPerBin) != 0:
+        raise ValueError("EGS/RPGC normalization does not support oneReadPerBin")
+    if resolvedCountMode.lower() != "coverage" and not conservedFractional:
+        raise ValueError(
+            "EGS/RPGC normalization requires coverage or "
+            "conservedFractionalOverlap count mode"
+        )
 
     countReadLength = int(countReadLength if countReadLength is not None else readLength)
-    totalMappedReads, _, totalMappedSpanBP = ccounts.ccounts_getAlignmentMappedReadCount(
-        bamFile,
-        excludeChromosomes=excludeChroms,
-        threadCount=samThreads,
-        sourceKind=sourceKind,
-        barcodeAllowListFile=barcodeAllowListFile or "",
-        countMode=countMode or "coverage",
-        oneReadPerBin=oneReadPerBin,
-        flagExclude=_resolveBamFlagExclude(samFlagExclude, bamInputMode),
-        minMappingQuality=int(minMappingQuality or 0),
-        minTemplateLength=int(minTemplateLength if minTemplateLength is not None else -1),
-        maxInsertSize=int(maxInsertSize or 0),
-        pairedEndMode=_bamPairedEndMode(bamInputMode),
-        readLength=countReadLength,
-        extendBP=int(extendBP or 0),
-        returnSpanBP=1,
-    )
-    if totalMappedReads <= 0 or totalMappedSpanBP <= 0 or effectiveGenomeSize <= 0:
+    mappedCountArgs = {
+        "excludeChromosomes": excludeChroms,
+        "threadCount": samThreads,
+        "sourceKind": sourceKind,
+        "barcodeAllowListFile": barcodeAllowListFile or "",
+        "countMode": resolvedCountMode,
+        "oneReadPerBin": oneReadPerBin,
+        "flagExclude": _resolveBamFlagExclude(samFlagExclude, bamInputMode),
+        "minMappingQuality": int(minMappingQuality or 0),
+        "minTemplateLength": int(
+            minTemplateLength if minTemplateLength is not None else -1
+        ),
+        "maxInsertSize": int(maxInsertSize or 0),
+        "pairedEndMode": _bamPairedEndMode(bamInputMode),
+        "readLength": countReadLength,
+        "extendBP": int(extendBP or 0),
+    }
+    totalMappedSpanBP = 0
+    if conservedFractional:
+        totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+            bamFile,
+            **mappedCountArgs,
+        )
+    else:
+        totalMappedReads, _, totalMappedSpanBP = (
+            ccounts.ccounts_getAlignmentMappedReadCount(
+                bamFile,
+                returnSpanBP=1,
+                **mappedCountArgs,
+            )
+        )
+    if totalMappedReads <= 0 or effectiveGenomeSize <= 0:
         raise ValueError(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}, totalMappedSpanBP={totalMappedSpanBP}."
+        )
+    if conservedFractional:
+        if intervalSizeBP is None or int(intervalSizeBP) <= 0:
+            raise ValueError(
+                "EGS/RPGC normalization with conservedFractionalOverlap requires "
+                "a positive intervalSizeBP"
+            )
+        return round(effectiveGenomeSize / (totalMappedReads * int(intervalSizeBP)), 5)
+    if totalMappedSpanBP <= 0:
+        raise ValueError(
+            f"Negative EGS after removing excluded chromosomes or no mapped span: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}, totalMappedSpanBP={totalMappedSpanBP}."
         )
 
     return round(effectiveGenomeSize / totalMappedSpanBP, 5)
@@ -331,6 +366,7 @@ def getPairScaleFactors(
             minTemplateLength=minTemplateLength,
             maxInsertSize=maxInsertSize,
             extendBP=extendBPA,
+            intervalSizeBP=intervalSizeBP,
             countReadLength=countReadLengthA,
         )
         scaleFactorB = getScaleFactor1x(
@@ -352,6 +388,7 @@ def getPairScaleFactors(
             minTemplateLength=minTemplateLength,
             maxInsertSize=maxInsertSize,
             extendBP=extendBPB,
+            intervalSizeBP=intervalSizeBP,
             countReadLength=countReadLengthB,
         )
     else:

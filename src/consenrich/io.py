@@ -379,8 +379,8 @@ def _buildPathInputSources(pathList: List[str], role: str) -> List[core.inputSou
 
 def _getSourceCountMode(
     source: core.inputSource,
-    defaultBamCountMode: str = "coverage",
-    defaultFragmentCountMode: str = "coverage",
+    defaultBamCountMode: str = constants.SAM_DEFAULT_COUNT_MODE,
+    defaultFragmentCountMode: str = constants.SC_DEFAULT_COUNT_MODE,
 ) -> str:
     if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
         return "coverage"

@@ -8,7 +8,6 @@ import logging
 import math
 import os
 import sys
-import inspect
 import time
 import warnings
 from functools import lru_cache
@@ -32,8 +31,7 @@ from . import ccounts
 from .constants import (
     ALIGNMENT_SOURCE_KINDS,
     BEDGRAPH_SOURCE_KIND,
-    COUNTING_ANSCOMBE_INPUT_OFFSET,
-    COUNTING_ANSCOMBE_OUTPUT_SCALE,
+    COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
     COUNTING_DEFAULT_LOG_MULT,
     COUNTING_DEFAULT_LOG_OFFSET,
     COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN,
@@ -115,8 +113,12 @@ from .constants import (
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_DF,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_QUADRATURE_ORDER,
     OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
     OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE,
     LOGGING_DEFAULT_LOG_FILE,
@@ -841,6 +843,11 @@ class inputSource(NamedTuple):
     fragmentPositionMode: str | None = None
 
 
+class readSegmentsResult(NamedTuple):
+    counts: npt.NDArray[np.float32]
+    rawNoiseMass: npt.NDArray[np.float32]
+
+
 class inputParams(NamedTuple):
     r"""Parameters related to the input data for Consenrich.
 
@@ -1152,6 +1159,12 @@ class outputParams(NamedTuple):
     stateShrinkageModel: str = OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
     stateShrinkagePriorNull: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL
     stateShrinkagePriorScale: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE
+    stateShrinkageNullPseudoCount: Optional[float] = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT
+    )
+    stateShrinkageScaleAnchorWeight: Optional[float] = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT
+    )
     saveBackgroundTracks: bool = OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
     plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
@@ -1163,6 +1176,10 @@ class outputParams(NamedTuple):
         OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
     )
     maxNonTrackFileBytes: int = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
+    stateShrinkageStudentTDF: float = OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_DF
+    stateShrinkageStudentTQuadratureOrder: int = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_QUADRATURE_ORDER
+    )
 
 
 class loggingParams(NamedTuple):
@@ -1608,21 +1625,12 @@ def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
 
 @lru_cache(maxsize=None)
 def _isAlignmentSourcePairedEnd(alignmentPath: str) -> bool:
-    try:
-        return bool(
-            cconsenrich.cisAlignmentPairedEnd(
-                alignmentPath,
-                maxReads=1_000,
-            )
+    return bool(
+        cconsenrich.cisAlignmentPairedEnd(
+            alignmentPath,
+            maxReads=1_000,
         )
-    except AttributeError:
-        return bool(
-            ccounts.ccounts_isAlignmentPairedEnd(
-                alignmentPath,
-                maxReads=1_000,
-                sourceKind="BAM",
-            )
-        )
+    )
 
 
 def _resolveSourceBamInputMode(
@@ -1685,125 +1693,13 @@ def _resolveExtendFrom5pBP(
     return resolvedValues
 
 
-def _normalizeCountingTransformMethodForMoments(value: str | None) -> str:
-    return _sharedNormalizeCountTransformMethod(
-        value,
-        config_name="transform method for count variance",
-    )
-
-
-def _resolvedTransformMomentParameters(
-    *,
-    transformMethod: str | None,
-    logOffset: float | None,
-    logMult: float | None,
-    transformInputOffset: float | None,
-    transformInputScale: float | None,
-    transformOutputScale: float | None,
-    transformShape: float | None,
-) -> tuple[str, float, float, float, float]:
-    method = _normalizeCountingTransformMethodForMoments(transformMethod)
-    if transformInputOffset is None:
-        if method == "log":
-            inputOffset = (
-                COUNTING_DEFAULT_LOG_OFFSET if logOffset is None else logOffset
-            )
-        elif method == "anscombe":
-            inputOffset = COUNTING_ANSCOMBE_INPUT_OFFSET
-        else:
-            inputOffset = (
-                0.0
-                if COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET is None
-                else COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET
-            )
-    else:
-        inputOffset = transformInputOffset
-    inputScale = (
-        COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE
-        if transformInputScale is None
-        else transformInputScale
-    )
-    if transformOutputScale is None:
-        if method == "log":
-            outputScale = COUNTING_DEFAULT_LOG_MULT if logMult is None else logMult
-        elif method == "anscombe":
-            outputScale = COUNTING_ANSCOMBE_OUTPUT_SCALE
-        else:
-            outputScale = (
-                1.0
-                if COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE is None
-                else COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
-            )
-    else:
-        outputScale = transformOutputScale
-    shape = (
-        COUNTING_DEFAULT_TRANSFORM_SHAPE if transformShape is None else transformShape
-    )
-    if method == "log" and float(inputOffset) <= 0.0:
-        inputOffset = 1.0
-    inputScale = _checkFinitePositive("transformInputScale", inputScale)
-    shape = _checkFinitePositive("transformShape", shape)
-    return (
-        method,
-        float(inputOffset),
-        float(inputScale),
-        float(outputScale),
-        float(shape),
-    )
-
-
-def _transformDerivativeAtCountMean(
-    normalizedMean: np.ndarray,
-    *,
-    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
-    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
-    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
-    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
-    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
-    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
-) -> np.ndarray:
-    method, inputOffset, inputScale, outputScale, shape = (
-        _resolvedTransformMomentParameters(
-            transformMethod=transformMethod,
-            logOffset=logOffset,
-            logMult=logMult,
-            transformInputOffset=transformInputOffset,
-            transformInputScale=transformInputScale,
-            transformOutputScale=transformOutputScale,
-            transformShape=transformShape,
-        )
-    )
-    x = np.asarray(normalizedMean, dtype=np.float64)
-    tiny = float(np.finfo(np.float64).tiny)
-    shifted = np.maximum(x + inputOffset, tiny)
-    if method == "log":
-        return np.full_like(x, float(outputScale), dtype=np.float64) / shifted
-    if method in {"sqrt", "anscombe"}:
-        return float(outputScale) / (
-            2.0 * float(inputScale) * np.sqrt(np.maximum(shifted / inputScale, tiny))
-        )
-    if method == "asinh":
-        u = shifted / float(inputScale)
-        return float(outputScale) / (float(inputScale) * np.sqrt(1.0 + np.square(u)))
-    if method == "asinhSqrt":
-        sqrtShifted = np.sqrt(shifted)
-        u = sqrtShifted / float(inputScale)
-        return float(outputScale) / (
-            2.0 * float(inputScale) * sqrtShifted * np.sqrt(1.0 + np.square(u))
-        )
-    if method == "generalizedLog":
-        u = shifted / float(inputScale)
-        return float(outputScale) / (
-            float(inputScale) * np.sqrt(np.square(u) + float(shape) * float(shape))
-        )
-    return np.full_like(x, float(outputScale) / float(inputScale), dtype=np.float64)
-
-
 def transformCountVarianceFloor(
     normalizedCounts: np.ndarray,
     scaleFactors: npt.ArrayLike,
     *,
+    rawNoiseMass: np.ndarray | None = None,
+    countNoisePseudoMeanMass: float = 0.5,
+    countNoisePseudoVarianceMass: float = 0.5,
     transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
     logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
     logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
@@ -1820,60 +1716,20 @@ def transformCountVarianceFloor(
     ``Var(sY | lambdaHat) = s^2 * lambdaHat``.
     """
 
-    if hasattr(cconsenrich, "cTransformCountVarianceFloor"):
-        return cconsenrich.cTransformCountVarianceFloor(
-            normalizedCounts,
-            scaleFactors,
-            mode=transformMethod,
-            logOffset=logOffset,
-            logMult=logMult,
-            inputOffset=transformInputOffset,
-            inputScale=transformInputScale,
-            outputScale=transformOutputScale,
-            shape=transformShape,
-        )
-
-    counts = np.asarray(normalizedCounts, dtype=np.float64)
-    if counts.ndim == 1:
-        counts2 = counts.reshape(1, -1)
-        squeeze = True
-    elif counts.ndim == 2:
-        counts2 = counts
-        squeeze = False
-    else:
-        raise ValueError("normalizedCounts must be a 1D or 2D array")
-    scales = np.asarray(scaleFactors, dtype=np.float64).reshape(-1)
-    if scales.size == 1 and counts2.shape[0] != 1:
-        scales = np.full(counts2.shape[0], float(scales[0]), dtype=np.float64)
-    if scales.shape != (counts2.shape[0],):
-        raise ValueError("scaleFactors must contain one value per count track")
-    if not np.all(np.isfinite(scales) & (scales > 0.0)):
-        raise ValueError("scaleFactors must be finite positive values")
-
-    finiteCounts = np.isfinite(counts2)
-    nonnegativeCounts = np.where(finiteCounts, np.maximum(counts2, 0.0), 0.0)
-    # Conditional plug-in Poisson variance under Jeffreys-rate smoothing.
-    lambdaHat = (nonnegativeCounts / scales[:, None]) + 0.5
-    normalizedMean = lambdaHat * scales[:, None]
-    normalizedVariance = lambdaHat * np.square(scales[:, None])
-    derivative = _transformDerivativeAtCountMean(
-        normalizedMean,
-        transformMethod=transformMethod,
+    return cconsenrich.cTransformCountVarianceFloor(
+        normalizedCounts,
+        scaleFactors,
+        rawNoiseMass=rawNoiseMass,
+        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
+        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
+        mode=transformMethod,
         logOffset=logOffset,
         logMult=logMult,
-        transformInputOffset=transformInputOffset,
-        transformInputScale=transformInputScale,
-        transformOutputScale=transformOutputScale,
-        transformShape=transformShape,
+        inputOffset=transformInputOffset,
+        inputScale=transformInputScale,
+        outputScale=transformOutputScale,
+        shape=transformShape,
     )
-    floor = np.square(derivative) * normalizedVariance
-    floor = np.where(
-        finiteCounts & np.isfinite(floor) & (floor > 0.0),
-        floor,
-        np.nan,
-    )
-    floor = floor.astype(np.float32, copy=False)
-    return floor.reshape(-1) if squeeze else floor
 
 
 def transformCountDifferenceVarianceFloor(
@@ -1882,6 +1738,10 @@ def transformCountDifferenceVarianceFloor(
     *,
     treatmentScaleFactor: float,
     controlScaleFactor: float,
+    treatmentRawNoiseMass: np.ndarray | None = None,
+    controlRawNoiseMass: np.ndarray | None = None,
+    countNoisePseudoMeanMass: float = 0.5,
+    countNoisePseudoVarianceMass: float = 0.5,
     transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
     logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
     logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
@@ -1895,6 +1755,9 @@ def transformCountDifferenceVarianceFloor(
     treatmentFloor = transformCountVarianceFloor(
         treatmentCounts,
         [float(treatmentScaleFactor)],
+        rawNoiseMass=treatmentRawNoiseMass,
+        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
+        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
         transformMethod=transformMethod,
         logOffset=logOffset,
         logMult=logMult,
@@ -1906,6 +1769,9 @@ def transformCountDifferenceVarianceFloor(
     controlFloor = transformCountVarianceFloor(
         controlCounts,
         [float(controlScaleFactor)],
+        rawNoiseMass=controlRawNoiseMass,
+        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
+        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
         transformMethod=transformMethod,
         logOffset=logOffset,
         logMult=logMult,
@@ -1946,8 +1812,8 @@ def readSegments(
     samThreads: int,
     samFlagExclude: int,
     bamInputMode: str | None = "auto",
-    defaultCountMode: str | None = "coverage",
-    defaultFragmentCountMode: str | None = "coverage",
+    defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE,
+    defaultFragmentCountMode: str | None = SC_DEFAULT_COUNT_MODE,
     shiftForward5p: int | None = 0,
     shiftReverse5p: int | None = 0,
     extendFrom5pBP: List[int] | int | None = None,
@@ -1955,7 +1821,8 @@ def readSegments(
     inferFragmentLength: Optional[int] = 0,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-) -> npt.NDArray[np.float32]:
+    returnRawNoiseMass: bool = False,
+) -> npt.NDArray[np.float32] | readSegmentsResult:
     r"""Read binned tracks from generic input sources
 
     this is the source-agnostic entry point for counting.
@@ -1982,10 +1849,21 @@ def readSegments(
     sourceKinds = getSourceKinds(sources)
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.empty((len(sources), numIntervals), dtype=np.float32)
+    rawNoiseMass = (
+        np.full((len(sources), numIntervals), np.nan, dtype=np.float32)
+        if returnRawNoiseMass
+        else None
+    )
     tempPaths: list[str] = []
     defaultBamInputMode = _normalizeBamInputMode(bamInputMode)
-    defaultBamCountMode = _normalizeCountMode(defaultCountMode, "coverage")
-    defaultFragmentCountMode = _normalizeCountMode(defaultFragmentCountMode, "coverage")
+    defaultBamCountMode = _normalizeCountMode(
+        defaultCountMode,
+        SAM_DEFAULT_COUNT_MODE,
+    )
+    defaultFragmentCountMode = _normalizeCountMode(
+        defaultFragmentCountMode,
+        SC_DEFAULT_COUNT_MODE,
+    )
     if defaultFragmentCountMode in {"ffp", "ffp-center"}:
         raise ValueError(
             f"defaultFragmentCountMode `{defaultFragmentCountMode}` requires BAM input"
@@ -2047,35 +1925,80 @@ def readSegments(
                 )
                 if countMode in {"ffp", "ffp-center"}:
                     raise ValueError(f"countMode `{countMode}` requires BAM input")
+                if (
+                    countMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+                    and int(oneReadPerBin) != 0
+                ):
+                    raise ValueError(
+                        "conservedFractionalOverlap count mode does not support "
+                        "oneReadPerBin"
+                    )
                 _normalizeFragmentPositionMode(source.fragmentPositionMode)
-                counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
-                    sourcePath,
-                    chromosome,
-                    start,
-                    end,
-                    intervalSizeBP,
-                    0,
-                    oneReadPerBin,
-                    samThreads,
-                    0,
-                    shiftForwardStrand53=0,
-                    shiftReverseStrand53=0,
-                    extendBP=0,
-                    maxInsertSize=0,
-                    pairedEndMode=0,
-                    inferFragmentLength=0,
-                    minMappingQuality=0,
-                    minTemplateLength=0,
-                    sourceKind=sourceKind,
-                    barcodeAllowListFile=barcodeAllowListFile or "",
-                    barcodeGroupMapFile="",
-                    countMode=countMode,
-                )
+                if returnRawNoiseMass:
+                    countResult = ccounts.ccounts_countAlignmentRegionMass(
+                        sourcePath,
+                        chromosome,
+                        start,
+                        end,
+                        intervalSizeBP,
+                        0,
+                        oneReadPerBin,
+                        samThreads,
+                        0,
+                        shiftForwardStrand53=0,
+                        shiftReverseStrand53=0,
+                        extendBP=0,
+                        maxInsertSize=0,
+                        pairedEndMode=0,
+                        inferFragmentLength=0,
+                        minMappingQuality=0,
+                        minTemplateLength=0,
+                        sourceKind=sourceKind,
+                        barcodeAllowListFile=barcodeAllowListFile or "",
+                        barcodeGroupMapFile="",
+                        countMode=countMode,
+                    )
+                    counts[sourceIndex, :] = countResult.counts
+                    if rawNoiseMass is None:
+                        raise RuntimeError("raw noise mass matrix missing")
+                    rawNoiseMass[sourceIndex, :] = countResult.rawNoiseMass
+                else:
+                    counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
+                        sourcePath,
+                        chromosome,
+                        start,
+                        end,
+                        intervalSizeBP,
+                        0,
+                        oneReadPerBin,
+                        samThreads,
+                        0,
+                        shiftForwardStrand53=0,
+                        shiftReverseStrand53=0,
+                        extendBP=0,
+                        maxInsertSize=0,
+                        pairedEndMode=0,
+                        inferFragmentLength=0,
+                        minMappingQuality=0,
+                        minTemplateLength=0,
+                        sourceKind=sourceKind,
+                        barcodeAllowListFile=barcodeAllowListFile or "",
+                        barcodeGroupMapFile="",
+                        countMode=countMode,
+                    )
             else:
                 countMode = _normalizeCountMode(
                     source.countMode,
                     defaultBamCountMode,
                 )
+                if (
+                    countMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+                    and int(oneReadPerBin) != 0
+                ):
+                    raise ValueError(
+                        "conservedFractionalOverlap count mode does not support "
+                        "oneReadPerBin"
+                    )
                 ffpCenterPreset = countMode == "ffp-center"
                 sourceBamInputMode = _resolveSourceBamInputModeForCountMode(
                     source,
@@ -2116,29 +2039,58 @@ def readSegments(
                         "`extendFrom5pBP` or estimable fragment length"
                     )
                 sourceInferFragmentLength = 0
-                counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
-                    sourcePath,
-                    chromosome,
-                    start,
-                    end,
-                    intervalSizeBP,
-                    readLengths[sourceIndex],
-                    oneReadPerBin,
-                    samThreads,
-                    sourceFlagExclude,
-                    shiftForwardStrand53=int(shiftForward5p or 0),
-                    shiftReverseStrand53=int(shiftReverse5p or 0),
-                    extendBP=sourceExtendBP,
-                    maxInsertSize=maxInsertSize,
-                    pairedEndMode=sourcePairedEndMode,
-                    inferFragmentLength=sourceInferFragmentLength,
-                    minMappingQuality=minMappingQuality,
-                    minTemplateLength=minTemplateLength,
-                    sourceKind=sourceKind,
-                    barcodeAllowListFile="",
-                    barcodeGroupMapFile="",
-                    countMode=countMode,
-                )
+                if returnRawNoiseMass:
+                    countResult = ccounts.ccounts_countAlignmentRegionMass(
+                        sourcePath,
+                        chromosome,
+                        start,
+                        end,
+                        intervalSizeBP,
+                        readLengths[sourceIndex],
+                        oneReadPerBin,
+                        samThreads,
+                        sourceFlagExclude,
+                        shiftForwardStrand53=int(shiftForward5p or 0),
+                        shiftReverseStrand53=int(shiftReverse5p or 0),
+                        extendBP=sourceExtendBP,
+                        maxInsertSize=maxInsertSize,
+                        pairedEndMode=sourcePairedEndMode,
+                        inferFragmentLength=sourceInferFragmentLength,
+                        minMappingQuality=minMappingQuality,
+                        minTemplateLength=minTemplateLength,
+                        sourceKind=sourceKind,
+                        barcodeAllowListFile="",
+                        barcodeGroupMapFile="",
+                        countMode=countMode,
+                    )
+                    counts[sourceIndex, :] = countResult.counts
+                    if rawNoiseMass is None:
+                        raise RuntimeError("raw noise mass matrix missing")
+                    rawNoiseMass[sourceIndex, :] = countResult.rawNoiseMass
+                else:
+                    counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
+                        sourcePath,
+                        chromosome,
+                        start,
+                        end,
+                        intervalSizeBP,
+                        readLengths[sourceIndex],
+                        oneReadPerBin,
+                        samThreads,
+                        sourceFlagExclude,
+                        shiftForwardStrand53=int(shiftForward5p or 0),
+                        shiftReverseStrand53=int(shiftReverse5p or 0),
+                        extendBP=sourceExtendBP,
+                        maxInsertSize=maxInsertSize,
+                        pairedEndMode=sourcePairedEndMode,
+                        inferFragmentLength=sourceInferFragmentLength,
+                        minMappingQuality=minMappingQuality,
+                        minTemplateLength=minTemplateLength,
+                        sourceKind=sourceKind,
+                        barcodeAllowListFile="",
+                        barcodeGroupMapFile="",
+                        countMode=countMode,
+                    )
             np.multiply(
                 counts[sourceIndex, :],
                 np.float32(scaleFactors[sourceIndex]),
@@ -2164,6 +2116,10 @@ def readSegments(
         int(len(sources)),
         time.perf_counter() - totalStart,
     )
+    if returnRawNoiseMass:
+        if rawNoiseMass is None:
+            raise RuntimeError("raw noise mass matrix missing")
+        return readSegmentsResult(counts, rawNoiseMass)
     return counts
 
 
@@ -2179,7 +2135,7 @@ def readBamSegments(
     samThreads: int,
     samFlagExclude: int,
     bamInputMode: str | None = "auto",
-    defaultCountMode: str | None = "coverage",
+    defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE,
     shiftForward5p: int | None = 0,
     shiftReverse5p: int | None = 0,
     extendFrom5pBP: List[int] | int | None = None,
@@ -3414,8 +3370,6 @@ def _runFixedBackgroundECMPhase(
     if stateModelMode == STATE_MODEL_LEVEL_TREND:
         ecmFunction = cconsenrich.cfixedBackgroundECM
         ecmKwargs["matrixF"] = matrixFLocal
-    if not _cythonFunctionSupportsKeyword(ecmFunction.__name__, "processQScale"):
-        ecmKwargs.pop("processQScale", None)
     ecmOutLocal = ecmFunction(**ecmKwargs, returnDiagnostics=True)
 
     if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
@@ -3668,61 +3622,14 @@ def _expectedTransitionEvidenceForPunc(
             "seed process Q must cover the active state dimension for PUNC"
         )
     qDim = np.ascontiguousarray(q[:dim, :dim], dtype=np.float64)
-    if hasattr(cconsenrich, "cExpectedTransitionProcessEvidence"):
-        evidence, _diagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
-            stateSmoothed,
-            stateCovarSmoothed,
-            lagCovSmoothed,
-            qDim,
-            matrixF=(None if dim == 1 else matrixF),
-        )
-        return np.asarray(evidence, dtype=np.float64)
-    m = np.asarray(stateSmoothed, dtype=np.float64)
-    p = np.asarray(stateCovarSmoothed, dtype=np.float64)
-    c = np.asarray(lagCovSmoothed, dtype=np.float64)
-    transitionCount = max(int(m.shape[0]) - 1, 0)
-    if transitionCount <= 0:
-        return np.empty(0, dtype=np.float64)
-    try:
-        qInv = np.linalg.inv(qDim)
-    except np.linalg.LinAlgError as ex:
-        raise ValueError("seed process Q must be nonsingular for PUNC") from ex
-    evidence = np.empty(transitionCount, dtype=np.float64)
-    if dim == 1:
-        if m.ndim != 2 or m.shape[1] < 1 or p.shape[1:3] != (1, 1):
-            raise ValueError("level PUNC moments must use scalar state arrays")
-        qInv00 = float(qInv[0, 0])
-        for k in range(transitionCount):
-            x0 = float(m[k, 0])
-            y0 = float(m[k + 1, 0])
-            moment = (
-                float(p[k + 1, 0, 0])
-                + y0 * y0
-                - 2.0 * (float(c[k, 0, 0]) + x0 * y0)
-                + float(p[k, 0, 0])
-                + x0 * x0
-            )
-            evidence[k] = max(moment * qInv00, 0.0)
-        return evidence
-
-    if m.ndim != 2 or m.shape[1] < 2 or p.shape[1] < 2 or p.shape[2] < 2:
-        raise ValueError("levelTrend PUNC moments must use two-state arrays")
-    f = np.asarray(matrixF, dtype=np.float64)[:2, :2]
-    ft = f.T
-    for k in range(transitionCount):
-        x = m[k, :2].reshape(2, 1)
-        y = m[k + 1, :2].reshape(2, 1)
-        exx = p[k, :2, :2] + x @ x.T
-        eyy = p[k + 1, :2, :2] + y @ y.T
-        exy = c[k, :2, :2] + x @ y.T
-        eyx = exy.T
-        eww = eyy - eyx @ ft - f @ exy + f @ exx @ ft
-        eww = 0.5 * (eww + eww.T)
-        diag = np.diag(eww).copy()
-        diag[diag < 0.0] = 0.0
-        np.fill_diagonal(eww, diag)
-        evidence[k] = max(float(np.trace(qInv @ eww)) / 2.0, 0.0)
-    return evidence
+    evidence, _diagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
+        stateSmoothed,
+        stateCovarSmoothed,
+        lagCovSmoothed,
+        qDim,
+        matrixF=(None if dim == 1 else matrixF),
+    )
+    return np.asarray(evidence, dtype=np.float64)
 
 
 def _puncObservationInformation(
@@ -3899,23 +3806,6 @@ def _estimatePuncPriorDfMethodOfMoments(
     return float(priorDf), float(scale), diagnostics
 
 
-@lru_cache(maxsize=None)
-def _cythonFunctionSupportsKeyword(functionName: str, keyword: str) -> bool:
-    try:
-        signature = inspect.signature(getattr(cconsenrich, functionName))
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return str(keyword) in signature.parameters
-
-
-def _cythonOptionalKeyword(
-    functionName: str, keyword: str, value: Any
-) -> dict[str, Any]:
-    if _cythonFunctionSupportsKeyword(functionName, keyword):
-        return {str(keyword): value}
-    return {}
-
-
 def _activeProcessQDiagonal(
     matrixQ: np.ndarray,
     *,
@@ -3934,52 +3824,13 @@ def _rebasePuncIntervalScales(
     rawScale: np.ndarray,
     stateModel: str,
 ) -> tuple[np.ndarray, float, float]:
-    if hasattr(cconsenrich, "crebasePuncIntervalScales"):
-        scale, maxErr, medErr = cconsenrich.crebasePuncIntervalScales(
-            seedQ,
-            baseQ,
-            rawScale,
-            _normalizeStateModel(stateModel),
-        )
-        return np.asarray(scale, dtype=np.float32), float(maxErr), float(medErr)
-
-    raw = np.maximum(np.asarray(rawScale, dtype=np.float64).reshape(-1), 1.0e-12)
-    if raw.size == 0:
-        return raw.astype(np.float32), 0.0, 0.0
-    seedDiag = _activeProcessQDiagonal(seedQ, stateModel=stateModel)
-    baseDiag = _activeProcessQDiagonal(baseQ, stateModel=stateModel)
-    scale = np.ones(raw.shape[0], dtype=np.float64)
-    logErrors: list[float] = []
-    for idx, scalar in enumerate(raw):
-        targetDiag = seedDiag * float(scalar)
-        mask = (
-            np.isfinite(targetDiag)
-            & np.isfinite(baseDiag)
-            & (targetDiag > 0.0)
-            & (baseDiag > 0.0)
-        )
-        if not np.any(mask):
-            scale[idx] = 1.0
-            continue
-        ratios = targetDiag[mask] / baseDiag[mask]
-        scale[idx] = float(
-            np.exp(np.mean(np.log(np.maximum(ratios, np.finfo(np.float64).tiny))))
-        )
-        recomposed = baseDiag[mask] * scale[idx]
-        logErrors.extend(
-            np.log(
-                np.maximum(recomposed, np.finfo(np.float64).tiny)
-                / np.maximum(targetDiag[mask], np.finfo(np.float64).tiny)
-            ).tolist()
-        )
-    if not logErrors:
-        return scale.astype(np.float32), 0.0, 0.0
-    absErrors = np.abs(np.asarray(logErrors, dtype=np.float64))
-    return (
-        scale.astype(np.float32),
-        float(np.max(absErrors)),
-        float(np.median(absErrors)),
+    scale, maxErr, medErr = cconsenrich.crebasePuncIntervalScales(
+        seedQ,
+        baseQ,
+        rawScale,
+        _normalizeStateModel(stateModel),
     )
+    return np.asarray(scale, dtype=np.float32), float(maxErr), float(medErr)
 
 
 def _fitPuncProcessNoise(
@@ -5566,11 +5417,7 @@ def runConsenrich(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                **_cythonOptionalKeyword(
-                    "cforwardPassLevel",
-                    "processQScale",
-                    processQScaleLocal,
-                ),
+                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -5617,11 +5464,7 @@ def runConsenrich(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                **_cythonOptionalKeyword(
-                    "cforwardPass",
-                    "processQScale",
-                    processQScaleLocal,
-                ),
+                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -5694,11 +5537,7 @@ def runConsenrich(
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                **_cythonOptionalKeyword(
-                    "cforwardPassLevel",
-                    "processQScale",
-                    processQScaleLocal,
-                ),
+                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -5732,11 +5571,7 @@ def runConsenrich(
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                **_cythonOptionalKeyword(
-                    "cforwardPass",
-                    "processQScale",
-                    processQScaleLocal,
-                ),
+                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -9749,18 +9584,10 @@ def solveZeroCenteredBackground(
             raise ValueError(
                 "weightTrack and rhsTrack length must match interval count"
             )
-    elif hasattr(cconsenrich, "cbackgroundWeightedStats"):
+    else:
         weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
             residualArr,
             invVarArr,
-        )
-    else:
-        weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
-        rhsTrack = np.einsum(
-            "ij,ij->j",
-            invVarArr,
-            residualArr,
-            dtype=np.float64,
         )
     if not np.any(weightTrack > 0.0):
         return np.zeros(intervalCount, dtype=np.float32)
@@ -9821,19 +9648,10 @@ def _solveClippedBackgroundHeuristic(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    if hasattr(cconsenrich, "cbackgroundWeightedStats"):
-        weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
-            residualArr,
-            invVarArr,
-        )
-    else:
-        weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
-        rhsTrack = np.einsum(
-            "ij,ij->j",
-            invVarArr,
-            residualArr,
-            dtype=np.float64,
-        )
+    weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
+        residualArr,
+        invVarArr,
+    )
     if not np.any(weightTrack > 0.0):
         return np.zeros(intervalCount, dtype=np.float32)
 

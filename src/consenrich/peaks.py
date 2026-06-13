@@ -1170,47 +1170,6 @@ def _prepareROCCOScoreAndNull(
     }
 
 
-def _bartlettKernel(x: np.ndarray) -> np.ndarray:
-    ax = np.abs(x)
-    return np.where(ax <= 1.0, 1.0 - ax, 0.0)
-
-
-def _parzenKernel(x: np.ndarray) -> np.ndarray:
-    ax = np.abs(x)
-    out = np.zeros_like(ax, dtype=np.float64)
-    mask1 = ax <= 0.5
-    mask2 = (ax > 0.5) & (ax <= 1.0)
-    out[mask1] = 1.0 - 6.0 * ax[mask1] ** 2 + 6.0 * ax[mask1] ** 3
-    out[mask2] = 2.0 * (1.0 - ax[mask2]) ** 3
-    return out
-
-
-def _quadraticSpectralKernel(x: np.ndarray) -> np.ndarray:
-    ax = np.abs(x)
-    out = np.zeros_like(ax, dtype=np.float64)
-    zeroMask = ax < 1.0e-12
-    out[zeroMask] = 1.0
-    nz = ~zeroMask
-    if np.any(nz):
-        y = (6.0 * np.pi * ax[nz]) / 5.0
-        out[nz] = (25.0 / (12.0 * np.pi * np.pi * ax[nz] * ax[nz])) * (
-            (np.sin(y) / np.maximum(y, 1.0e-12)) - np.cos(y)
-        )
-    return out
-
-
-def _kernelValues(name: str, lags: np.ndarray, bandwidth: int) -> np.ndarray:
-    kernelName = str(name).strip().lower().replace("-", "_")
-    x = np.abs(lags.astype(np.float64, copy=False)) / max(float(bandwidth), 1.0)
-    if kernelName in {"bartlett", "triangle", "triangular"}:
-        return _bartlettKernel(x)
-    if kernelName in {"parzen"}:
-        return _parzenKernel(x)
-    if kernelName in {"qs", "quadratic_spectral", "quadraticspectral"}:
-        return _quadraticSpectralKernel(x)
-    raise ValueError(f"Unknown DWB kernel: {name}")
-
-
 def _generateDWBMultipliers(
     n: int,
     bandwidth: int,
@@ -1225,27 +1184,14 @@ def _generateDWBMultipliers(
         else max(8 * bandwidth_, 32)
     )
     noise = rng.standard_normal(int(n + 2 * maxLag))
-    if hasattr(cconsenrich, "cGenerateDWBMultipliersFromNoise"):
-        return np.asarray(
-            cconsenrich.cGenerateDWBMultipliersFromNoise(
-                noise,
-                int(bandwidth_),
-                kernel,
-            ),
-            dtype=np.float64,
-        )
-
-    lags = np.arange(-maxLag, maxLag + 1, dtype=np.int64)
-    weights = _kernelValues(kernel, lags, bandwidth_)
-    weights = np.asarray(weights, dtype=np.float64)
-    weights /= math.sqrt(max(float(np.sum(weights * weights)), _TINY))
-    multipliers = np.convolve(noise, weights, mode="valid")[:n]
-    multipliers = np.asarray(multipliers, dtype=np.float64)
-    multipliers -= float(np.mean(multipliers))
-    sd = float(np.std(multipliers, ddof=1)) if n >= 2 else 0.0
-    if not np.isfinite(sd) or sd <= _TINY:
-        return np.ones(n, dtype=np.float64)
-    return multipliers / sd
+    return np.asarray(
+        cconsenrich.cGenerateDWBMultipliersFromNoise(
+            noise,
+            int(bandwidth_),
+            kernel,
+        ),
+        dtype=np.float64,
+    )
 
 def _generateStationaryNullDWBDraw(
     template: np.ndarray,
@@ -1260,49 +1206,20 @@ def _generateStationaryNullDWBDraw(
         rng,
         kernel=kernel,
     )
-    if hasattr(cconsenrich, "cApplyStationaryNullDWB"):
-        return np.asarray(
-            cconsenrich.cApplyStationaryNullDWB(template_, multipliers),
-            dtype=np.float64,
-        )
-    draw = template_ * np.asarray(multipliers, dtype=np.float64)
-    draw -= float(np.mean(draw))
-    return np.asarray(draw, dtype=np.float64)
+    return np.asarray(
+        cconsenrich.cApplyStationaryNullDWB(template_, multipliers),
+        dtype=np.float64,
+    )
 
 def _estimateEffectiveSampleSize(
     values: np.ndarray,
     maxLag: int,
 ) -> Tuple[float, float, int]:
-    if hasattr(cconsenrich, "cEstimateEffectiveSampleSize"):
-        n_eff, tau, lags_used = cconsenrich.cEstimateEffectiveSampleSize(
-            values,
-            int(maxLag),
-        )
-        return float(n_eff), float(tau), int(lags_used)
-
-    x = np.asarray(values, dtype=np.float64)
-    n = int(x.size)
-    if n < 2:
-        return float(n), 1.0, 0
-
-    x = x - float(np.mean(x))
-    var = float(np.dot(x, x) / max(n, 1))
-    if not np.isfinite(var) or var <= _TINY:
-        return float(n), 1.0, 0
-
-    maxLag_ = max(1, min(int(maxLag), n - 1))
-    tau = 1.0
-    lagsUsed = 0
-    for lag in range(1, maxLag_ + 1):
-        cov = float(np.dot(x[:-lag], x[lag:]) / max(n - lag, 1))
-        rho = cov / var
-        if (not np.isfinite(rho)) or rho <= 0.0:
-            break
-        tau += 2.0 * rho
-        lagsUsed = lag
-
-    tau = float(max(tau, 1.0))
-    return float(n / tau), tau, lagsUsed
+    n_eff, tau, lags_used = cconsenrich.cEstimateEffectiveSampleSize(
+        values,
+        int(maxLag),
+    )
+    return float(n_eff), float(tau), int(lags_used)
 
 def _preparedStationaryNullDWBMatches(
     prepared: Dict[str, Any],
@@ -2193,52 +2110,17 @@ def _replayFDRQValues(
 
 
 def _movingAverageSame(values: np.ndarray, window: int) -> np.ndarray:
-    if hasattr(cconsenrich, "cMovingAverageSame"):
-        return np.asarray(cconsenrich.cMovingAverageSame(values, int(window)), dtype=np.float64)
-
-    values_ = np.asarray(values, dtype=np.float64)
-    window_ = int(max(int(window), 1))
-    if window_ <= 1 or values_.size <= 1:
-        return values_.astype(np.float64, copy=True)
-    window_ = int(min(window_, values_.size))
-    if window_ <= 256:
-        kernel = np.full(window_, 1.0 / float(window_), dtype=np.float64)
-        return np.convolve(values_, kernel, mode="same").astype(np.float64, copy=False)
-    leftPad = int((window_ - 1) // 2)
-    rightPad = int(window_ - 1 - leftPad)
-    padded = np.pad(values_, (leftPad, rightPad), mode="constant", constant_values=0.0)
-    cumsum = np.concatenate(([0.0], np.cumsum(padded, dtype=np.float64)))
-    return ((cumsum[window_:] - cumsum[:-window_]) / float(window_)).astype(
+    return np.asarray(
+        cconsenrich.cMovingAverageSame(values, int(window)),
         np.float64,
-        copy=False,
     )
 
 def _booleanRunBounds(
     above: np.ndarray,
     maxGapBins: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    if hasattr(cconsenrich, "cBooleanRunBounds"):
-        starts, ends = cconsenrich.cBooleanRunBounds(above, int(maxGapBins))
-        return np.asarray(starts, dtype=np.int64), np.asarray(ends, dtype=np.int64)
-
-    above_ = np.asarray(above, dtype=bool).ravel()
-    if above_.size == 0:
-        empty = np.asarray([], dtype=np.int64)
-        return empty, empty
-    if int(maxGapBins) <= 0:
-        padded = np.concatenate(([False], above_, [False]))
-        changes = np.flatnonzero(padded[1:] != padded[:-1])
-        starts = changes[0::2].astype(np.int64, copy=False)
-        ends = (changes[1::2] - 1).astype(np.int64, copy=False)
-        return starts, ends
-    trueIdx = np.flatnonzero(above_)
-    if trueIdx.size == 0:
-        empty = np.asarray([], dtype=np.int64)
-        return empty, empty
-    breaks = np.flatnonzero(np.diff(trueIdx) > int(maxGapBins) + 1) + 1
-    groupStarts = np.concatenate(([0], breaks))
-    groupEnds = np.concatenate((breaks - 1, [trueIdx.size - 1]))
-    return trueIdx[groupStarts].astype(np.int64), trueIdx[groupEnds].astype(np.int64)
+    starts, ends = cconsenrich.cBooleanRunBounds(above, int(maxGapBins))
+    return np.asarray(starts, dtype=np.int64), np.asarray(ends, dtype=np.int64)
 
 def _resolveMultiscaleCandidateBins(
     n: int,

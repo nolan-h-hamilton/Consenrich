@@ -418,6 +418,47 @@ def _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
         expected = derivativeSquared * normalizedVariance
         np.testing.assert_allclose(floor, expected, rtol=1.0e-6, atol=1.0e-6)
 
+    rawNoiseMass = np.asarray([0.125, 1.5, 3.0], dtype=np.float64)
+    pseudoVarianceMass = 0.5 * float(np.sum(rawNoiseMass)) / float(
+        np.sum(counts / scaleFactor)
+    )
+    identityArgs = baseArgs._replace(transformMethod="identity")
+    rawMassFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
+        counts,
+        scaleFactor,
+        identityArgs,
+        rawNoiseMass=rawNoiseMass,
+    )
+    expectedRawMassFloor = (
+        derivativeByMethod["identity"] * (rawNoiseMass + 0.5) * scaleFactor * scaleFactor
+    )
+    np.testing.assert_allclose(
+        rawMassFloor,
+        expectedRawMassFloor,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+
+    rawPseudoFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
+        counts,
+        scaleFactor,
+        identityArgs,
+        rawNoiseMass=rawNoiseMass,
+        countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+    )
+    expectedRawPseudoFloor = (
+        derivativeByMethod["identity"]
+        * (rawNoiseMass + pseudoVarianceMass)
+        * scaleFactor
+        * scaleFactor
+    )
+    np.testing.assert_allclose(
+        rawPseudoFloor,
+        expectedRawPseudoFloor,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+
     logArgs = baseArgs._replace(
         transformMethod="log",
         transformInputOffset=1.0,
@@ -440,24 +481,59 @@ def _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
     )
     np.testing.assert_allclose(combined, treatmentFloor + controlFloor)
 
-    bamSource = consenrich_core.inputSource("sample.bam", sourceKind="BAM")
+    fractionalSource = consenrich_core.inputSource(
+        "fractional.bam",
+        sourceKind="BAM",
+        countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+    )
+    coverageSource = consenrich_core.inputSource(
+        "coverage.bam",
+        sourceKind="BAM",
+        countMode="coverage",
+    )
     bedGraphSource = consenrich_core.inputSource(
         "sample.bedGraph",
         sourceKind="BEDGRAPH",
     )
     matrixFloor = consenrich_cli._countModelFloorMatrixForScaledCounts(
-        np.vstack([counts, counts]),
-        [scaleFactor, scaleFactor],
-        [bamSource, bedGraphSource],
+        np.vstack([counts, counts, counts]),
+        [scaleFactor, scaleFactor, scaleFactor],
+        [fractionalSource, coverageSource, bedGraphSource],
         baseArgs._replace(transformMethod="identity"),
+        rawNoiseMassMatrix=np.vstack([rawNoiseMass, rawNoiseMass, rawNoiseMass]),
+        countModes=[
+            constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+            "coverage",
+            "coverage",
+        ],
     )
     np.testing.assert_allclose(
         matrixFloor[0, :],
+        expectedRawPseudoFloor,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+    np.testing.assert_allclose(
+        matrixFloor[1, :],
+        expectedRawMassFloor,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+    assert np.all(np.isnan(matrixFloor[2, :]))
+
+    countDerivedMatrixFloor = consenrich_cli._countModelFloorMatrixForScaledCounts(
+        counts.reshape(1, -1),
+        [scaleFactor],
+        [fractionalSource],
+        baseArgs._replace(transformMethod="identity"),
+        countModes=[constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP],
+    )
+    np.testing.assert_allclose(
+        countDerivedMatrixFloor[0, :],
         derivativeByMethod["identity"] * normalizedVariance,
         rtol=1.0e-6,
         atol=1.0e-6,
     )
-    assert np.all(np.isnan(matrixFloor[1, :]))
 
 
 def test_count_model_variance_floor_transform_delta_method(tmp_path, monkeypatch):
@@ -630,8 +706,14 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert samDotted.samThreads == samNested.samThreads
     assert samDotted.defaultCountMode == "ffp-center"
     assert samNested.defaultCountMode == "ffp-center"
-    assert configDotted["scArgs"].defaultCountMode == "coverage"
-    assert configNested["scArgs"].defaultCountMode == "coverage"
+    assert (
+        configDotted["scArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
+    assert (
+        configNested["scArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
     assert matchingDotted.enabled == matchingNested.enabled
     assert matchingDotted.thresholdZ == matchingNested.thresholdZ
     assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
@@ -933,6 +1015,14 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     parsed = readConfig(str(configPath))
 
     assert parsed["defaultConfiguration"] == "generic"
+    assert (
+        parsed["samArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
+    assert (
+        parsed["scArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
     assert parsed["processArgs"].stateModel == constants.STATE_MODEL_LEVEL_TREND
     assert (
         parsed["processArgs"].processNoiseWarmupECMIters
@@ -974,8 +1064,9 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert (
         parsed["outputArgs"].stateShrinkageModel
-        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE
+        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
     )
+    assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight is None
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -1002,6 +1093,9 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
         "outputParams.stateShrinkageModel",
+        "outputParams.stateShrinkageScaleAnchorWeight",
+        "outputParams.stateShrinkageStudentTDF",
+        "outputParams.stateShrinkageStudentTQuadratureOrder",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
         "uncertaintyCalibrationParams.deleteBlockTargetSignal",
@@ -1028,7 +1122,18 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert constants.OUTPUT_STATE_SHRINKAGE_MODELS == (
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE,
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
+        constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T,
     )
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT is None
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_FRACTION == 0.1
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MIN == 1.0e-6
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MAX == 1.0e6
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT is None
+    assert (
+        constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_FRACTION
+        == 0.05
+    )
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_MIN == 25.0
     assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
     assert "observationParams.muncEBPrior.mode" not in defaults
@@ -1073,6 +1178,15 @@ def _case_runtime_defaults_are_centralized(
         is constants.DEFAULT_CONFIGURATION_KEYS
     )
     assert hasattr(constants, "PROCESS_DEFAULT_PUNC_PRIOR_DF")
+    assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
+    assert (
+        parsed["samArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
+    assert (
+        parsed["scArgs"].defaultCountMode
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
     assert constants.PROCESS_DEFAULT_PUNC_DEADBAND_PRIOR_WEIGHT == pytest.approx(0.99)
     assert constants.PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_MIN_WINDOWS == 16
     assert constants.EB_PRIOR_STRENGTH_WINSOR_TAIL == pytest.approx(0.01)
@@ -1084,8 +1198,6 @@ def _case_runtime_defaults_are_centralized(
         constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL
         == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
     )
-
-    assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
     assert (
         profile["processParams.puncPriorDf"]
         == constants.PROCESS_DEFAULT_PUNC_PRIOR_DF
@@ -1202,6 +1314,14 @@ def _case_runtime_defaults_are_centralized(
     assert (
         parsed["outputArgs"].stateShrinkageModel
         == profile["outputParams.stateShrinkageModel"]
+    )
+    assert (
+        parsed["outputArgs"].stateShrinkageStudentTDF
+        == profile["outputParams.stateShrinkageStudentTDF"]
+    )
+    assert (
+        parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder
+        == profile["outputParams.stateShrinkageStudentTQuadratureOrder"]
     )
     assert (
         consenrich_core.outputParams(
@@ -1547,7 +1667,11 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
-    outputParams.stateShrinkageModel: spikeAndNormal
+    outputParams.stateShrinkageModel: spikeAndStudentT
+    outputParams.stateShrinkageNullPseudoCount: 2.5
+    outputParams.stateShrinkageScaleAnchorWeight: 9
+    outputParams.stateShrinkageStudentTDF: 5
+    outputParams.stateShrinkageStudentTQuadratureOrder: 32
     uncertaintyCalibrationParams.enabled: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.75
@@ -1570,12 +1694,34 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["outputArgs"].saveGains is False
     assert (
         parsed["outputArgs"].stateShrinkageModel
-        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL
+        == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
     )
+    assert parsed["outputArgs"].stateShrinkageNullPseudoCount == pytest.approx(2.5)
+    assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight == pytest.approx(9.0)
+    assert parsed["outputArgs"].stateShrinkageStudentTDF == pytest.approx(5.0)
+    assert parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder == 32
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
     assert parsed["matchingArgs"].uncertaintyScoreMode == "lower_confidence"
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(1.75)
 
+
+def _case_readConfigRejectsLowStateShrinkageStudentTDF(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    outputParams.stateShrinkageModel: spikeAndStudentT
+    outputParams.stateShrinkageStudentTDF: 0.5
+    """
+    configPath = writeConfigFile(tmp_path, "config_low_student_t_df.yaml", configYaml)
+
+    with pytest.raises(ValueError, match="stateShrinkageStudentTDF"):
+        readConfig(str(configPath))
 
 def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -2765,9 +2911,13 @@ def test_config_parser_defaults_and_override_contracts(
             "generic overrides",
             _case_readConfigGenericDefaultsStillAllowExplicitOverrides,
         ),
-        (
-            "process noise warmup pass-through",
-            _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
+            (
+                "state shrinkage Student-t df validation",
+                _case_readConfigRejectsLowStateShrinkageStudentTDF,
+            ),
+            (
+                "process noise warmup pass-through",
+                _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
         ),
         (
             "unknown default profile rejected",
@@ -3139,6 +3289,18 @@ def test_run_summary_output_helpers(tmp_path):
             },
         },
         diagnosticLogPaths=paths,
+        countNoiseFloorSummary={
+            "enabled": True,
+            "model": "rawCountMassDeltaMethod",
+            "countModes": ["conservedFractionalOverlap", "cutsite"],
+            "sourceKinds": ["BAM", "BEDGRAPH"],
+            "bedgraphSkippedTracks": 1,
+            "finite": 10,
+            "positive": 9,
+            "q05": 0.01,
+            "median": 0.05,
+            "q95": 0.2,
+        },
     )
     genome = consenrich_cli._genomeRunSummaryRow(
         [row],
@@ -3162,6 +3324,12 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[0, "observation_r_trace_median"] == pytest.approx(2.0)
     assert frame.loc[0, "state_roughness_block_median"] == pytest.approx(0.2)
     assert frame.loc[0, "state_roughness_block_q90"] == pytest.approx(0.3)
+    assert bool(frame.loc[0, "countNoiseFloorEnabled"]) is True
+    assert frame.loc[0, "countNoiseFloorModel"] == "rawCountMassDeltaMethod"
+    assert frame.loc[0, "countNoiseFloorBedgraphSkippedTracks"] == 1
+    assert frame.loc[0, "countNoiseFloorQ05"] == pytest.approx(0.01)
+    assert frame.loc[0, "countNoiseFloorMedian"] == pytest.approx(0.05)
+    assert frame.loc[0, "countNoiseFloorQ95"] == pytest.approx(0.2)
     assert "delete_block_global_factor" not in frame.columns
     assert frame.loc[0, "delete_block_factor_model"] == "segShrink"
     assert "delete_block_variance_multiplier_global" not in frame.columns
@@ -3204,6 +3372,8 @@ def test_run_summary_output_helpers(tmp_path):
 
 def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_path):
     metadata = {
+        "model": "spikeAndStudentT",
+        "slab_family": "studentTNormalScaleMixture",
         "scope": "genome",
         "chunk_count": np.int64(2),
         "interval_count": np.int64(12),
@@ -3213,14 +3383,20 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "prior_null": np.float64(0.4),
         "prior_scale": np.float64(1.25),
         "prior_variance": np.float64(1.5625),
+        "prior_variance_defined": np.bool_(True),
         "slab_count": np.int64(2),
         "slab_weight": np.array([0.25, 0.75], dtype=np.float64),
         "slab_variance": [np.float64(0.5), np.float64(2.0)],
+        "slab_multiplier": [np.float64(0.32), np.float64(1.28)],
         "component_weights": [
             np.float64(0.4),
             np.float64(0.15),
             np.float64(0.45),
         ],
+        "student_t_df": np.float64(3.0),
+        "student_t_scale": np.float64(0.7216878364870323),
+        "student_t_quadrature_order": np.int64(24),
+        "student_t_quadrature_alpha": np.float64(0.5),
         "estimated_prior_null": np.bool_(True),
         "estimated_prior_scale": np.bool_(True),
         "estimated_slab_weights": np.bool_(True),
@@ -3244,10 +3420,20 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
 
     record = json.loads(summaryPath.read_text(encoding="utf-8"))
     assert set(record) <= set(consenrich_cli.RUN_SUMMARY_COLUMNS)
+    assert record["state_shrinkage_model"] == "spikeAndStudentT"
+    assert record["state_shrinkage_slab_family"] == "studentTNormalScaleMixture"
     assert record["state_shrinkage_slab_count"] == 2
     assert record["state_shrinkage_slab_weight"] == [0.25, 0.75]
     assert record["state_shrinkage_slab_variance"] == [0.5, 2.0]
+    assert record["state_shrinkage_slab_multiplier"] == [0.32, 1.28]
     assert record["state_shrinkage_component_weights"] == [0.4, 0.15, 0.45]
+    assert record["state_shrinkage_student_t_df"] == pytest.approx(3.0)
+    assert record["state_shrinkage_student_t_scale"] == pytest.approx(
+        0.7216878364870323
+    )
+    assert record["state_shrinkage_student_t_quadrature_order"] == 24
+    assert record["state_shrinkage_student_t_quadrature_alpha"] == pytest.approx(0.5)
+    assert record["state_shrinkage_prior_variance_defined"] is True
     assert record["state_shrinkage_estimated_slab_weights"] is True
     assert record["state_shrinkage_estimated_slab_scales"] is True
     assert (

@@ -75,6 +75,35 @@ def test_transform_count_variance_floor_is_transform_dependent_and_applied():
     )
     np.testing.assert_allclose(log1Floor, expectedLog1.astype(np.float32))
 
+    scaledCounts = np.asarray([0.5, 2.0, 8.0], dtype=np.float32)
+    rawNoiseMass = np.asarray([0.125, 1.5, 3.0], dtype=np.float32)
+    pseudoVarianceMass = 0.125
+    rawDefaultFloor = core.transformCountVarianceFloor(
+        scaledCounts,
+        [0.25],
+        rawNoiseMass=rawNoiseMass,
+        transformMethod="identity",
+        transformInputScale=1.0,
+        transformOutputScale=1.0,
+    )
+    rawPseudoFloor = core.transformCountVarianceFloor(
+        scaledCounts,
+        [0.25],
+        rawNoiseMass=rawNoiseMass,
+        countNoisePseudoVarianceMass=pseudoVarianceMass,
+        transformMethod="identity",
+        transformInputScale=1.0,
+        transformOutputScale=1.0,
+    )
+    np.testing.assert_allclose(
+        rawDefaultFloor,
+        ((rawNoiseMass + 0.5) * 0.25 * 0.25).astype(np.float32),
+    )
+    np.testing.assert_allclose(
+        rawPseudoFloor,
+        ((rawNoiseMass + pseudoVarianceMass) * 0.25 * 0.25).astype(np.float32),
+    )
+
     munc = np.full_like(log1Floor, 0.01, dtype=np.float32)
     floored = core.applyMuncCountModelVarianceFloor(
         munc,
@@ -868,10 +897,6 @@ def _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64():
 
 @pytest.mark.correctness
 def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
-    seedKernel = getattr(cconsenrich, "cMuncObservationMomentSeedPass", None)
-    if seedKernel is None:
-        pytest.skip("cMuncObservationMomentSeedPass is not exposed by the loaded extension")
-
     matrixData = np.asarray(
         [[1.0, 2.0, 4.0], [1.5, 1.0, 5.0]],
         dtype=np.float32,
@@ -925,7 +950,7 @@ def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
         total = np.clip(total, varianceFloor, varianceCap)
         return moment, rho, omegaRaw, omega, local, total
 
-    out = seedKernel(
+    out = cconsenrich.cMuncObservationMomentSeedPass(
         matrixData,
         matrixMunc,
         stateMean,
@@ -961,7 +986,7 @@ def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
         ({"enabled": True, "studentT": False}, expectedArrays(True, False, False, False)),
         ({"enabled": False, "studentT": True}, expectedArrays(False, True, False, False)),
     ):
-        branchOut = seedKernel(
+        branchOut = cconsenrich.cMuncObservationMomentSeedPass(
             matrixData,
             matrixMunc,
             stateMean,
@@ -1038,16 +1063,17 @@ def _caseFinalizeMuncEBTrackPreservesCountFloorSentinel():
 
 @pytest.mark.correctness
 def _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows():
-    smoothKernel = getattr(cconsenrich, "cMuncSmoothDenseLocalEvidence", None)
-    if smoothKernel is None:
-        pytest.skip("cMuncSmoothDenseLocalEvidence is not exposed by the loaded extension")
-
     localEvidence = np.asarray(
         [[1.0, 100.0, 3.0, 5.0, 7.0], [2.0, 4.0, 8.0, 16.0, 32.0]],
         dtype=np.float32,
     )
     excludeMask = np.asarray([0, 1, 0, 0, 0], dtype=np.uint8)
-    observed = smoothKernel(localEvidence, 3, excludeMask=excludeMask, eps=1.0e-4)
+    observed = cconsenrich.cMuncSmoothDenseLocalEvidence(
+        localEvidence,
+        3,
+        excludeMask=excludeMask,
+        eps=1.0e-4,
+    )
     expected = np.asarray(
         [
             [2.0, 2.0, 4.0, 5.0, 5.0],
@@ -1060,10 +1086,6 @@ def _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows():
 
 @pytest.mark.correctness
 def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
-    essKernel = getattr(cconsenrich, "cEstimateEffectiveSampleSize", None)
-    if essKernel is None:
-        pytest.skip("cEstimateEffectiveSampleSize is not exposed by the loaded extension")
-
     oscillatingEvidence = np.exp(
         np.asarray([1.0, -1.0, 1.0, -1.0, 1.0, -1.0], dtype=np.float64)
     )
@@ -1071,14 +1093,14 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
         np.asarray([0.0, 0.5, 1.0, 1.5, 2.0, 2.5], dtype=np.float64)
     )
     activeMask = np.ones(oscillatingEvidence.size, dtype=np.uint8)
-    _essOsc, etaOsc, lagsOsc = essKernel(
+    _essOsc, etaOsc, lagsOsc = cconsenrich.cEstimateEffectiveSampleSize(
         oscillatingEvidence,
         1,
         activeMask=activeMask,
         logPositive=True,
         windowIntervals=4,
     )
-    _essCorr, etaCorr, lagsCorr = essKernel(
+    _essCorr, etaCorr, lagsCorr = cconsenrich.cEstimateEffectiveSampleSize(
         correlatedEvidence,
         3,
         activeMask=activeMask,
@@ -1092,7 +1114,7 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
 
     maskedEvidence = np.asarray([1.0, 2.0, 0.0, 4.0, 8.0], dtype=np.float64)
     maskedActive = np.asarray([1, 1, 0, 1, 1], dtype=np.uint8)
-    _essMasked, etaMasked, _lagsMasked = essKernel(
+    _essMasked, etaMasked, _lagsMasked = cconsenrich.cEstimateEffectiveSampleSize(
         maskedEvidence,
         2,
         activeMask=maskedActive,
@@ -1101,7 +1123,7 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
     )
     assert 1.0 <= etaMasked <= 4.0
     with pytest.raises(ValueError, match="positive"):
-        essKernel(
+        cconsenrich.cEstimateEffectiveSampleSize(
             maskedEvidence,
             2,
             activeMask=np.ones(maskedEvidence.size, dtype=np.uint8),
@@ -6032,7 +6054,7 @@ def _caseReadSegmentsFragmentsGrouped():
 
 
 @pytest.mark.correctness
-def _caseReadSegmentsFragmentsDefaultToCoverage():
+def _caseReadSegmentsFragmentsDefaultToConservedFractionalOverlap():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
@@ -6055,7 +6077,7 @@ def _caseReadSegmentsFragmentsDefaultToCoverage():
         samFlagExclude=0,
     )
 
-    assert np.allclose(counts[0], np.array([2.0, 2.0], dtype=np.float32))
+    assert np.allclose(counts[0], np.array([1.0, 1.0], dtype=np.float32))
 
 
 @pytest.mark.correctness
@@ -6069,10 +6091,24 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
         "cutsite": np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32),
         "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
         "midpoint": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
+        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: np.array(
+            [1.0, 2.5, 3.2777777, 1.2222222],
+            dtype=np.float32,
+        ),
+    }
+    expectedNoiseByMode = {
+        "coverage": np.array([2.0, 5.0, 4.0, 3.0], dtype=np.float32),
+        "cutsite": np.array([2.0, 8.0, 4.0, 6.0], dtype=np.float32),
+        "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
+        "midpoint": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
+        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: np.array(
+            [0.5, 1.625, 2.7052469, 1.0246914],
+            dtype=np.float32,
+        ),
     }
 
     for countMode, expected in expectedByMode.items():
-        counts = core.readSegments(
+        result = core.readSegments(
             sources=[
                 core.inputSource(
                     path=str(gzPath),
@@ -6090,9 +6126,14 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
             oneReadPerBin=0,
             samThreads=1,
             samFlagExclude=0,
+            returnRawNoiseMass=True,
         )
 
-        assert np.allclose(counts[0], expected), countMode
+        assert np.allclose(result.counts[0], expected), countMode
+        assert np.allclose(
+            result.rawNoiseMass[0],
+            expectedNoiseByMode[countMode],
+        ), countMode
 
 
 @pytest.mark.correctness
@@ -6227,7 +6268,7 @@ def _caseReadSegmentsBedGraphScalesNativeCounts(tmp_path):
         encoding="ascii",
     )
 
-    counts = core.readSegments(
+    result = core.readSegments(
         sources=[
             core.inputSource(
                 path=str(bedGraphPath),
@@ -6243,10 +6284,12 @@ def _caseReadSegmentsBedGraphScalesNativeCounts(tmp_path):
         oneReadPerBin=0,
         samThreads=1,
         samFlagExclude=0,
+        returnRawNoiseMass=True,
     )
 
-    assert counts.shape == (1, 3)
-    assert np.allclose(counts[0], np.array([3.0, 5.0, 8.0], dtype=np.float32))
+    assert result.counts.shape == (1, 3)
+    assert np.allclose(result.counts[0], np.array([3.0, 5.0, 8.0], dtype=np.float32))
+    assert np.all(np.isnan(result.rawNoiseMass[0]))
 
 
 @pytest.mark.correctness
@@ -6293,7 +6336,17 @@ def _caseSparseNativeChromRangeFallsBackToWholeChromosome(
 
 @pytest.mark.correctness
 def _caseNormalizeCountModeRejectsNoncanonicalModes():
-    for badMode in ["cov", "cut", "cutsites", "5p", "five_prime", "centre"]:
+    for badMode in [
+        "cov",
+        "cut",
+        "cutsites",
+        "5p",
+        "five_prime",
+        "centre",
+        "conservedfractionaloverlap",
+        "conserved-fractional-overlap",
+        "conserved_fractional_overlap",
+    ]:
         with pytest.raises(ValueError, match="Unsupported countMode"):
             core._normalizeCountMode(badMode, "coverage")
 
@@ -6304,6 +6357,19 @@ def _caseNormalizeCountModeAcceptsFFP():
     assert core._normalizeCountMode("ffp-center", "coverage") == "ffp-center"
     assert core._nativeCountModeForPreset("ffp-center") == "center"
     assert core._normalizeCountMode("midpoint", "coverage") == "center"
+    assert (
+        core._normalizeCountMode(
+            constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+            "coverage",
+        )
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
+    assert (
+        core._nativeCountModeForPreset(
+            constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+        )
+        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    )
 
 
 @pytest.mark.correctness
@@ -6343,12 +6409,88 @@ def _caseReadSegmentsBamPairedEndUsesTemplateSpan(tmp_path):
         samThreads=1,
         samFlagExclude=3844,
         bamInputMode="fragments",
+        defaultCountMode="coverage",
         inferFragmentLength=0,
     )
 
     expected = np.zeros(30, dtype=np.float32)
     expected[10:18] = 1.0
     assert np.allclose(counts[0], expected)
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamConservedFractionalOverlap(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "fractional-overlap.synthetic.bam",
+        [
+            {"name": "r1", "start": 5, "flag": 0},
+            {"name": "r2", "start": 18, "flag": 0},
+        ],
+    )
+
+    result = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(bamPath),
+                sourceKind="BAM",
+                countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+            )
+        ],
+        chromosome="chr1",
+        start=0,
+        end=40,
+        intervalSizeBP=10,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="reads",
+        inferFragmentLength=0,
+        returnRawNoiseMass=True,
+    )
+
+    expected = np.array([0.25, 0.6, 0.75, 0.4], dtype=np.float32)
+    expectedNoise = np.array([0.0625, 0.26, 0.3125, 0.16], dtype=np.float32)
+    np.testing.assert_allclose(result.counts[0], expected, rtol=1.0e-6, atol=1.0e-6)
+    np.testing.assert_allclose(
+        result.rawNoiseMass[0],
+        expectedNoise,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamConservedFractionalRejectsOneReadPerBin(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "fractional-overlap-one-read-per-bin.synthetic.bam",
+        [{"name": "r1", "start": 5, "flag": 0}],
+    )
+
+    with pytest.raises(ValueError, match="oneReadPerBin"):
+        core.readSegments(
+            sources=[
+                core.inputSource(
+                    path=str(bamPath),
+                    sourceKind="BAM",
+                    countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+                )
+            ],
+            chromosome="chr1",
+            start=0,
+            end=40,
+            intervalSizeBP=10,
+            readLengths=[20],
+            scaleFactors=[1.0],
+            oneReadPerBin=1,
+            samThreads=1,
+            samFlagExclude=3844,
+            bamInputMode="reads",
+            inferFragmentLength=0,
+        )
 
 
 @pytest.mark.correctness
@@ -6388,6 +6530,7 @@ def _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode(tmp_path):
         samThreads=1,
         samFlagExclude=3844,
         bamInputMode="read1",
+        defaultCountMode="coverage",
         inferFragmentLength=0,
     )
 
@@ -6623,6 +6766,7 @@ def _caseReadSegmentsBamExtensionFetchesReadsOutsideRegion(tmp_path):
         samThreads=1,
         samFlagExclude=3844,
         bamInputMode="reads",
+        defaultCountMode="coverage",
         extendFrom5pBP=40,
         inferFragmentLength=0,
     )
@@ -6667,6 +6811,7 @@ def _caseReadSegmentsBamPairedFragmentFetchesRead1OutsideRegion(tmp_path):
         samThreads=1,
         samFlagExclude=3844,
         bamInputMode="fragments",
+        defaultCountMode="coverage",
         maxInsertSize=1000,
         inferFragmentLength=0,
     )
@@ -6903,6 +7048,34 @@ def _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator(tmp_path):
     )
 
     assert scaleFactor == pytest.approx(6.25)
+
+
+@pytest.mark.correctness
+def _caseNormalizationEgsConservedFractionalUsesMappedUnitsPerBin(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "egs-conserved-fractional.synthetic.bam",
+        _pairedNormalizationRecords(),
+    )
+    chromSizes = tmp_path / "chrom.sizes"
+    chromSizes.write_text("chr1\t1000\n", encoding="ascii")
+
+    scaleFactor = detrorm.getScaleFactor1x(
+        str(bamPath),
+        1000,
+        80,
+        [],
+        str(chromSizes),
+        1,
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=3844,
+        countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+        intervalSizeBP=50,
+        countReadLength=20,
+    )
+
+    assert scaleFactor == pytest.approx(10.0)
 
 
 @pytest.mark.correctness
@@ -7602,7 +7775,11 @@ def test_core_dependence_selection_contracts(contract_case):
 def test_core_fragments_io_contracts(tmp_path, contract_case):
     for label, func, args in (
         ("fragments grouped", _caseReadSegmentsFragmentsGrouped, ()),
-        ("fragments default coverage", _caseReadSegmentsFragmentsDefaultToCoverage, ()),
+        (
+            "fragments default conserved fractional overlap",
+            _caseReadSegmentsFragmentsDefaultToConservedFractionalOverlap,
+            (),
+        ),
         (
             "fragments mode and multiplicity",
             _caseReadSegmentsFragmentsRespectModeAndMultiplicity,
@@ -7654,6 +7831,14 @@ def test_core_bam_counting_contracts(tmp_path, monkeypatch, contract_case):
             "paired BAM read1 single-end mode",
             _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode,
         ),
+        (
+            "BAM conserved fractional overlap",
+            _caseReadSegmentsBamConservedFractionalOverlap,
+        ),
+        (
+            "BAM conserved fractional oneReadPerBin rejected",
+            _caseReadSegmentsBamConservedFractionalRejectsOneReadPerBin,
+        ),
         ("paired BAM ffp count mode", _caseReadSegmentsBamPairedEndFFPCountsOnce),
         (
             "paired BAM ffp-center preset",
@@ -7693,6 +7878,10 @@ def test_core_normalization_scale_factor_contracts(tmp_path, contract_case):
         (
             "EGS paired BAM fragment span denominator",
             _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator,
+        ),
+        (
+            "EGS conserved fractional mapped units per bin",
+            _caseNormalizationEgsConservedFractionalUsesMappedUnitsPerBin,
         ),
         (
             "CPM paired BAM fragment denominator",

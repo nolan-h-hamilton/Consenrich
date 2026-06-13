@@ -1,3 +1,10 @@
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+import pytest
+
 import consenrich
 import consenrich.config
 import consenrich.core
@@ -43,3 +50,73 @@ def test_public_api_contract(contract_case):
         "private helper modules",
         _case_private_helper_modules_are_lazily_available,
     )
+
+
+@pytest.mark.parametrize(
+    "moduleName",
+    (
+        "consenrich.cconsenrich",
+        "consenrich.ccounts",
+        "consenrich.cuncertainty",
+    ),
+)
+def test_native_module_import_fails_when_extension_import_fails(moduleName):
+    srcDir = Path(__file__).resolve().parents[1] / "src"
+    code = """
+import importlib
+import importlib.abc
+import sys
+
+moduleName = sys.argv[1]
+sys.path.insert(0, sys.argv[2])
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == moduleName:
+            raise ImportError(f"blocked {moduleName}")
+        return None
+
+sys.meta_path.insert(0, Blocker())
+try:
+    importlib.import_module(moduleName)
+except ImportError as exc:
+    if f"blocked {moduleName}" not in str(exc):
+        raise
+else:
+    raise SystemExit(f"{moduleName} import unexpectedly succeeded")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code, moduleName, str(srcDir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_src_does_not_probe_required_native_symbols():
+    srcDir = Path(__file__).resolve().parents[1] / "src" / "consenrich"
+    probePattern = re.compile(
+        r"\b(?:hasattr|getattr)\(\s*"
+        r"(?:cconsenrich|ccounts|cuncertainty|_cuncertainty)\s*,"
+    )
+    wordingNeedles = (
+        "optional native",
+        "optional-native",
+        "native extension is optional",
+        "native extensions are optional",
+    )
+    hits = []
+    for sourcePath in sorted(srcDir.rglob("*")):
+        if sourcePath.suffix not in {".py", ".pyx"}:
+            continue
+        text = sourcePath.read_text(encoding="utf-8")
+        loweredText = text.lower()
+        if probePattern.search(text):
+            hits.append(f"{sourcePath.relative_to(srcDir)} probes native symbols")
+        for needle in wordingNeedles:
+            if needle in loweredText:
+                hits.append(f"{sourcePath.relative_to(srcDir)} contains {needle!r}")
+
+    assert hits == []

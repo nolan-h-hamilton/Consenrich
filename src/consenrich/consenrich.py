@@ -261,6 +261,16 @@ RUN_SUMMARY_COLUMNS = [
     "observation_r_trace_max",
     "process_noise_status",
     "process_noise_reason",
+    "countNoiseFloorEnabled",
+    "countNoiseFloorModel",
+    "countNoiseFloorCountModes",
+    "countNoiseFloorSourceKinds",
+    "countNoiseFloorBedgraphSkippedTracks",
+    "countNoiseFloorFinite",
+    "countNoiseFloorPositive",
+    "countNoiseFloorQ05",
+    "countNoiseFloorMedian",
+    "countNoiseFloorQ95",
     "lambda_lower_bound_hits",
     "lambda_upper_bound_hits",
     "kappa_lower_bound_hits",
@@ -268,6 +278,8 @@ RUN_SUMMARY_COLUMNS = [
     "state_roughness_mean_abs_diff",
     "state_roughness_block_median",
     "state_roughness_block_q90",
+    "state_shrinkage_model",
+    "state_shrinkage_slab_family",
     "state_shrinkage_scope",
     "state_shrinkage_chunk_count",
     "state_shrinkage_interval_count",
@@ -277,10 +289,16 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_prior_null",
     "state_shrinkage_prior_scale",
     "state_shrinkage_prior_variance",
+    "state_shrinkage_prior_variance_defined",
     "state_shrinkage_slab_count",
     "state_shrinkage_slab_weight",
     "state_shrinkage_slab_variance",
+    "state_shrinkage_slab_multiplier",
     "state_shrinkage_component_weights",
+    "state_shrinkage_student_t_df",
+    "state_shrinkage_student_t_scale",
+    "state_shrinkage_student_t_quadrature_order",
+    "state_shrinkage_student_t_quadrature_alpha",
     "state_shrinkage_estimated_prior_null",
     "state_shrinkage_estimated_prior_scale",
     "state_shrinkage_estimated_slab_weights",
@@ -337,11 +355,48 @@ def _countTransformVarianceFloorKwargs(
 _MUNC_NUMERIC_VARIANCE_FLOOR = 1.0e-12
 
 
+def _countNoisePseudoVarianceMassForScaledCounts(
+    scaledCounts: np.ndarray,
+    scaleFactor: float,
+    rawNoiseMass: np.ndarray | None,
+    countMode: str | None,
+) -> float:
+    if (
+        rawNoiseMass is None
+        or countMode != constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    ):
+        return 0.5
+    counts = np.asarray(scaledCounts, dtype=np.float64)
+    rawNoise = np.asarray(rawNoiseMass, dtype=np.float64)
+    if rawNoise.shape != counts.shape:
+        raise ValueError("rawNoiseMass must match scaledCounts shape")
+    rawCounts = counts / float(scaleFactor)
+    finite = np.isfinite(rawNoise) & np.isfinite(rawCounts)
+    if np.any(finite & ((rawNoise < 0.0) | (rawCounts < 0.0))):
+        raise ValueError("count and noise masses must be nonnegative where finite")
+    positive = finite & (rawCounts > 0.0)
+    rawNoiseSum = float(np.sum(rawNoise[positive], dtype=np.float64))
+    rawCountSum = float(np.sum(rawCounts[positive], dtype=np.float64))
+    if (
+        not np.isfinite(rawNoiseSum)
+        or rawNoiseSum <= 0.0
+        or not np.isfinite(rawCountSum)
+        or rawCountSum <= 0.0
+    ):
+        raise ValueError("count noise pseudo variance masses must be positive finite")
+    pseudoVarianceMass = 0.5 * rawNoiseSum / rawCountSum
+    if not np.isfinite(pseudoVarianceMass) or pseudoVarianceMass <= 0.0:
+        raise ValueError("countNoisePseudoVarianceMass must be positive and finite")
+    return float(pseudoVarianceMass)
+
+
 def _countModelVarianceFloorForScaledCounts(
     scaledCounts: np.ndarray,
     scaleFactor: float,
     countingArgs: core.countingParams,
     *,
+    rawNoiseMass: np.ndarray | None = None,
+    countMode: str | None = None,
     countModelSource: bool = True,
 ) -> np.ndarray:
     counts = np.asarray(scaledCounts, dtype=np.float64)
@@ -354,10 +409,18 @@ def _countModelVarianceFloorForScaledCounts(
         return floor
     if not np.isfinite(scaleFactor_) or scaleFactor_ <= 0.0:
         return floor
+    countNoisePseudoVarianceMass = _countNoisePseudoVarianceMassForScaledCounts(
+        counts,
+        scaleFactor_,
+        rawNoiseMass,
+        countMode,
+    )
     return np.asarray(
         core.transformCountVarianceFloor(
             counts,
             [scaleFactor_],
+            rawNoiseMass=rawNoiseMass,
+            countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
             **_countTransformVarianceFloorKwargs(countingArgs),
         ),
         dtype=np.float64,
@@ -389,6 +452,9 @@ def _countModelFloorMatrixForScaledCounts(
     scaleFactors: Sequence[float] | np.ndarray | None,
     sources: Sequence[core.inputSource],
     countingArgs: core.countingParams,
+    *,
+    rawNoiseMassMatrix: np.ndarray | None = None,
+    countModes: Sequence[str] | None = None,
 ) -> np.ndarray:
     counts = np.asarray(scaledCountMatrix, dtype=np.float64)
     if counts.ndim != 2:
@@ -399,13 +465,24 @@ def _countModelFloorMatrixForScaledCounts(
         scaleArr = np.asarray(scaleFactors, dtype=np.float64).reshape(-1)
     if scaleArr.size != int(counts.shape[0]):
         raise ValueError("scaleFactors must match scaledCountMatrix rows")
+    if countModes is not None and len(countModes) != int(counts.shape[0]):
+        raise ValueError("countModes must match scaledCountMatrix rows")
+    rawNoise = None
+    if rawNoiseMassMatrix is not None:
+        rawNoise = np.asarray(rawNoiseMassMatrix, dtype=np.float64)
+        if rawNoise.shape != counts.shape:
+            raise ValueError("rawNoiseMassMatrix must match scaledCountMatrix shape")
     floor = np.full(counts.shape, np.nan, dtype=np.float64)
     for j in range(int(counts.shape[0])):
         source = sources[j] if j < len(sources) else None
+        rowRawNoise = None if rawNoise is None else rawNoise[j, :]
+        rowCountMode = None if countModes is None else countModes[j]
         floor[j, :] = _countModelVarianceFloorForScaledCounts(
             counts[j, :],
             float(scaleArr[j]),
             countingArgs,
+            rawNoiseMass=rowRawNoise,
+            countMode=rowCountMode,
             countModelSource=(source is None or _sourceUsesCountModelFloor(source)),
         )
     return np.ascontiguousarray(floor.astype(np.float32), dtype=np.float32)
@@ -450,6 +527,7 @@ def _summarizeCountModelVarianceFloor(
                 "q05": float(np.quantile(vals, 0.05)),
                 "median": float(np.median(vals)),
                 "p95": float(np.quantile(vals, 0.95)),
+                "q95": float(np.quantile(vals, 0.95)),
                 "max": float(np.max(vals)),
             }
         )
@@ -1553,6 +1631,8 @@ def _stateShrinkageSummaryFields(
 ) -> dict[str, Any]:
     stateShrinkage = _summaryMapping(metadata)
     fields = {
+        "state_shrinkage_model": stateShrinkage.get("model"),
+        "state_shrinkage_slab_family": stateShrinkage.get("slab_family"),
         "state_shrinkage_scope": stateShrinkage.get("scope"),
         "state_shrinkage_chunk_count": _summaryInt(
             stateShrinkage.get("chunk_count")
@@ -1578,6 +1658,9 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_prior_variance": _summaryNumber(
             stateShrinkage.get("prior_variance")
         ),
+        "state_shrinkage_prior_variance_defined": _jsonDiagnosticValue(
+            stateShrinkage.get("prior_variance_defined")
+        ),
         "state_shrinkage_slab_count": _summaryInt(
             stateShrinkage.get("slab_count")
         ),
@@ -1587,8 +1670,23 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_slab_variance": _jsonDiagnosticValue(
             stateShrinkage.get("slab_variance")
         ),
+        "state_shrinkage_slab_multiplier": _jsonDiagnosticValue(
+            stateShrinkage.get("slab_multiplier")
+        ),
         "state_shrinkage_component_weights": _jsonDiagnosticValue(
             stateShrinkage.get("component_weights")
+        ),
+        "state_shrinkage_student_t_df": _summaryNumber(
+            stateShrinkage.get("student_t_df")
+        ),
+        "state_shrinkage_student_t_scale": _summaryNumber(
+            stateShrinkage.get("student_t_scale")
+        ),
+        "state_shrinkage_student_t_quadrature_order": _summaryInt(
+            stateShrinkage.get("student_t_quadrature_order")
+        ),
+        "state_shrinkage_student_t_quadrature_alpha": _summaryNumber(
+            stateShrinkage.get("student_t_quadrature_alpha")
         ),
         "state_shrinkage_estimated_prior_null": _jsonDiagnosticValue(
             stateShrinkage.get("estimated_prior_null")
@@ -1723,6 +1821,28 @@ def _deleteBlockFactorSummaryFields(
     }
 
 
+def _countNoiseFloorSummaryFields(
+    summary: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    countNoise = _summaryMapping(summary)
+    return {
+        "countNoiseFloorEnabled": _jsonDiagnosticValue(countNoise.get("enabled")),
+        "countNoiseFloorModel": countNoise.get("model"),
+        "countNoiseFloorCountModes": _jsonDiagnosticValue(countNoise.get("countModes")),
+        "countNoiseFloorSourceKinds": _jsonDiagnosticValue(
+            countNoise.get("sourceKinds")
+        ),
+        "countNoiseFloorBedgraphSkippedTracks": _summaryInt(
+            countNoise.get("bedgraphSkippedTracks")
+        ),
+        "countNoiseFloorFinite": _summaryInt(countNoise.get("finite")),
+        "countNoiseFloorPositive": _summaryInt(countNoise.get("positive")),
+        "countNoiseFloorQ05": _summaryNumber(countNoise.get("q05")),
+        "countNoiseFloorMedian": _summaryNumber(countNoise.get("median")),
+        "countNoiseFloorQ95": _summaryNumber(countNoise.get("q95")),
+    }
+
+
 def _deleteBlockFactorLogFields(
     calibrationModel: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
@@ -1771,6 +1891,7 @@ def _runSummaryRow(
     stateRoughness: Mapping[str, Any],
     calibrationModel: Mapping[str, Any] | None,
     diagnosticLogPaths: DiagnosticLogPaths,
+    countNoiseFloorSummary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     precisionHits = _summaryMapping(
         runDiagnostics.get("precision_reweighting_boundary_hits")
@@ -1781,6 +1902,7 @@ def _runSummaryRow(
     observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
     processNoise = _summaryMapping(runDiagnostics.get("process_noise_calibration"))
     deleteBlockFields = _deleteBlockFactorSummaryFields(calibrationModel)
+    countNoiseFloorFields = _countNoiseFloorSummaryFields(countNoiseFloorSummary)
     return {
         "record_type": "chromosome",
         "chromosome": chromosome,
@@ -1799,6 +1921,7 @@ def _runSummaryRow(
         "observation_r_trace_max": _summaryNumber(observationRTrace.get("max")),
         "process_noise_status": processNoise.get("processNoiseCalibrationStatus"),
         "process_noise_reason": processNoise.get("processNoiseCalibrationReason"),
+        **countNoiseFloorFields,
         "lambda_lower_bound_hits": _summaryInt(obsHits.get("lower")),
         "lambda_upper_bound_hits": _summaryInt(obsHits.get("upper")),
         "kappa_lower_bound_hits": _summaryInt(procHits.get("lower")),
@@ -3155,16 +3278,16 @@ def main():
     treatmentCountModes = [
         _getSourceCountMode(
             source,
-            str(samArgs.defaultCountMode or "coverage"),
-            str(scArgs.defaultCountMode or "coverage"),
+            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
+            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
         )
         for source in treatmentSources
     ]
     controlCountModes = [
         _getSourceCountMode(
             source,
-            str(samArgs.defaultCountMode or "coverage"),
-            str(scArgs.defaultCountMode or "coverage"),
+            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
+            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
         )
         for source in controlSources
     ]
@@ -3594,6 +3717,7 @@ def main():
                         minTemplateLength=samArgs.minTemplateLength,
                         maxInsertSize=samArgs.maxInsertSize,
                         extendBP=extendBP,
+                        intervalSizeBP=intervalSizeBP,
                         countReadLength=countReadLength,
                     )
 
@@ -3737,6 +3861,7 @@ def main():
     )
     transformedMatrixCachePaths: Dict[str, str] = {}
     countModelVarianceFloorCachePaths: Dict[str, str] = {}
+    countNoiseFloorSummaryByChromosome: Dict[str, dict[str, Any]] = {}
     muncResidualBackgroundCachePaths: Dict[str, str] = {}
     muncPriorMeanCachePaths: Dict[str, str] = {}
     muncLocalEvidenceCachePaths: Dict[str, str] = {}
@@ -3760,6 +3885,27 @@ def main():
             constants.OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
         )
     )
+    countNoiseFloorSourceKinds = [
+        str(source.sourceKind).upper()
+        for source in (
+            treatmentSources + (controlSources if controlsPresent else [])
+        )
+    ]
+    countNoiseFloorCountModes = list(
+        treatmentCountModes + (controlCountModes if controlsPresent else [])
+    )
+    countNoiseFloorBedgraphSkippedTracks = sum(
+        1
+        for sourceKind in countNoiseFloorSourceKinds
+        if sourceKind == constants.BEDGRAPH_SOURCE_KIND
+    )
+    countNoiseFloorStaticSummary: dict[str, Any] = {
+        "enabled": bool(useCountNoiseFloor),
+        "model": "rawCountMassDeltaMethod" if useCountNoiseFloor else "disabled",
+        "countModes": countNoiseFloorCountModes,
+        "sourceKinds": countNoiseFloorSourceKinds,
+        "bedgraphSkippedTracks": int(countNoiseFloorBedgraphSkippedTracks),
+    }
     muncEBPriorWarmupECMIters = int(
         getattr(
             observationArgs,
@@ -4014,6 +4160,7 @@ def main():
         numIntervals = int(chromPlan["numIntervals"])
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
+        rawNoiseMassMat: np.ndarray | None = None
         countModelVarianceFloorMat = (
             np.full(
                 (numSamples, numIntervals),
@@ -4035,7 +4182,7 @@ def main():
                     bamA,
                     bamB,
                 )
-                pairMatrix: np.ndarray = core.readSegments(
+                pairReadResult = core.readSegments(
                     [
                         treatmentSources[j_],
                         controlSources[j_],
@@ -4065,16 +4212,27 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
+                    returnRawNoiseMass=useCountNoiseFloor,
                 )
+                pairRawNoiseMass = None
+                if useCountNoiseFloor:
+                    pairMatrix = pairReadResult.counts
+                    pairRawNoiseMass = pairReadResult.rawNoiseMass
+                else:
+                    pairMatrix = pairReadResult
                 if useCountNoiseFloor:
                     if countModelVarianceFloorMat is None:
                         raise RuntimeError("count floor matrix missing")
+                    if pairRawNoiseMass is None:
+                        raise RuntimeError("raw noise mass matrix missing")
                     countModelVarianceFloorMat[j_, :] = (
                         _combineCountModelVarianceFloors(
                             _countModelVarianceFloorForScaledCounts(
                                 pairMatrix[0, :],
                                 treatScaleFactors[j_],
                                 countingArgs,
+                                rawNoiseMass=pairRawNoiseMass[0, :],
+                                countMode=treatmentCountModes[j_],
                                 countModelSource=_sourceUsesCountModelFloor(
                                     treatmentSources[j_]
                                 ),
@@ -4083,6 +4241,8 @@ def main():
                                 pairMatrix[1, :],
                                 controlScaleFactors[j_],
                                 countingArgs,
+                                rawNoiseMass=pairRawNoiseMass[1, :],
+                                countMode=controlCountModes[j_],
                                 countModelSource=_sourceUsesCountModelFloor(
                                     controlSources[j_]
                                 ),
@@ -4118,7 +4278,7 @@ def main():
                 int(numIntervals),
                 int(samArgs.samThreads),
             )
-            chromMat = core.readSegments(
+            readResult = core.readSegments(
                 treatmentSources,
                 chromosome,
                 chromosomeStart,
@@ -4139,7 +4299,13 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
+                returnRawNoiseMass=useCountNoiseFloor,
             )
+            if useCountNoiseFloor:
+                chromMat = readResult.counts
+                rawNoiseMassMat = readResult.rawNoiseMass
+            else:
+                chromMat = readResult
             logger.info(
                 "counting.done %s samples=%d elapsed=%.3fs",
                 chromosome,
@@ -4164,12 +4330,18 @@ def main():
                 countModelScaleFactors,
                 treatmentSources,
                 countingArgs,
+                rawNoiseMassMatrix=rawNoiseMassMat,
+                countModes=treatmentCountModes,
             )
 
         if useCountNoiseFloor:
             if countModelVarianceFloorMat is None:
                 raise RuntimeError("count floor matrix missing")
             floorSummary = _summarizeCountModelVarianceFloor(countModelVarianceFloorMat)
+            countNoiseFloorSummaryByChromosome[chromosome] = {
+                **countNoiseFloorStaticSummary,
+                **floorSummary,
+            }
             countNoiseDerivedVarianceFloor = _countModelVarianceFloorScalar(
                 countModelVarianceFloorMat,
             )
@@ -4187,6 +4359,9 @@ def main():
                 _fmtDiagnosticFloat(floorSummary.get("max")),
             )
         else:
+            countNoiseFloorSummaryByChromosome[chromosome] = dict(
+                countNoiseFloorStaticSummary
+            )
             logger.info("count noise floor disabled %s", chromosome)
 
         def _transformTrack(j: int) -> int:
@@ -4784,15 +4959,20 @@ def main():
             raise RuntimeError("MUNC blacklist mask length mismatch")
         countFloorWork = None
         if countModelVarianceFloorMat is not None:
-            countFloorWork = np.asarray(countModelVarianceFloorMat, dtype=np.float32)
+            countFloorWork = np.asarray(
+                countModelVarianceFloorMat,
+                dtype=np.float32,
+            ).copy()
             if countFloorWork.shape != seedMuncArr.shape:
                 raise RuntimeError(
                     "count-model floor matrix must align with MUNC evidence"
                 )
-            if not np.all(np.isfinite(countFloorWork)):
-                raise RuntimeError("count-model floor must be finite")
-            if np.any(countFloorWork < 0.0):
+            finiteFloor = np.isfinite(countFloorWork)
+            if np.any(finiteFloor & (countFloorWork < 0.0)):
                 raise RuntimeError("count-model floor must be nonnegative")
+            if np.any((~finiteFloor) & (~np.isnan(countFloorWork))):
+                raise RuntimeError("count-model floor must be finite or NaN")
+            countFloorWork[~finiteFloor] = 0.0
 
         localEvidenceMatrix = np.empty(seedMuncArr.shape, dtype=np.float32)
         responseWeightMatrix = np.ones(seedMuncArr.shape, dtype=np.float32)
@@ -4953,13 +5133,7 @@ def main():
             rhoIn: np.ndarray,
             updateWeights: bool,
         ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-            cythonSeedPass = getattr(
-                cconsenrich,
-                "cMuncObservationMomentSeedPass",
-                None,
-            )
-            if not callable(cythonSeedPass):
-                raise RuntimeError("cMuncObservationMomentSeedPass is required")
+            cythonSeedPass = cconsenrich.cMuncObservationMomentSeedPass
             return cythonSeedPass(
                 np.ascontiguousarray(matrixData, dtype=np.float32),
                 np.ascontiguousarray(matrixMunc, dtype=np.float32),
@@ -4987,13 +5161,7 @@ def main():
         def _smoothDenseLocalEvidence(
             localEvidence: np.ndarray,
         ) -> np.ndarray:
-            cythonSmooth = getattr(
-                cconsenrich,
-                "cMuncSmoothDenseLocalEvidence",
-                None,
-            )
-            if not callable(cythonSmooth):
-                raise RuntimeError("cMuncSmoothDenseLocalEvidence is required")
+            cythonSmooth = cconsenrich.cMuncSmoothDenseLocalEvidence
             return np.ascontiguousarray(
                 cythonSmooth(
                     np.ascontiguousarray(localEvidence, dtype=np.float32),
@@ -6762,15 +6930,7 @@ def main():
                 logger_=logger,
                 indentLevel=1,
             )
-            try:
-                from consenrich import uncertainty as uncertainty_module
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Delete-block state uncertainty calibration requires the optional "
-                    "`consenrich.uncertainty` module and `consenrich.cuncertainty` "
-                    "extension. Build/install Consenrich with uncertainty support, "
-                    "or set `uncertaintyCalibrationParams.enabled: false`."
-                ) from exc
+            from consenrich import uncertainty as uncertainty_module
 
             calibrationRunKwargs = dict(
                 deltaF=deltaF_,
@@ -7054,6 +7214,9 @@ def main():
                 stateRoughness=stateRoughness,
                 calibrationModel=calibrationModel,
                 diagnosticLogPaths=diagnosticLogPaths,
+                countNoiseFloorSummary=countNoiseFloorSummaryByChromosome.get(
+                    chromosome
+                ),
             )
         )
         _logCliProgressMilestone(
@@ -7177,6 +7340,22 @@ def main():
             model=getattr(outputArgs, "stateShrinkageModel", None),
             priorNull=getattr(outputArgs, "stateShrinkagePriorNull", None),
             priorScale=getattr(outputArgs, "stateShrinkagePriorScale", None),
+            stateShrinkageNullPseudoCount=outputArgs.stateShrinkageNullPseudoCount,
+            stateShrinkageScaleAnchorWeight=getattr(
+                outputArgs,
+                "stateShrinkageScaleAnchorWeight",
+                constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT,
+            ),
+            studentTDF=getattr(
+                outputArgs,
+                "stateShrinkageStudentTDF",
+                constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_DF,
+            ),
+            studentTQuadratureOrder=getattr(
+                outputArgs,
+                "stateShrinkageStudentTQuadratureOrder",
+                constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_QUADRATURE_ORDER,
+            ),
             blockSize=int(stateShrinkBlockIntervals),
         )
         logger.info(

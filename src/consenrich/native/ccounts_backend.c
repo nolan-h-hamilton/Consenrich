@@ -153,7 +153,182 @@ static int ccounts_isValidCountMode(uint8_t countMode)
            countMode == (uint8_t)ccounts_countModeCutSite ||
            countMode == (uint8_t)ccounts_countModeFivePrime ||
            countMode == (uint8_t)ccounts_countModeCenter ||
-           countMode == (uint8_t)ccounts_countModeFFP;
+           countMode == (uint8_t)ccounts_countModeFFP ||
+           countMode == (uint8_t)ccounts_countModeConservedFractionalOverlap;
+}
+
+static void ccounts_addBinnedMass(
+    float *countBuffer,
+    float *noiseMassBuffer,
+    size_t countBufferLength,
+    size_t index,
+    float countValue,
+    float noiseValue)
+{
+    if (countBuffer == NULL || index >= countBufferLength)
+    {
+        return;
+    }
+    countBuffer[index] += countValue;
+    if (noiseMassBuffer != NULL)
+    {
+        noiseMassBuffer[index] += noiseValue;
+    }
+}
+
+static void ccounts_addUnitWeightEvent(
+    float *countBuffer,
+    float *noiseMassBuffer,
+    size_t countBufferLength,
+    size_t index,
+    float incrementValue)
+{
+    ccounts_addBinnedMass(
+        countBuffer,
+        noiseMassBuffer,
+        countBufferLength,
+        index,
+        incrementValue,
+        incrementValue);
+}
+
+static void ccounts_addEndpointPair(
+    float *countBuffer,
+    float *noiseMassBuffer,
+    size_t countBufferLength,
+    int64_t regionStart,
+    int64_t regionEnd,
+    int64_t step,
+    int64_t firstPosition,
+    int64_t secondPosition,
+    float incrementValue)
+{
+    int hasFirst = 0;
+    int hasSecond = 0;
+    size_t firstIndex = 0U;
+    size_t secondIndex = 0U;
+
+    if (countBuffer == NULL || countBufferLength == 0U || step <= 0)
+    {
+        return;
+    }
+    if (firstPosition >= regionStart && firstPosition < regionEnd)
+    {
+        firstIndex = (size_t)((firstPosition - regionStart) / step);
+        hasFirst = firstIndex < countBufferLength;
+    }
+    if (secondPosition >= regionStart && secondPosition < regionEnd)
+    {
+        secondIndex = (size_t)((secondPosition - regionStart) / step);
+        hasSecond = secondIndex < countBufferLength;
+    }
+    if (hasFirst && hasSecond && firstIndex == secondIndex)
+    {
+        ccounts_addBinnedMass(
+            countBuffer,
+            noiseMassBuffer,
+            countBufferLength,
+            firstIndex,
+            2.0f * incrementValue,
+            4.0f * incrementValue);
+        return;
+    }
+    if (hasFirst)
+    {
+        ccounts_addUnitWeightEvent(
+            countBuffer,
+            noiseMassBuffer,
+            countBufferLength,
+            firstIndex,
+            incrementValue);
+    }
+    if (hasSecond)
+    {
+        ccounts_addUnitWeightEvent(
+            countBuffer,
+            noiseMassBuffer,
+            countBufferLength,
+            secondIndex,
+            incrementValue);
+    }
+}
+
+static void ccounts_addConservedFractionalOverlap(
+    float *countBuffer,
+    float *noiseMassBuffer,
+    size_t countBufferLength,
+    int64_t regionStart,
+    int64_t regionEnd,
+    int64_t step,
+    int64_t featureStart,
+    int64_t featureEnd,
+    int64_t denomStart,
+    int64_t denomEnd,
+    float incrementValue)
+{
+    int64_t adjStart = 0;
+    int64_t adjEnd = 0;
+    int64_t denomBP = 0;
+    int64_t binStart = 0;
+    int64_t binEnd = 0;
+    int64_t overlapStart = 0;
+    int64_t overlapEnd = 0;
+    int64_t bpOverlap = 0;
+    size_t index = 0U;
+    size_t index0 = 0U;
+    size_t index1 = 0U;
+    float weight = 0.0f;
+
+    if (countBuffer == NULL || countBufferLength == 0U || step <= 0)
+    {
+        return;
+    }
+    denomBP = denomEnd - denomStart;
+    if (denomBP <= 0)
+    {
+        return;
+    }
+    adjStart = featureStart < regionStart ? regionStart : featureStart;
+    adjEnd = featureEnd > regionEnd ? regionEnd : featureEnd;
+    if (adjEnd <= adjStart)
+    {
+        return;
+    }
+    index0 = (size_t)((adjStart - regionStart) / step);
+    index1 = (size_t)(((adjEnd - 1) - regionStart) / step);
+    if (index0 >= countBufferLength)
+    {
+        return;
+    }
+    if (index1 >= countBufferLength)
+    {
+        index1 = countBufferLength - 1U;
+    }
+    if (index0 > index1)
+    {
+        return;
+    }
+    for (index = index0; index <= index1; ++index)
+    {
+        binStart = regionStart + (int64_t)index * step;
+        binEnd = binStart + step;
+        if (binEnd > regionEnd)
+        {
+            binEnd = regionEnd;
+        }
+        overlapStart = adjStart > binStart ? adjStart : binStart;
+        overlapEnd = adjEnd < binEnd ? adjEnd : binEnd;
+        bpOverlap = overlapEnd - overlapStart;
+        if (bpOverlap > 0)
+        {
+            weight = (float)bpOverlap / (float)denomBP;
+            countBuffer[index] += incrementValue * weight;
+            if (noiseMassBuffer != NULL)
+            {
+                noiseMassBuffer[index] += incrementValue * weight * weight;
+            }
+        }
+    }
 }
 
 static int ccounts_compareUint32(const void *left, const void *right)
@@ -1539,6 +1714,13 @@ ccounts_result ccounts_getMappedReadCount(
     {
         return ccounts_makeResult(-1, "unsupported count mode");
     }
+    if (oneReadPerBin &&
+        (ccounts_countMode)countMode == ccounts_countModeConservedFractionalOverlap)
+    {
+        return ccounts_makeResult(
+            -1,
+            "conservedFractionalOverlap count mode does not support oneReadPerBin");
+    }
 
     result = ccounts_openSource(sourceConfig, &sourceHandle);
     if (result.errorCode != 0)
@@ -2342,11 +2524,12 @@ void ccounts_closeSource(ccounts_sourceHandle *sourceHandle)
 /**
  * @ brief Count coverage for a specified region and options, writing to countBuffer
  */
-ccounts_result ccounts_countRegion(
+ccounts_result ccounts_countRegionWithMass(
     ccounts_sourceHandle *sourceHandle,
     const ccounts_region *region,
     const ccounts_countOptions *countOptions,
     float *countBuffer,
+    float *noiseMassBuffer,
     size_t countBufferLength)
 {
     bam1_t *record = NULL;
@@ -2362,12 +2545,13 @@ ccounts_result ccounts_countRegion(
     int64_t readEnd = 0;
     int64_t adjStart = 0;
     int64_t adjEnd = 0;
+    int64_t denomStart = 0;
+    int64_t denomEnd = 0;
     int64_t fivePrime = 0;
     int64_t minTemplateLength = 0;
     int64_t templateLength = 0;
     int64_t absoluteTemplateLength = 0;
     int64_t midPoint = 0;
-    int64_t cutPosition = 0;
     int64_t queryPadding = 0;
     int64_t shiftPadding = 0;
     int64_t queryStart = 0;
@@ -2386,6 +2570,13 @@ ccounts_result ccounts_countRegion(
     if (!ccounts_isValidCountMode(countOptions->countMode))
     {
         return ccounts_makeResult(-1, "unsupported count mode");
+    }
+    if (countOptions->oneReadPerBin &&
+        (ccounts_countMode)countOptions->countMode == ccounts_countModeConservedFractionalOverlap)
+    {
+        return ccounts_makeResult(
+            -1,
+            "conservedFractionalOverlap count mode does not support oneReadPerBin");
     }
     needsSpanCoverage =
         !countOptions->oneReadPerBin &&
@@ -2412,6 +2603,13 @@ ccounts_result ccounts_countRegion(
         if (step64 <= 0 || end64 <= start64)
         {
             return ccounts_makeResult(-1, "bedGraph count request has invalid coordinates");
+        }
+        if (noiseMassBuffer != NULL)
+        {
+            for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+            {
+                noiseMassBuffer[intervalIndex] = NAN;
+            }
         }
 
         sumBuffer = (double *)calloc(countBufferLength, sizeof(double));
@@ -2605,7 +2803,6 @@ ccounts_result ccounts_countRegion(
         int64_t fragCount = 1;
         const char *barcodeStart = NULL;
         size_t barcodeLength = 0U;
-        int64_t cutPosition = 0;
         float incrementValue = 1.0f;
 
         if ((ccounts_countMode)countOptions->countMode == ccounts_countModeFFP)
@@ -2725,7 +2922,12 @@ ccounts_result ccounts_countRegion(
                 intervalIndex = (size_t)((midPoint - start64) / step64);
                 if (intervalIndex < countBufferLength)
                 {
-                    countBuffer[intervalIndex] += incrementValue;
+                    ccounts_addUnitWeightEvent(
+                        countBuffer,
+                        noiseMassBuffer,
+                        countBufferLength,
+                        intervalIndex,
+                        incrementValue);
                 }
                 continue;
             }
@@ -2734,24 +2936,34 @@ ccounts_result ccounts_countRegion(
                 (ccounts_countMode)countOptions->countMode == ccounts_countModeFivePrime)
             {
                 // fragments are assumed to already represent insertion endpoints
-                cutPosition = fragStart;
-                if (cutPosition >= start64 && cutPosition < end64)
-                {
-                    intervalIndex = (size_t)((cutPosition - start64) / step64);
-                    if (intervalIndex < countBufferLength)
-                    {
-                        countBuffer[intervalIndex] += incrementValue;
-                    }
-                }
-                cutPosition = fragEnd - 1;
-                if (cutPosition >= start64 && cutPosition < end64)
-                {
-                    intervalIndex = (size_t)((cutPosition - start64) / step64);
-                    if (intervalIndex < countBufferLength)
-                    {
-                        countBuffer[intervalIndex] += incrementValue;
-                    }
-                }
+                ccounts_addEndpointPair(
+                    countBuffer,
+                    noiseMassBuffer,
+                    countBufferLength,
+                    start64,
+                    end64,
+                    step64,
+                    fragStart,
+                    fragEnd - 1,
+                    incrementValue);
+                continue;
+            }
+
+            if ((ccounts_countMode)countOptions->countMode ==
+                ccounts_countModeConservedFractionalOverlap)
+            {
+                ccounts_addConservedFractionalOverlap(
+                    countBuffer,
+                    noiseMassBuffer,
+                    countBufferLength,
+                    start64,
+                    end64,
+                    step64,
+                    fragStart,
+                    fragEnd,
+                    fragStart,
+                    fragEnd,
+                    incrementValue);
                 continue;
             }
 
@@ -2794,6 +3006,10 @@ ccounts_result ccounts_countRegion(
             {
                 deltaValue += deltaBuffer[intervalIndex];
                 countBuffer[intervalIndex] += deltaValue;
+                if (noiseMassBuffer != NULL)
+                {
+                    noiseMassBuffer[intervalIndex] += deltaValue;
+                }
             }
         }
 
@@ -2963,7 +3179,12 @@ ccounts_result ccounts_countRegion(
                     intervalIndex = (size_t)((fivePrime - start64) / step64);
                     if (intervalIndex < countBufferLength)
                     {
-                        countBuffer[intervalIndex] += 1.0f;
+                        ccounts_addUnitWeightEvent(
+                            countBuffer,
+                            noiseMassBuffer,
+                            countBufferLength,
+                            intervalIndex,
+                            1.0f);
                     }
                 }
                 continue;
@@ -3036,7 +3257,12 @@ ccounts_result ccounts_countRegion(
                 intervalIndex = (size_t)((fivePrime - start64) / step64);
                 if (intervalIndex < countBufferLength)
                 {
-                    countBuffer[intervalIndex] += 1.0f;
+                    ccounts_addUnitWeightEvent(
+                        countBuffer,
+                        noiseMassBuffer,
+                        countBufferLength,
+                        intervalIndex,
+                        1.0f);
                 }
             }
             continue;
@@ -3051,7 +3277,12 @@ ccounts_result ccounts_countRegion(
                 intervalIndex = (size_t)((midPoint - start64) / step64);
                 if (intervalIndex < countBufferLength)
                 {
-                    countBuffer[intervalIndex] += 1.0f;
+                    ccounts_addUnitWeightEvent(
+                        countBuffer,
+                        noiseMassBuffer,
+                        countBufferLength,
+                        intervalIndex,
+                        1.0f);
                 }
             }
             continue;
@@ -3062,33 +3293,50 @@ ccounts_result ccounts_countRegion(
         {
             if (countOptions->pairedEndMode > 0)
             {
-                cutPosition = adjStart;
-                if (cutPosition >= start64 && cutPosition < end64)
-                {
-                    intervalIndex = (size_t)((cutPosition - start64) / step64);
-                    if (intervalIndex < countBufferLength)
-                    {
-                        countBuffer[intervalIndex] += 1.0f;
-                    }
-                }
-                cutPosition = adjEnd - 1;
-                if (cutPosition >= start64 && cutPosition < end64)
-                {
-                    intervalIndex = (size_t)((cutPosition - start64) / step64);
-                    if (intervalIndex < countBufferLength)
-                    {
-                        countBuffer[intervalIndex] += 1.0f;
-                    }
-                }
+                ccounts_addEndpointPair(
+                    countBuffer,
+                    noiseMassBuffer,
+                    countBufferLength,
+                    start64,
+                    end64,
+                    step64,
+                    adjStart,
+                    adjEnd - 1,
+                    1.0f);
             }
             else if (fivePrime >= start64 && fivePrime < end64)
             {
                 intervalIndex = (size_t)((fivePrime - start64) / step64);
                 if (intervalIndex < countBufferLength)
                 {
-                    countBuffer[intervalIndex] += 1.0f;
+                    ccounts_addUnitWeightEvent(
+                        countBuffer,
+                        noiseMassBuffer,
+                        countBufferLength,
+                        intervalIndex,
+                        1.0f);
                 }
             }
+            continue;
+        }
+
+        if ((ccounts_countMode)countOptions->countMode ==
+            ccounts_countModeConservedFractionalOverlap)
+        {
+            denomStart = adjStart < 0 ? 0 : adjStart;
+            denomEnd = targetLength > 0 && adjEnd > targetLength ? targetLength : adjEnd;
+            ccounts_addConservedFractionalOverlap(
+                countBuffer,
+                noiseMassBuffer,
+                countBufferLength,
+                start64,
+                end64,
+                step64,
+                adjStart,
+                adjEnd,
+                denomStart,
+                denomEnd,
+                1.0f);
             continue;
         }
 
@@ -3127,6 +3375,10 @@ ccounts_result ccounts_countRegion(
         {
             deltaValue += deltaBuffer[intervalIndex];
             countBuffer[intervalIndex] += deltaValue;
+            if (noiseMassBuffer != NULL)
+            {
+                noiseMassBuffer[intervalIndex] += deltaValue;
+            }
         }
     }
 
@@ -3134,4 +3386,20 @@ ccounts_result ccounts_countRegion(
     bam_destroy1(record);
     free(deltaBuffer);
     return ccounts_makeOk();
+}
+
+ccounts_result ccounts_countRegion(
+    ccounts_sourceHandle *sourceHandle,
+    const ccounts_region *region,
+    const ccounts_countOptions *countOptions,
+    float *countBuffer,
+    size_t countBufferLength)
+{
+    return ccounts_countRegionWithMass(
+        sourceHandle,
+        region,
+        countOptions,
+        countBuffer,
+        NULL,
+        countBufferLength);
 }

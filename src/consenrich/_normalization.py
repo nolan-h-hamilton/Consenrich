@@ -101,7 +101,10 @@ def normalize_count_transform_method(
 def normalize_count_mode(count_mode: str | None, default_mode: str) -> str:
     """Normalize BAM/fragments count modes to native counting labels."""
 
-    normalized = str(count_mode or default_mode).strip().lower()
+    raw = str(default_mode if count_mode is None else count_mode).strip()
+    if raw == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP:
+        return raw
+    normalized = raw.lower()
     if normalized not in constants.SUPPORTED_COUNT_MODES:
         raise ValueError(f"Unsupported countMode `{count_mode}`")
     if normalized == "midpoint":

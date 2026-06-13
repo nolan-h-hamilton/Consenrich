@@ -267,12 +267,77 @@ def _normalizeOptionalPositiveFloat(value: Any, configName: str) -> float | None
     return out
 
 
+def _normalizeNonnegativeFloat(value: Any, configName: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{configName} must be finite and non-negative")
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{configName} must be finite and non-negative") from exc
+    if not np.isfinite(out) or out < 0.0:
+        raise ValueError(f"{configName} must be finite and non-negative")
+    return out
+
+
+def _normalizeOptionalNonnegativeFloat(value: Any, configName: str) -> float | None:
+    if value is None:
+        return None
+    return _normalizeNonnegativeFloat(value, configName)
+
+
+def _normalizeStateShrinkageStudentTDF(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTDF must be numeric with 1 <= value <= 30"
+        )
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTDF must be numeric with 1 <= value <= 30"
+        ) from exc
+    if not np.isfinite(out) or out < 1.0 or out > 30.0:
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTDF must be numeric with 1 <= value <= 30"
+        )
+    return out
+
+
+def _normalizeStateShrinkageStudentTQuadratureOrder(value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTQuadratureOrder must be an integer "
+            "with 8 <= value <= 96"
+        )
+    try:
+        asFloat = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTQuadratureOrder must be an integer "
+            "with 8 <= value <= 96"
+        ) from exc
+    if not np.isfinite(asFloat) or not asFloat.is_integer():
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTQuadratureOrder must be an integer "
+            "with 8 <= value <= 96"
+        )
+    out = int(asFloat)
+    if out < 8 or out > 96:
+        raise ValueError(
+            "outputParams.stateShrinkageStudentTQuadratureOrder must be an integer "
+            "with 8 <= value <= 96"
+        )
+    return out
+
+
 def _normalizeStateShrinkageModel(value: Any) -> str:
-    return _normalizeConfigEnum(
-        value,
-        default=constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
-        supported=constants.OUTPUT_STATE_SHRINKAGE_MODELS,
-        configName="outputParams.stateShrinkageModel",
+    raw = constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL if value is None else str(value)
+    if raw in constants.OUTPUT_STATE_SHRINKAGE_MODELS:
+        return raw
+    supported = ", ".join(constants.OUTPUT_STATE_SHRINKAGE_MODELS)
+    raise ValueError(
+        f"Unsupported outputParams.stateShrinkageModel {value!r}; "
+        f"supported values: {supported}."
     )
 
 
@@ -627,6 +692,38 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         ),
         "outputParams.stateShrinkagePriorScale",
     )
+    stateShrinkageNullPseudoCount_ = _normalizeOptionalNonnegativeFloat(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkageNullPseudoCount",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT,
+        ),
+        "outputParams.stateShrinkageNullPseudoCount",
+    )
+    stateShrinkageScaleAnchorWeight_ = _normalizeOptionalNonnegativeFloat(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkageScaleAnchorWeight",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT,
+        ),
+        "outputParams.stateShrinkageScaleAnchorWeight",
+    )
+    stateShrinkageStudentTDF_ = _normalizeStateShrinkageStudentTDF(
+        _cfgGet(
+            configData,
+            "outputParams.stateShrinkageStudentTDF",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_DF,
+        )
+    )
+    stateShrinkageStudentTQuadratureOrder_ = (
+        _normalizeStateShrinkageStudentTQuadratureOrder(
+            _cfgGet(
+                configData,
+                "outputParams.stateShrinkageStudentTQuadratureOrder",
+                constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_QUADRATURE_ORDER,
+            )
+        )
+    )
     saveBackgroundTracks_ = _cfgGet(
         configData,
         "outputParams.saveBackgroundTracks",
@@ -696,6 +793,10 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         stateShrinkageModel=stateShrinkageModel_,
         stateShrinkagePriorNull=stateShrinkagePriorNull_,
         stateShrinkagePriorScale=stateShrinkagePriorScale_,
+        stateShrinkageNullPseudoCount=stateShrinkageNullPseudoCount_,
+        stateShrinkageScaleAnchorWeight=stateShrinkageScaleAnchorWeight_,
+        stateShrinkageStudentTDF=stateShrinkageStudentTDF_,
+        stateShrinkageStudentTQuadratureOrder=stateShrinkageStudentTQuadratureOrder_,
         saveBackgroundTracks=saveBackgroundTracks_,
         saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
@@ -1130,7 +1231,11 @@ def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams
         "scParams.defaultCountMode",
         constants.SC_DEFAULT_COUNT_MODE,
     )
-    if str(defaultCountMode_).strip().lower() not in constants.SC_SUPPORTED_COUNT_MODES:
+    defaultCountMode_ = core._normalizeCountMode(
+        defaultCountMode_,
+        constants.SC_DEFAULT_COUNT_MODE,
+    )
+    if defaultCountMode_ not in constants.SC_SUPPORTED_COUNT_MODES:
         raise ValueError("`scParams.defaultCountMode` is not supported.")
 
     fragmentsGroupNorm_ = _cfgGet(
@@ -2535,7 +2640,10 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
     )
     core._normalizeBamInputMode(bamInputMode)
-    core._normalizeCountMode(defaultCountMode, "coverage")
+    defaultCountMode = core._normalizeCountMode(
+        defaultCountMode,
+        constants.SAM_DEFAULT_COUNT_MODE,
+    )
     if extendFrom5pBP is not None and not isinstance(extendFrom5pBP, (int, list)):
         raise ValueError("`samParams.extendFrom5pBP` must be an integer or list.")
     if isinstance(extendFrom5pBP, list):

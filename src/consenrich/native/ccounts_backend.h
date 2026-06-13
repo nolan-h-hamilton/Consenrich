@@ -22,7 +22,8 @@ extern "C"
         ccounts_countModeCutSite = 1,
         ccounts_countModeFivePrime = 2,
         ccounts_countModeCenter = 3,
-        ccounts_countModeFFP = 4
+        ccounts_countModeFFP = 4,
+        ccounts_countModeConservedFractionalOverlap = 5
     } ccounts_countMode;
 
     /**
@@ -143,6 +144,14 @@ extern "C"
         const ccounts_region *region,
         const ccounts_countOptions *countOptions,
         float *countBuffer,
+        size_t countBufferLength);
+
+    ccounts_result ccounts_countRegionWithMass(
+        ccounts_sourceHandle *sourceHandle,
+        const ccounts_region *region,
+        const ccounts_countOptions *countOptions,
+        float *countBuffer,
+        float *noiseMassBuffer,
         size_t countBufferLength);
 
 #ifdef __cplusplus

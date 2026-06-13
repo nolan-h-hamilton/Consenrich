@@ -65,6 +65,9 @@ From Source
 
 Some features require `samtools <http://www.htslib.org/download/>`_ and `bedtools <https://bedtools.readthedocs.io/en/latest/content/installation.html>`_ in your ``$PATH``.
 
+Source builds also need a C compiler and Cython, since Consenrich compiles native extensions from ``.pyx`` sources.
+
+When a hot Python loop becomes a bottleneck, treat it as a candidate for Cython only after profiling. Keep the Python API unchanged and rebuild the extension before timing or running Consenrich.
 
 .. admonition:: Guidance: C Compiler
   :class: tip

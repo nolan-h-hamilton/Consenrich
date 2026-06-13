@@ -8,7 +8,9 @@ from typing import Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
+from scipy import special
 
+from . import constants
 from .cconsenrich import (
     cstateShrinkInitialSums as _cstateShrinkInitialSums,
     cstateShrinkMixtureEMStep as _cstateShrinkMixtureEMStep,
@@ -20,10 +22,12 @@ from .cconsenrich import (
 
 STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE = "adaptiveNormalMixture"
 STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL = "spikeAndNormal"
-STATE_SHRINKAGE_MODEL = STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE
+STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T = "spikeAndStudentT"
+STATE_SHRINKAGE_MODEL = STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
 STATE_SHRINKAGE_MODELS = (
     STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE,
     STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
+    STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T,
 )
 _STATE_SHRINKAGE_POSITIVE_FLOOR = 1.0e-12
 _STATE_SHRINKAGE_WEIGHT_FLOOR = 1.0e-12
@@ -32,7 +36,35 @@ _STATE_SHRINKAGE_DEFAULT_TOL = 1.0e-5
 _STATE_SHRINKAGE_DEFAULT_NULL_Z = 1.5
 _STATE_SHRINKAGE_DEFAULT_MIN_NULL = 1.0e-2
 _STATE_SHRINKAGE_DEFAULT_MAX_NULL = 1.0 - 1.0e-4
+_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT
+)
+_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_FRACTION = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_FRACTION
+)
+_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MIN = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MIN
+)
+_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MAX = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MAX
+)
+_STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT
+)
+_STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_FRACTION = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_FRACTION
+)
+_STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_MIN = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_MIN
+)
 _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0)
+_STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF = 1.0
+_STATE_SHRINKAGE_MIN_STUDENT_T_DF = 1.0
+_STATE_SHRINKAGE_MAX_STUDENT_T_DF = 30.0
+_STATE_SHRINKAGE_DEFAULT_STUDENT_T_QUADRATURE_ORDER = 12
+_STATE_SHRINKAGE_MIN_STUDENT_T_QUADRATURE_ORDER = 8
+_STATE_SHRINKAGE_MAX_STUDENT_T_QUADRATURE_ORDER = 96
+_STATE_SHRINKAGE_DEFAULT_STUDENT_T_SLAB_VARIANCE_FLOOR_FACTOR = 4.0
 
 
 class stateShrinkPrior(NamedTuple):
@@ -155,6 +187,121 @@ def _sortedPositiveWeights(
     return variance, weight
 
 
+def _normalizeStudentTDF(studentTDF: float) -> float:
+    if isinstance(studentTDF, bool):
+        raise ValueError("`studentTDF` must be numeric with 1 <= studentTDF <= 30")
+    try:
+        df = float(studentTDF)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`studentTDF` must be numeric with 1 <= studentTDF <= 30"
+        ) from exc
+    if (
+        not np.isfinite(df)
+        or df < _STATE_SHRINKAGE_MIN_STUDENT_T_DF
+        or df > _STATE_SHRINKAGE_MAX_STUDENT_T_DF
+    ):
+        raise ValueError("`studentTDF` must be numeric with 1 <= studentTDF <= 30")
+    return df
+
+
+def _normalizeStudentTQuadratureOrder(studentTQuadratureOrder: int) -> int:
+    if isinstance(studentTQuadratureOrder, bool):
+        raise ValueError(
+            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
+        )
+    try:
+        orderFloat = float(studentTQuadratureOrder)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
+        ) from exc
+    if not np.isfinite(orderFloat) or not orderFloat.is_integer():
+        raise ValueError(
+            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
+        )
+    order = int(orderFloat)
+    if (
+        order < _STATE_SHRINKAGE_MIN_STUDENT_T_QUADRATURE_ORDER
+        or order > _STATE_SHRINKAGE_MAX_STUDENT_T_QUADRATURE_ORDER
+    ):
+        raise ValueError(
+            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
+        )
+    return order
+
+
+def _normalizeNonnegativeFloat(name: str, value: float) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"`{name}` must be nonnegative")
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"`{name}` must be nonnegative") from exc
+    if not np.isfinite(out) or out < 0.0:
+        raise ValueError(f"`{name}` must be nonnegative")
+    return out
+
+
+def _isStudentTModel(model: str) -> bool:
+    return model == STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
+
+
+def _studentTSlabArrays(
+    priorScale: float,
+    studentTDF: float,
+    studentTQuadratureOrder: int,
+    minSlabVariance: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float, int]:
+    scale = float(priorScale)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("`priorScale` must be finite and positive")
+    df = _normalizeStudentTDF(studentTDF)
+    order = _normalizeStudentTQuadratureOrder(studentTQuadratureOrder)
+    alpha = df / 2.0 - 1.0
+    nodes, weights = special.roots_genlaguerre(order, alpha)
+    nodes = np.asarray(nodes, dtype=np.float64).reshape(-1)
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if (
+        nodes.size != order
+        or weights.size != order
+        or np.any(~np.isfinite(nodes))
+        or np.any(~np.isfinite(weights))
+        or np.any(nodes <= 0.0)
+        or np.any(weights <= 0.0)
+    ):
+        raise ValueError("Student-t quadrature produced invalid nodes or weights")
+    if df > 2.0:
+        slabMultiplier = (df - 2.0) / (2.0 * nodes)
+        studentTScale = scale * math.sqrt((df - 2.0) / df)
+    else:
+        slabMultiplier = df / (2.0 * nodes)
+        studentTScale = scale
+    slabVariance = np.maximum(
+        scale * scale * slabMultiplier,
+        max(float(minSlabVariance), _STATE_SHRINKAGE_POSITIVE_FLOOR),
+    )
+    weight = weights / float(np.sum(weights))
+    orderIndex = np.argsort(slabVariance, kind="mergesort")
+    slabVariance = slabVariance[orderIndex]
+    weight = weight[orderIndex]
+    slabMultiplier = slabMultiplier[orderIndex]
+    weight = np.maximum(weight, _STATE_SHRINKAGE_WEIGHT_FLOOR)
+    weight = weight / float(np.sum(weight))
+    return slabVariance, weight, slabMultiplier, studentTScale, alpha, order
+
+
+def _studentTPriorVariance(
+    slabVariance: np.ndarray,
+    slabMultiplier: np.ndarray,
+) -> float:
+    ratio = np.asarray(slabVariance, dtype=np.float64) / np.asarray(
+        slabMultiplier,
+        dtype=np.float64,
+    )
+    return float(np.mean(ratio))
+
+
 def _priorSlabArrays(prior: stateShrinkPrior) -> tuple[np.ndarray, np.ndarray]:
     if len(prior.slabVariance) and len(prior.slabWeight):
         return _sortedPositiveWeights(prior.slabVariance, prior.slabWeight)
@@ -166,9 +313,19 @@ def _componentWeights(priorNull: float, slabWeight: np.ndarray) -> tuple[float, 
     return tuple([pi0] + [float((1.0 - pi0) * weight) for weight in slabWeight])
 
 
+def _modelComponentWeights(
+    model: str,
+    priorNull: float,
+    slabWeight: np.ndarray,
+) -> tuple[float, ...]:
+    return _componentWeights(priorNull, slabWeight)
+
+
 def _slabMultipliersForModel(model: str) -> tuple[float, ...]:
     if model == STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL:
         return (1.0,)
+    if _isStudentTModel(model):
+        raise ValueError("Student-t slabs require quadrature construction")
     return _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS
 
 
@@ -222,12 +379,77 @@ def _emStep(
     )
 
 
+def _chunksLogLikelihood(
+    chunks: Sequence[tuple[np.ndarray, np.ndarray]],
+    *,
+    priorNull: float,
+    slabVariance: np.ndarray,
+    slabWeight: np.ndarray,
+    blockSize: int,
+) -> float:
+    logSlabPrior = _logSlabPrior(priorNull, slabWeight)
+    logLikelihood = 0.0
+    for state, variance in chunks:
+        logLikelihood += float(
+            _emStep(
+                state,
+                variance,
+                priorNull=priorNull,
+                slabVariance=slabVariance,
+                logSlabPrior=logSlabPrior,
+                blockSize=blockSize,
+            )[4]
+        )
+    return logLikelihood
+
+
+def _logObjectivePenalty(
+    *,
+    priorNull: float,
+    slabVariance: np.ndarray,
+    slabMultiplier: np.ndarray | None,
+    nullPseudoCount: float,
+    slabPseudoCount: float,
+    scaleVarianceAnchor: float,
+    scalePriorWeight: float,
+) -> float:
+    penalty = 0.0
+    if nullPseudoCount > 0.0:
+        penalty += float(nullPseudoCount) * math.log(
+            max(float(priorNull), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+        )
+    if slabPseudoCount > 0.0:
+        penalty += float(slabPseudoCount) * math.log(
+            max(1.0 - float(priorNull), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+        )
+    if scalePriorWeight > 0.0:
+        if slabMultiplier is None:
+            raise ValueError("Student-t slab multipliers are missing")
+        scaleVariance = max(
+            _studentTPriorVariance(slabVariance, slabMultiplier),
+            _STATE_SHRINKAGE_POSITIVE_FLOOR,
+        )
+        anchor = max(float(scaleVarianceAnchor), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+        penalty += -0.5 * float(scalePriorWeight) * (
+            math.log(scaleVariance) + anchor / scaleVariance
+        )
+    return penalty
+
+
 def fitStateShrinkagePrior(
     chunks: Sequence[Any],
     *,
     model: str | None = None,
     priorNull: float | None = None,
     priorScale: float | None = None,
+    stateShrinkageNullPseudoCount: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT
+    ),
+    stateShrinkageScaleAnchorWeight: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT
+    ),
+    studentTDF: float = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF,
+    studentTQuadratureOrder: int = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_QUADRATURE_ORDER,
     maxIter: int = _STATE_SHRINKAGE_DEFAULT_MAX_ITER,
     tol: float = _STATE_SHRINKAGE_DEFAULT_TOL,
     nullZ: float = _STATE_SHRINKAGE_DEFAULT_NULL_Z,
@@ -244,6 +466,11 @@ def fitStateShrinkagePrior(
     """
 
     model_ = _normalizeModel(model)
+    studentTModel = _isStudentTModel(model_)
+    studentTDF_ = _normalizeStudentTDF(studentTDF)
+    studentTQuadratureOrder_ = _normalizeStudentTQuadratureOrder(
+        studentTQuadratureOrder
+    )
     chunkItems = list(chunks)
     if not chunkItems:
         raise ValueError("state shrinkage prior fit requires at least one chunk")
@@ -282,6 +509,37 @@ def fitStateShrinkagePrior(
     if totalWeight <= 0.0 or finiteCount <= 0:
         raise ValueError(
             "state shrinkage prior fit has no finite positive-variance intervals"
+        )
+
+    if stateShrinkageNullPseudoCount is None:
+        nullPseudoCount = float(
+            np.clip(
+                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_FRACTION * totalWeight,
+                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MIN,
+                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MAX,
+            )
+        )
+    else:
+        if isinstance(stateShrinkageNullPseudoCount, bool):
+            raise ValueError("`stateShrinkageNullPseudoCount` must be nonnegative")
+        try:
+            nullPseudoCount = float(stateShrinkageNullPseudoCount)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "`stateShrinkageNullPseudoCount` must be nonnegative"
+            ) from exc
+        if not np.isfinite(nullPseudoCount) or nullPseudoCount < 0.0:
+            raise ValueError("`stateShrinkageNullPseudoCount` must be nonnegative")
+    slabPseudoCount = 0.0
+    if stateShrinkageScaleAnchorWeight is None:
+        scalePriorWeight = max(
+            _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_MIN,
+            _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_FRACTION * totalWeight,
+        )
+    else:
+        scalePriorWeight = _normalizeNonnegativeFloat(
+            "stateShrinkageScaleAnchorWeight",
+            stateShrinkageScaleAnchorWeight,
         )
 
     estimateNull = priorNull is None
@@ -328,22 +586,56 @@ def fitStateShrinkagePrior(
         if not np.isfinite(baseScale) or baseScale <= 0.0:
             raise ValueError("`priorScale` must be finite and positive")
         estimateSlabScales = False
-
-    slabMultipliers = np.asarray(
-        _slabMultipliersForModel(model_),
-        dtype=np.float64,
-    )
-    slabVariance = np.maximum(
-        np.square(float(baseScale) * slabMultipliers),
+    scaleVarianceAnchor = max(
+        float(baseScale * baseScale),
         _STATE_SHRINKAGE_POSITIVE_FLOOR,
     )
-    slabWeight = np.full(
-        slabVariance.shape,
-        1.0 / float(slabVariance.size),
-        dtype=np.float64,
+    stateVarianceAnchor = max(
+        float(varianceSum / totalWeight),
+        _STATE_SHRINKAGE_POSITIVE_FLOOR,
     )
-    slabVariance, slabWeight = _sortedPositiveWeights(slabVariance, slabWeight)
-    estimateSlabWeights = slabVariance.size > 1
+    studentTSlabVarianceFloor = max(
+        float(
+            _STATE_SHRINKAGE_DEFAULT_STUDENT_T_SLAB_VARIANCE_FLOOR_FACTOR
+            * stateVarianceAnchor
+        ),
+        _STATE_SHRINKAGE_POSITIVE_FLOOR,
+    )
+
+    studentTScale: float | None = None
+    studentTQuadratureAlpha: float | None = None
+    slabMultiplier: np.ndarray | None = None
+    if studentTModel:
+        (
+            slabVariance,
+            slabWeight,
+            slabMultiplier,
+            studentTScale,
+            studentTQuadratureAlpha,
+            studentTQuadratureOrder_,
+        ) = _studentTSlabArrays(
+            baseScale,
+            studentTDF_,
+            studentTQuadratureOrder_,
+            studentTSlabVarianceFloor,
+        )
+        estimateSlabWeights = False
+    else:
+        slabMultipliers = np.asarray(
+            _slabMultipliersForModel(model_),
+            dtype=np.float64,
+        )
+        slabVariance = np.maximum(
+            np.square(float(baseScale) * slabMultipliers),
+            _STATE_SHRINKAGE_POSITIVE_FLOOR,
+        )
+        slabWeight = np.full(
+            slabVariance.shape,
+            1.0 / float(slabVariance.size),
+            dtype=np.float64,
+        )
+        slabVariance, slabWeight = _sortedPositiveWeights(slabVariance, slabWeight)
+        estimateSlabWeights = slabVariance.size > 1
 
     converged = False
     iterations = 0
@@ -377,7 +669,15 @@ def fitStateShrinkagePrior(
             nextSlabWeight = slabWeight.copy()
             nextSlabVariance = slabVariance.copy()
             if estimateNull and emTotalWeight > 0.0:
-                nextPi0 = float(np.clip(nullMass / emTotalWeight, minNull_, maxNull_))
+                totalMass = float(emTotalWeight)
+                nextPi0 = float(
+                    np.clip(
+                        (nullMass + nullPseudoCount)
+                        / (totalMass + nullPseudoCount + slabPseudoCount),
+                        minNull_,
+                        maxNull_,
+                    )
+                )
             if estimateSlabWeights:
                 massTotal = float(np.sum(slabMass))
                 if massTotal > _STATE_SHRINKAGE_POSITIVE_FLOOR:
@@ -387,19 +687,124 @@ def fitStateShrinkagePrior(
                     )
                     nextSlabWeight = nextSlabWeight / float(np.sum(nextSlabWeight))
             if estimateSlabScales:
-                active = slabMass > _STATE_SHRINKAGE_POSITIVE_FLOOR
-                nextSlabVariance[active] = slabSecond[active] / slabMass[active]
-                nextSlabVariance = np.maximum(
+                if studentTModel:
+                    if slabMultiplier is None:
+                        raise ValueError("Student-t slab multipliers are missing")
+                    massTotal = float(np.sum(slabMass))
+                    if (
+                        massTotal + scalePriorWeight
+                        > _STATE_SHRINKAGE_POSITIVE_FLOOR
+                    ):
+                        scaleMomentSum = float(np.sum(slabSecond / slabMultiplier))
+                        nextPriorVariance = float(
+                            (scaleMomentSum + scalePriorWeight * scaleVarianceAnchor)
+                            / (massTotal + scalePriorWeight)
+                        )
+                        nextPriorVariance = max(
+                            nextPriorVariance,
+                            _STATE_SHRINKAGE_POSITIVE_FLOOR,
+                        )
+                        nextSlabVariance = nextPriorVariance * slabMultiplier
+                        nextSlabVariance = np.maximum(
+                            nextSlabVariance,
+                            studentTSlabVarianceFloor,
+                        )
+                else:
+                    active = slabMass > _STATE_SHRINKAGE_POSITIVE_FLOOR
+                    nextSlabVariance[active] = slabSecond[active] / slabMass[active]
+                    nextSlabVariance = np.maximum(
+                        nextSlabVariance,
+                        _STATE_SHRINKAGE_POSITIVE_FLOOR,
+                    )
+                    nextSlabVariance[~np.isfinite(nextSlabVariance)] = slabVariance[
+                        ~np.isfinite(nextSlabVariance)
+                    ]
+            if not studentTModel:
+                nextSlabVariance, nextSlabWeight = _sortedPositiveWeights(
                     nextSlabVariance,
-                    _STATE_SHRINKAGE_POSITIVE_FLOOR,
+                    nextSlabWeight,
                 )
-                nextSlabVariance[~np.isfinite(nextSlabVariance)] = slabVariance[
-                    ~np.isfinite(nextSlabVariance)
-                ]
-            nextSlabVariance, nextSlabWeight = _sortedPositiveWeights(
-                nextSlabVariance,
-                nextSlabWeight,
-            )
+            if studentTModel:
+                objective = logLikelihood + _logObjectivePenalty(
+                    priorNull=pi0,
+                    slabVariance=slabVariance,
+                    slabMultiplier=slabMultiplier,
+                    nullPseudoCount=nullPseudoCount,
+                    slabPseudoCount=slabPseudoCount,
+                    scaleVarianceAnchor=scaleVarianceAnchor,
+                    scalePriorWeight=scalePriorWeight,
+                )
+                nextLogLikelihood = _chunksLogLikelihood(
+                    chunks_,
+                    priorNull=nextPi0,
+                    slabVariance=nextSlabVariance,
+                    slabWeight=nextSlabWeight,
+                    blockSize=blockSize_,
+                )
+                nextObjective = nextLogLikelihood + _logObjectivePenalty(
+                    priorNull=nextPi0,
+                    slabVariance=nextSlabVariance,
+                    slabMultiplier=slabMultiplier,
+                    nullPseudoCount=nullPseudoCount,
+                    slabPseudoCount=slabPseudoCount,
+                    scaleVarianceAnchor=scaleVarianceAnchor,
+                    scalePriorWeight=scalePriorWeight,
+                )
+                if nextObjective < objective - max(tol_, 1.0e-12):
+                    accepted = False
+                    if estimateSlabScales and slabMultiplier is not None:
+                        anchorPriorVariance = _studentTPriorVariance(
+                            slabVariance,
+                            slabMultiplier,
+                        )
+                        proposedPriorVariance = _studentTPriorVariance(
+                            nextSlabVariance,
+                            slabMultiplier,
+                        )
+                        logAnchor = math.log(
+                            max(anchorPriorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)
+                        )
+                        logProposed = math.log(
+                            max(proposedPriorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)
+                        )
+                        for backtrackStep in range(12):
+                            fraction = 0.5 ** float(backtrackStep + 1)
+                            trialPriorVariance = math.exp(
+                                logAnchor + fraction * (logProposed - logAnchor)
+                            )
+                            trialSlabVariance = trialPriorVariance * slabMultiplier
+                            trialSlabVariance = np.maximum(
+                                trialSlabVariance,
+                                studentTSlabVarianceFloor,
+                            )
+                            trialLogLikelihood = _chunksLogLikelihood(
+                                chunks_,
+                                priorNull=nextPi0,
+                                slabVariance=trialSlabVariance,
+                                slabWeight=nextSlabWeight,
+                                blockSize=blockSize_,
+                            )
+                            trialObjective = trialLogLikelihood + _logObjectivePenalty(
+                                priorNull=nextPi0,
+                                slabVariance=trialSlabVariance,
+                                slabMultiplier=slabMultiplier,
+                                nullPseudoCount=nullPseudoCount,
+                                slabPseudoCount=slabPseudoCount,
+                                scaleVarianceAnchor=scaleVarianceAnchor,
+                                scalePriorWeight=scalePriorWeight,
+                            )
+                            if trialObjective >= objective - max(tol_, 1.0e-12):
+                                nextSlabVariance = trialSlabVariance
+                                nextLogLikelihood = trialLogLikelihood
+                                accepted = True
+                                break
+                    if not accepted:
+                        nextPi0 = pi0
+                        nextSlabVariance = slabVariance
+                        nextSlabWeight = slabWeight
+                        nextLogLikelihood = logLikelihood
+                        converged = False
+                logLikelihood = nextLogLikelihood
             relPi = abs(nextPi0 - pi0) / max(abs(pi0), _STATE_SHRINKAGE_POSITIVE_FLOOR)
             relWeight = float(
                 np.max(
@@ -422,15 +827,67 @@ def fitStateShrinkagePrior(
             if max(relPi, relWeight, relVariance) <= tol_:
                 converged = True
                 break
+            if (
+                studentTModel
+                and not converged
+                and relPi == 0.0
+                and relWeight == 0.0
+                and relVariance == 0.0
+            ):
+                break
     else:
         converged = True
         iterations = 0
 
-    priorVariance = float(np.sum(slabWeight * slabVariance))
-    priorScaleOut = float(math.sqrt(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)))
-    componentWeights = _componentWeights(pi0, slabWeight)
+    if studentTModel:
+        if slabMultiplier is None:
+            raise ValueError("Student-t slab multipliers are missing")
+        scaleVariance = _studentTPriorVariance(slabVariance, slabMultiplier)
+        if not estimateSlabScales:
+            priorScaleOut = float(baseScale)
+            if studentTDF_ > 2.0:
+                priorVariance = float(baseScale * baseScale)
+                studentTScale = float(
+                    baseScale * math.sqrt((studentTDF_ - 2.0) / studentTDF_)
+                )
+                priorVarianceDefined = True
+            else:
+                priorVariance = float("nan")
+                studentTScale = float(baseScale)
+                priorVarianceDefined = False
+        elif studentTDF_ > 2.0:
+            priorVariance = scaleVariance
+            studentTScale = math.sqrt(
+                max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)
+                * (studentTDF_ - 2.0)
+                / studentTDF_
+            )
+            priorScaleOut = float(
+                math.sqrt(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR))
+            )
+            priorVarianceDefined = True
+        else:
+            priorVariance = float("nan")
+            studentTScale = math.sqrt(
+                max(scaleVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR)
+            )
+            priorScaleOut = float(studentTScale)
+            priorVarianceDefined = False
+    else:
+        priorVariance = float(np.sum(slabWeight * slabVariance))
+        priorScaleOut = float(
+            math.sqrt(max(priorVariance, _STATE_SHRINKAGE_POSITIVE_FLOOR))
+        )
+        priorVarianceDefined = True
+    componentWeights = _modelComponentWeights(model_, pi0, slabWeight)
     metadata = {
         "model": model_,
+        "slab_family": (
+            "studentTNormalScaleMixture"
+            if studentTModel
+            else "normalMixture"
+        ),
+        "has_point_mass": True,
         "scope": "genome",
         "chunk_count": int(chunkCount),
         "interval_count": int(intervalCount),
@@ -440,18 +897,43 @@ def fitStateShrinkagePrior(
         "prior_null": _metadataFloat(pi0),
         "prior_scale": _metadataFloat(priorScaleOut),
         "prior_variance": _metadataFloat(priorVariance),
+        "prior_variance_defined": bool(priorVarianceDefined),
         "slab_count": int(slabVariance.size),
         "slab_variance": [float(value) for value in slabVariance],
         "slab_weight": [float(value) for value in slabWeight],
         "component_weights": [float(value) for value in componentWeights],
         "estimated_prior_null": bool(estimateNull),
+        "null_pseudo_count": _metadataFloat(nullPseudoCount),
         "estimated_prior_scale": bool(estimateSlabScales),
         "estimated_slab_weights": bool(estimateSlabWeights),
         "estimated_slab_scales": bool(estimateSlabScales),
+        "scale_anchor_weight": _metadataFloat(scalePriorWeight),
+        "state_variance_anchor": _metadataFloat(stateVarianceAnchor),
         "iterations": int(iterations),
         "converged": bool(converged),
         "log_likelihood": _metadataFloat(logLikelihood),
     }
+    if studentTModel:
+        metadata.update(
+            {
+                "student_t_df": _metadataFloat(studentTDF_),
+                "student_t_scale": _metadataFloat(float(studentTScale)),
+                "student_t_quadrature_order": int(studentTQuadratureOrder_),
+                "student_t_quadrature_alpha": _metadataFloat(
+                    float(studentTQuadratureAlpha)
+                ),
+                "student_t_min_slab_variance": _metadataFloat(
+                    studentTSlabVarianceFloor
+                ),
+                "student_t_min_slab_scale": _metadataFloat(
+                    math.sqrt(studentTSlabVarianceFloor)
+                ),
+                "student_t_slab_variance_floor_factor": _metadataFloat(
+                    _STATE_SHRINKAGE_DEFAULT_STUDENT_T_SLAB_VARIANCE_FLOOR_FACTOR
+                ),
+                "slab_multiplier": [float(value) for value in slabMultiplier],
+            }
+        )
     return stateShrinkPrior(
         model=model_,
         priorNull=float(pi0),
@@ -506,7 +988,7 @@ def applyStateShrinkagePrior(
     ) = _posterior(
         stateArr,
         varianceArr,
-        priorNull=prior.priorNull,
+        priorNull=float(prior.priorNull),
         slabVariance=priorSlabVariance,
         slabWeight=priorSlabWeight,
     )
@@ -514,13 +996,19 @@ def applyStateShrinkagePrior(
     metadata = {
         **dict(prior.metadata),
         "scope": "contig_apply",
+        "has_point_mass": True,
         "interval_count": int(stateArr.size),
         "finite_count": int(np.count_nonzero(valid)),
         "slab_count": int(priorSlabVariance.size),
         "slab_variance": [float(value) for value in priorSlabVariance],
         "slab_weight": [float(value) for value in priorSlabWeight],
         "component_weights": [
-            float(value) for value in _componentWeights(prior.priorNull, priorSlabWeight)
+            float(value)
+            for value in _modelComponentWeights(
+                prior.model,
+                prior.priorNull,
+                priorSlabWeight,
+            )
         ],
         "state_abs_median_before": _metadataFloat(
             np.median(np.abs(stateArr[valid])) if np.any(valid) else float("nan")
@@ -558,13 +1046,20 @@ def shrinkStateEB(
     model: str | None = None,
     priorNull: float | None = None,
     priorScale: float | None = None,
+    stateShrinkageNullPseudoCount: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT
+    ),
+    stateShrinkageScaleAnchorWeight: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT
+    ),
+    studentTDF: float = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF,
+    studentTQuadratureOrder: int = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_QUADRATURE_ORDER,
     maxIter: int = _STATE_SHRINKAGE_DEFAULT_MAX_ITER,
     tol: float = _STATE_SHRINKAGE_DEFAULT_TOL,
     nullZ: float = _STATE_SHRINKAGE_DEFAULT_NULL_Z,
     minNull: float = _STATE_SHRINKAGE_DEFAULT_MIN_NULL,
     maxNull: float = _STATE_SHRINKAGE_DEFAULT_MAX_NULL,
     blockSize: int | None = 1,
-    **_unused: Any,
 ) -> stateShrinkResult:
     r"""Shrink fitted state estimates toward zero using post-fit EB.
 
@@ -582,6 +1077,10 @@ def shrinkStateEB(
         model=model,
         priorNull=priorNull,
         priorScale=priorScale,
+        stateShrinkageNullPseudoCount=stateShrinkageNullPseudoCount,
+        stateShrinkageScaleAnchorWeight=stateShrinkageScaleAnchorWeight,
+        studentTDF=studentTDF,
+        studentTQuadratureOrder=studentTQuadratureOrder,
         maxIter=maxIter,
         tol=tol,
         nullZ=nullZ,

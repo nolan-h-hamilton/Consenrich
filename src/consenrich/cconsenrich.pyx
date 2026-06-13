@@ -8479,6 +8479,9 @@ cdef inline double _transformDerivativeAtMean_F64(
 def cTransformCountVarianceFloor(
     object normalizedCounts,
     object scaleFactors,
+    object rawNoiseMass=None,
+    object countNoisePseudoMeanMass=0.5,
+    object countNoisePseudoVarianceMass=0.5,
     object mode=None,
     object transformMethod=None,
     object logOffset=1.0,
@@ -8494,8 +8497,11 @@ def cTransformCountVarianceFloor(
 ):
     r"""Conditional Poisson delta-method count-transform variance floor."""
     cdef object countsObj = np.asarray(normalizedCounts, dtype=np.float64)
+    cdef object rawNoiseObj = None
     cdef bint squeeze = False
+    cdef bint hasRawNoise = rawNoiseMass is not None
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] counts2
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] rawNoise2
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scales
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] out
     cdef object selectedMode = mode if mode is not None else transformMethod
@@ -8520,8 +8526,16 @@ def cTransformCountVarianceFloor(
     cdef double inputScale_ = <double>params[1]
     cdef double outputScale_ = <double>params[2]
     cdef double shape_ = <double>params[4]
+    cdef double pseudoMeanMass = float(countNoisePseudoMeanMass)
+    cdef double pseudoVarianceMass = float(countNoisePseudoVarianceMass)
     cdef Py_ssize_t m, n, i, j
-    cdef double count, sf, lambdaHat, normalizedMean, normalizedVariance, deriv, floorValue
+    cdef double count, sf, normalizedMean, normalizedVariance, deriv, floorValue
+    cdef double rawNoiseValue, rawCount, noiseMass
+
+    if pseudoMeanMass <= 0.0 or not isfinite(pseudoMeanMass):
+        raise ValueError("countNoisePseudoMeanMass must be positive and finite")
+    if pseudoVarianceMass <= 0.0 or not isfinite(pseudoVarianceMass):
+        raise ValueError("countNoisePseudoVarianceMass must be positive and finite")
 
     if countsObj.ndim == 1:
         squeeze = True
@@ -8533,6 +8547,18 @@ def cTransformCountVarianceFloor(
 
     m = counts2.shape[0]
     n = counts2.shape[1]
+    if hasRawNoise:
+        rawNoiseObj = np.asarray(rawNoiseMass, dtype=np.float64)
+        if rawNoiseObj.ndim == 1:
+            rawNoise2 = np.ascontiguousarray(np.asarray(rawNoiseObj, dtype=np.float64).reshape(1, -1), dtype=np.float64)
+        elif rawNoiseObj.ndim == 2:
+            rawNoise2 = np.ascontiguousarray(rawNoiseObj, dtype=np.float64)
+        else:
+            raise ValueError("rawNoiseMass must be a 1D or 2D array")
+        if rawNoise2.shape[0] != m or rawNoise2.shape[1] != n:
+            raise ValueError("rawNoiseMass must match normalizedCounts shape")
+        if np.any(np.isfinite(rawNoise2) & (rawNoise2 < 0.0)):
+            raise ValueError("rawNoiseMass must be nonnegative where finite")
     scales = np.ascontiguousarray(np.asarray(scaleFactors, dtype=np.float64).reshape(-1), dtype=np.float64)
     if scales.shape[0] == 1 and m != 1:
         scales = np.ascontiguousarray(np.full(m, float(scales[0]), dtype=np.float64), dtype=np.float64)
@@ -8552,9 +8578,19 @@ def cTransformCountVarianceFloor(
                     continue
                 if count < 0.0:
                     count = 0.0
-                lambdaHat = (count / sf) + 0.5
-                normalizedMean = lambdaHat * sf
-                normalizedVariance = lambdaHat * sf * sf
+                rawCount = count / sf
+                if rawCount < 0.0:
+                    rawCount = 0.0
+                if hasRawNoise:
+                    rawNoiseValue = <double>rawNoise2[i, j]
+                    if not isfinite(rawNoiseValue):
+                        out[i, j] = <float>NAN
+                        continue
+                    noiseMass = rawNoiseValue
+                else:
+                    noiseMass = rawCount
+                normalizedMean = (rawCount + pseudoMeanMass) * sf
+                normalizedVariance = (noiseMass + pseudoVarianceMass) * sf * sf
                 deriv = _transformDerivativeAtMean_F64(
                     normalizedMean,
                     modeCode,
