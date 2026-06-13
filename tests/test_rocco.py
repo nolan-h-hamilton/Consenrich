@@ -843,6 +843,41 @@ def _caseIntegratedBudgetUsesExcessTailGrid():
 
 @pytest.mark.correctness
 def _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds():
+    class CountingRNG:
+        def __init__(self, seed: int):
+            self.rng = np.random.default_rng(seed)
+            self.calls: list[int] = []
+
+        def standard_normal(self, size):
+            self.calls.append(int(size))
+            return self.rng.standard_normal(size)
+
+    template = np.linspace(-1.0, 1.0, 17, dtype=np.float64)
+    countingRNG = CountingRNG(23)
+    nativeDraw = np.asarray(
+        peaks.cconsenrich.cStationaryNullDWBDraw(
+            template,
+            3,
+            countingRNG,
+            "qs",
+        ),
+        dtype=np.float64,
+    )
+    replayRNG = np.random.default_rng(23)
+    replayNoise = replayRNG.standard_normal(template.size + 64)
+    replayMultipliers = peaks.cconsenrich.cGenerateDWBMultipliersFromNoise(
+        replayNoise,
+        3,
+        "qs",
+    )
+    expectedDraw = peaks.cconsenrich.cApplyStationaryNullDWB(
+        template,
+        replayMultipliers,
+    )
+    assert countingRNG.calls == [template.size + 64]
+    np.testing.assert_allclose(nativeDraw, expectedDraw, rtol=1.0e-12, atol=1.0e-12)
+    assert float(np.mean(nativeDraw)) == pytest.approx(0.0, abs=1.0e-12)
+
     state, uncertainty = _toyChromState(seed=9, n=512)
     prepared = peaks._prepareROCCOScoreAndNull(
         state,
@@ -1311,11 +1346,50 @@ def _caseMultiscaleCandidateGenerationUsesMultipleScales():
         minRunBins=2,
         returnDetails=True,
     )
+    rawCandidates, rawDiagnostics = peaks._multiscaleCandidateSegments(
+        scores,
+        {
+            "primary": {
+                "threshold_z": 0.0,
+                "threshold": 1.0,
+                "null_scale": 1.0,
+            }
+        },
+        scaleBins=(1, 3, 9),
+        minRunBins=2,
+        maxSegments=None,
+        maxSegmentsPerView=None,
+        returnDiagnostics=True,
+    )
+    nativeRows = peaks.cconsenrich.cMultiscaleCandidateSegmentStats(
+        scores,
+        np.asarray([1, 3, 9], dtype=np.int64),
+        np.asarray([1.0], dtype=np.float64),
+        np.asarray([1.0], dtype=np.float64),
+        2,
+        0,
+        0,
+    )
+    nativeStarts, nativeEnds, nativeScales = nativeRows[:3]
 
     assert details["method"] == "multiscale_rocco_candidates"
     assert details["scales"] == [1, 3, 9]
     assert details["num_candidates"] == len(candidates)
     assert details["num_candidates"] >= 2
+    assert int(nativeRows[8]) == int(rawDiagnostics["eligible_candidate_count"])
+    assert int(nativeRows[9]) == 0
+    assert int(nativeRows[10]) == 0
+    assert {
+        (int(start), int(end), int(scale))
+        for start, end, scale in zip(nativeStarts, nativeEnds, nativeScales)
+    } == {
+        (
+            int(candidate["start_idx"]),
+            int(candidate["end_idx"]),
+            int(candidate["scale_bins"]),
+        )
+        for candidate in rawCandidates
+    }
     assert set(details["candidate_scales"]).issuperset({1, 3, 9})
     candidateScales = {int(candidate["scale_bins"]) for candidate in candidates}
     assert 1 in candidateScales

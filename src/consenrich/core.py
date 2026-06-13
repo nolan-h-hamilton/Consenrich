@@ -3605,33 +3605,6 @@ def _coerceOptionalProcessCovariates(
     return np.ascontiguousarray(out, dtype=np.float64)
 
 
-def _expectedTransitionEvidenceForPunc(
-    *,
-    stateSmoothed: np.ndarray,
-    stateCovarSmoothed: np.ndarray,
-    lagCovSmoothed: np.ndarray,
-    matrixF: np.ndarray,
-    seedQ: np.ndarray,
-    stateModel: str,
-) -> np.ndarray:
-    stateModelMode = _normalizeStateModel(stateModel)
-    dim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
-    q = np.asarray(seedQ, dtype=np.float64)
-    if q.ndim != 2 or q.shape[0] < dim or q.shape[1] < dim:
-        raise ValueError(
-            "seed process Q must cover the active state dimension for PUNC"
-        )
-    qDim = np.ascontiguousarray(q[:dim, :dim], dtype=np.float64)
-    evidence, _diagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
-        stateSmoothed,
-        stateCovarSmoothed,
-        lagCovSmoothed,
-        qDim,
-        matrixF=(None if dim == 1 else matrixF),
-    )
-    return np.asarray(evidence, dtype=np.float64)
-
-
 def _puncObservationInformation(
     *,
     matrixMunc: np.ndarray,
@@ -3817,22 +3790,6 @@ def _activeProcessQDiagonal(
     return np.diag(q[:dim, :dim]).astype(np.float64, copy=True)
 
 
-def _rebasePuncIntervalScales(
-    *,
-    seedQ: np.ndarray,
-    baseQ: np.ndarray,
-    rawScale: np.ndarray,
-    stateModel: str,
-) -> tuple[np.ndarray, float, float]:
-    scale, maxErr, medErr = cconsenrich.crebasePuncIntervalScales(
-        seedQ,
-        baseQ,
-        rawScale,
-        _normalizeStateModel(stateModel),
-    )
-    return np.asarray(scale, dtype=np.float32), float(maxErr), float(medErr)
-
-
 def _fitPuncProcessNoise(
     *,
     warmupFit: Mapping[str, Any],
@@ -3923,14 +3880,14 @@ def _fitPuncProcessNoise(
         info["matrixQ0Final"] = seedQClamped.astype(float).tolist()
         return seedQClamped, processQScale, info
 
-    evidence = _expectedTransitionEvidenceForPunc(
-        stateSmoothed=np.asarray(warmupFit["stateSmoothed"]),
-        stateCovarSmoothed=np.asarray(warmupFit["stateCovarSmoothed"]),
-        lagCovSmoothed=np.asarray(warmupFit["lagCovSmoothed"]),
-        matrixF=matrixF,
-        seedQ=seedQClamped,
-        stateModel=stateModelMode,
+    evidence, _evidenceDiagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
+        np.asarray(warmupFit["stateSmoothed"]),
+        np.asarray(warmupFit["stateCovarSmoothed"]),
+        np.asarray(warmupFit["lagCovSmoothed"]),
+        seedQClamped,
+        matrixF=(None if stateModelMode == STATE_MODEL_LEVEL else matrixF),
     )
+    evidence = np.asarray(evidence, dtype=np.float64)
     infoByInterval = _puncObservationInformation(
         matrixMunc=np.asarray(warmupFit.get("matrixMunc", matrixMunc)),
         pad=float(pad),
@@ -4378,14 +4335,17 @@ def _fitPuncProcessNoise(
             )
         matrixQ0Punc = np.ascontiguousarray(unclampedBaseQ0, dtype=np.float32)
     if puncToggles["puncUseScaleRebase"]:
-        rebasedTransitionScale, decompMaxLogError, decompMedianLogError = (
-            _rebasePuncIntervalScales(
-                seedQ=seedQClamped,
-                baseQ=matrixQ0Punc,
-                rawScale=rawScale,
-                stateModel=stateModelMode,
-            )
+        (
+            rebasedTransitionScale,
+            decompMaxLogError,
+            decompMedianLogError,
+        ) = cconsenrich.crebasePuncIntervalScales(
+            seedQClamped,
+            matrixQ0Punc,
+            rawScale,
+            stateModelMode,
         )
+        rebasedTransitionScale = np.asarray(rebasedTransitionScale, dtype=np.float32)
     else:
         rebasedTransitionScale = np.asarray(transitionScale, dtype=np.float32)
         decompMaxLogError = 0.0
@@ -9584,12 +9544,15 @@ def solveZeroCenteredBackground(
             raise ValueError(
                 "weightTrack and rhsTrack length must match interval count"
             )
+        positiveSupportCount = int(np.count_nonzero(weightTrack > 0.0))
     else:
-        weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
-            residualArr,
-            invVarArr,
+        weightTrack, rhsTrack, positiveSupportCount = (
+            cconsenrich.cbackgroundWeightedStatsWithSupport(
+                residualArr,
+                invVarArr,
+            )
         )
-    if not np.any(weightTrack > 0.0):
+    if positiveSupportCount <= 0:
         return np.zeros(intervalCount, dtype=np.float32)
 
     # set penalties based on calculated 'span'/correlation-length
@@ -9648,11 +9611,13 @@ def _solveClippedBackgroundHeuristic(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
-        residualArr,
-        invVarArr,
+    weightTrack, rhsTrack, positiveSupportCount = (
+        cconsenrich.cbackgroundWeightedStatsWithSupport(
+            residualArr,
+            invVarArr,
+        )
     )
-    if not np.any(weightTrack > 0.0):
+    if int(positiveSupportCount) <= 0:
         return np.zeros(intervalCount, dtype=np.float32)
 
     lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(

@@ -552,11 +552,14 @@ def _calibrateStationaryNullDWB(
     }
 
     for b in range(numBootstrap_):
-        draw = _generateStationaryNullDWBDraw(
-            template_,
-            dependenceSpan_,
-            rng,
-            kernel=kernel_,
+        draw = np.asarray(
+            cconsenrich.cStationaryNullDWBDraw(
+                template_,
+                dependenceSpan_,
+                rng,
+                kernel_,
+            ),
+            dtype=np.float64,
         )
         for z in zGrid:
             tailAlpha = float(stats.norm.sf(float(max(z, 0.0))))
@@ -689,11 +692,14 @@ def _calibrateStationaryNullDWB(
 
     rng = np.random.default_rng(int(randomSeed))
     for b in range(numBootstrap_):
-        draw = _generateStationaryNullDWBDraw(
-            template_,
-            dependenceSpan_,
-            rng,
-            kernel=kernel_,
+        draw = np.asarray(
+            cconsenrich.cStationaryNullDWBDraw(
+                template_,
+                dependenceSpan_,
+                rng,
+                kernel_,
+            ),
+            dtype=np.float64,
         )
         for z in zGrid:
             key = _thresholdZKey(z)
@@ -1169,47 +1175,6 @@ def _prepareROCCOScoreAndNull(
         "pooled_null_floor": None if pooledNullFloor is None else dict(pooledNullFloor),
     }
 
-
-def _generateDWBMultipliers(
-    n: int,
-    bandwidth: int,
-    rng: np.random.Generator,
-    kernel: str = "bartlett",
-) -> np.ndarray:
-    bandwidth_ = max(int(bandwidth), 2)
-    kernelName = str(kernel).strip().lower().replace("-", "_")
-    maxLag = (
-        bandwidth_
-        if kernelName not in {"qs", "quadratic_spectral", "quadraticspectral"}
-        else max(8 * bandwidth_, 32)
-    )
-    noise = rng.standard_normal(int(n + 2 * maxLag))
-    return np.asarray(
-        cconsenrich.cGenerateDWBMultipliersFromNoise(
-            noise,
-            int(bandwidth_),
-            kernel,
-        ),
-        dtype=np.float64,
-    )
-
-def _generateStationaryNullDWBDraw(
-    template: np.ndarray,
-    bandwidth: int,
-    rng: np.random.Generator,
-    kernel: str = "bartlett",
-) -> np.ndarray:
-    template_ = np.asarray(template, dtype=np.float64)
-    multipliers = _generateDWBMultipliers(
-        int(template_.size),
-        int(bandwidth),
-        rng,
-        kernel=kernel,
-    )
-    return np.asarray(
-        cconsenrich.cApplyStationaryNullDWB(template_, multipliers),
-        dtype=np.float64,
-    )
 
 def _estimateEffectiveSampleSize(
     values: np.ndarray,
@@ -2109,19 +2074,6 @@ def _replayFDRQValues(
     return np.clip(qValues, 0.0, 1.0)
 
 
-def _movingAverageSame(values: np.ndarray, window: int) -> np.ndarray:
-    return np.asarray(
-        cconsenrich.cMovingAverageSame(values, int(window)),
-        np.float64,
-    )
-
-def _booleanRunBounds(
-    above: np.ndarray,
-    maxGapBins: int = 0,
-) -> Tuple[np.ndarray, np.ndarray]:
-    starts, ends = cconsenrich.cBooleanRunBounds(above, int(maxGapBins))
-    return np.asarray(starts, dtype=np.int64), np.asarray(ends, dtype=np.int64)
-
 def _resolveMultiscaleCandidateBins(
     n: int,
     dependenceSpan: int | None = None,
@@ -2248,75 +2200,67 @@ def _multiscaleCandidateSegments(
         if maxSegmentsPerView is None or int(maxSegmentsPerView) <= 0
         else int(max(int(maxSegmentsPerView), 1))
     )
+    thresholdKeys: List[str] = []
+    thresholdZValues: List[float] = []
+    thresholdValues: List[float] = []
+    nullScaleValues: List[float] = []
+    for key, viewAny in thresholdViews.items():
+        if not isinstance(viewAny, Mapping):
+            continue
+        thresholdKeys.append(str(key))
+        thresholdZValues.append(float(viewAny.get("threshold_z", 0.0)))
+        thresholdValues.append(float(viewAny.get("threshold", 0.0)))
+        nullScaleValues.append(float(max(float(viewAny.get("null_scale", 1.0)), _TINY)))
+
+    nativeRows = cconsenrich.cMultiscaleCandidateSegmentStats(
+        scores_,
+        np.asarray(scales, dtype=np.int64),
+        np.asarray(thresholdValues, dtype=np.float64),
+        np.asarray(nullScaleValues, dtype=np.float64),
+        minRunBins_,
+        maxGapBins_,
+        0 if maxSegmentsPerView_ is None else int(maxSegmentsPerView_),
+    )
+    (
+        startArr,
+        endArr,
+        scaleArr,
+        viewArr,
+        scoreArr,
+        integratedArr,
+        meanArr,
+        maxArr,
+        eligibleCount,
+        perViewCapHitCount,
+        perViewDiscardedCount,
+    ) = nativeRows
     candidates: List[Dict[str, Any]] = []
     seen: set[Tuple[int, int, int, str]] = set()
-    eligibleCount = 0
-    perViewCapHitCount = 0
-    perViewDiscardedCount = 0
-
-    for scale in scales:
-        smoothed = _movingAverageSame(scores_, int(scale))
-        for key, viewAny in thresholdViews.items():
-            if not isinstance(viewAny, Mapping):
-                continue
-            threshold = float(viewAny.get("threshold", 0.0))
-            above = np.asarray(smoothed > threshold, dtype=bool)
-            starts, ends = _booleanRunBounds(above, maxGapBins=maxGapBins_)
-            if starts.size == 0:
-                continue
-            lengths = ends - starts + 1
-            keep = lengths >= minRunBins_
-            if not np.any(keep):
-                continue
-            starts = starts[keep]
-            ends = ends[keep]
-            lengths = lengths[keep].astype(np.float64, copy=False)
-            eligibleCount += int(starts.size)
-            nullScale = float(max(float(viewAny.get("null_scale", 1.0)), _TINY))
-            excess = np.clip((scores_ - threshold) / nullScale, 0.0, None)
-            prefix = np.concatenate(([0.0], np.cumsum(excess, dtype=np.float64)))
-            integrated = prefix[ends + 1] - prefix[starts]
-            runScores = integrated / np.sqrt(np.maximum(lengths, 1.0))
-            selected = np.arange(starts.size, dtype=np.int64)
-            if (
-                maxSegmentsPerView_ is not None
-                and selected.size > maxSegmentsPerView_
-            ):
-                perViewCapHitCount += 1
-                perViewDiscardedCount += int(selected.size - maxSegmentsPerView_)
-                selected = np.argpartition(
-                    -runScores,
-                    maxSegmentsPerView_ - 1,
-                )[:maxSegmentsPerView_]
-            selected = selected[np.argsort(starts[selected], kind="mergesort")]
-            for runIdx_ in selected:
-                runIdx = int(runIdx_)
-                start = int(starts[runIdx])
-                end = int(ends[runIdx])
-                dedupeKey = (start, end, int(scale), str(key))
-                if dedupeKey in seen:
-                    continue
-                seen.add(dedupeKey)
-                runExcess = excess[start : end + 1]
-                runLength = int(max(end - start + 1, 1))
-                integratedValue = float(integrated[runIdx])
-                candidates.append(
-                    {
-                        "start_idx": int(start),
-                        "end_idx": int(end),
-                        "scale_bins": int(scale),
-                        "threshold_key": str(key),
-                        "threshold_z": float(viewAny.get("threshold_z", 0.0)),
-                        "threshold": float(threshold),
-                        "null_scale": float(nullScale),
-                        "score": float(runScores[runIdx]),
-                        "integrated_excess": integratedValue,
-                        "mean_excess": float(integratedValue / float(runLength)),
-                        "max_excess": (
-                            float(np.max(runExcess)) if runExcess.size else 0.0
-                        ),
-                    }
-                )
+    for rowIdx in range(int(np.asarray(startArr).size)):
+        viewIdx = int(viewArr[rowIdx])
+        key = thresholdKeys[viewIdx]
+        start = int(startArr[rowIdx])
+        end = int(endArr[rowIdx])
+        scale = int(scaleArr[rowIdx])
+        dedupeKey = (start, end, scale, key)
+        if dedupeKey in seen:
+            continue
+        seen.add(dedupeKey)
+        candidates.append(
+            {
+                "start_idx": int(start),
+                "end_idx": int(end),
+                "scale_bins": int(scale),
+                "threshold_key": str(key),
+                "threshold_z": float(thresholdZValues[viewIdx]),
+                "threshold": float(thresholdValues[viewIdx]),
+                "null_scale": float(nullScaleValues[viewIdx]),
+                "score": float(scoreArr[rowIdx]),
+                "integrated_excess": float(integratedArr[rowIdx]),
+                "mean_excess": float(meanArr[rowIdx]),
+                "max_excess": float(maxArr[rowIdx]),
+            }
+        )
     preTotalCapCount = int(len(candidates))
     totalCapHit = bool(maxSegments_ is not None and len(candidates) > maxSegments_)
     totalDiscardedCount = 0
@@ -2752,11 +2696,14 @@ def _addDWBPeakScoringToPeakMeta(
     nullDiscardedByPerViewCap = 0
     nullDiscardedByTotalCap = 0
     for drawIdx in range(numReplay):
-        draw = _generateStationaryNullDWBDraw(
-            template_,
-            dependenceSpan,
-            rng,
-            kernel=kernel,
+        draw = np.asarray(
+            cconsenrich.cStationaryNullDWBDraw(
+                template_,
+                dependenceSpan,
+                rng,
+                kernel,
+            ),
+            dtype=np.float64,
         )
         nullCandidates, nullCandidateDiagnostics = _multiscaleCandidateSegments(
             draw,

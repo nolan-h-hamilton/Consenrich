@@ -1116,8 +1116,8 @@ cpdef tuple cExpectedTransitionProcessEvidence(
         or lagObj.shape[2] != stateDim
     ):
         raise ValueError("lagCovSmoothed shape must match transition count and state dimension")
-    if seedQArr.shape[0] != stateDim or seedQArr.shape[1] != stateDim:
-        raise ValueError("seedQ shape must match state dimension")
+    if seedQArr.shape[0] < stateDim or seedQArr.shape[1] < stateDim:
+        raise ValueError("seedQ must cover the active state dimension")
     useFloat32Moments = (
         isinstance(stateObj, np.ndarray)
         and isinstance(covObj, np.ndarray)
@@ -8999,6 +8999,18 @@ cpdef object cApplyStationaryNullDWB(object template, object multipliers):
     return out
 
 
+cpdef object cStationaryNullDWBDraw(object template, int bandwidth, object rng, object kernel="bartlett"):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] templateArr = np.ascontiguousarray(
+        np.asarray(template, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef int bw = bandwidth if bandwidth >= 2 else 2
+    cdef int kernelCode = _dwbKernelCodeRefactor(kernel)
+    cdef int maxLag = _dwbMaxLagRefactor(bw, kernelCode)
+    cdef object noise = rng.standard_normal(int(templateArr.shape[0] + 2 * maxLag))
+    cdef object multipliers = cGenerateDWBMultipliersFromNoise(noise, bw, kernel)
+    return cApplyStationaryNullDWB(templateArr, multipliers)
+
+
 cpdef tuple cBooleanRunBounds(object above, int maxGapBins=0):
     """Return start/end arrays for true-runs, optionally bridging small false gaps."""
     cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] arr = np.ascontiguousarray(
@@ -9031,6 +9043,218 @@ cpdef tuple cBooleanRunBounds(object above, int maxGapBins=0):
             outCount += 1
     return starts[:outCount].copy(), ends[:outCount].copy()
 
+
+def cMultiscaleCandidateSegmentStats(
+    object scores,
+    object scales,
+    object thresholds,
+    object nullScales,
+    int minRunBins=1,
+    int maxGapBins=0,
+    int maxSegmentsPerView=0,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scoreArr = np.ascontiguousarray(
+        np.asarray(scores, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] scaleArr = np.ascontiguousarray(
+        np.asarray(scales, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] thresholdArr = np.ascontiguousarray(
+        np.asarray(thresholds, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nullScaleArr = np.ascontiguousarray(
+        np.asarray(nullScales, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    if thresholdArr.shape[0] != nullScaleArr.shape[0]:
+        raise ValueError("thresholds and nullScales must have the same length")
+
+    cdef Py_ssize_t n = scoreArr.shape[0]
+    cdef Py_ssize_t scaleCount = scaleArr.shape[0]
+    cdef Py_ssize_t viewCount = thresholdArr.shape[0]
+    cdef int minRun = minRunBins if minRunBins > 1 else 1
+    cdef int gap = maxGapBins if maxGapBins > 0 else 0
+    cdef int cap = maxSegmentsPerView if maxSegmentsPerView > 0 else 0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] smoothArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] excessArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] excessPrefixArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] runStarts
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] runEnds
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] candStarts
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] candEnds
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] candScores
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] candIntegrated
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] candMean
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] candMax
+    cdef object scoreSlice
+    cdef object startSlice
+    cdef object selected
+    cdef Py_ssize_t si, vi, i, j, r, k
+    cdef Py_ssize_t w, leftPad, rightPad, startIdx, endIdx
+    cdef Py_ssize_t runStart, lastTrue, runCount, keepCount
+    cdef double threshold, nullScale, value, integrated, runLength
+    cdef double bestScore, maxValue
+    cdef Py_ssize_t bestIdx
+    cdef Py_ssize_t eligibleCount = 0
+    cdef Py_ssize_t perViewCapHitCount = 0
+    cdef Py_ssize_t perViewDiscardedCount = 0
+    cdef list startOut = []
+    cdef list endOut = []
+    cdef list scaleOut = []
+    cdef list viewOut = []
+    cdef list scoreOut = []
+    cdef list integratedOut = []
+    cdef list meanOut = []
+    cdef list maxOut = []
+
+    if n <= 0 or scaleCount <= 0 or viewCount <= 0:
+        return (
+            np.asarray(startOut, dtype=np.int64),
+            np.asarray(endOut, dtype=np.int64),
+            np.asarray(scaleOut, dtype=np.int64),
+            np.asarray(viewOut, dtype=np.int64),
+            np.asarray(scoreOut, dtype=np.float64),
+            np.asarray(integratedOut, dtype=np.float64),
+            np.asarray(meanOut, dtype=np.float64),
+            np.asarray(maxOut, dtype=np.float64),
+            int(0),
+            int(0),
+            int(0),
+        )
+
+    runStarts = np.empty(n, dtype=np.int64)
+    runEnds = np.empty(n, dtype=np.int64)
+    candStarts = np.empty(n, dtype=np.int64)
+    candEnds = np.empty(n, dtype=np.int64)
+    candScores = np.empty(n, dtype=np.float64)
+    candIntegrated = np.empty(n, dtype=np.float64)
+    candMean = np.empty(n, dtype=np.float64)
+    candMax = np.empty(n, dtype=np.float64)
+    prefixArr = np.empty(n + 1, dtype=np.float64)
+    smoothArr = np.empty(n, dtype=np.float64)
+    excessArr = np.empty(n, dtype=np.float64)
+    excessPrefixArr = np.empty(n + 1, dtype=np.float64)
+
+    for si in range(scaleCount):
+        w = scaleArr[si]
+        if w < 1:
+            w = 1
+        if w > n:
+            w = n
+        prefixArr[0] = 0.0
+        for i in range(n):
+            prefixArr[i + 1] = prefixArr[i] + scoreArr[i]
+        if w <= 1 or n <= 1:
+            for i in range(n):
+                smoothArr[i] = scoreArr[i]
+        else:
+            leftPad = (w - 1) // 2
+            rightPad = w - 1 - leftPad
+            for i in range(n):
+                startIdx = i - leftPad
+                if startIdx < 0:
+                    startIdx = 0
+                endIdx = i + rightPad + 1
+                if endIdx > n:
+                    endIdx = n
+                smoothArr[i] = (prefixArr[endIdx] - prefixArr[startIdx]) / <double>w
+
+        for vi in range(viewCount):
+            threshold = thresholdArr[vi]
+            nullScale = nullScaleArr[vi]
+            if nullScale < DBL_MIN:
+                nullScale = DBL_MIN
+            excessPrefixArr[0] = 0.0
+            for i in range(n):
+                value = (scoreArr[i] - threshold) / nullScale
+                if value < 0.0:
+                    value = 0.0
+                excessArr[i] = value
+                excessPrefixArr[i + 1] = excessPrefixArr[i] + value
+
+            runCount = 0
+            runStart = -1
+            lastTrue = -1
+            for i in range(n):
+                if smoothArr[i] > threshold:
+                    if runStart < 0:
+                        runStart = i
+                    elif i - lastTrue > gap + 1:
+                        runStarts[runCount] = runStart
+                        runEnds[runCount] = lastTrue
+                        runCount += 1
+                        runStart = i
+                    lastTrue = i
+            if runStart >= 0:
+                runStarts[runCount] = runStart
+                runEnds[runCount] = lastTrue
+                runCount += 1
+            if runCount <= 0:
+                continue
+
+            keepCount = 0
+            for r in range(runCount):
+                runLength = <double>(runEnds[r] - runStarts[r] + 1)
+                if runLength < <double>minRun:
+                    continue
+                integrated = excessPrefixArr[runEnds[r] + 1] - excessPrefixArr[runStarts[r]]
+                maxValue = 0.0
+                for j in range(runStarts[r], runEnds[r] + 1):
+                    if excessArr[j] > maxValue:
+                        maxValue = excessArr[j]
+                candStarts[keepCount] = runStarts[r]
+                candEnds[keepCount] = runEnds[r]
+                candIntegrated[keepCount] = integrated
+                candMean[keepCount] = integrated / runLength
+                candScores[keepCount] = integrated / sqrt(fmax(runLength, 1.0))
+                candMax[keepCount] = maxValue
+                keepCount += 1
+            if keepCount <= 0:
+                continue
+            eligibleCount += keepCount
+
+            if cap > 0 and keepCount > cap:
+                perViewCapHitCount += 1
+                perViewDiscardedCount += keepCount - cap
+                scoreSlice = np.asarray(candScores[:keepCount], dtype=np.float64)
+                startSlice = np.asarray(candStarts[:keepCount], dtype=np.int64)
+                selected = np.argpartition(-scoreSlice, cap - 1)[:cap]
+                selected = selected[np.argsort(startSlice[selected], kind="mergesort")]
+                for k in selected:
+                    r = <Py_ssize_t>k
+                    startOut.append(int(candStarts[r]))
+                    endOut.append(int(candEnds[r]))
+                    scaleOut.append(int(w))
+                    viewOut.append(int(vi))
+                    scoreOut.append(float(candScores[r]))
+                    integratedOut.append(float(candIntegrated[r]))
+                    meanOut.append(float(candMean[r]))
+                    maxOut.append(float(candMax[r]))
+            else:
+                for r in range(keepCount):
+                    startOut.append(int(candStarts[r]))
+                    endOut.append(int(candEnds[r]))
+                    scaleOut.append(int(w))
+                    viewOut.append(int(vi))
+                    scoreOut.append(float(candScores[r]))
+                    integratedOut.append(float(candIntegrated[r]))
+                    meanOut.append(float(candMean[r]))
+                    maxOut.append(float(candMax[r]))
+
+    return (
+        np.asarray(startOut, dtype=np.int64),
+        np.asarray(endOut, dtype=np.int64),
+        np.asarray(scaleOut, dtype=np.int64),
+        np.asarray(viewOut, dtype=np.int64),
+        np.asarray(scoreOut, dtype=np.float64),
+        np.asarray(integratedOut, dtype=np.float64),
+        np.asarray(meanOut, dtype=np.float64),
+        np.asarray(maxOut, dtype=np.float64),
+        int(eligibleCount),
+        int(perViewCapHitCount),
+        int(perViewDiscardedCount),
+    )
+
 # ---------------------------------------------------------------------------
 # Additional lowercase compatibility kernels for Python runtime fast paths.
 # ---------------------------------------------------------------------------
@@ -9060,6 +9284,33 @@ def cbackgroundWeightedStats(object residualMatrix, object invVarMatrix):
     return weightArr, rhsArr
 
 
+def cbackgroundWeightedStatsWithSupport(object residualMatrix, object invVarMatrix):
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] residualArr = np.ascontiguousarray(residualMatrix, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] invArr = np.ascontiguousarray(invVarMatrix, dtype=np.float32)
+    if residualArr.ndim != 2 or invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
+        raise ValueError("residualMatrix and invVarMatrix must have identical 2D shapes")
+    cdef Py_ssize_t m = residualArr.shape[0]
+    cdef Py_ssize_t n = residualArr.shape[1]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightArr = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] rhsArr = np.empty(n, dtype=np.float64)
+    cdef Py_ssize_t i, j
+    cdef Py_ssize_t supportCount = 0
+    cdef double wsum, rsum, w
+    with nogil:
+        for i in range(n):
+            wsum = 0.0
+            rsum = 0.0
+            for j in range(m):
+                w = <double>invArr[j, i]
+                wsum += w
+                rsum += w * <double>residualArr[j, i]
+            weightArr[i] = wsum
+            rhsArr[i] = rsum
+            if wsum > 0.0:
+                supportCount += 1
+    return weightArr, rhsArr, int(supportCount)
+
+
 def cpuncObservationInformation(
     object matrixMunc,
     double pad,
@@ -9081,7 +9332,14 @@ def crebasePuncIntervalScales(object seedQ, object baseQ, object rawScale, objec
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] seedArr = np.ascontiguousarray(seedQ, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] baseArr = np.ascontiguousarray(baseQ, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] rawArr = np.ascontiguousarray(np.asarray(rawScale, dtype=np.float64).reshape(-1), dtype=np.float64)
-    cdef int dim = 1 if str(stateModel) == "level" else 2
+    cdef str stateModelText = str(stateModel)
+    cdef int dim
+    if stateModelText == "level":
+        dim = 1
+    elif stateModelText == "levelTrend":
+        dim = 2
+    else:
+        raise ValueError("stateModel must be 'level' or 'levelTrend'")
     if seedArr.shape[0] < dim or seedArr.shape[1] < dim or baseArr.shape[0] < dim or baseArr.shape[1] < dim:
         raise ValueError("seedQ/baseQ must cover the active state dimension")
     cdef Py_ssize_t n = rawArr.shape[0]

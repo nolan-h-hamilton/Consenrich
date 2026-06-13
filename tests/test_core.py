@@ -896,6 +896,83 @@ def _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64():
 
 
 @pytest.mark.correctness
+def _casePuncEvidenceKernelAcceptsFullSeedQ():
+    levelState = np.asarray([[0.0], [1.0], [3.0], [6.0]], dtype=np.float32)
+    levelCov = np.zeros((4, 1, 1), dtype=np.float32)
+    levelLag = np.zeros((3, 1, 1), dtype=np.float32)
+    levelSeedQ = np.diag([2.0, 99.0]).astype(np.float64)
+
+    levelEvidence, levelDiagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
+        levelState,
+        levelCov,
+        levelLag,
+        levelSeedQ,
+    )
+    np.testing.assert_allclose(
+        levelEvidence,
+        np.asarray([0.5, 2.0, 4.5], dtype=np.float64),
+        rtol=1.0e-7,
+        atol=1.0e-7,
+    )
+    assert levelDiagnostics["state_dim"] == 1
+
+    matrixF = np.asarray([[1.0, 1.0], [0.0, 1.0]], dtype=np.float64)
+    fullState = np.asarray(
+        [[0.0, 1.0], [1.0, 1.5], [2.5, 1.0], [3.5, 0.5]],
+        dtype=np.float64,
+    )
+    fullCov = np.zeros((4, 2, 2), dtype=np.float64)
+    fullLag = np.zeros((3, 2, 2), dtype=np.float64)
+    fullSeedQ = np.diag([4.0, 2.0, 77.0]).astype(np.float64)
+
+    fullEvidence, fullDiagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
+        fullState,
+        fullCov,
+        fullLag,
+        fullSeedQ,
+        matrixF=matrixF,
+    )
+    np.testing.assert_allclose(
+        fullEvidence,
+        np.full(3, 0.0625, dtype=np.float64),
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )
+    assert fullDiagnostics["state_dim"] == 2
+
+
+@pytest.mark.correctness
+def _casePuncScaleRebaseKernelUsesCanonicalStateModel():
+    seedQ = np.diag([1.0, 4.0, 9.0]).astype(np.float64)
+    baseQ = np.diag([2.0, 1.0, 99.0]).astype(np.float64)
+    rawScale = np.asarray([3.0, 12.0], dtype=np.float64)
+
+    levelScale, levelMaxErr, levelMedErr = cconsenrich.crebasePuncIntervalScales(
+        seedQ,
+        baseQ,
+        rawScale,
+        core.STATE_MODEL_LEVEL,
+    )
+    np.testing.assert_allclose(levelScale, rawScale / 2.0, rtol=1.0e-7, atol=1.0e-7)
+    assert levelMaxErr == pytest.approx(0.0)
+    assert levelMedErr == pytest.approx(0.0)
+
+    fullScale, fullMaxErr, fullMedErr = cconsenrich.crebasePuncIntervalScales(
+        seedQ,
+        baseQ,
+        rawScale,
+        core.STATE_MODEL_LEVEL_TREND,
+    )
+    expected = np.sqrt((seedQ[0, 0] * rawScale / baseQ[0, 0]) * (seedQ[1, 1] * rawScale / baseQ[1, 1]))
+    np.testing.assert_allclose(fullScale, expected, rtol=1.0e-6, atol=1.0e-6)
+    assert fullMaxErr > 0.0
+    assert fullMedErr > 0.0
+
+    with pytest.raises(ValueError, match="stateModel"):
+        cconsenrich.crebasePuncIntervalScales(seedQ, baseQ, rawScale, "other")
+
+
+@pytest.mark.correctness
 def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
     matrixData = np.asarray(
         [[1.0, 2.0, 4.0], [1.5, 1.0, 5.0]],
@@ -1981,6 +2058,15 @@ def _caseBackgroundUpdateReusesStatsAndInitialActiveSet():
         invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
         axis=0,
     )
+    nativeWeightTrack, nativeRhsTrack, nativeSupportCount = (
+        cconsenrich.cbackgroundWeightedStatsWithSupport(
+            residualMatrix,
+            invVarMatrix,
+        )
+    )
+    np.testing.assert_allclose(nativeWeightTrack, weightTrack, rtol=1.0e-7)
+    np.testing.assert_allclose(nativeRhsTrack, rhsTrack, rtol=1.0e-7)
+    assert nativeSupportCount == n
 
     for useNonnegative in (False, True):
         plain = core.solveZeroCenteredBackground(
@@ -2003,6 +2089,26 @@ def _caseBackgroundUpdateReusesStatsAndInitialActiveSet():
             rhsTrack=rhsTrack,
         )
         np.testing.assert_allclose(reused, plain, atol=1.0e-5)
+
+    zeroWeights = np.zeros_like(invVarMatrix, dtype=np.float32)
+    nativeWeightTrack, nativeRhsTrack, nativeSupportCount = (
+        cconsenrich.cbackgroundWeightedStatsWithSupport(
+            residualMatrix,
+            zeroWeights,
+        )
+    )
+    assert nativeSupportCount == 0
+    np.testing.assert_array_equal(nativeWeightTrack, np.zeros(n, dtype=np.float64))
+    np.testing.assert_array_equal(nativeRhsTrack, np.zeros(n, dtype=np.float64))
+    zeroBackground = core.solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=zeroWeights,
+        blockLenIntervals=5,
+        backgroundSmoothness=0.8,
+        zeroCenter=False,
+        useNonnegative=True,
+    )
+    np.testing.assert_array_equal(zeroBackground, np.zeros(n, dtype=np.float32))
 
 
 @pytest.mark.correctness
@@ -7434,6 +7540,8 @@ def test_core_numeric_kernel_contracts(contract_case):
             "PUNC info kernel",
             _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64,
         ),
+        ("PUNC evidence kernel", _casePuncEvidenceKernelAcceptsFullSeedQ),
+        ("PUNC scale rebase kernel", _casePuncScaleRebaseKernelUsesCanonicalStateModel),
         (
             "MUNC seed moment kernel",
             _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors,
