@@ -1259,6 +1259,11 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.muncLocalWindowDependenceMultiplier"]
     )
     assert (
+        parsed["observationArgs"].dependenceShapePolynomialDegree
+        == profile["observationParams.dependenceShapePolynomialDegree"]
+        == constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE
+    )
+    assert (
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
         == profile["observationParams.restrictLocalVarianceToSparseBed"]
     )
@@ -1664,6 +1669,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.puncMaxScale: 2.5
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
+    observationParams.dependenceShapePolynomialDegree: 3
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
@@ -1689,6 +1695,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
+    assert parsed["observationArgs"].dependenceShapePolynomialDegree == 3
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False

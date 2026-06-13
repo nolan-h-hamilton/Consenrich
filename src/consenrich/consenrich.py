@@ -3159,6 +3159,17 @@ def main():
             constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
         )
     )
+    dependenceShapePolynomialDegree_ = int(
+        getattr(
+            observationArgs,
+            "dependenceShapePolynomialDegree",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE,
+        )
+    )
+    if not 0 <= dependenceShapePolynomialDegree_ <= 6:
+        raise ValueError(
+            "observationParams.dependenceShapePolynomialDegree must be an integer in [0, 6]"
+        )
     muncVarianceModel_ = core._normalizeMuncVarianceModel(
         getattr(
             observationArgs,
@@ -4874,6 +4885,7 @@ def main():
                 maxContextBP=int(_DEPENDENCE_MAX_CONTEXT_BP),
                 priorMedianSpan=80.0,
                 priorLogSd=1.0,
+                shapePolynomialDegree=int(dependenceShapePolynomialDegree_),
             )
         )
         dependenceSpanIntervals_ = int(depPoint)

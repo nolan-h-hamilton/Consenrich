@@ -6080,7 +6080,7 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert diagnostics["min_span"] == 50
     assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
     assert diagnostics["estimand"] == "acf_abs_three_lag_crossing"
-    assert diagnostics["point_threshold"] == 0.10
+    assert diagnostics["point_threshold"] == pytest.approx(0.05)
     assert diagnostics["lower_threshold"] == 0.20
     assert diagnostics["upper_threshold"] == 0.05
     assert "right_censored_blocks" in diagnostics
@@ -6088,6 +6088,458 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert set(diagnostics["sampled_chromosomes"]) <= {"chr1", "chr2"}
     excluded = set(diagnostics["excluded_nonstandard_chromosomes"])
     assert {"chrX", "chrY", "chrM", "chr1_alt"} <= excluded
+
+
+@pytest.mark.correctness
+def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
+    n = 4096
+    intervalSizeBP = 25
+    params = {
+        "intervalSizeBP": intervalSizeBP,
+        "numBlocks": 120,
+        "randSeed": 202,
+        "blockMedianBP": 12_000.0,
+        "blockSigma": 0.45,
+        "blockMinBP": 4_000,
+        "blockMaxBP": 40_000,
+        "minContextBP": 500,
+        "maxContextBP": 8_000,
+        "priorMedianSpan": 18.0,
+        "priorLogSd": 1.0,
+    }
+
+    def _smoothNoiseTrack(
+        rng: np.random.Generator,
+        scale: float,
+    ) -> np.ndarray:
+        raw = rng.normal(scale=scale, size=n + 48)
+        kernel = np.exp(-np.arange(49, dtype=np.float64) / 10.0)
+        kernel = kernel / math.sqrt(float(np.sum(np.square(kernel))))
+        return np.convolve(raw, kernel, mode="valid")[:n]
+
+    def _makeMatrices(includePeaks: bool) -> tuple[list[str], list[np.ndarray]]:
+        rng = np.random.default_rng(11)
+        grid = np.arange(n, dtype=np.float64)
+        chromosomeNames = []
+        chromosomeMatrices = []
+        for chromIndex in range(2):
+            latent = _smoothNoiseTrack(rng, 0.20)
+            for peakIndex, center in enumerate(
+                [
+                    420 + 97 * chromIndex,
+                    1250 + 113 * chromIndex,
+                    2280 + 71 * chromIndex,
+                    3320 + 53 * chromIndex,
+                ]
+            ):
+                width = 26 + 8 * peakIndex + 2 * chromIndex
+                amplitude = 3.2 + 0.3 * peakIndex
+                if includePeaks:
+                    latent += amplitude * np.exp(-np.abs(grid - center) / width)
+            replicateTracks = [
+                latent + rng.normal(scale=0.08 + 0.01 * rep, size=n)
+                for rep in range(3)
+            ]
+            chromosomeNames.append(f"chr{chromIndex + 1}")
+            chromosomeMatrices.append(np.vstack(replicateTracks).astype(np.float32))
+        return chromosomeNames, chromosomeMatrices
+
+    shortPoint, _, shortUpper, shortDiagnostics = cconsenrich.cchooseDependenceSpan(
+        *_makeMatrices(False),
+        **params,
+    )
+    peakPoint, peakLower, _, peakDiagnostics = cconsenrich.cchooseDependenceSpan(
+        *_makeMatrices(True),
+        **params,
+    )
+    shapedPoint, shapedLower, shapedUpper, shapedDiagnostics = (
+        cconsenrich.cchooseDependenceSpan(
+            *_makeMatrices(True),
+            **params,
+            shapePolynomialDegree=2,
+        )
+    )
+
+    assert shortDiagnostics["sampled_width_bp"] == peakDiagnostics["sampled_width_bp"]
+    assert (
+        shortDiagnostics["sampled_width_median_bp"]
+        == peakDiagnostics["sampled_width_median_bp"]
+    )
+    assert (
+        shortDiagnostics["sampled_chromosomes"]
+        == peakDiagnostics["sampled_chromosomes"]
+    )
+    assert peakDiagnostics["sampled_width_median_bp"] == pytest.approx(11836.0)
+    assert peakDiagnostics["blocks_valid"] == params["numBlocks"]
+    assert shortDiagnostics["blocks_valid"] == params["numBlocks"]
+
+    for diag in (shortDiagnostics, peakDiagnostics):
+        sampledMasses = diag["sampled_positive_signal_mass"]
+        sampledMeans = diag["sampled_positive_signal_mean"]
+        sampledStructure = diag["sampled_polynomial_structure_score"]
+        sampledShapeWeights = diag["sampled_shape_weight_score"]
+        pooledMasses = diag["pooled_positive_signal_mass"]
+        pooledMeans = diag["pooled_positive_signal_mean"]
+        pooledStructure = diag["pooled_polynomial_structure_score"]
+        pooledShapeWeights = diag["pooled_shape_weight_score"]
+        abundanceWeights = diag["pooled_abundance_relative_weight"]
+        assert len(sampledMasses) == len(diag["sampled_width_bp"])
+        assert len(sampledMeans) == len(sampledMasses)
+        assert len(sampledStructure) == len(sampledMasses)
+        assert len(sampledShapeWeights) == len(sampledMasses)
+        assert len(diag["sampled_row_index"]) == len(diag["sampled_width_bp"])
+        assert len(pooledMasses) == diag["blocks_valid"]
+        assert len(pooledMeans) == len(pooledMasses)
+        assert len(pooledStructure) == len(pooledMasses)
+        assert len(pooledShapeWeights) == len(pooledMasses)
+        assert len(abundanceWeights) == diag["blocks_valid"]
+        assert min(sampledMasses) >= 0.0
+        assert min(sampledMeans) >= 0.0
+        assert min(sampledStructure) >= 0.0
+        assert max(sampledStructure) <= 1.0
+        assert min(sampledShapeWeights) >= 0.0
+        assert set(diag["sampled_row_index"]) <= {0, 1, 2}
+        assert min(abundanceWeights) >= 0.0
+        assert diag["abundance_weighting_used"] is True
+        assert diag["shape_polynomial_degree"] == 0
+        assert diag["block_weight_score"] == "positive_signal_mass"
+        assert max(sampledStructure) == 0.0
+        assert np.allclose(
+            np.asarray(sampledShapeWeights, dtype=np.float64),
+            np.asarray(sampledMasses, dtype=np.float64),
+        )
+        assert diag["method"] == "sampled_row_block_spectral_EB"
+        assert diag["spectral_pooling"] == "robust_log_periodogram_EB"
+        assert diag["spectral_nfft"] >= 2 * diag["max_span"] + 2
+        assert 0.0 <= diag["spectral_shrink_median"] <= 1.0
+        assert 0.0 < diag["abundance_effective_blocks"] <= diag["blocks_valid"]
+        assert diag["pooled_positive_signal_mass_mean"] == pytest.approx(
+            float(np.mean(np.asarray(pooledMasses, dtype=np.float64)))
+        )
+        assert diag["pooled_positive_signal_abundance_mean"] == pytest.approx(
+            float(np.mean(np.asarray(pooledMeans, dtype=np.float64)))
+        )
+        assert float(np.mean(np.asarray(abundanceWeights, dtype=np.float64))) == (
+            pytest.approx(1.0)
+        )
+
+    assert peakDiagnostics["pooled_positive_signal_mass_mean"] > (
+        3.0 * shortDiagnostics["pooled_positive_signal_mass_mean"]
+    )
+    shapedStructure = np.asarray(
+        shapedDiagnostics["pooled_polynomial_structure_score"],
+        dtype=np.float64,
+    )
+    shapedMasses = np.asarray(
+        shapedDiagnostics["pooled_positive_signal_mass"],
+        dtype=np.float64,
+    )
+    shapedShapeWeights = np.asarray(
+        shapedDiagnostics["pooled_shape_weight_score"],
+        dtype=np.float64,
+    )
+    assert shapedLower <= shapedPoint <= shapedUpper
+    assert shapedDiagnostics["blocks_valid"] == params["numBlocks"]
+    assert shapedDiagnostics["shape_polynomial_degree"] == 2
+    assert (
+        shapedDiagnostics["block_weight_score"]
+        == "positive_signal_mass_x_polynomial_structure"
+    )
+    assert np.all((0.0 <= shapedStructure) & (shapedStructure <= 1.0))
+    assert shapedDiagnostics["block_polynomial_structure_score_summary"]["max"] > 0.0
+    assert np.allclose(shapedShapeWeights, shapedMasses * (0.05 + shapedStructure))
+    assert min(shapedDiagnostics["pooled_abundance_relative_weight"]) >= 0.0
+    assert float(
+        np.mean(
+            np.asarray(
+                shapedDiagnostics["pooled_abundance_relative_weight"],
+                dtype=np.float64,
+            )
+        )
+    ) == pytest.approx(1.0)
+    with pytest.raises(ValueError, match="shapePolynomialDegree"):
+        cconsenrich.cchooseDependenceSpan(
+            *_makeMatrices(True),
+            **params,
+            shapePolynomialDegree=7,
+        )
+    assert peakLower > shortUpper
+    assert peakPoint >= 3 * shortPoint
+
+    edgeParams = dict(params)
+    edgeParams["numBlocks"] = 24
+    edgeParams["randSeed"] = 303
+    silentMatrix = np.zeros((3, n), dtype=np.float32)
+    _, _, _, silentDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [silentMatrix],
+        **edgeParams,
+    )
+    assert silentDiagnostics["blocks_valid"] == 0
+    assert silentDiagnostics["fallback"] is True
+    assert silentDiagnostics["abundance_weighting_used"] is False
+    assert silentDiagnostics["abundance_effective_blocks"] == 0.0
+    assert max(silentDiagnostics["sampled_positive_signal_mean"]) == 0.0
+
+    tinyNames, tinyMatrices = _makeMatrices(False)
+    tinyMatrices = [matrix * np.float32(1.0e-10) for matrix in tinyMatrices]
+    _, _, _, tinyDiagnostics = cconsenrich.cchooseDependenceSpan(
+        tinyNames,
+        tinyMatrices,
+        **edgeParams,
+    )
+    assert tinyDiagnostics["blocks_valid"] == edgeParams["numBlocks"]
+    assert tinyDiagnostics["abundance_weighting_used"] is False
+    assert tinyDiagnostics["abundance_effective_blocks"] == pytest.approx(
+        float(tinyDiagnostics["blocks_valid"])
+    )
+
+    ramp = np.linspace(-1.0, 1.0, n, dtype=np.float64)
+    rampMatrix = np.vstack([ramp - 0.01, ramp, ramp + 0.01]).astype(np.float32)
+    _, _, _, rampDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [rampMatrix],
+        **edgeParams,
+    )
+    assert rampDiagnostics["method"] == "sampled_row_block_spectral_EB"
+    assert rampDiagnostics["point_span"] >= rampDiagnostics["min_span"]
+    assert rampDiagnostics["spectral_frequency_count"] == (
+        rampDiagnostics["spectral_nfft"] // 2
+    ) + 1
+
+
+@pytest.mark.correctness
+def _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule():
+    intervalSizeBP = 25
+    periodicParams = {
+        "intervalSizeBP": intervalSizeBP,
+        "numBlocks": 40,
+        "randSeed": 505,
+        "blockMedianBP": 6_000.0,
+        "blockSigma": 0.20,
+        "blockMinBP": 5_000,
+        "blockMaxBP": 7_000,
+        "minContextBP": 300,
+        "maxContextBP": 6_000,
+        "priorMedianSpan": 12.0,
+        "priorLogSd": 1.0,
+    }
+
+    shortMatrix = np.linspace(-1.0, 1.0, 6, dtype=np.float32)[None, :]
+    _, _, _, shortDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [shortMatrix],
+        intervalSizeBP=intervalSizeBP,
+        numBlocks=6,
+        randSeed=1,
+        blockMedianBP=100.0,
+        blockSigma=0.10,
+        blockMinBP=100,
+        blockMaxBP=120,
+        minContextBP=500,
+        maxContextBP=1_000,
+        priorMedianSpan=10.0,
+        priorLogSd=1.0,
+    )
+    assert shortDiagnostics["blocks_valid"] == 0
+    assert shortDiagnostics["fallback"] is True
+    assert shortDiagnostics["fallback_blocks"] == shortDiagnostics["num_blocks"]
+    assert shortDiagnostics["point_span"] == shortDiagnostics["min_span"]
+
+    flatMatrix = np.ones((3, 512), dtype=np.float32)
+    _, _, _, flatDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [flatMatrix],
+        **periodicParams,
+    )
+    assert flatDiagnostics["blocks_valid"] == 0
+    assert flatDiagnostics["fallback"] is True
+    assert flatDiagnostics["fallback_blocks"] == periodicParams["numBlocks"]
+    assert min(flatDiagnostics["sampled_point_span"]) >= flatDiagnostics["min_span"]
+    assert max(flatDiagnostics["sampled_point_span"]) <= flatDiagnostics["max_span"]
+
+    grid = np.arange(512, dtype=np.float64)
+    periodicTrack = np.sin(2.0 * np.pi * grid / 12.0)
+    periodicMatrix = np.vstack(
+        [periodicTrack, periodicTrack + 0.01, periodicTrack - 0.01]
+    ).astype(np.float32)
+    periodicPoint, periodicLower, periodicUpper, periodicDiagnostics = (
+        cconsenrich.cchooseDependenceSpan(
+            ["chr1"],
+            [periodicMatrix],
+            **periodicParams,
+        )
+    )
+    assert periodicDiagnostics["blocks_valid"] == periodicParams["numBlocks"]
+    assert periodicDiagnostics["method"] == "sampled_row_block_spectral_EB"
+    assert periodicDiagnostics["spectral_acf_first"] > 0.75
+    assert periodicPoint >= int(0.80 * periodicDiagnostics["max_span"])
+    assert 0.0 <= periodicDiagnostics["spectral_shrink_median"] <= 1.0
+    assert periodicLower <= periodicPoint <= periodicUpper
+    assert periodicUpper <= periodicDiagnostics["max_span"]
+
+    crossingTrack = np.random.default_rng(1).normal(size=240)
+    centered = crossingTrack - float(np.median(crossingTrack))
+    scale = 1.4826 * float(np.median(np.abs(centered)))
+    trackMedian = float(np.median(crossingTrack))
+    lo = max(float(np.quantile(crossingTrack, 0.005)), trackMedian - 8.0 * scale)
+    hi = min(float(np.quantile(crossingTrack, 0.995)), trackMedian + 8.0 * scale)
+    clipped = np.clip(crossingTrack, lo, hi) - trackMedian
+    gamma0 = float(np.mean(np.square(clipped)))
+    acf = np.asarray(
+        [
+            float(
+                np.dot(clipped[:-lag], clipped[lag:])
+                / (clipped.size - lag)
+                / gamma0
+            )
+            for lag in range(1, 61)
+        ],
+        dtype=np.float64,
+    )
+    crossingThreshold = 0.05
+    firstSingleCrossing = next(
+        lagIndex + 1
+        for lagIndex, value in enumerate(acf)
+        if abs(value) < crossingThreshold
+    )
+    firstTripleCrossing = next(
+        lagIndex + 1
+        for lagIndex in range(acf.size - 2)
+        if (
+            abs(acf[lagIndex]) < crossingThreshold
+            and abs(acf[lagIndex + 1]) < crossingThreshold
+            and abs(acf[lagIndex + 2]) < crossingThreshold
+        )
+    )
+    assert firstSingleCrossing == 3
+    assert firstTripleCrossing == 12
+
+    crossingMatrix = np.vstack(
+        [crossingTrack, crossingTrack + 0.001, crossingTrack - 0.001]
+    ).astype(np.float32)
+    _, _, _, crossingDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [crossingMatrix],
+        intervalSizeBP=intervalSizeBP,
+        numBlocks=1,
+        randSeed=99,
+        blockMedianBP=6_000.0,
+        blockSigma=0.001,
+        blockMinBP=6_000,
+        blockMaxBP=6_001,
+        minContextBP=100,
+        maxContextBP=3_000,
+        priorMedianSpan=12.0,
+        priorLogSd=1.0,
+    )
+    assert crossingDiagnostics["sampled_width_bp"] == [6_000]
+    assert crossingDiagnostics["sampled_point_span"][0] > firstSingleCrossing
+    assert crossingDiagnostics["sampled_point_span"][0] >= firstTripleCrossing
+    assert crossingDiagnostics["right_censored_blocks"] == 0
+
+
+@pytest.mark.correctness
+def _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers():
+    def smoothNoiseTrack(
+        rng: np.random.Generator,
+        n: int,
+        width: float,
+        scale: float,
+    ) -> np.ndarray:
+        raw = rng.normal(scale=scale, size=n + 128)
+        kernel = np.exp(-np.arange(129, dtype=np.float64) / float(width))
+        kernel = kernel / math.sqrt(float(np.sum(np.square(kernel))))
+        return np.convolve(raw, kernel, mode="valid")[:n]
+
+    n = 2048
+    baseTrack = smoothNoiseTrack(np.random.default_rng(7), n, 22.0, 0.20)
+    cleanMatrix = np.vstack(
+        [
+            baseTrack - 0.02,
+            baseTrack - 0.01,
+            baseTrack,
+            baseTrack + 0.01,
+            baseTrack + 0.02,
+        ]
+    ).astype(np.float32)
+    rowNoise = 100.0 * np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+    noisyMatrix = cleanMatrix.copy()
+    noisyMatrix[4] = rowNoise.astype(np.float32)
+    rowNoiseParams = {
+        "intervalSizeBP": 25,
+        "numBlocks": 80,
+        "randSeed": 404,
+        "blockMedianBP": 12_000.0,
+        "blockSigma": 0.35,
+        "blockMinBP": 6_000,
+        "blockMaxBP": 24_000,
+        "minContextBP": 500,
+        "maxContextBP": 6_000,
+        "priorMedianSpan": 20.0,
+        "priorLogSd": 1.0,
+    }
+
+    cleanPoint, cleanLower, cleanUpper, cleanDiagnostics = (
+        cconsenrich.cchooseDependenceSpan(["chr1"], [cleanMatrix], **rowNoiseParams)
+    )
+    noisyPoint, noisyLower, noisyUpper, noisyDiagnostics = (
+        cconsenrich.cchooseDependenceSpan(["chr1"], [noisyMatrix], **rowNoiseParams)
+    )
+    assert abs(noisyPoint - cleanPoint) <= 10
+    assert noisyLower <= cleanUpper
+    assert cleanLower <= noisyUpper
+    assert noisyDiagnostics["sampled_width_bp"] == cleanDiagnostics["sampled_width_bp"]
+    assert noisyDiagnostics["sampled_row_index"] == cleanDiagnostics["sampled_row_index"]
+    assert noisyDiagnostics["blocks_valid"] == rowNoiseParams["numBlocks"]
+    assert max(noisyDiagnostics["pooled_abundance_relative_weight"]) <= 1.5
+    assert float(
+        np.mean(
+            np.asarray(
+                noisyDiagnostics["pooled_abundance_relative_weight"],
+                dtype=np.float64,
+            )
+        )
+    ) == pytest.approx(
+        1.0
+    )
+
+    outlierN = 8192
+    rng = np.random.default_rng(123)
+    grid = np.arange(outlierN, dtype=np.float64)
+    latent = smoothNoiseTrack(rng, outlierN, 6.0, 0.15)
+    for center in (1800.0, 5500.0):
+        latent += 4.0 * np.exp(-0.5 * np.square((grid - center) / 160.0))
+    outlierMatrix = np.vstack(
+        [latent + rng.normal(scale=0.05, size=outlierN) for _ in range(4)]
+    ).astype(np.float32)
+    outlierPoint, outlierLower, outlierUpper, outlierDiagnostics = (
+        cconsenrich.cchooseDependenceSpan(
+            ["chr1"],
+            [outlierMatrix],
+            intervalSizeBP=25,
+            numBlocks=120,
+            randSeed=707,
+            blockMedianBP=10_000.0,
+            blockSigma=0.35,
+            blockMinBP=5_000,
+            blockMaxBP=18_000,
+            minContextBP=500,
+            maxContextBP=20_000,
+            priorMedianSpan=18.0,
+            priorLogSd=1.0,
+        )
+    )
+    sampledSpans = np.asarray(
+        outlierDiagnostics["sampled_point_span"],
+        dtype=np.float64,
+    )
+    assert outlierDiagnostics["blocks_valid"] == 120
+    assert outlierDiagnostics["abundance_effective_blocks"] >= 8.0
+    assert outlierDiagnostics["robust_log_span_mad"] > 0.25
+    assert 0.0 < outlierDiagnostics["spectral_shrink_median"] < 1.0
+    assert outlierPoint <= int(np.quantile(sampledSpans, 0.95)) + 5
+    assert outlierLower <= outlierPoint <= outlierUpper
 
 
 @pytest.mark.correctness
@@ -7873,6 +8325,18 @@ def test_core_dependence_selection_contracts(contract_case):
     contract_case(
         "sampled dependence span autosome diagnostics",
         _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
+    )
+    contract_case(
+        "sparse peak dependence span weighting",
+        _caseChooseDependenceSpanWeightsSparsePeakBlocks,
+    )
+    contract_case(
+        "dependence span edge spectra and crossing rule",
+        _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule,
+    )
+    contract_case(
+        "dependence span row noise and pooled outliers",
+        _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers,
     )
     contract_case(
         "chrom sizes preserve sex chromosomes",

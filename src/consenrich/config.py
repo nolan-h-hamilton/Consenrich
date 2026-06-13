@@ -2041,6 +2041,34 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
         )
+    dependenceShapePolynomialDegreeRaw = _cfgGet(
+        configData,
+        "observationParams.dependenceShapePolynomialDegree",
+        _cfgDefault(
+            configData,
+            "observationParams.dependenceShapePolynomialDegree",
+        ),
+    )
+    if dependenceShapePolynomialDegreeRaw is None:
+        dependenceShapePolynomialDegreeRaw = (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE
+        )
+    if isinstance(dependenceShapePolynomialDegreeRaw, bool):
+        raise ValueError(
+            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
+        )
+    if (
+        isinstance(dependenceShapePolynomialDegreeRaw, (float, np.floating))
+        and not float(dependenceShapePolynomialDegreeRaw).is_integer()
+    ):
+        raise ValueError(
+            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
+        )
+    dependenceShapePolynomialDegree = int(dependenceShapePolynomialDegreeRaw)
+    if not 0 <= dependenceShapePolynomialDegree <= 6:
+        raise ValueError(
+            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
+        )
     if _cfgHas(configData, "observationParams.muncSeedWeight") and not isinstance(
         _cfgGet(configData, "observationParams.muncSeedWeight"),
         Mapping,
@@ -2463,6 +2491,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncDependenceMinContextSizeBP": muncDependenceMinContextSizeBP,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
+        "dependenceShapePolynomialDegree": dependenceShapePolynomialDegree,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,
         "muncSeedWeightPasses": muncSeedWeightPasses,
         "muncSeedWeightMin": muncSeedWeightMin,
