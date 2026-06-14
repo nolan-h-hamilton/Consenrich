@@ -207,6 +207,13 @@ def validate_genome_covariate_cache(
                 f"genome covariate cache chromosome {name} length/bins "
                 "must be nonnegative"
             )
+        expected_bins = (length + bin_size_bp - 1) // bin_size_bp
+        if bins != expected_bins:
+            raise ValueError(
+                f"genome covariate cache chromosome {name} bins mismatch: "
+                f"manifest bins={bins}, expected {expected_bins} from "
+                f"length={length} and bin_size_bp={bin_size_bp}"
+            )
         array = str(row.get("array", "")).strip()
         if not array:
             raise ValueError(
@@ -430,8 +437,24 @@ class ConsenrichGenomeCovariateCache:
         group = interval_size // self.bin_size_bp
         n_out = (end - start + interval_size - 1) // interval_size
         out = np.full((n_out, len(indices)), np.nan, dtype=np.float32)
+        bin_ids = np.arange(first, last, dtype=np.int64)
+        bin_starts = bin_ids * self.bin_size_bp
+        bin_ends = np.minimum(bin_starts + self.bin_size_bp, row.length)
         for idx in range(n_out):
+            interval_start = start + idx * interval_size
+            interval_end = min(interval_start + interval_size, end, row.length)
             lo = idx * group
             hi = min((idx + 1) * group, base.shape[0])
-            out[idx, :] = np.mean(base[lo:hi, :], axis=0, dtype=np.float64)
+            weights = (
+                np.minimum(bin_ends[lo:hi], interval_end)
+                - np.maximum(bin_starts[lo:hi], interval_start)
+            )
+            keep = weights > 0
+            weighted = base[lo:hi, :][keep, :].astype(np.float64, copy=False)
+            weight_arr = weights[keep].astype(np.float64, copy=False)
+            out[idx, :] = np.sum(
+                weighted * weight_arr[:, None],
+                axis=0,
+                dtype=np.float64,
+            ) / np.sum(weight_arr, dtype=np.float64)
         return out

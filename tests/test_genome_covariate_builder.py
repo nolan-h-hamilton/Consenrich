@@ -199,6 +199,16 @@ def test_repeat_frac_builder_v1_unions_rmsk_and_bed_intervals(tmp_path):
         ).ravel(),
         np.asarray([0.65, 0.6], dtype=np.float32),
     )
+    np.testing.assert_allclose(
+        cache.fetch(
+            "chrA",
+            start=50,
+            end=125,
+            feature_names=("repeat_frac",),
+            interval_size_bp=100,
+        ).ravel(),
+        np.asarray([8.0 / 15.0], dtype=np.float32),
+    )
 
 
 def test_consenrich_cache_cli_help_build_inspect_validate(tmp_path):
@@ -238,7 +248,7 @@ def test_consenrich_cache_cli_validate_rejects_bad_manifest(tmp_path):
   "bin_size_bp": 50,
   "features": ["custom_numeric"],
   "chromosomes": [
-    {"name": "chrA", "length": 100, "bins": 3, "array": "arrays/chrA.npy"}
+    {"name": "chrA", "length": 150, "bins": 3, "array": "arrays/chrA.npy"}
   ]
 }
 """,

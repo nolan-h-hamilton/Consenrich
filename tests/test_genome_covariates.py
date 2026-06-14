@@ -42,7 +42,15 @@ def _write_cache(tmp_path, chrom="chrTest", bin_size=50, features=FEATURES):
     return arr
 
 
-def _write_numeric_cache(tmp_path, *, features, values, chrom="chrTest", bin_size=50):
+def _write_numeric_cache(
+    tmp_path,
+    *,
+    features,
+    values,
+    chrom="chrTest",
+    bin_size=50,
+    length=None,
+):
     arrays_dir = tmp_path / "arrays"
     arrays_dir.mkdir()
     arr = np.asarray(values, dtype=np.float32)
@@ -54,7 +62,7 @@ def _write_numeric_cache(tmp_path, *, features, values, chrom="chrTest", bin_siz
         "chromosomes": [
             {
                 "name": chrom,
-                "length": int(arr.shape[0] * bin_size),
+                "length": int(arr.shape[0] * bin_size if length is None else length),
                 "bins": int(arr.shape[0]),
                 "array": f"arrays/{chrom}.npy",
             }
@@ -92,6 +100,47 @@ def test_genome_covariate_cache_rejects_incompatible_interval_size(tmp_path):
         cache.validate_request(interval_size_bp=75)
     with pytest.raises(ValueError, match="bin size must divide"):
         cache.fetch("chrTest", start=0, end=100, interval_size_bp=75)
+
+
+def test_genome_covariate_cache_rejects_manifest_bin_count_mismatch(tmp_path):
+    _write_numeric_cache(
+        tmp_path,
+        features=("gc",),
+        values=[
+            [0.1],
+            [0.2],
+        ],
+        length=125,
+    )
+
+    with pytest.raises(ValueError, match="expected"):
+        ConsenrichGenomeCovariateCache(tmp_path)
+
+
+def test_genome_covariate_cache_weights_aggregate_terminal_bins(tmp_path):
+    _write_numeric_cache(
+        tmp_path,
+        features=("custom_signal_z",),
+        values=[
+            [1.0],
+            [3.0],
+            [9.0],
+        ],
+        length=125,
+    )
+
+    cache = ConsenrichGenomeCovariateCache(tmp_path)
+
+    np.testing.assert_allclose(
+        cache.fetch(
+            "chrTest",
+            start=50,
+            end=125,
+            feature_names=("custom_signal_z",),
+            interval_size_bp=100,
+        ),
+        np.asarray([[(50.0 * 3.0 + 25.0 * 9.0) / 75.0]], dtype=np.float32),
+    )
 
 
 def test_genome_covariate_cache_supports_feature_selection_and_partial_fetch(tmp_path):
