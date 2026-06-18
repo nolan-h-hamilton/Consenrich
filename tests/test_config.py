@@ -388,7 +388,7 @@ def _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
         transformOutputScale=outputScale,
         transformOutputOffset=0.0,
         transformShape=shape,
-        subtractGlobalMedian=True,
+        centerMB=True,
     )
 
     momentCounts = counts + 0.5 * scaleFactor
@@ -602,8 +602,6 @@ def _case_readConfigDottedAndNestedEquivalent(
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
     matchingParams.minPeakScore: 7.5
-    matchingParams.roccoPeakMode: broad
-    matchingParams.roccoSubpeakLengthScaleBP: 2400
     loggingParams.verbosity: debug
     loggingParams.progress: off
     loggingParams.logFile: runEvents.jsonl
@@ -642,8 +640,6 @@ def _case_readConfigDottedAndNestedEquivalent(
       uncertaintyScoreZ: 1.25
       metadataDetail: full
       minPeakScore: 7.5
-      roccoPeakMode: broad
-      roccoSubpeakLengthScaleBP: 2400
     loggingParams:
       verbosity: debug
       progress: off
@@ -760,10 +756,6 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
     assert matchingDotted.minPeakScore == pytest.approx(7.5)
     assert matchingNested.minPeakScore == pytest.approx(7.5)
-    assert matchingDotted.roccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
-    assert matchingNested.roccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
-    assert matchingDotted.roccoSubpeakLengthScaleBP == 2400
-    assert matchingNested.roccoSubpeakLengthScaleBP == 2400
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -1141,6 +1133,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "uncertaintyCalibrationParams.deleteBlockFactorModel",
         "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount",
         "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates",
+        "uncertaintyCalibrationParams.deleteBlockDeletionProbability",
         "uncertaintyCalibrationParams.deleteBlockMinInformationFraction",
         "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction",
         "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
@@ -1151,6 +1144,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
     ):
         assert key in defaults
+    assert "uncertaintyCalibrationParams.holdoutCount" not in defaults
     assert constants.UNCERTAINTY_CALIBRATION_MODES == (
         constants.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
     )
@@ -1348,8 +1342,7 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.useCountNoiseFloor"]
     )
     assert (
-        parsed["countingArgs"].subtractGlobalMedian
-        == profile["countingParams.subtractGlobalMedian"]
+        parsed["countingArgs"].centerMB == profile["countingParams.centerMB"]
     )
     assert (
         parsed["outputArgs"].saveBackgroundTracks
@@ -1513,21 +1506,6 @@ def _case_runtime_defaults_are_centralized(
         cliDefaults.matchMinPeakScore
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
     )
-    assert cliDefaults.matchRoccoPeakMode == constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE
-    assert (
-        cliDefaults.matchRoccoSubpeakLengthScaleBP
-        == constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
-    )
-    cliBroad = consenrich_cli._buildArgParser().parse_args(
-        [
-            "--match-rocco-peak-mode",
-            constants.MATCHING_ROCCO_PEAK_MODE_BROAD,
-            "--match-rocco-subpeak-length-scale-bp",
-            "1200",
-        ]
-    )
-    assert cliBroad.matchRoccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
-    assert cliBroad.matchRoccoSubpeakLengthScaleBP == 1200
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
     assert cliDefaults.verbosity is None
@@ -1717,7 +1695,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     genomeParams.name: testGenome
     fitParams.ECM_outerIters: 16
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
-    countingParams.subtractGlobalMedian: false
+    countingParams.centerMB: false
     processParams.processNoiseCalibration: seed
     processParams.puncMinScale: 0.75
     processParams.puncMaxScale: 2.5
@@ -1745,7 +1723,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["defaultConfiguration"] == "generic"
     assert parsed["fitArgs"].ECM_outerIters == 16
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
-    assert parsed["countingArgs"].subtractGlobalMedian is False
+    assert parsed["countingArgs"].centerMB is False
     assert parsed["processArgs"].processNoiseCalibration == "seed"
     assert parsed["processArgs"].puncMinScale == pytest.approx(0.75)
     assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
@@ -2123,8 +2101,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     )
     assert (
         defaultArgs.deleteBlockFactorBootstrapReplicates
-        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES
+        == 100
     )
+    assert defaultArgs.deleteBlockDeletionProbability == pytest.approx(0.25)
+    assert not hasattr(defaultArgs, "holdoutCount")
     assert defaultArgs.deleteBlockApplyTargetCalibration is None
 
     configExplicitYaml = """
@@ -2146,6 +2126,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.deleteBlockFactorModel: segShrink
     uncertaintyCalibrationParams.deleteBlockFactorSegmentCount: 7
     uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates: 9
+    uncertaintyCalibrationParams.deleteBlockDeletionProbability: 0.4
     uncertaintyCalibrationParams.deleteBlockMinInformationFraction: 0.01
     uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8
     uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 1.0e-7
@@ -2178,6 +2159,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.deleteBlockFactorModel == "segShrink"
     assert explicitArgs.deleteBlockFactorSegmentCount == 7
     assert explicitArgs.deleteBlockFactorBootstrapReplicates == 9
+    assert explicitArgs.deleteBlockDeletionProbability == pytest.approx(0.4)
     assert explicitArgs.deleteBlockMinInformationFraction == pytest.approx(0.01)
     assert explicitArgs.deleteBlockMaxInformationFraction == pytest.approx(0.8)
     assert explicitArgs.deleteBlockMinDeltaVariance == pytest.approx(1.0e-7)
@@ -2252,6 +2234,16 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
                 "uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrtInformationFraction",
             ),
             "deleteBlockScoreWeightMode",
+        ),
+        (
+            "delete_probability",
+            ("uncertaintyCalibrationParams.deleteBlockDeletionProbability: 0",),
+            "deleteBlockDeletionProbability",
+        ),
+        (
+            "delete_probability_one",
+            ("uncertaintyCalibrationParams.deleteBlockDeletionProbability: 1",),
+            "deleteBlockDeletionProbability",
         ),
         (
             "targets_empty",
@@ -2915,7 +2907,7 @@ def _case_resolveFixedDeltaFRequiresPositiveFinite():
             consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
-def _caseSubtractGlobalMedianRespectsUserFlagWithControlInputs():
+def _caseCenterMBRespectsUserFlagWithControlInputs():
     countingArgs = consenrich_core.countingParams(
         intervalSizeBP=25,
         backgroundBlockSizeBP=1000,
@@ -2926,25 +2918,25 @@ def _caseSubtractGlobalMedianRespectsUserFlagWithControlInputs():
         fixControl=False,
         logOffset=1.0,
         logMult=1.0,
-        subtractGlobalMedian=True,
+        centerMB=True,
     )
 
-    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
+    enabled, label = consenrich_cli._resolveCenterMBStatus(
         countingArgs,
         controlsPresent=False,
     )
     assert enabled is True
     assert label == "yes"
 
-    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
+    enabled, label = consenrich_cli._resolveCenterMBStatus(
         countingArgs,
         controlsPresent=True,
     )
     assert enabled is True
     assert label == "yes"
 
-    disabledArgs = countingArgs._replace(subtractGlobalMedian=False)
-    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
+    disabledArgs = countingArgs._replace(centerMB=False)
+    enabled, label = consenrich_cli._resolveCenterMBStatus(
         disabledArgs,
         controlsPresent=True,
     )
@@ -2968,8 +2960,8 @@ def test_config_runtime_validation_contracts(tmp_path, contract_case):
         tmp_path,
     )
     contract_case(
-        "subtractGlobalMedian honors user request with controls",
-        _caseSubtractGlobalMedianRespectsUserFlagWithControlInputs,
+        "centerMB honors user request with controls",
+        _caseCenterMBRespectsUserFlagWithControlInputs,
     )
     contract_case(
         "fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite
@@ -3411,6 +3403,10 @@ def test_run_summary_output_helpers(tmp_path):
                 "sd_multiplier_median": 2.0,
                 "quantile_method": "linear",
             },
+            "delete_block_deletion_probability": 0.25,
+            "delete_block_deleted_blocks": 4,
+            "delete_block_deleted_replicate_block_total": 7,
+            "delete_block_deleted_observation_interval_total": 70,
             "rows_valid": 10,
             "rows_fit": 5,
             "target_calibration": {
@@ -3485,6 +3481,10 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[0, "delete_block_track_sd_scale"] == pytest.approx(1.1)
     assert frame.loc[0, "delete_block_rows_valid"] == 10
     assert frame.loc[0, "delete_block_rows_fit"] == 5
+    assert frame.loc[0, "delete_block_deletion_probability"] == pytest.approx(0.25)
+    assert frame.loc[0, "delete_block_deleted_blocks"] == 4
+    assert frame.loc[0, "delete_block_deleted_replicate_block_total"] == 7
+    assert frame.loc[0, "delete_block_deleted_observation_interval_total"] == 70
     assert frame.loc[0, "delete_block_scale"] == pytest.approx(1.1)
     assert frame.loc[0, "delete_block_scale_reason"] == "target"
     assert frame.loc[1, "chromosome"] == "genome"

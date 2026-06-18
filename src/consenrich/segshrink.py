@@ -236,14 +236,14 @@ def fitSingleContig(
         segmentContigIndex,
     )
     segmentTheta = np.asarray(empiricalBayes["segmentTheta"], dtype=np.float64)
-    factor, calibrated = _cuncertainty.csegShrinkApplyFactors(
+    factor, _calibrated = _cuncertainty.csegShrinkApplyFactors(
         segmentByInterval,
         segmentTheta,
         fullP,
         float(positiveFloor),
     )
-    factor = np.asarray(factor, dtype=np.float64)
-    calibrated = np.asarray(calibrated, dtype=np.float32)
+    factor = np.maximum(np.asarray(factor, dtype=np.float64), 1.0)
+    calibrated = np.sqrt(np.maximum(factor * fullP, positiveFloor)).astype(np.float32)
     segmentShrinkage = []
     for idx in range(segmentCountEffective):
         rawLog = float(segmentLog[idx]) if idx < segmentLog.size else float("nan")
@@ -457,12 +457,14 @@ def combinePreparedContigs(
             int(fullP.shape[0]),
             max(localCount, 1),
         )
-        factor, calibrated = _cuncertainty.csegShrinkApplyFactors(
+        factor, _calibrated = _cuncertainty.csegShrinkApplyFactors(
             segmentByInterval,
             localTheta,
             fullP,
             float(positiveFloor),
         )
+        factor = np.maximum(np.asarray(factor, dtype=np.float64), 1.0)
+        calibrated = np.sqrt(np.maximum(factor * fullP, positiveFloor)).astype(np.float32)
         targetCalibration = model.get("target_calibration")
         uncertaintyTrackScale = 1.0
         if isinstance(targetCalibration, dict) and bool(
@@ -477,6 +479,10 @@ def combinePreparedContigs(
                 np.asarray(calibrated, dtype=np.float32)
                 * np.float32(uncertaintyTrackScale)
             )
+        calibrated = np.maximum(
+            np.asarray(calibrated, dtype=np.float32),
+            np.sqrt(fullP).astype(np.float32),
+        )
         segmentTable = []
         for localIDX, row in enumerate(segmentRows):
             rawLog = segmentLog[offset + localIDX]

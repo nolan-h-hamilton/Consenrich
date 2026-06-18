@@ -413,7 +413,7 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
                 logOffset=1.0,
                 logMult=1.0,
                 transformMethod="identity",
-                subtractGlobalMedian=False,
+                centerMB=False,
             ),
             "scArgs": core.scParams(),
             "processArgs": core.processParams(
@@ -1631,7 +1631,7 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def _caseSubtractGlobalMedianAppliesOneMbMedianFilterInPlace():
+def _caseCenterMBAppliesMedianFilterInPlace():
     cases = (
         (
             np.array(
@@ -1653,7 +1653,7 @@ def _caseSubtractGlobalMedianAppliesOneMbMedianFilterInPlace():
     for tracks, intervalSizeBP, expectedWindow in cases:
         original = tracks.copy()
 
-        stats_ = core.subtractGlobalMedianInPlace(
+        stats_ = core.centerMBInPlace(
             tracks,
             intervalSizeBP=intervalSizeBP,
         )
@@ -8145,8 +8145,8 @@ def test_core_numeric_kernel_contracts(contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
-            "subtractGlobalMedian 1 Mb median filter",
-            _caseSubtractGlobalMedianAppliesOneMbMedianFilterInPlace,
+            "centerMB median filter",
+            _caseCenterMBAppliesMedianFilterInPlace,
         ),
         (
             "level forward-backward kernel",

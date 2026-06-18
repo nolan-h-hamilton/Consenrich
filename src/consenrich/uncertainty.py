@@ -110,6 +110,8 @@ DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
     "kept_information",
     "heldout_information",
     "heldout_information_fraction",
+    "deleted_replicates",
+    "deleted_observations",
     "delta_variance",
     "delta_variance_source",
     "row_weight",
@@ -273,51 +275,30 @@ def _resolveBlockSizeIntervals(
     return int(min(blockLen, max(int(n), 1)))
 
 
-def _resolveHoldoutCount(m: int, fraction: float | None) -> int:
-    if m < 1:
-        return 0
-    if m == 1:
-        return 1
-    frac = (1.0 / float(m)) if fraction is None else float(fraction)
-    frac = float(
-        np.clip(
-            frac,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX,
-        )
-    )
-    return int(
-        np.clip(
-            round(frac * float(m)),
-            core.UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
-            max(m - 1, core.UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES),
-        )
-    )
-
-
 def _makeFoldSpec(
     *,
     m: int,
     n: int,
     blockLen: int,
     folds: int,
-    holdoutCount: int,
+    deletionProbability: float,
     seed: int,
 ) -> list[np.ndarray]:
     if folds < core.UNCERTAINTY_CALIBRATION_MIN_FOLDS:
         raise ValueError("uncertainty calibration requires at least two folds")
-    if holdoutCount < core.UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES:
-        raise ValueError("uncertainty calibration requires at least one held-out replicate")
-    blockFold, repsByBlock = _cuncertainty.cmakeFoldSpec(
+    if not (np.isfinite(deletionProbability) and 0.0 < deletionProbability < 1.0):
+        raise ValueError("delete-block deletion probability must be in (0, 1)")
+    blockFold, repsByBlockCount, repsByBlock = _cuncertainty.cmakeFoldSpec(
         int(m),
         int(n),
         int(blockLen),
         int(folds),
-        int(holdoutCount),
+        float(deletionProbability),
         int(seed),
     )
     return (
         np.ascontiguousarray(blockFold, dtype=np.int32),
+        np.ascontiguousarray(repsByBlockCount, dtype=np.intp),
         np.ascontiguousarray(repsByBlock, dtype=np.intp),
     )
 
@@ -1111,33 +1092,35 @@ def calibrateChromosomeStateUncertainty(
         n,
         folds=folds,
     )
-    holdoutFractionRaw = _firstSet(
-        params,
-        "holdoutFraction",
-        "heldoutReplicateFraction",
-        default=None,
-    )
-    holdoutCount = _resolveHoldoutCount(m, holdoutFractionRaw)
+    deletionProbability = float(params.deleteBlockDeletionProbability)
+    if not (np.isfinite(deletionProbability) and 0.0 < deletionProbability < 1.0):
+        raise ValueError("deleteBlockDeletionProbability must be in (0, 1)")
     logger.info(
-        "uncertaintyCalibration.start mode=delete_block_state intervals=%s samples=%s folds=%s blockLen=%s holdoutCount=%s varianceMode=%s targetSignal=%s factorModel=%s",
+        "uncertaintyCalibration.start mode=delete_block_state intervals=%s "
+        "samples=%s folds=%s blockLen=%s deleteBlockDeletionProbability=%s "
+        "varianceMode=%s targetSignal=%s factorModel=%s",
         n,
         m,
         folds,
         blockLen,
-        holdoutCount,
+        deletionProbability,
         varianceMode,
         targetSignal,
         factorModel,
     )
     stageStart = time.perf_counter()
-    blockFold, repsByBlock = _makeFoldSpec(
+    blockFold, repsByBlockCount, repsByBlock = _makeFoldSpec(
         m=m,
         n=n,
         blockLen=blockLen,
         folds=folds,
-        holdoutCount=holdoutCount,
+        deletionProbability=deletionProbability,
         seed=int(params.seed),
     )
+    deleteCountsByBlock = np.asarray(
+        repsByBlockCount,
+        dtype=np.int64,
+    ).reshape(-1)
     timings["make_masks_seconds"] = time.perf_counter() - stageStart
     timings["make_fold_spec_seconds"] = timings["make_masks_seconds"]
     fullStateArr = np.asarray(fullState, dtype=np.float64)
@@ -1219,12 +1202,16 @@ def calibrateChromosomeStateUncertainty(
     totalInfoChunks: list[np.ndarray] = []
     keptInfoChunks: list[np.ndarray] = []
     heldInfoChunks: list[np.ndarray] = []
+    deletedReplicateChunks: list[np.ndarray] = []
+    deletedObservationChunks: list[np.ndarray] = []
     invalidReasonCountByCode = np.zeros(
         DELETE_BLOCK_INVALID_REASON_LABELS.shape[0],
         dtype=np.int64,
     )
     rowsTotal = 0
     foldFailures = 0
+    deletedReplicateIntervalTotal = 0
+    deletedObservationIntervalTotal = 0
     foldDiagnosticRows: list[dict[str, Any]] = []
 
     fitKwargs = dict(runKwargs)
@@ -1281,6 +1268,7 @@ def calibrateChromosomeStateUncertainty(
             int(blockLen),
             int(fold),
             blockFold,
+            repsByBlockCount,
             repsByBlock,
             matrixMunc,
             activeMask,
@@ -1291,6 +1279,13 @@ def calibrateChromosomeStateUncertainty(
         )
         foldMaskInformationSeconds = time.perf_counter() - stageStart
         maskInformationSeconds += foldMaskInformationSeconds
+        deletedReplicates = np.sum(mask == 0, axis=0).astype(np.int64, copy=False)
+        deletedObservations = np.sum(
+            (mask == 0) & (activeMask != 0),
+            axis=0,
+        ).astype(np.int64, copy=False)
+        deletedReplicateIntervalTotal += int(np.sum(deletedReplicates))
+        deletedObservationIntervalTotal += int(np.sum(deletedObservations))
         stageStart = time.perf_counter()
         try:
             out = core.runConsenrich(
@@ -1316,6 +1311,8 @@ def calibrateChromosomeStateUncertainty(
                     values={
                         "status": "failed",
                         "error": str(exc),
+                        "deleted_replicates": int(np.sum(deletedReplicates)),
+                        "deleted_observations": int(np.sum(deletedObservations)),
                         "warmup_mode": warmupMode,
                         "warmup_detail": warmupDetail,
                     },
@@ -1386,9 +1383,13 @@ def calibrateChromosomeStateUncertainty(
         extractSeconds += foldExtractSeconds
         if not np.any(valid):
             logger.info(
-                "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=0 refitSeconds=%.3f extractSeconds=%.3f",
+                "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=0 "
+                "deletedReplicates=%s deletedObservations=%s refitSeconds=%.3f "
+                "extractSeconds=%.3f",
                 int(fold + 1),
                 int(folds),
+                int(np.sum(deletedReplicates)),
+                int(np.sum(deletedObservations)),
                 float(foldRefitSeconds),
                 float(foldExtractSeconds),
             )
@@ -1401,6 +1402,8 @@ def calibrateChromosomeStateUncertainty(
                     values={
                         "status": "no_valid_rows",
                         "delete_block_rows": 0,
+                        "deleted_replicates": int(np.sum(deletedReplicates)),
+                        "deleted_observations": int(np.sum(deletedObservations)),
                         "refit_seconds": float(foldRefitSeconds),
                         "extract_seconds": float(foldExtractSeconds),
                     },
@@ -1426,6 +1429,12 @@ def calibrateChromosomeStateUncertainty(
         totalInfoChunks.append(np.ascontiguousarray(totalInfoBase[idx], dtype=np.float64))
         keptInfoChunks.append(np.ascontiguousarray(keptInfo[idx], dtype=np.float64))
         heldInfoChunks.append(np.ascontiguousarray(heldoutInfo[idx], dtype=np.float64))
+        deletedReplicateChunks.append(
+            np.ascontiguousarray(deletedReplicates[idx], dtype=np.int64)
+        )
+        deletedObservationChunks.append(
+            np.ascontiguousarray(deletedObservations[idx], dtype=np.int64)
+        )
         sourceCountByCodeFold = np.bincount(
             sourceCode[idx].astype(np.int64, copy=False),
             minlength=DELETE_BLOCK_VARIANCE_SOURCE_LABELS.shape[0],
@@ -1435,10 +1444,15 @@ def calibrateChromosomeStateUncertainty(
             / max(int(idx.size), 1)
         )
         logger.info(
-            "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=%s varianceMode=%s covarianceDifferenceFraction=%.3f refitSeconds=%.3f extractSeconds=%.3f",
+            "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=%s "
+            "deletedReplicates=%s deletedObservations=%s varianceMode=%s "
+            "covarianceDifferenceFraction=%.3f refitSeconds=%.3f "
+            "extractSeconds=%.3f",
             int(fold + 1),
             int(folds),
             int(idx.size),
+            int(np.sum(deletedReplicates)),
+            int(np.sum(deletedObservations)),
             varianceMode,
             covValidFractionFold,
             float(foldRefitSeconds),
@@ -1453,6 +1467,8 @@ def calibrateChromosomeStateUncertainty(
                 values={
                     "status": "ok",
                     "delete_block_rows": int(idx.size),
+                    "deleted_replicates": int(np.sum(deletedReplicates)),
+                    "deleted_observations": int(np.sum(deletedObservations)),
                     "variance_mode": varianceMode,
                     "covariance_difference_fraction": covValidFractionFold,
                     "refit_seconds": float(foldRefitSeconds),
@@ -1479,7 +1495,11 @@ def calibrateChromosomeStateUncertainty(
     totalInfoAll = np.concatenate(totalInfoChunks)
     keptInfoAll = np.concatenate(keptInfoChunks)
     heldInfoAll = np.concatenate(heldInfoChunks)
+    deletedReplicateAll = np.concatenate(deletedReplicateChunks)
+    deletedObservationAll = np.concatenate(deletedObservationChunks)
     blockIndex = (intervalIndex // int(blockLen)).astype(np.int64, copy=False)
+    deletedBlockCount = int(np.sum(deleteCountsByBlock > 0))
+    deletedReplicateBlockTotal = int(np.sum(deleteCountsByBlock))
     totalDeleteBlockRows = int(residual.size)
     if residual.size < int(params.minHeldoutCells):
         logger.warning(
@@ -1560,6 +1580,16 @@ def calibrateChromosomeStateUncertainty(
                 core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
             )
         ).astype(np.float32)
+    factorBeforeFloor = np.asarray(factor, dtype=np.float64)
+    modelSEFloor = np.sqrt(fullPArr).astype(np.float32)
+    modelSEFloorMask = factorBeforeFloor < 1.0
+    factor = np.maximum(factorBeforeFloor, 1.0)
+    calibrated = np.sqrt(
+        np.maximum(
+            factor * fullPArr,
+            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+        )
+    ).astype(np.float32)
     timings["fit_factor_seconds"] = time.perf_counter() - stageStart
     modelMeta["refitPolicy"] = {
         "ECM_outerIters": int(calibrationOuterIters),
@@ -1607,18 +1637,21 @@ def calibrateChromosomeStateUncertainty(
     targetBlockCellCounts = np.empty(0, dtype=np.int64)
     targetCalibrationBounds: list[dict[str, Any]] = []
     if targetCalibrationEnabled:
-        targetBlockIds = np.asarray(
-            postFitDiagnostics["target_block_ids"],
-            dtype=np.int64,
+        targetBlockIds, targetBlockScores, targetBlockCellCounts = (
+            _cuncertainty.cdeleteBlockBlockScores(
+                residual,
+                pDelta,
+                factor,
+                intervalIndex,
+                blockIndex,
+                np.asarray(targetSplit["target_block_mask"], dtype=np.uint8),
+                heldoutCounts=deletedObservationAll,
+                varianceFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            )
         )
-        targetBlockScores = np.asarray(
-            postFitDiagnostics["target_block_scores"],
-            dtype=np.float64,
-        )
-        targetBlockCellCounts = np.asarray(
-            postFitDiagnostics["target_block_cell_counts"],
-            dtype=np.int64,
-        )
+        targetBlockIds = np.asarray(targetBlockIds, dtype=np.int64)
+        targetBlockScores = np.asarray(targetBlockScores, dtype=np.float64)
+        targetBlockCellCounts = np.asarray(targetBlockCellCounts, dtype=np.int64)
         targetCalibrationBounds = _targetCalibrationBounds(
             targetBlockScores,
             targets=tuple(float(t) for t in params.targets),
@@ -1658,6 +1691,19 @@ def calibrateChromosomeStateUncertainty(
                     np.asarray(calibrated, dtype=np.float32)
                     * np.float32(uncertaintyTrackScale)
                 )
+    modelSEFloorHits = int(
+        np.count_nonzero(
+            modelSEFloorMask
+            | (
+                np.asarray(calibrated, dtype=np.float64)
+                < np.asarray(modelSEFloor, dtype=np.float64)
+            )
+        )
+    )
+    calibrated = np.maximum(
+        np.asarray(calibrated, dtype=np.float32),
+        modelSEFloor,
+    )
     targetQ = (
         None
         if targetScaleBound is None or targetScaleBound.get("q") is None
@@ -1674,10 +1720,12 @@ def calibrateChromosomeStateUncertainty(
         else logger.info
     )
     targetLog(
-        "uncertaintyCalibration.target enabled=%s delta=%s blocksTotal=%d blocksScale=%d blocksTarget=%d blocksTargetScored=%d targetBlockCells=%d selectedTarget=%s targetZ=%s q=%s qSource=%s certified=%s scaleRequested=%s scaleApplied=%s scale=%.6g reason=%s",
+        "uncertaintyCalibration.target enabled=%s delta=%s deletionProbability=%.6g blocksTotal=%d blocksWithDeletion=%d blocksScale=%d blocksTarget=%d blocksTargetScored=%d targetBlockCells=%d selectedTarget=%s targetZ=%s q=%s qSource=%s certified=%s scaleRequested=%s scaleApplied=%s scale=%.6g reason=%s",
         bool(targetCalibrationEnabled),
         None if targetDelta is None else float(targetDelta),
+        float(deletionProbability),
         int(targetSplit["blocks_total"]),
+        int(deletedBlockCount),
         int(np.asarray(targetSplit["scale_blocks"]).size),
         int(np.asarray(targetSplit["target_blocks"]).size),
         int(targetBlockScores.size),
@@ -1720,6 +1768,8 @@ def calibrateChromosomeStateUncertainty(
     totalInfoFit = totalInfoAll[fitRows]
     keptInfoFit = keptInfoAll[fitRows]
     heldInfoFit = heldInfoAll[fitRows]
+    deletedReplicateFit = deletedReplicateAll[fitRows]
+    deletedObservationFit = deletedObservationAll[fitRows]
     rowWeightFit = rowWeight[fitRows]
     pDeltaFit = pDelta[fitRows]
     blockIndexFit = blockIndex[fitRows]
@@ -1786,6 +1836,8 @@ def calibrateChromosomeStateUncertainty(
         "kept_information": keptInfoFit,
         "heldout_information": heldInfoFit,
         "heldout_information_fraction": hFit,
+        "deleted_replicates": deletedReplicateFit,
+        "deleted_observations": deletedObservationFit,
         "delta_variance": pDeltaFit,
         "delta_variance_source": sourceFit,
         "row_weight": rowWeightFit,
@@ -1930,6 +1982,17 @@ def calibrateChromosomeStateUncertainty(
         "factor_bound_min": float(factorMin),
         "factor_bound_max": float(factorMax),
         "delete_block_factor_distribution": deleteBlockFactorDistribution,
+        "model_se_floor_applied": True,
+        "model_se_floor_hits": modelSEFloorHits,
+        "delete_block_deletion_probability": float(deletionProbability),
+        "delete_block_deleted_blocks": deletedBlockCount,
+        "delete_block_deleted_replicate_block_total": deletedReplicateBlockTotal,
+        "delete_block_deleted_replicate_interval_total": int(
+            deletedReplicateIntervalTotal
+        ),
+        "delete_block_deleted_observation_interval_total": int(
+            deletedObservationIntervalTotal
+        ),
         "rows_total": int(rowsTotal),
         "rows_valid": int(totalDeleteBlockRows),
         "rows_fit": int(residualFit.size),
@@ -1955,11 +2018,15 @@ def calibrateChromosomeStateUncertainty(
             "folds": int(folds),
             "fold_failures": int(foldFailures),
             "block_len_intervals": int(blockLen),
-            "holdout_count": int(holdoutCount),
-            "holdout_fraction": float(holdoutCount / max(m, 1)),
-            "holdout_fraction_config": (
-                None if holdoutFractionRaw is None else float(holdoutFractionRaw)
-            ),
+            "delete_block_deletion_probability": float(deletionProbability),
+            "blocks_total": int(deleteCountsByBlock.size),
+            "blocks_with_deletion": deletedBlockCount,
+            "deleted_replicate_block_total": deletedReplicateBlockTotal,
+            "deleted_replicate_interval_total": int(deletedReplicateIntervalTotal),
+            "deleted_observation_interval_total": int(deletedObservationIntervalTotal),
+            "deleted_replicate_count_min": int(np.min(deleteCountsByBlock)),
+            "deleted_replicate_count_mean": float(np.mean(deleteCountsByBlock)),
+            "deleted_replicate_count_max": int(np.max(deleteCountsByBlock)),
             "calibration_ecm_iters": int(
                 calibrationFixedBackgroundIters
                 if factorModel == segshrink.SEGSHRINK_MODEL

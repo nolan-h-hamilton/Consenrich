@@ -355,18 +355,6 @@ def _normalizeMatchingMetadataDetail(value: Any) -> str:
     )
 
 
-def _normalizeMatchingRoccoPeakMode(value: Any) -> str:
-    raw = constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE if value is None else value
-    mode = str(raw)
-    if mode in constants.MATCHING_ROCCO_PEAK_MODES:
-        return mode
-    supported = ", ".join(constants.MATCHING_ROCCO_PEAK_MODES)
-    raise ValueError(
-        f"Unsupported matchingParams.roccoPeakMode {value!r}; "
-        f"supported values: {supported}."
-    )
-
-
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
     return _sharedValidateMatchingUncertaintyScoreZ(value)
 
@@ -1205,10 +1193,10 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         default=constants.COUNTING_DEFAULT_TRANSFORM_SHAPE,
         positive=True,
     )
-    subtractGlobalMedian_ = _cfgGet(
+    centerMB_ = _cfgGet(
         configData,
-        "countingParams.subtractGlobalMedian",
-        _cfgDefault(configData, "countingParams.subtractGlobalMedian"),
+        "countingParams.centerMB",
+        _cfgDefault(configData, "countingParams.centerMB"),
     )
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
@@ -1226,7 +1214,7 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         transformOutputScale=transformOutputScale_,
         transformOutputOffset=transformOutputOffset_,
         transformShape=transformShape_,
-        subtractGlobalMedian=bool(subtractGlobalMedian_),
+        centerMB=bool(centerMB_),
     )
 
 
@@ -1460,6 +1448,24 @@ def getUncertaintyCalibrationArgs(
         raise ValueError(
             "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates must be >= 8"
         )
+    deleteBlockDeletionProbability = float(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockDeletionProbability",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockDeletionProbability",
+            ),
+        )
+    )
+    if not (
+        np.isfinite(deleteBlockDeletionProbability)
+        and 0.0 < deleteBlockDeletionProbability < 1.0
+    ):
+        raise ValueError(
+            "uncertaintyCalibrationParams.deleteBlockDeletionProbability must be a "
+            "probability in (0, 1)"
+        )
     targets = tuple(
         float(x)
         for x in _cfgGet(
@@ -1534,16 +1540,7 @@ def getUncertaintyCalibrationArgs(
             "uncertaintyCalibrationParams.blockSizeBP",
             blockDefault,
         ),
-        holdoutFraction=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.holdoutFraction",
-            None,
-        ),
-        heldoutReplicateFraction=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.heldoutReplicateFraction",
-            None,
-        ),
+        deleteBlockDeletionProbability=deleteBlockDeletionProbability,
         maxScores=int(maxScores) if maxScores is not None else maxScores,
         maxHeldoutCells=(
             int(maxHeldoutCells) if maxHeldoutCells is not None else maxHeldoutCells
@@ -2871,34 +2868,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         if not np.isfinite(minPeakScore):
             raise ValueError("matchingParams.minPeakScore must be finite")
 
-    roccoSubpeakLengthScaleBP = _cfgGet(
-        configData,
-        "matchingParams.roccoSubpeakLengthScaleBP",
-        constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
-    )
-    if roccoSubpeakLengthScaleBP is not None:
-        if isinstance(roccoSubpeakLengthScaleBP, bool):
-            raise ValueError(
-                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
-            )
-        if (
-            isinstance(roccoSubpeakLengthScaleBP, (float, np.floating))
-            and not float(roccoSubpeakLengthScaleBP).is_integer()
-        ):
-            raise ValueError(
-                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
-            )
-        try:
-            roccoSubpeakLengthScaleBP = int(roccoSubpeakLengthScaleBP)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
-            ) from exc
-        if roccoSubpeakLengthScaleBP <= 0:
-            raise ValueError(
-                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
-            )
-
     matchingArgs = core.matchingParams(
         enabled=bool(
             _cfgGet(
@@ -2994,14 +2963,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
             )
         ),
-        roccoPeakMode=_normalizeMatchingRoccoPeakMode(
-            _cfgGet(
-                configData,
-                "matchingParams.roccoPeakMode",
-                constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE,
-            )
-        ),
-        roccoSubpeakLengthScaleBP=roccoSubpeakLengthScaleBP,
     )
 
     return {

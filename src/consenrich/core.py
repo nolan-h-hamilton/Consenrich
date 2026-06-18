@@ -34,7 +34,7 @@ from .constants import (
     COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
     COUNTING_DEFAULT_LOG_MULT,
     COUNTING_DEFAULT_LOG_OFFSET,
-    COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN,
+    COUNTING_DEFAULT_CENTER_MB,
     COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
     COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
     COUNTING_DEFAULT_TRANSFORM_METHOD,
@@ -61,8 +61,6 @@ from .constants import (
     INPUT_DEFAULT_ROLE,
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_MIN_PEAK_SCORE,
-    MATCHING_DEFAULT_ROCCO_PEAK_MODE,
-    MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
     MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
@@ -215,10 +213,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN_OVERRIDE,
     UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS,
-    UNCERTAINTY_CALIBRATION_DEFAULT_HELDOUT_REPLICATE_FRACTION,
-    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX,
-    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN,
-    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION,
+    UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_DELETION_PROBABILITY,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES,
@@ -246,7 +241,6 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE,
     UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
     UNCERTAINTY_CALIBRATION_MIN_FOLDS,
-    UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
     UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
     UNCERTAINTY_CALIBRATION_MODES,
     UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
@@ -616,9 +610,8 @@ class uncertaintyCalibrationParams(NamedTuple):
     mode: str = UNCERTAINTY_CALIBRATION_DEFAULT_MODE
     folds: int = UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS
     blockSizeBP: int | str | None = UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP
-    holdoutFraction: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION
-    heldoutReplicateFraction: float | None = (
-        UNCERTAINTY_CALIBRATION_DEFAULT_HELDOUT_REPLICATE_FRACTION
+    deleteBlockDeletionProbability: float = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_DELETION_PROBABILITY
     )
     maxScores: int = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
     maxHeldoutCells: int | None = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS
@@ -996,9 +989,6 @@ class countingParams(NamedTuple):
     :param transformShape: Positive shape/softening constant for
         ``generalizedLog``.
     :type transformShape: float, optional
-    :param subtractGlobalMedian: If True, subtract each transformed track's
-        chromosome-wide median immediately after log or log-ratio transformation.
-    :type subtractGlobalMedian: bool | None
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
     .. admonition:: Treatment vs. Control Extension Lengths in Single-End Data
@@ -1030,7 +1020,7 @@ class countingParams(NamedTuple):
     transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
     transformOutputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET
     transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE
-    subtractGlobalMedian: bool | None = COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN
+    centerMB: bool | None = COUNTING_DEFAULT_CENTER_MB
 
 
 class scParams(NamedTuple):
@@ -1127,10 +1117,6 @@ class matchingParams(NamedTuple):
     metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
     minPeakScore: Optional[float] = MATCHING_DEFAULT_MIN_PEAK_SCORE
     useShrunkStateScores: bool = MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES
-    roccoPeakMode: str = MATCHING_DEFAULT_ROCCO_PEAK_MODE
-    roccoSubpeakLengthScaleBP: Optional[int] = (
-        MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
-    )
 
 
 class outputParams(NamedTuple):
@@ -9069,14 +9055,12 @@ def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
     return int(min(window, maxWindow))
 
 
-def subtractGlobalMedianInPlace(
+def centerMBInPlace(
     values: npt.NDArray[np.floating],
     *,
     intervalSizeBP: int,
     filterWindowBP: int = 1_000_000,
 ) -> dict[str, Any]:
-    r"""Subtract each transformed track's finite global median in place."""
-
     arr = np.asarray(values)
     if arr.ndim == 1:
         tracks = arr.reshape(1, -1)

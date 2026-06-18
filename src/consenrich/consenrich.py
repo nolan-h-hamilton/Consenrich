@@ -324,6 +324,10 @@ RUN_SUMMARY_COLUMNS = [
     "delete_block_track_sd_scale",
     "delete_block_rows_valid",
     "delete_block_rows_fit",
+    "delete_block_deletion_probability",
+    "delete_block_deleted_blocks",
+    "delete_block_deleted_replicate_block_total",
+    "delete_block_deleted_observation_interval_total",
     "delete_block_scale",
     "delete_block_scale_reason",
     "precision_log",
@@ -1812,6 +1816,18 @@ def _deleteBlockFactorSummaryFields(
         ),
         "delete_block_rows_valid": _summaryInt(calibration.get("rows_valid")),
         "delete_block_rows_fit": _summaryInt(calibration.get("rows_fit")),
+        "delete_block_deletion_probability": _summaryNumber(
+            calibration.get("delete_block_deletion_probability")
+        ),
+        "delete_block_deleted_blocks": _summaryInt(
+            calibration.get("delete_block_deleted_blocks")
+        ),
+        "delete_block_deleted_replicate_block_total": _summaryInt(
+            calibration.get("delete_block_deleted_replicate_block_total")
+        ),
+        "delete_block_deleted_observation_interval_total": _summaryInt(
+            calibration.get("delete_block_deleted_observation_interval_total")
+        ),
         "delete_block_scale": _summaryNumber(
             targetCalibration.get("uncertainty_track_scale")
         ),
@@ -1876,6 +1892,15 @@ def _deleteBlockFactorLogFields(
         ),
         "delete_block_track_sd_scale": _summaryNumber(
             targetCalibration.get("uncertainty_track_scale")
+        ),
+        "delete_block_deletion_probability": _summaryNumber(
+            calibration.get("delete_block_deletion_probability")
+        ),
+        "delete_block_deleted_blocks": _summaryInt(
+            calibration.get("delete_block_deleted_blocks")
+        ),
+        "delete_block_deleted_observation_interval_total": _summaryInt(
+            calibration.get("delete_block_deleted_observation_interval_total")
         ),
     }
 
@@ -2223,8 +2248,8 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("interval bp", int(countingArgs.intervalSizeBP)),
         ("normalization", countingArgs.normMethod),
         (
-            "subtractGlobalMedian",
-            _resolveSubtractGlobalMedianStatus(
+            "centerMB",
+            _resolveCenterMBStatus(
                 countingArgs,
                 controlsPresent=controlsPresent,
             )[1],
@@ -2352,11 +2377,11 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     core._logEvent("config.initial", rows, logger_=logger)
 
 
-def _resolveSubtractGlobalMedianStatus(
+def _resolveCenterMBStatus(
     countingArgs: core.countingParams,
     controlsPresent: bool,
 ) -> tuple[bool, str]:
-    if not bool(countingArgs.subtractGlobalMedian):
+    if not bool(countingArgs.centerMB):
         return False, "no"
     return True, "yes"
 
@@ -2896,21 +2921,6 @@ def _buildArgParser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--match-rocco-peak-mode",
-        type=str,
-        choices=constants.MATCHING_ROCCO_PEAK_MODES,
-        default=constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE,
-        dest="matchRoccoPeakMode",
-        help="ROCCO peak export mode.",
-    )
-    parser.add_argument(
-        "--match-rocco-subpeak-length-scale-bp",
-        type=int,
-        default=constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
-        dest="matchRoccoSubpeakLengthScaleBP",
-        help="Optional BP length scale for broad-mode gappedPeak subpeak blocks.",
-    )
-    parser.add_argument(
         "--match-uncertainty-score-mode",
         type=str,
         choices=constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
@@ -3047,8 +3057,6 @@ def main():
                 args.matchExportFilterUncertaintyMultiplier
             ),
             minPeakScore=args.matchMinPeakScore,
-            roccoPeakMode=args.matchRoccoPeakMode,
-            roccoSubpeakLengthScaleBP=args.matchRoccoSubpeakLengthScaleBP,
             uncertaintyScoreMode=args.matchUncertaintyScoreMode,
             uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
@@ -3990,7 +3998,6 @@ def main():
             if file_.startswith(f"consenrichOutput_{experimentName}") and (
                 file_.endswith(".bedGraph")
                 or file_.endswith(".narrowPeak")
-                or file_.endswith(".gappedPeak")
             ):
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
@@ -4601,22 +4608,22 @@ def main():
                 time.perf_counter() - transformStart,
             )
 
-        subtractGlobalMedianEnabled, _ = _resolveSubtractGlobalMedianStatus(
+        centerMBEnabled, _ = _resolveCenterMBStatus(
             countingArgs,
             controlsPresent=controlsPresent,
         )
-        if subtractGlobalMedianEnabled:
-            subtractStart = time.perf_counter()
-            subtractStats = core.subtractGlobalMedianInPlace(
+        if centerMBEnabled:
+            centerStart = time.perf_counter()
+            centerStats = core.centerMBInPlace(
                 chromMat,
                 intervalSizeBP=intervalSizeBP,
             )
             logger.info(
-                "subtractGlobalMedian.done %s samples=%d applied=%d elapsed=%.3fs",
+                "centerMB.done %s samples=%d applied=%d elapsed=%.3fs",
                 chromosome,
                 int(numSamples),
-                int(subtractStats.get("applied_tracks", 0)),
-                time.perf_counter() - subtractStart,
+                int(centerStats.get("applied_tracks", 0)),
+                time.perf_counter() - centerStart,
             )
 
         return (
@@ -7251,9 +7258,19 @@ def main():
             )
             logger.info(
                 "Delete-block state uncertainty calibration applied for %s: "
-                "factorModel=%s sdGlobal=%s sdMedian=%s sdMAD=%s",
+                "factorModel=%s deletionProbability=%s deletedObservations=%s "
+                "sdGlobal=%s sdMedian=%s sdMAD=%s",
                 chromosome,
                 str(deleteBlockLogFields.get("delete_block_factor_model") or "NA"),
+                _fmtDiagnosticFloat(
+                    deleteBlockLogFields.get("delete_block_deletion_probability")
+                ),
+                str(
+                    deleteBlockLogFields.get(
+                        "delete_block_deleted_observation_interval_total"
+                    )
+                    or "NA"
+                ),
                 _fmtDiagnosticFloat(
                     deleteBlockLogFields.get("delete_block_sd_global")
                 ),
@@ -7311,6 +7328,8 @@ def main():
             "deleteBlockSDMedian=%s deleteBlockSDMAD=%s "
             "deleteBlockSDQ05=%s deleteBlockSDQ95=%s "
             "deleteBlockTrackSDScale=%s "
+            "deleteBlockDeletionProbability=%s "
+            "deleteBlockDeletedObservations=%s "
             "processQTraceMin=%s processQTraceMax=%s "
             "observationRTraceMin=%s "
             "observationRTraceMax=%s signChangePerKB=%s",
@@ -7327,6 +7346,15 @@ def main():
             _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_q95")),
             _fmtDiagnosticFloat(
                 deleteBlockLogFields.get("delete_block_track_sd_scale")
+            ),
+            _fmtDiagnosticFloat(
+                deleteBlockLogFields.get("delete_block_deletion_probability")
+            ),
+            str(
+                deleteBlockLogFields.get(
+                    "delete_block_deleted_observation_interval_total"
+                )
+                or "NA"
             ),
             _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMin")),
             _fmtDiagnosticFloat(processQDiagnostics.get("effectiveQTraceMax")),
@@ -7546,10 +7574,20 @@ def main():
                 runSummaryRows[summaryRowIndex].update(itemDeleteBlockFields)
             logger.info(
                 "deleteBlockFactor.finalized %s factorModel=%s "
+                "deletionProbability=%s deletedObservations=%s "
                 "sdMedian=%s sdMAD=%s sdQ05=%s sdQ95=%s",
                 chromosome,
                 str(
                     itemDeleteBlockLogFields.get("delete_block_factor_model") or "NA"
+                ),
+                _fmtDiagnosticFloat(
+                    itemDeleteBlockLogFields.get("delete_block_deletion_probability")
+                ),
+                str(
+                    itemDeleteBlockLogFields.get(
+                        "delete_block_deleted_observation_interval_total"
+                    )
+                    or "NA"
                 ),
                 _fmtDiagnosticFloat(
                     itemDeleteBlockLogFields.get("delete_block_sd_median")
@@ -7793,9 +7831,6 @@ def main():
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
                 minPeakScore=matchingArgs.minPeakScore,
-                roccoPeakMode=matchingArgs.roccoPeakMode,
-                roccoSubpeakLengthScaleBP=matchingArgs.roccoSubpeakLengthScaleBP,
-                broadSubpeakDependenceSpan=dependenceSpanIntervals_,
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,

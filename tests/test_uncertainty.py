@@ -92,26 +92,37 @@ def _caseDeleteBlockInformationApproximation():
     n = 7
     blockLen = 2
     folds = 3
-    holdoutCount = 1
-    seed = 19
+    deletionProbability = 0.4
+    seed = 1
     blockCount = (n + blockLen - 1) // blockLen
-    seededBlockFold, seededRepsByBlock = cuncertainty.cmakeFoldSpec(
-        m,
-        n,
-        blockLen,
-        folds,
-        holdoutCount,
-        seed,
+    seededBlockFold, seededRepsByBlockCount, seededRepsByBlock = (
+        cuncertainty.cmakeFoldSpec(
+            m,
+            n,
+            blockLen,
+            folds,
+            deletionProbability,
+            seed,
+        )
     )
     rng = np.random.default_rng(seed)
     blockOrder = rng.permutation(blockCount).astype(np.int32, copy=False)
     wantBlockFold = np.empty(blockCount, dtype=np.int32)
     wantBlockFold[blockOrder] = np.arange(blockCount, dtype=np.int32) % folds
-    wantRepsByBlock = np.empty((blockCount, holdoutCount), dtype=np.intp)
+    wantRepsByBlockCount = np.empty(blockCount, dtype=np.intp)
+    wantRepsByBlock = np.full((blockCount, m), -1, dtype=np.intp)
     for block in range(blockCount):
-        wantRepsByBlock[block, :] = rng.choice(m, size=holdoutCount, replace=False)
+        deleteCount = int(rng.binomial(m, deletionProbability))
+        while deleteCount < 1 or deleteCount >= m:
+            deleteCount = int(rng.binomial(m, deletionProbability))
+        wantRepsByBlockCount[block] = deleteCount
+        wantRepsByBlock[block, :deleteCount] = rng.choice(
+            m, size=deleteCount, replace=False
+        )
     assert np.array_equal(seededBlockFold, wantBlockFold)
+    assert np.array_equal(seededRepsByBlockCount, wantRepsByBlockCount)
     assert np.array_equal(seededRepsByBlock, wantRepsByBlock)
+    assert np.all(seededRepsByBlockCount >= 1)
 
     infoCell = np.array(
         [
@@ -123,7 +134,8 @@ def _caseDeleteBlockInformationApproximation():
     matrixMunc = 1.0 / infoCell
     activeMask = np.ones_like(infoCell, dtype=np.uint8)
     blockFold = np.array([1, 0, 0], dtype=np.int32)
-    repsByBlock = np.array([[0], [0], [1]], dtype=np.intp)
+    repsByBlockCount = np.array([1, 2, 1], dtype=np.intp)
+    repsByBlock = np.array([[0, -1], [0, 1], [1, -1]], dtype=np.intp)
     totalInfo = cuncertainty.cobservationTotalInformation(
         matrixMunc,
         activeMask,
@@ -137,6 +149,7 @@ def _caseDeleteBlockInformationApproximation():
         1,
         0,
         blockFold,
+        repsByBlockCount,
         repsByBlock,
         matrixMunc,
         activeMask,
@@ -149,14 +162,14 @@ def _caseDeleteBlockInformationApproximation():
         _foldMask,
         [
             [1, 0, 1],
-            [1, 1, 0],
+            [1, 0, 0],
         ],
     )
 
     assert np.allclose(totalInfo, [4.0, 4.0, 8.0])
-    assert np.allclose(keptInfo, [4.0, 2.0, 4.0])
-    assert np.allclose(deletedInfo, [0.0, 2.0, 4.0])
-    assert np.allclose(h, [0.0, 0.5, 0.5])
+    assert np.allclose(keptInfo, [4.0, 0.0, 4.0])
+    assert np.allclose(deletedInfo, [0.0, 4.0, 4.0])
+    assert np.allclose(h, [0.0, 1.0, 0.5])
 
     delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
         np.array([1.0, 1.0, 2.0], dtype=np.float64),
@@ -169,17 +182,17 @@ def _caseDeleteBlockInformationApproximation():
         positiveFloor=1.0e-12,
     )
 
-    assert valid.tolist() == [False, True, True]
-    assert np.isnan(delta[0])
-    assert np.allclose(delta[1:], [1.0, 2.0])
+    assert valid.tolist() == [False, False, True]
+    assert np.all(np.isnan(delta[:2]))
+    assert delta[2] == pytest.approx(2.0)
     assert uncertainty.DELETE_BLOCK_VARIANCE_SOURCE_LABELS[source].tolist() == [
         "invalid",
-        "heldout_information",
+        "invalid",
         "heldout_information",
     ]
     assert uncertainty.DELETE_BLOCK_INVALID_REASON_LABELS[reason].tolist() == [
         "h_out_of_bounds",
-        "valid",
+        "h_out_of_bounds",
         "valid",
     ]
 
@@ -281,7 +294,7 @@ def _caseAutoBlockSizeForShortContigs():
         25,
         20_000,
         folds=4,
-    ) == 2_000
+    ) == 400
     assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
         50_000,
         25,
@@ -580,6 +593,9 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
 
     assert result.factor.shape == (n,)
     assert result.calibratedUncertainty.shape == (n,)
+    assert np.all(
+        result.calibratedUncertainty + 1.0e-7 >= np.sqrt(fullCovar[:, 0, 0])
+    )
     assert np.all(np.isfinite(result.factor))
     assert np.all(result.factor > 0.0)
     assert {"coverage_before", "coverage_after", "mean_width_after"} <= set(
@@ -673,10 +689,15 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert model["mode"] == "delete_block_state"
     assert model["score_definition"] == "deleted_state_delta_over_deleted_state_delta_sd"
     assert model["factor_model"] == "segShrink"
+    assert model["model_se_floor_applied"] is True
+    assert model["model_se_floor_hits"] >= 0
     assert model["factorModel"] == "segShrink"
     assert (
         model["segmentCount"]
-        == core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT
+        == min(
+            n,
+            core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_SEGMENT_COUNT,
+        )
     )
     assert (
         model["bootstrapReplicates"]
@@ -714,7 +735,10 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert model["state_roughness"]["overall_mean_abs_diff"] is not None
     assert model["rows_valid"] >= model["rows_fit"]
     assert model["rows_fit"] <= 12
-    assert model["fold_refits"]["holdout_count"] >= 1
+    assert model["fold_refits"]["delete_block_deletion_probability"] == pytest.approx(
+        params.deleteBlockDeletionProbability
+    )
+    assert model["fold_refits"]["deleted_replicate_count_max"] >= 1
     assert sum(model["variance_source_counts"].values()) == model["rows_valid"]
     assert model["diagnostic_score_rows"] <= 5
     coverageRows = model["state_uncertainty_coverage"]
@@ -731,6 +755,10 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert "replicate" not in result.scores.columns
     assert "observation_variance" not in result.scores.columns
     assert "deleted_state_delta" in result.scores.columns
+    assert "deleted_replicates" in result.scores.columns
+    assert "deleted_observations" in result.scores.columns
+    assert np.all(result.scores["deleted_replicates"] >= 1)
+    assert np.all(result.scores["deleted_observations"] >= 1)
     assert "delta_variance" in result.scores.columns
     assert "delta_variance_source" in result.scores.columns
     modelRecord = next(
@@ -760,18 +788,15 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
 
 
 
-def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
+def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
+    caplog.clear()
     n = 32
-    m = 3
+    m = 8
     grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
     signal = np.sin(grid).astype(np.float32)
-    matrixData = np.vstack(
-        [
-            signal - 0.02,
-            signal + 0.01,
-            signal + 0.03,
-        ]
-    ).astype(np.float32)
+    offsets = np.linspace(-0.035, 0.035, m, dtype=np.float32)
+    matrixData = np.vstack([signal + offset for offset in offsets]).astype(np.float32)
     matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
     fullState = np.column_stack(
         [signal, np.gradient(signal).astype(np.float32)]
@@ -805,13 +830,14 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         folds=2,
         blockSizeBP=100,
         calibrationECMIters=2,
+        deleteBlockDeletionProbability=0.2,
         minHeldoutCells=1,
         maxHeldoutCells=24,
         targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
         seed=21,
     )
 
-    uncertainty.calibrateChromosomeStateUncertainty(
+    result = uncertainty.calibrateChromosomeStateUncertainty(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         fullState=fullState,
@@ -842,15 +868,50 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         "processQWarmupOuterIters" not in kwargs
         for kwargs in capturedKwargs
     )
-    holdoutCount = uncertainty._resolveHoldoutCount(m, params.holdoutFraction)
-    for mask in capturedMasks:
-        deletedByInterval = np.sum(mask == 0, axis=0)
-        assert set(np.unique(deletedByInterval)).issubset({0, holdoutCount})
+    foldRefits = result.model["fold_refits"]
+    assert foldRefits["delete_block_deletion_probability"] == pytest.approx(
+        params.deleteBlockDeletionProbability
+    )
+    assert foldRefits["deleted_replicate_count_min"] >= 1
+    assert "holdout_count" not in foldRefits
+    assert "holdout_fraction" not in foldRefits
+    assert "deleteBlockDeletionProbability=0.2" in caplog.text
+    assert "holdoutCount=" not in caplog.text
+    blockLen = diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+        params.blockSizeBP,
+        25,
+        n,
+        folds=params.folds,
+    )
+    blockCount = (n + blockLen - 1) // blockLen
+    rng = np.random.default_rng(params.seed)
+    rng.permutation(blockCount)
+    expectedDeletedByBlock = np.empty(blockCount, dtype=np.int64)
+    for block in range(blockCount):
+        deleteCount = int(rng.binomial(m, params.deleteBlockDeletionProbability))
+        while deleteCount < 1 or deleteCount >= m:
+            deleteCount = int(rng.binomial(m, params.deleteBlockDeletionProbability))
+        expectedDeletedByBlock[block] = deleteCount
+        rng.choice(m, size=deleteCount, replace=False)
+    maskStack = np.stack(capturedMasks, axis=0)
+    deletedByBlock = np.empty(blockCount, dtype=np.int64)
+    for block in range(blockCount):
+        start = block * blockLen
+        deletedByFold = np.sum(maskStack[:, :, start] == 0, axis=1)
+        assert np.count_nonzero(deletedByFold) == 1
+        deletedByBlock[block] = int(np.max(deletedByFold))
+    assert np.array_equal(deletedByBlock, expectedDeletedByBlock)
+    assert deletedByBlock.min() >= 1
+    assert deletedByBlock.max() < m
+    assert len(set(deletedByBlock.tolist())) > 1
     combinedDeletedByInterval = np.sum(
         [np.sum(mask == 0, axis=0) for mask in capturedMasks],
         axis=0,
     )
-    assert np.all(combinedDeletedByInterval == holdoutCount)
+    assert np.array_equal(
+        combinedDeletedByInterval,
+        np.repeat(expectedDeletedByBlock, blockLen)[:n],
+    )
 
 
 def _caseSegShrinkCalibrationContract(monkeypatch):
@@ -954,6 +1015,107 @@ def _caseSegShrinkCalibrationContract(monkeypatch):
     assert overall and all("coverage_after" in row for row in overall)
 
 
+def _caseCalibrationFloorAppliesToGlobalAndSegShrink(monkeypatch):
+    n = 24
+    m = 4
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
+    fullP = np.linspace(0.04, 0.21, n, dtype=np.float64)
+    fullState = np.zeros((n, 2), dtype=np.float32)
+    fullCovar = np.zeros((n, 2, 2), dtype=np.float64)
+    fullCovar[:, 0, 0] = fullP
+    fullCovar[:, 1, 1] = 0.01
+
+    def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **_kwargs):
+        deleted = np.mean(np.asarray(observationMask, dtype=np.float32) == 0, axis=0)
+        maskedState = fullState.copy()
+        maskedState[:, 0] = 0.05 + 0.02 * deleted
+        maskedCovar = fullCovar.copy()
+        maskedCovar[:, 0, 0] = fullP + 0.03 + 0.01 * deleted
+        residual = np.asarray(matrixDataArg, dtype=np.float32) - maskedState[:, 0][None, :]
+        return (
+            maskedState,
+            maskedCovar,
+            residual.T,
+            np.zeros(n, dtype=np.float32),
+            np.zeros(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    def _fakeGlobalFactor(*, params, **_kwargs):
+        target = float(max(params.targets))
+        return 0.25, {
+            "success": True,
+            "factor_model": "global",
+            "global_factor": 0.25,
+            "global_sd_multiplier": 0.5,
+            "global_factor_target": target,
+            "global_factor_target_z": uncertainty._normalZ(target),
+        }
+
+    def _fakeSegShrinkFit(*, fullP, target, targetZ, **_kwargs):
+        fullPArr = np.asarray(fullP, dtype=np.float64).reshape(-1)
+        factor = np.full(fullPArr.shape, 0.25, dtype=np.float64)
+        return {
+            "factor": factor,
+            "calibrated": np.sqrt(factor * fullPArr).astype(np.float32),
+            "segmentByInterval": np.zeros(fullPArr.shape[0], dtype=np.int32),
+            "segmentRawLogFactor": np.log(np.array([0.25], dtype=np.float64)),
+            "segmentBootstrapVariance": np.array([0.0], dtype=np.float64),
+            "segmentShrinkageWeight": np.array([1.0], dtype=np.float64),
+            "modelMeta": {
+                "success": True,
+                "factor_model": "segShrink",
+                "factorModel": "segShrink",
+                "global_factor": 0.25,
+                "global_sd_multiplier": 0.5,
+                "global_factor_target": float(target),
+                "global_factor_target_z": float(targetZ),
+                "contigShrinkage": [{"shrinkageWeight": 1.0}],
+            },
+        }
+
+    monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
+    monkeypatch.setattr(uncertainty, "_fitDeleteBlockGlobalFactor", _fakeGlobalFactor)
+    monkeypatch.setattr(segshrink, "fitSingleContig", _fakeSegShrinkFit)
+
+    params = core.uncertaintyCalibrationParams(
+        enabled=True,
+        folds=2,
+        blockSizeBP=100,
+        calibrationECMIters=1,
+        minHeldoutCells=1,
+        maxHeldoutCells=48,
+        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        targetCalibrationDelta=None,
+        deleteBlockDeletionProbability=0.5,
+        deleteBlockVarianceMode="covariance_difference",
+        seed=59,
+    )
+
+    for factorModel, covarianceKwargs in (
+        ("global", {"fullCovar": fullCovar}),
+        ("segShrink", {"fullP": fullP}),
+    ):
+        result = uncertainty.calibrateChromosomeStateUncertainty(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            fullState=fullState,
+            intervals=np.arange(n, dtype=np.int64) * 25,
+            intervalSizeBP=25,
+            params=params._replace(deleteBlockFactorModel=factorModel),
+            runKwargs=_smallRunKwargs(),
+            **covarianceKwargs,
+        )
+
+        floor = np.sqrt(fullP).astype(np.float32)
+        assert result.model["factor_model"] == factorModel
+        assert result.model["model_se_floor_hits"] == n
+        assert np.all(result.factor >= 1.0)
+        assert np.all(result.calibratedUncertainty + 1.0e-7 >= floor)
+        assert np.any(np.isclose(result.calibratedUncertainty, floor))
+
+
 def _caseSegShrinkProcessedContigContract():
     with pytest.raises(ValueError, match="no processed contigs"):
         segshrink.combinePreparedContigs(
@@ -966,11 +1128,12 @@ def _caseSegShrinkProcessedContigContract():
         ("chrA", 1.0, 0.25),
         ("chrC", 4.0, 0.5),
     ):
-        targetScale = 1.0 if chromosome == "chrA" else 3.0
+        targetScale = 0.5 if chromosome == "chrA" else 3.0
+        fullP = np.linspace(0.5, 2.0, 6, dtype=np.float64)
         prepared.append(
             {
                 "chromosome": chromosome,
-                "fullP": np.ones(6, dtype=np.float64),
+                "fullP": fullP,
                 "model": {
                     "global_factor": rawFactor,
                     "target_calibration": {
@@ -1026,10 +1189,14 @@ def _caseSegShrinkProcessedContigContract():
         }
         assert item["calibrated"].shape == (6,)
         assert np.all(np.isfinite(item["calibrated"]))
-        targetScale = 1.0 if item["chromosome"] == "chrA" else 3.0
+        targetScale = 0.5 if item["chromosome"] == "chrA" else 3.0
         assert item["calibrated"] == pytest.approx(
-            np.sqrt(item["factor"]) * targetScale
+            np.maximum(
+                np.sqrt(item["factor"] * item["fullP"]) * targetScale,
+                np.sqrt(item["fullP"]),
+            )
         )
+        assert np.all(item["calibrated"] + 1.0e-7 >= np.sqrt(item["fullP"]))
 
 
 def _caseDeleteBlockCalibrationReportsRefitFailures(monkeypatch, caplog):
@@ -1174,10 +1341,16 @@ def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, caplog, c
         "cheap Q warmup policy for calibration refits",
         _caseCalibrationRefitsUseCheapProcessNoiseWarmup,
         monkeypatch,
+        caplog,
     )
     contract_case(
         "segShrink calibration",
         _caseSegShrinkCalibrationContract,
+        monkeypatch,
+    )
+    contract_case(
+        "calibration floor after factor paths",
+        _caseCalibrationFloorAppliesToGlobalAndSegShrink,
         monkeypatch,
     )
     contract_case(

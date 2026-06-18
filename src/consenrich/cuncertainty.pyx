@@ -40,29 +40,38 @@ cpdef tuple cmakeFoldSpec(
     Py_ssize_t n,
     Py_ssize_t blockLen,
     Py_ssize_t folds,
-    Py_ssize_t holdoutCount,
+    double deletionProbability,
     long seed,
 ):
     if folds < 2:
         raise ValueError("uncertainty calibration requires at least two folds")
-    if holdoutCount < 1:
-        raise ValueError("uncertainty calibration requires at least one held-out replicate")
     if m < 1 or n < 1 or blockLen < 1:
         raise ValueError("invalid uncertainty calibration mask dimensions")
-    if holdoutCount > m:
-        raise ValueError("held-out replicate count cannot exceed sample count")
+    if (
+        not isfinite(deletionProbability)
+        or deletionProbability <= 0.0
+        or deletionProbability >= 1.0
+    ):
+        raise ValueError("delete-block deletion probability must be in (0, 1)")
 
     cdef Py_ssize_t blockCount = (n + blockLen - 1) // blockLen
     rng = np.random.default_rng(int(seed))
     blockOrder = rng.permutation(blockCount).astype(np.int32, copy=False)
     blockFoldArr = np.empty(blockCount, dtype=np.int32)
     blockFoldArr[blockOrder] = np.arange(blockCount, dtype=np.int32) % int(folds)
-    repsByBlockArr = np.empty((blockCount, holdoutCount), dtype=np.intp)
-    cdef Py_ssize_t block
+    repsByBlockCountArr = np.empty(blockCount, dtype=np.intp)
+    repsByBlockArr = np.full((blockCount, m), -1, dtype=np.intp)
+    cdef Py_ssize_t block, deleteCount
     for block in range(blockCount):
-        repsByBlockArr[block, :] = rng.choice(m, size=holdoutCount, replace=False)
+        deleteCount = <Py_ssize_t>rng.binomial(m, deletionProbability)
+        while deleteCount < 1 or (m > 1 and deleteCount >= m):
+            deleteCount = <Py_ssize_t>rng.binomial(m, deletionProbability)
+        repsByBlockCountArr[block] = deleteCount
+        repsByBlockArr[block, :deleteCount] = rng.choice(
+            m, size=deleteCount, replace=False
+        )
 
-    return blockFoldArr, repsByBlockArr
+    return blockFoldArr, repsByBlockCountArr, repsByBlockArr
 
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] cobservationTotalInformation(
@@ -106,6 +115,7 @@ cpdef tuple cmakeFoldMaskAndInformation(
     Py_ssize_t blockLen,
     Py_ssize_t fold,
     cnp.int32_t[::1] blockFold,
+    Py_ssize_t[::1] repsByBlockCount,
     Py_ssize_t[:, ::1] repsByBlock,
     real_t[:, ::1] matrixMunc,
     cnp.uint8_t[:, ::1] activeMask,
@@ -130,20 +140,30 @@ cpdef tuple cmakeFoldMaskAndInformation(
         raise ValueError("observation information pad must be finite")
 
     cdef Py_ssize_t blockCount = (n + blockLen - 1) // blockLen
-    if blockFold.shape[0] != blockCount or repsByBlock.shape[0] != blockCount:
+    if (
+        blockFold.shape[0] != blockCount
+        or repsByBlockCount.shape[0] != blockCount
+        or repsByBlock.shape[0] != blockCount
+    ):
         raise ValueError("fold spec has inconsistent block count")
-    cdef Py_ssize_t holdoutCount = repsByBlock.shape[1]
-    if holdoutCount < 1:
-        raise ValueError("fold spec requires at least one held-out replicate")
+    cdef Py_ssize_t deleteSlotCount = repsByBlock.shape[1]
+    if deleteSlotCount < m:
+        raise ValueError("fold spec replicate matrix must allow every sample")
 
-    cdef Py_ssize_t block, h, rep
+    cdef Py_ssize_t block, h, h2, rep, deleteCount
     for block in range(blockCount):
         if blockFold[block] < 0:
             raise ValueError("fold spec contains negative fold id")
-        for h in range(holdoutCount):
+        deleteCount = repsByBlockCount[block]
+        if deleteCount < 1 or deleteCount > m or deleteCount > deleteSlotCount:
+            raise ValueError("fold spec deleted-replicate count is out of bounds")
+        for h in range(deleteCount):
             rep = repsByBlock[block, h]
             if rep < 0 or rep >= m:
                 raise ValueError("fold spec replicate is out of bounds")
+            for h2 in range(h):
+                if repsByBlock[block, h2] == rep:
+                    raise ValueError("fold spec contains a duplicate replicate")
 
     cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] mask = np.ones(
         (m, n), dtype=np.uint8
@@ -173,7 +193,8 @@ cpdef tuple cmakeFoldMaskAndInformation(
             end = start + blockLen
             if end > n:
                 end = n
-            for h in range(holdoutCount):
+            deleteCount = repsByBlockCount[block]
+            for h in range(deleteCount):
                 rep = repsByBlock[block, h]
                 for i in range(start, end):
                     maskView[rep, i] = <cnp.uint8_t>0
@@ -198,20 +219,24 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=3, mode="c"] cmakeFoldMasks(
     Py_ssize_t n,
     Py_ssize_t blockLen,
     Py_ssize_t folds,
-    Py_ssize_t holdoutCount,
+    double deletionProbability,
     long seed,
 ):
-    cdef object foldSpec = cmakeFoldSpec(m, n, blockLen, folds, holdoutCount, seed)
+    cdef object foldSpec = cmakeFoldSpec(
+        m, n, blockLen, folds, deletionProbability, seed
+    )
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockFoldArr = foldSpec[0]
-    cdef cnp.ndarray[cnp.intp_t, ndim=2, mode="c"] repsByBlockArr = foldSpec[1]
+    cdef cnp.ndarray[cnp.intp_t, ndim=1, mode="c"] repsByBlockCountArr = foldSpec[1]
+    cdef cnp.ndarray[cnp.intp_t, ndim=2, mode="c"] repsByBlockArr = foldSpec[2]
     cdef Py_ssize_t blockCount = blockFoldArr.shape[0]
     cdef cnp.ndarray[cnp.uint8_t, ndim=3, mode="c"] masks = np.ones(
         (folds, m, n), dtype=np.uint8
     )
     cdef cnp.uint8_t[:, :, ::1] masksView = masks
     cdef cnp.int32_t[::1] blockFold = blockFoldArr
+    cdef Py_ssize_t[::1] repsByBlockCount = repsByBlockCountArr
     cdef Py_ssize_t[:, ::1] repsByBlock = repsByBlockArr
-    cdef Py_ssize_t block, start, end, i, h, rep, fold
+    cdef Py_ssize_t block, start, end, i, h, rep, fold, deleteCount
 
     with nogil:
         for block in range(blockCount):
@@ -220,7 +245,8 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=3, mode="c"] cmakeFoldMasks(
             if end > n:
                 end = n
             fold = blockFold[block]
-            for h in range(holdoutCount):
+            deleteCount = repsByBlockCount[block]
+            for h in range(deleteCount):
                 rep = repsByBlock[block, h]
                 for i in range(start, end):
                     masksView[fold, rep, i] = <cnp.uint8_t>0

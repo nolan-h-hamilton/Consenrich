@@ -38,16 +38,11 @@ from .constants import (
     MASSIVE_SUBPEAK_SPLIT_Z,
     MASSIVE_SUBPEAK_WIDTH_ALPHA,
     MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
-    MATCHING_DEFAULT_ROCCO_PEAK_MODE,
-    MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_MIN_PEAK_SCORE,
     MATCHING_METADATA_DETAILS,
-    MATCHING_ROCCO_PEAK_MODE_BROAD,
-    MATCHING_ROCCO_PEAK_MODE_STANDARD,
-    MATCHING_ROCCO_PEAK_MODES,
     MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     NESTED_ROCCO_ITERS_DEFAULT,
@@ -81,10 +76,6 @@ _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MO
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
 _MATCHING_DEFAULT_METADATA_DETAIL = MATCHING_DEFAULT_METADATA_DETAIL
 _MATCHING_DEFAULT_MIN_PEAK_SCORE = MATCHING_DEFAULT_MIN_PEAK_SCORE
-_MATCHING_DEFAULT_ROCCO_PEAK_MODE = MATCHING_DEFAULT_ROCCO_PEAK_MODE
-_MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP = (
-    MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
-)
 _OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
 _NESTED_ROCCO_ITERS_DEFAULT = NESTED_ROCCO_ITERS_DEFAULT
 _NESTED_ROCCO_JACCARD_DEFAULT = NESTED_ROCCO_JACCARD_DEFAULT
@@ -147,27 +138,6 @@ def _validateMinPeakScore(value: float | None) -> float | None:
     if not np.isfinite(score):
         raise ValueError("`minPeakScore` must be a finite number or None")
     return score
-
-
-def _normalizeRoccoPeakMode(value: str | None) -> str:
-    mode = _MATCHING_DEFAULT_ROCCO_PEAK_MODE if value is None else str(value)
-    if mode in MATCHING_ROCCO_PEAK_MODES:
-        return mode
-    supported = ", ".join(MATCHING_ROCCO_PEAK_MODES)
-    raise ValueError(f"`roccoPeakMode` must be one of: {supported}")
-
-
-def _validateRoccoSubpeakLengthScaleBP(value: int | None) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise ValueError("`roccoSubpeakLengthScaleBP` must be a positive integer")
-    if isinstance(value, (float, np.floating)) and not float(value).is_integer():
-        raise ValueError("`roccoSubpeakLengthScaleBP` must be a positive integer")
-    out = int(value)
-    if out <= 0:
-        raise ValueError("`roccoSubpeakLengthScaleBP` must be a positive integer")
-    return out
 
 
 def _normalizeUncertaintyScoreMode(value: str | None) -> str:
@@ -5369,288 +5339,6 @@ def _solutionToChromNarrowPeakRows(
     return outRows, rowsMeta
 
 
-def _solutionToChromGappedPeakRows(
-    chromosome: str,
-    intervals: np.ndarray,
-    ends: np.ndarray,
-    state: np.ndarray,
-    scores: np.ndarray,
-    solution: np.ndarray,
-    prefix: str,
-    nullScale: float,
-    broadSubpeakLengthScaleBP: int,
-    uncertainty: np.ndarray | None = None,
-    subpeakSelectionPenalty: float | None = None,
-    subpeakBoundaryCost: float | None = None,
-    minSubpeakBins: int = 1,
-    dropMedianSignalBelowNegativeLocalP: bool = True,
-    exportFilterUncertaintyMultiplier: float = (
-        _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
-    ),
-    scoreFloor: float = 250.0,
-    scoreCeil: float = 1000.0,
-    returnExportDetails: bool = False,
-) -> (
-    Tuple[List[List[str | int | float]], List[Dict[str, Any]]]
-    | Tuple[List[List[str | int | float]], List[Dict[str, Any]], Dict[str, Any]]
-):
-    rowsRaw: List[Dict[str, Any]] = []
-    rowsMeta: List[Dict[str, Any]] = []
-    intervals = np.asarray(intervals, dtype=np.int64).ravel()
-    ends = np.asarray(ends, dtype=np.int64).ravel()
-    state_ = np.asarray(state, dtype=np.float64).ravel()
-    scores_ = np.asarray(scores, dtype=np.float64).ravel()
-    solution_ = np.asarray(solution, dtype=np.uint8).ravel()
-    if (
-        intervals.size != state_.size
-        or ends.size != state_.size
-        or scores_.size != state_.size
-        or solution_.size != state_.size
-    ):
-        raise ValueError(
-            "`intervals`, `ends`, `state`, `scores`, and `solution` must match length"
-        )
-    uncertainty_: np.ndarray | None = None
-    if uncertainty is not None:
-        uncertainty_ = np.asarray(uncertainty, dtype=np.float64).ravel()
-        if uncertainty_.size != state_.size:
-            raise ValueError("`uncertainty` must match `state` length")
-    exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
-        exportFilterUncertaintyMultiplier
-    )
-    lengthScaleBP = int(max(int(broadSubpeakLengthScaleBP), 1))
-    positiveWidths = ends - intervals
-    positiveWidths = positiveWidths[positiveWidths > 0]
-    intervalBP = int(max(int(np.median(positiveWidths)), 1)) if positiveWidths.size else 1
-    lengthScaleBins = int(max(1, math.ceil(float(lengthScaleBP) / float(intervalBP))))
-    exportDetails: Dict[str, Any] = {
-        "num_candidate_segments": 0,
-        "num_segments_dropped_median_signal_local_p": 0,
-        "num_segments_dropped_min_peak_bp": 0,
-        "min_peak_bp": int(_ROCCO_MIN_PEAK_BP),
-        "median_signal_local_p_multiplier": float(exportFilterUncertaintyMultiplier_),
-        "median_signal_local_p_filter_active": bool(
-            dropMedianSignalBelowNegativeLocalP and uncertainty_ is not None
-        ),
-        "peak_output_format": "gappedPeak",
-        "rocco_subpeak_length_scale_bp": int(lengthScaleBP),
-        "rocco_subpeak_length_scale_bins": int(lengthScaleBins),
-        "broad_subpeak_length_scale_bp": int(lengthScaleBP),
-        "broad_subpeak_length_scale_bins": int(lengthScaleBins),
-        "num_broad_parent_segments": 0,
-        "num_broad_rows_with_subpeak_blocks": 0,
-        "num_broad_subpeak_blocks": 0,
-        "num_coordinate_gap_splits": 0,
-        "massive_subpeak_cleanup_active": False,
-        "massive_subpeak_width_policy": None,
-        "num_massive_subpeak_candidates": 0,
-        "num_massive_subpeak_splits": 0,
-        "num_massive_subpeak_segments_added": 0,
-        "num_massive_subpeak_evaluated": 0,
-        "num_massive_subpeak_contracts": 0,
-    }
-
-    def addParentSegment(startIdx: int, endIdx: int) -> None:
-        if endIdx < startIdx:
-            return
-        parentWidthBP = int(max(int(ends[endIdx]) - int(intervals[startIdx]), 0))
-        segState = np.asarray(state_[startIdx : endIdx + 1], dtype=np.float64)
-        segScores = np.asarray(scores_[startIdx : endIdx + 1], dtype=np.float64)
-        exportDetails["num_candidate_segments"] += 1
-        exportDetails["num_broad_parent_segments"] += 1
-        medianState = float(np.median(segState))
-        localMedianP = None
-        medianSignalThreshold = None
-        if dropMedianSignalBelowNegativeLocalP and uncertainty_ is not None:
-            localP = np.asarray(
-                uncertainty_[startIdx : endIdx + 1],
-                dtype=np.float64,
-            )
-            localP = localP[np.isfinite(localP)]
-            if localP.size > 0:
-                localMedianP = float(np.median(localP))
-                medianSignalThreshold = float(
-                    -exportFilterUncertaintyMultiplier_ * localMedianP
-                )
-                if medianState < medianSignalThreshold:
-                    exportDetails["num_segments_dropped_median_signal_local_p"] += 1
-                    return
-        if parentWidthBP < int(_ROCCO_MIN_PEAK_BP):
-            exportDetails["num_segments_dropped_min_peak_bp"] += 1
-            return
-
-        summitLocal = int(np.argmax(segState))
-        summitIdx = int(startIdx + summitLocal)
-        subpeakSegments: List[Dict[str, Any]] = []
-        if parentWidthBP >= lengthScaleBP:
-            subpeakSegments = _solveParentConditionedSubpeakSegments(
-                segScores,
-                segState,
-                startIdx=startIdx,
-                endIdx=endIdx,
-                selectionPenalty=(
-                    float(max(float(nullScale), 0.0))
-                    if subpeakSelectionPenalty is None
-                    else float(subpeakSelectionPenalty)
-                ),
-                boundaryCost=(
-                    float(max(float(nullScale), 0.0))
-                    if subpeakBoundaryCost is None
-                    else float(subpeakBoundaryCost)
-                ),
-                minRunBins=int(max(int(minSubpeakBins), 1)),
-            )
-        candidateBlocks: List[Tuple[int, int]] = []
-        for child in subpeakSegments:
-            childStart = int(child["start_idx"])
-            childEnd = int(child["end_idx"])
-            childWidthBP = int(max(int(ends[childEnd]) - int(intervals[childStart]), 0))
-            if childWidthBP >= lengthScaleBP:
-                candidateBlocks.append((childStart, childEnd))
-        candidateBlocks = sorted(candidateBlocks)
-        useSubpeakBlocks = len(candidateBlocks) >= 2
-        if useSubpeakBlocks:
-            for (_leftStart, leftEnd), (rightStart, _rightEnd) in zip(
-                candidateBlocks[:-1],
-                candidateBlocks[1:],
-            ):
-                gapBP = int(max(int(intervals[rightStart]) - int(ends[leftEnd]), 0))
-                if gapBP < lengthScaleBP:
-                    useSubpeakBlocks = False
-                    break
-        blocks = candidateBlocks if useSubpeakBlocks else [(int(startIdx), int(endIdx))]
-        blockSizes = [
-            int(max(int(ends[right]) - int(intervals[left]), 0))
-            for left, right in blocks
-        ]
-        blockStarts = [
-            int(max(int(intervals[left]) - int(intervals[startIdx]), 0))
-            for left, _right in blocks
-        ]
-        exportDetails["num_broad_subpeak_blocks"] += int(len(blocks))
-        if useSubpeakBlocks:
-            exportDetails["num_broad_rows_with_subpeak_blocks"] += 1
-        chromStart = int(intervals[startIdx])
-        chromEnd = int(ends[endIdx])
-        peakName = f"{prefix}_{chromosome}_{len(rowsRaw)+1}"
-        rowsRaw.append(
-            {
-                "chromosome": str(chromosome),
-                "start": chromStart,
-                "end": chromEnd,
-                "name": str(peakName),
-                "signal": float(np.max(segState)),
-                "raw_score": float(np.max(segScores)),
-                "thick_start": int(intervals[blocks[0][0]]),
-                "thick_end": int(ends[blocks[-1][1]]),
-                "block_count": int(len(blocks)),
-                "block_sizes": [int(size) for size in blockSizes],
-                "block_starts": [int(start) for start in blockStarts],
-            }
-        )
-        rowsMeta.append(
-            {
-                "name": str(peakName),
-                "chromosome": str(chromosome),
-                "start": int(chromStart),
-                "end": int(chromEnd),
-                "summit": int(
-                    intervals[summitIdx]
-                    + max(1, int((ends[summitIdx] - intervals[summitIdx]) // 2))
-                ),
-                "start_idx": int(startIdx),
-                "end_idx": int(endIdx),
-                "summit_idx": int(summitIdx),
-                "median_state": float(medianState),
-                "local_median_p": None if localMedianP is None else float(localMedianP),
-                "median_signal_threshold": (
-                    None
-                    if medianSignalThreshold is None
-                    else float(medianSignalThreshold)
-                ),
-                "max_state": float(np.max(segState)),
-                "max_score": float(np.max(segScores)),
-                "num_subpeaks": int(len(blocks)),
-                "split_from_parent": bool(useSubpeakBlocks),
-                "broad_subpeak_blocks": [
-                    {
-                        "start_idx": int(left),
-                        "end_idx": int(right),
-                        "start": int(intervals[left]),
-                        "end": int(ends[right]),
-                    }
-                    for left, right in blocks
-                ],
-                "broad_subpeak_length_scale_bp": int(lengthScaleBP),
-                "broad_subpeak_length_scale_bins": int(lengthScaleBins),
-                "rocco_subpeak_length_scale_bp": int(lengthScaleBP),
-                "rocco_subpeak_length_scale_bins": int(lengthScaleBins),
-            }
-        )
-
-    n = int(solution_.size)
-    i = 0
-    while i < n:
-        if int(solution_[i]) <= 0:
-            i += 1
-            continue
-        selectedStart = i
-        while (
-            i + 1 < n
-            and int(solution_[i + 1]) > 0
-            and int(ends[i]) == int(intervals[i + 1])
-        ):
-            i += 1
-        selectedEnd = i
-        if (
-            selectedEnd + 1 < n
-            and int(solution_[selectedEnd + 1]) > 0
-            and int(ends[selectedEnd]) != int(intervals[selectedEnd + 1])
-        ):
-            exportDetails["num_coordinate_gap_splits"] += 1
-        addParentSegment(int(selectedStart), int(selectedEnd))
-        i += 1
-
-    if len(rowsRaw) == 0:
-        if returnExportDetails:
-            exportDetails["num_segments_kept"] = 0
-            return [], [], exportDetails
-        return [], []
-
-    rawScores = np.asarray([row["raw_score"] for row in rowsRaw], dtype=np.float64)
-    minScore = float(np.min(rawScores))
-    maxScore = float(np.max(rawScores))
-    span = max(maxScore - minScore, 1.0e-12)
-    outRows: List[List[str | int | float]] = []
-    for row in rowsRaw:
-        scaled = scoreFloor + (scoreCeil - scoreFloor) * (
-            (float(row["raw_score"]) - minScore) / span
-        )
-        outRows.append(
-            [
-                str(row["chromosome"]),
-                int(row["start"]),
-                int(row["end"]),
-                str(row["name"]),
-                int(round(scaled)),
-                ".",
-                int(row["thick_start"]),
-                int(row["thick_end"]),
-                0,
-                int(row["block_count"]),
-                ",".join(str(int(size)) for size in row["block_sizes"]),
-                ",".join(str(int(start)) for start in row["block_starts"]),
-                float(row["signal"]),
-                -1,
-                -1,
-            ]
-        )
-    exportDetails["num_segments_kept"] = int(len(outRows))
-    if returnExportDetails:
-        return outRows, rowsMeta, exportDetails
-    return outRows, rowsMeta
-
-
 def _fileInventoryEntry(path: str | None, kind: str) -> Dict[str, Any]:
     entry: Dict[str, Any] = {"kind": str(kind), "path": path, "exists": False, "bytes": None}
     if path is None:
@@ -5816,13 +5504,10 @@ def _buildRoccoSummary(
             "threshold_z": float(settings.get("threshold_z", 0.0)),
             "rand_seed": int(settings.get("rand_seed", 0)),
             "min_peak_score": settings.get("min_peak_score"),
-            "rocco_peak_mode": settings.get("rocco_peak_mode"),
             "peak_output_format": outputFormat,
         },
         "files": inventory,
     }
-    if outputFormat == "gappedPeak":
-        summary["gappedPeak_path"] = str(outPath)
     return summary
 
 
@@ -6104,11 +5789,6 @@ def solveRocco(
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
     minPeakScore: float | None = _MATCHING_DEFAULT_MIN_PEAK_SCORE,
-    roccoPeakMode: str = _MATCHING_DEFAULT_ROCCO_PEAK_MODE,
-    roccoSubpeakLengthScaleBP: int | None = (
-        _MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
-    ),
-    broadSubpeakDependenceSpan: int | None = None,
     uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     randSeed: int = 42,
@@ -6127,23 +5807,9 @@ def solveRocco(
         exportFilterUncertaintyMultiplier
     )
     minPeakScore_ = _validateMinPeakScore(minPeakScore)
-    roccoPeakMode_ = _normalizeRoccoPeakMode(roccoPeakMode)
-    roccoSubpeakLengthScaleBP_ = _validateRoccoSubpeakLengthScaleBP(
-        roccoSubpeakLengthScaleBP
-    )
-    outputFormat = (
-        "gappedPeak"
-        if roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_BROAD
-        else "narrowPeak"
-    )
-    effectiveNestedRoccoIters = (
-        0
-        if roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_BROAD
-        else int(max(int(nestedRoccoIters), 0))
-    )
-    effectiveMassiveSubpeakCleanup = bool(
-        massiveSubpeakCleanup and roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_STANDARD
-    )
+    outputFormat = "narrowPeak"
+    effectiveNestedRoccoIters = int(max(int(nestedRoccoIters), 0))
+    effectiveMassiveSubpeakCleanup = bool(massiveSubpeakCleanup)
     uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
     uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
     metadataDetail_ = _normalizeRoccoMetadataDetail(metadataDetail)
@@ -6207,18 +5873,7 @@ def solveRocco(
             "nested_rocco_budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
             "nested_rocco_diagnostics": bool(verbose),
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
-            "rocco_peak_mode": str(roccoPeakMode_),
             "peak_output_format": str(outputFormat),
-            "rocco_subpeak_length_scale_bp": (
-                None
-                if roccoSubpeakLengthScaleBP_ is None
-                else int(roccoSubpeakLengthScaleBP_)
-            ),
-            "broad_subpeak_dependence_span": (
-                None
-                if broadSubpeakDependenceSpan is None
-                else int(broadSubpeakDependenceSpan)
-            ),
             "rocco_min_peak_bp": int(_ROCCO_MIN_PEAK_BP),
             "massive_subpeak_cleanup": bool(effectiveMassiveSubpeakCleanup),
             "massive_subpeak_cleanup_requested": bool(massiveSubpeakCleanup),
@@ -6245,7 +5900,6 @@ def solveRocco(
             "min_peak_score": None if minPeakScore_ is None else float(minPeakScore_),
             "min_peak_score_field": "signalValue",
             "min_peak_score_narrowpeak_column": 7,
-            "min_peak_score_gappedpeak_column": 13,
             "export_filter_uses_uncertainty_bedgraph": True,
             "uncertainty_score_mode": str(uncertaintyScoreMode_),
             "uncertainty_score_z": float(uncertaintyScoreZ_),
@@ -6349,36 +6003,10 @@ def solveRocco(
         budgetDetails["budget_post_shrink"] = float(budget)
         budgetDetails["budget_shrink_delta"] = 0.0
         budgetDetails["budget_shrinkage_meta"] = None
-        intervalBP = int(max(int(work["interval_bp"]), 1))
-        if roccoSubpeakLengthScaleBP_ is not None:
-            broadSubpeakLengthScaleBP = int(roccoSubpeakLengthScaleBP_)
-            broadSubpeakLengthScaleSource = "explicit_bp"
-            broadSubpeakLengthScaleSpan = None
-        elif dependenceSpan is not None:
-            broadSubpeakLengthScaleSpan = int(max(int(dependenceSpan), 1))
-            broadSubpeakLengthScaleBP = int(broadSubpeakLengthScaleSpan * intervalBP)
-            broadSubpeakLengthScaleSource = "explicit_dependence_span"
-        elif (
-            roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_BROAD
-            and broadSubpeakDependenceSpan is not None
-        ):
-            broadSubpeakLengthScaleSpan = int(max(int(broadSubpeakDependenceSpan), 1))
-            broadSubpeakLengthScaleBP = int(broadSubpeakLengthScaleSpan * intervalBP)
-            broadSubpeakLengthScaleSource = "fit_dependence_span"
-        else:
-            broadSubpeakLengthScaleSpan = int(
-                max(int(budgetDetails["dependence_span"]), 1)
-            )
-            broadSubpeakLengthScaleBP = int(broadSubpeakLengthScaleSpan * intervalBP)
-            dependenceSpanMethod = str(budgetDetails.get("dependence_span_method", ""))
-            if (
-                roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_STANDARD
-                and dependenceSpan is None
-                and dependenceSpanMethod not in {"fixed", "sqrt_fallback"}
-            ):
-                broadSubpeakLengthScaleSource = "chooseFeatureLength"
-            else:
-                broadSubpeakLengthScaleSource = "dwb_dependence_span"
+        nestedMinRegionBP = int(
+            _NESTED_ROCCO_MIN_PARENT_STEPS * max(int(work["interval_bp"]), 1)
+        )
+        exportMinSubpeakBins = int(_NESTED_ROCCO_MIN_CHILD_STEPS)
 
         solution, objective, solveDetails = solveChromROCCO(
             scoreTrack,
@@ -6399,9 +6027,8 @@ def solveRocco(
             intervals=intervals,
             ends=ends,
             rawScores=scoreTrack,
-            minRegionBP=int(
-                _NESTED_ROCCO_MIN_PARENT_STEPS * max(int(work["interval_bp"]), 1)
-            ),
+            minRegionBP=int(nestedMinRegionBP),
+            minRegionBins=int(exportMinSubpeakBins),
             diagnostics=bool(verbose),
             diagnosticLabel=str(chromosome),
             diagnosticDetailPath=nestedRoccoSubproblemDetailsPath,
@@ -6434,68 +6061,25 @@ def solveRocco(
             solution,
             roccoPrefix,
         )
-        if roccoPeakMode_ == MATCHING_ROCCO_PEAK_MODE_BROAD:
-            rows, peakMeta, exportDetails = _solutionToChromGappedPeakRows(
-                str(chromosome),
-                intervals,
-                ends,
-                state,
-                np.asarray(scoreTrack, dtype=np.float64),
-                solution,
-                prefix=roccoPrefix,
-                nullScale=float(nullScale),
-                broadSubpeakLengthScaleBP=int(broadSubpeakLengthScaleBP),
-                uncertainty=uncertainty,
-                subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
-                subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
-                minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
-                exportFilterUncertaintyMultiplier=float(
-                    exportFilterUncertaintyMultiplier_
-                ),
-                returnExportDetails=True,
-            )
-        else:
-            rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
-                str(chromosome),
-                intervals,
-                ends,
-                state,
-                np.asarray(scoreTrack, dtype=np.float64),
-                solution,
-                prefix=roccoPrefix,
-                nullScale=float(nullScale),
-                uncertainty=uncertainty,
-                trimScoreFloor=float(exportTrimScoreFloor),
-                subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
-                subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
-                minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
-                exportFilterUncertaintyMultiplier=float(
-                    exportFilterUncertaintyMultiplier_
-                ),
-                nestedHierarchy=nestedHierarchy,
-                returnExportDetails=True,
-            )
-        exportDetails["broad_subpeak_length_scale_bp"] = int(
-            broadSubpeakLengthScaleBP
-        )
-        exportDetails["broad_subpeak_length_scale_source"] = str(
-            broadSubpeakLengthScaleSource
-        )
-        exportDetails["broad_subpeak_length_scale_span"] = (
-            None
-            if broadSubpeakLengthScaleSpan is None
-            else int(broadSubpeakLengthScaleSpan)
-        )
-        exportDetails["rocco_subpeak_length_scale_bp"] = int(
-            broadSubpeakLengthScaleBP
-        )
-        exportDetails["rocco_subpeak_length_scale_source"] = str(
-            broadSubpeakLengthScaleSource
-        )
-        exportDetails["rocco_subpeak_length_scale_span"] = (
-            None
-            if broadSubpeakLengthScaleSpan is None
-            else int(broadSubpeakLengthScaleSpan)
+        rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
+            str(chromosome),
+            intervals,
+            ends,
+            state,
+            np.asarray(scoreTrack, dtype=np.float64),
+            solution,
+            prefix=roccoPrefix,
+            nullScale=float(nullScale),
+            uncertainty=uncertainty,
+            trimScoreFloor=float(exportTrimScoreFloor),
+            subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
+            subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
+            minSubpeakBins=int(exportMinSubpeakBins),
+            exportFilterUncertaintyMultiplier=float(
+                exportFilterUncertaintyMultiplier_
+            ),
+            nestedHierarchy=nestedHierarchy,
+            returnExportDetails=True,
         )
         initialPeakWidthsBP.extend(
             [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
@@ -6520,12 +6104,8 @@ def solveRocco(
             "initial_rows": rows,
             "initial_peak_meta": peakMeta,
             "initial_export_details": exportDetails,
-            "broad_subpeak_length_scale_bp": int(broadSubpeakLengthScaleBP),
-            "broad_subpeak_length_scale_source": str(broadSubpeakLengthScaleSource),
-            "broad_subpeak_length_scale_span": broadSubpeakLengthScaleSpan,
-            "rocco_subpeak_length_scale_bp": int(broadSubpeakLengthScaleBP),
-            "rocco_subpeak_length_scale_source": str(broadSubpeakLengthScaleSource),
-            "rocco_subpeak_length_scale_span": broadSubpeakLengthScaleSpan,
+            "nested_min_region_bp": int(nestedMinRegionBP),
+            "export_min_subpeak_bins": int(exportMinSubpeakBins),
             "work": work,
         }
 
@@ -6567,7 +6147,7 @@ def solveRocco(
                 trimScoreFloor=float(exportTrimScoreFloor),
                 subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
                 subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
-                minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
+                minSubpeakBins=int(result["export_min_subpeak_bins"]),
                 massiveSubpeakCleanup=True,
                 massiveSubpeakWidthPolicy=massiveWidthPolicy,
                 massiveSubpeakSplitQuantile=float(_MASSIVE_SUBPEAK_SPLIT_QUANTILE),
@@ -6583,6 +6163,11 @@ def solveRocco(
             peakMeta = list(result["initial_peak_meta"])
             exportDetails = dict(result["initial_export_details"])
             exportDetails["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
+        exportDetails["peak_output_format"] = str(outputFormat)
+        exportDetails["nested_min_region_bp"] = int(result["nested_min_region_bp"])
+        exportDetails["export_min_subpeak_bins"] = int(
+            result["export_min_subpeak_bins"]
+        )
         rows, peakMeta, blacklistDropped = _filterNarrowPeakRowsByBlacklist(
             rows,
             peakMeta,
@@ -6602,7 +6187,7 @@ def solveRocco(
             None if minPeakScore_ is None else float(minPeakScore_)
         )
         exportDetails["min_peak_score_field"] = "signalValue"
-        minPeakScoreColumnIndex = 12 if outputFormat == "gappedPeak" else 6
+        minPeakScoreColumnIndex = 6
         exportDetails["min_peak_score_output_column"] = int(
             minPeakScoreColumnIndex + 1
         )
@@ -6713,24 +6298,8 @@ def solveRocco(
             "nested_hierarchy_summary": dict(
                 exportDetails.get("nested_hierarchy_summary", {})
             ),
-            "broad_subpeak_length_scale_bp": int(
-                result["broad_subpeak_length_scale_bp"]
-            ),
-            "broad_subpeak_length_scale_source": str(
-                result["broad_subpeak_length_scale_source"]
-            ),
-            "broad_subpeak_length_scale_span": result[
-                "broad_subpeak_length_scale_span"
-            ],
-            "rocco_subpeak_length_scale_bp": int(
-                result["rocco_subpeak_length_scale_bp"]
-            ),
-            "rocco_subpeak_length_scale_source": str(
-                result["rocco_subpeak_length_scale_source"]
-            ),
-            "rocco_subpeak_length_scale_span": result[
-                "rocco_subpeak_length_scale_span"
-            ],
+            "nested_min_region_bp": int(result["nested_min_region_bp"]),
+            "export_min_subpeak_bins": int(result["export_min_subpeak_bins"]),
             "null_replay_false_segment_diagnostics": nullReplayDiagnostics,
             "export_trim_score_floor": float(exportTrimScoreFloor),
             "export_details": exportDetails,
