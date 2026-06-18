@@ -139,6 +139,33 @@ def _caseEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
 
 
 @pytest.mark.correctness
+def _caseUnsetRoccoDependenceSpanUsesChooseFeatureLength(monkeypatch):
+    calls = []
+    values = np.linspace(-1.0, 4.0, 256, dtype=np.float64)
+
+    def _fakeChooseFeatureLength(vals, minSpan=3, maxSpan=64):
+        calls.append((np.asarray(vals, dtype=np.float64), int(minSpan), int(maxSpan)))
+        return 17, 11, 23, {"method": "feature_peak_width_random_effects"}
+
+    monkeypatch.setattr(peaks.core, "chooseFeatureLength", _fakeChooseFeatureLength)
+
+    details = peaks._resolveRoccoDependenceSpanDetails(
+        values,
+        dependenceSpan=None,
+    )
+
+    assert len(calls) == 1
+    assert calls[0][1:] == (3, 32)
+    assert np.min(calls[0][0]) >= 0.0
+    assert details == {
+        "point": 17,
+        "lower": 11,
+        "upper": 23,
+        "method": "feature_peak_width_random_effects",
+    }
+
+
+@pytest.mark.correctness
 def _caseGetBudgetForROCCOUsesDirectConsenrichState():
     state, uncertainty = _toyChromState()
     uncertaintyHi = uncertainty.copy()
@@ -392,6 +419,11 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     assert meta["settings"]["metadata_detail"] == "compact"
     assert meta["settings"]["budget_method"] == "dwb_tail_occupancy"
     assert meta["settings"]["null_calibration_method"] == "stationary_null_dwb"
+    assert (
+        meta["settings"]["rocco_peak_mode"]
+        == constants.MATCHING_ROCCO_PEAK_MODE_STANDARD
+    )
+    assert meta["settings"]["peak_output_format"] == "narrowPeak"
     assert meta["pooled_null_floor"] is None
     assert meta["budget_shrinkage"] is None
     assert meta["chromosomes"]["chr19"]["state_diagnostics"]["state_roughness"][
@@ -404,6 +436,9 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
         assert chrom["budget_details"]["budget_pre_shrink"] == pytest.approx(
             chrom["budget_details"]["budget_post_shrink"]
         )
+        assert chrom["rocco_subpeak_length_scale_bp"] == 400
+        assert chrom["rocco_subpeak_length_scale_source"] == "explicit_dependence_span"
+        assert chrom["rocco_subpeak_length_scale_span"] == 8
         assert chrom["budget_details"]["budget_shrinkage_meta"] is None
         assert "peak_details" not in chrom
         assert "candidate_details" not in chrom
@@ -786,6 +821,125 @@ def _caseSolveRoccoAppliesMinPeakSignalFilter(tmp_path):
     )
     assert exportDetails["num_segments_dropped_min_peak_score"] >= 1
     assert all("dwb_empirical_q" in peak for peak in chromMeta["peak_details"])
+
+
+@pytest.mark.correctness
+def _caseSolveRoccoBroadModeWritesGappedPeakMetadata(tmp_path):
+    n = 160
+    state = np.zeros(n, dtype=np.float64)
+    state[25:105] = 6.0
+    state[35:45] = 9.0
+    state[75:90] = 8.0
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        step=50,
+        stem="broad_mode",
+    )
+
+    resultPath, summary = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        numBootstrap=8,
+        thresholdZ=1.0,
+        dependenceSpan=5,
+        gamma=0.0,
+        selectionPenalty=0.0,
+        nestedRoccoIters=3,
+        massiveSubpeakCleanup=True,
+        minPeakScore=None,
+        roccoPeakMode=constants.MATCHING_ROCCO_PEAK_MODE_BROAD,
+        randSeed=19,
+        metadataDetail="full",
+        returnSummary=True,
+    )
+
+    outPath = Path(resultPath)
+    metaPath = Path(f"{resultPath}.json")
+    rows = [
+        line.split("\t")
+        for line in outPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    chromMeta = meta["chromosomes"]["chr1"]
+    exportDetails = chromMeta["export_details"]
+
+    assert outPath.name.endswith("_rocco.gappedPeak")
+    assert rows
+    assert all(len(row) == 15 for row in rows)
+    assert summary["peak_path"] == str(outPath)
+    assert summary["gappedPeak_path"] == str(outPath)
+    assert summary["peak_output_format"] == "gappedPeak"
+    assert summary["files"][0]["kind"] == "gappedPeak"
+    assert (
+        meta["settings"]["rocco_peak_mode"]
+        == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
+    )
+    assert meta["settings"]["peak_output_format"] == "gappedPeak"
+    assert meta["settings"]["nested_rocco_iters"] == 0
+    assert meta["settings"]["nested_rocco_requested_iters"] == 3
+    assert meta["settings"]["massive_subpeak_cleanup"] is False
+    assert meta["settings"]["massive_subpeak_cleanup_requested"] is True
+    assert chromMeta["rocco_subpeak_length_scale_bp"] == 250
+    assert chromMeta["rocco_subpeak_length_scale_source"] == (
+        "explicit_dependence_span"
+    )
+    assert chromMeta["rocco_subpeak_length_scale_span"] == 5
+    assert exportDetails["peak_output_format"] == "gappedPeak"
+    assert exportDetails["rocco_subpeak_length_scale_bp"] == 250
+    assert exportDetails["rocco_subpeak_length_scale_source"] == (
+        "explicit_dependence_span"
+    )
+    assert exportDetails["min_peak_score_output_column"] == 13
+
+
+@pytest.mark.correctness
+def _caseSolveRoccoBroadModeUsesFitDependenceSpan(tmp_path):
+    n = 160
+    state = np.zeros(n, dtype=np.float64)
+    state[30:110] = 6.0
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        step=40,
+        stem="broad_fit_span",
+    )
+    outPath = tmp_path / "broad_fit_span_rocco.gappedPeak"
+    metaPath = tmp_path / "broad_fit_span_rocco.gappedPeak.json"
+
+    peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        numBootstrap=8,
+        thresholdZ=1.0,
+        dependenceSpan=None,
+        gamma=0.0,
+        selectionPenalty=0.0,
+        minPeakScore=None,
+        roccoPeakMode=constants.MATCHING_ROCCO_PEAK_MODE_BROAD,
+        broadSubpeakDependenceSpan=7,
+        randSeed=23,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+        metadataDetail="full",
+    )
+
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    chromMeta = meta["chromosomes"]["chr1"]
+
+    assert outPath.read_text(encoding="utf-8").strip()
+    assert meta["settings"]["peak_output_format"] == "gappedPeak"
+    assert chromMeta["rocco_subpeak_length_scale_bp"] == 280
+    assert chromMeta["rocco_subpeak_length_scale_source"] == "fit_dependence_span"
+    assert chromMeta["rocco_subpeak_length_scale_span"] == 7
+    assert chromMeta["export_details"]["rocco_subpeak_length_scale_source"] == (
+        "fit_dependence_span"
+    )
 
 
 @pytest.mark.correctness
@@ -1294,6 +1448,79 @@ def _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks():
     assert all(meta["split_from_parent"] for meta in rowMeta)
     assert all(meta["num_subpeaks"] == 2 for meta in rowMeta)
     assert rowMeta[0]["summit"] < rowMeta[1]["summit"]
+
+
+@pytest.mark.correctness
+def _caseSolutionToChromGappedPeakRowsUsesLengthScaleBlocks(monkeypatch):
+    n = 80
+    intervals = np.arange(0, n * 100, 100, dtype=np.int64)
+    ends = intervals + 100
+    state = np.ones(n, dtype=np.float64)
+    state[12:21] = 8.0
+    state[45:55] = 7.0
+    scores = state.copy()
+    scores[25:40] = -1.0
+    solution = np.zeros(n, dtype=np.uint8)
+    solution[10:70] = 1
+
+    def _fakeParentSegments(*_args, **_kwargs):
+        return [
+            {"start_idx": 12, "end_idx": 20},
+            {"start_idx": 45, "end_idx": 54},
+        ]
+
+    monkeypatch.setattr(
+        peaks,
+        "_solveParentConditionedSubpeakSegments",
+        _fakeParentSegments,
+    )
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromGappedPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="broadTest",
+        nullScale=0.5,
+        broadSubpeakLengthScaleBP=700,
+        minSubpeakBins=1,
+        returnExportDetails=True,
+    )
+    singleRows, singleMeta, singleDetails = peaks._solutionToChromGappedPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="broadTest",
+        nullScale=0.5,
+        broadSubpeakLengthScaleBP=1200,
+        minSubpeakBins=1,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 1
+    assert len(rowMeta) == 1
+    assert rows[0][1:3] == [1000, 7000]
+    assert int(rows[0][9]) == 2
+    assert rows[0][10] == "900,1000"
+    assert rows[0][11] == "200,3500"
+    assert rowMeta[0]["split_from_parent"] is True
+    assert exportDetails["peak_output_format"] == "gappedPeak"
+    assert exportDetails["rocco_subpeak_length_scale_bp"] == 700
+    assert exportDetails["num_broad_rows_with_subpeak_blocks"] == 1
+
+    assert len(singleRows) == 1
+    assert len(singleMeta) == 1
+    assert int(singleRows[0][9]) == 1
+    assert singleRows[0][10] == "6000"
+    assert singleRows[0][11] == "0"
+    assert singleMeta[0]["split_from_parent"] is False
+    assert singleDetails["rocco_subpeak_length_scale_bp"] == 1200
+    assert singleDetails["num_broad_rows_with_subpeak_blocks"] == 0
 
 
 @pytest.mark.correctness
@@ -2448,6 +2675,11 @@ def test_rocco_score_null_gamma_and_budget_contracts(
             _run_with_monkeypatch,
             (monkeypatch, _caseEstimateGammaForROCCOUsesLowerContextBound),
         ),
+        (
+            "unset dependence span resolver",
+            _run_with_monkeypatch,
+            (monkeypatch, _caseUnsetRoccoDependenceSpanUsesChooseFeatureLength),
+        ),
         ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichState, ()),
         (
             "lower-confidence score uses uncertainty",
@@ -2500,32 +2732,63 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
         _caseSolveRoccoAppliesMinPeakSignalFilter,
         tmp_path,
     )
+    contract_case(
+        "broad mode gappedPeak metadata",
+        _caseSolveRoccoBroadModeWritesGappedPeakMetadata,
+        tmp_path,
+    )
+    contract_case(
+        "broad mode fit dependence span",
+        _caseSolveRoccoBroadModeUsesFitDependenceSpan,
+        tmp_path,
+    )
 
 
-def test_rocco_subpeak_policy_contracts(contract_case):
-    for label, func in (
-        ("subpeak splitting", _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks),
+def test_rocco_subpeak_policy_contracts(monkeypatch, contract_case):
+    for label, func, args in (
+        ("subpeak splitting", _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks, ()),
+        (
+            "broad gappedPeak block scale",
+            _run_with_monkeypatch,
+            (monkeypatch, _caseSolutionToChromGappedPeakRowsUsesLengthScaleBlocks),
+        ),
         (
             "selected coordinate gaps split",
             _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps,
+            (),
         ),
-        ("multiscale candidate generation", _caseMultiscaleCandidateGenerationUsesMultipleScales),
+        (
+            "multiscale candidate generation",
+            _caseMultiscaleCandidateGenerationUsesMultipleScales,
+            (),
+        ),
         (
             "wide-context splitting",
             _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide,
+            (),
         ),
         (
             "dominant peak exposes subpeak",
             _caseSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak,
+            (),
         ),
-        ("child flank trimming", _caseSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit),
-        ("all-negative child refinement", _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin),
+        (
+            "child flank trimming",
+            _caseSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit,
+            (),
+        ),
+        (
+            "all-negative child refinement",
+            _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin,
+            (),
+        ),
         (
             "negative local-median drop",
             _caseSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP,
+            (),
         ),
     ):
-        contract_case(label, func)
+        contract_case(label, func, *args)
 
 
 def test_rocco_massive_domain_policy_contracts(contract_case):

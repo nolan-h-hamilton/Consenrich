@@ -355,6 +355,18 @@ def _normalizeMatchingMetadataDetail(value: Any) -> str:
     )
 
 
+def _normalizeMatchingRoccoPeakMode(value: Any) -> str:
+    raw = constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE if value is None else value
+    mode = str(raw)
+    if mode in constants.MATCHING_ROCCO_PEAK_MODES:
+        return mode
+    supported = ", ".join(constants.MATCHING_ROCCO_PEAK_MODES)
+    raise ValueError(
+        f"Unsupported matchingParams.roccoPeakMode {value!r}; "
+        f"supported values: {supported}."
+    )
+
+
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
     return _sharedValidateMatchingUncertaintyScoreZ(value)
 
@@ -1286,6 +1298,19 @@ def getUncertaintyCalibrationArgs(
         "uncertaintyCalibrationParams.enabled",
         _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
     )
+
+    def calibrationBoolValue(
+        rawValue: Any,
+        configName: str,
+        *,
+        allowNone: bool = False,
+    ) -> bool | None:
+        if rawValue is None and allowNone:
+            return None
+        if not isinstance(rawValue, (bool, np.bool_)):
+            raise ValueError(f"`{configName}` must be boolean.")
+        return bool(rawValue)
+
     mode = _normalizeConfigEnum(
         _cfgGet(
             configData,
@@ -1435,8 +1460,67 @@ def getUncertaintyCalibrationArgs(
         raise ValueError(
             "uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates must be >= 8"
         )
+    targets = tuple(
+        float(x)
+        for x in _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.targets",
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
+        )
+    )
+    if not targets or not all(
+        np.isfinite(target) and 0.0 < target < 1.0 for target in targets
+    ):
+        raise ValueError(
+            "uncertaintyCalibrationParams.targets must be non-empty probabilities"
+        )
+    scaleByTargetCalibration = bool(
+        calibrationBoolValue(
+            _cfgGet(
+                configData,
+                constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
+                _cfgDefault(
+                    configData,
+                    constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
+                ),
+            ),
+            constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
+        )
+    )
+    deleteBlockApplyTargetCalibration = calibrationBoolValue(
+        applyTargetRaw,
+        "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
+        allowNone=True,
+    )
+    targetCalibrationDeltaRaw = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.targetCalibrationDelta",
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA,
+    )
+    if targetCalibrationDeltaRaw is None:
+        targetCalibrationDelta = None
+        if scaleByTargetCalibration or deleteBlockApplyTargetCalibration is True:
+            raise ValueError(
+                "uncertaintyCalibrationParams.targetCalibrationDelta must be set "
+                "when target calibration scaling is enabled"
+            )
+    else:
+        targetCalibrationDelta = float(targetCalibrationDeltaRaw)
+        if not (
+            np.isfinite(targetCalibrationDelta)
+            and 0.0 < targetCalibrationDelta < 1.0
+        ):
+            raise ValueError(
+                "uncertaintyCalibrationParams.targetCalibrationDelta must be a "
+                "probability in (0, 1)"
+            )
     return core.uncertaintyCalibrationParams(
-        enabled=bool(enabledConfig),
+        enabled=bool(
+            calibrationBoolValue(
+                enabledConfig,
+                "uncertaintyCalibrationParams.enabled",
+            )
+        ),
         mode=mode,
         folds=int(
             _cfgGet(
@@ -1478,14 +1562,7 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
             )
         ),
-        targets=tuple(
-            float(x)
-            for x in _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.targets",
-                constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
-            )
-        ),
+        targets=targets,
         minFactor=float(
             _cfgGet(
                 configData,
@@ -1531,30 +1608,20 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_OUTER_ITERS,
             )
         ),
-        targetCalibrationDelta=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.targetCalibrationDelta",
-            constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA,
-        ),
-        scaleUncertaintyByTargetCalibration=bool(
-            _cfgGet(
-                configData,
-                constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
-                _cfgDefault(
-                    configData,
-                    constants.UNCERTAINTY_CALIBRATION_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION_CONFIG_KEY,
-                ),
-            )
-        ),
+        targetCalibrationDelta=targetCalibrationDelta,
+        scaleUncertaintyByTargetCalibration=scaleByTargetCalibration,
         deleteBlockVarianceMode=deleteBlockVarianceMode,
         deleteBlockUseLambdaInInformation=bool(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
-                _cfgDefault(
+            calibrationBoolValue(
+                _cfgGet(
                     configData,
                     "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+                    _cfgDefault(
+                        configData,
+                        "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+                    ),
                 ),
+                "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
             )
         ),
         deleteBlockTargetSignal=deleteBlockTargetSignal,
@@ -1564,9 +1631,7 @@ def getUncertaintyCalibrationArgs(
         deleteBlockMinDeltaVariance=minDeltaVariance,
         deleteBlockFallbackMinValidFraction=fallbackMinValidFraction,
         deleteBlockScoreWeightMode=deleteBlockScoreWeightMode,
-        deleteBlockApplyTargetCalibration=(
-            None if applyTargetRaw is None else bool(applyTargetRaw)
-        ),
+        deleteBlockApplyTargetCalibration=deleteBlockApplyTargetCalibration,
         seed=int(
             _cfgGet(
                 configData,
@@ -1575,10 +1640,13 @@ def getUncertaintyCalibrationArgs(
             )
         ),
         writeDiagnostics=bool(
-            _cfgGet(
-                configData,
+            calibrationBoolValue(
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibrationParams.writeDiagnostics",
+                    constants.UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
+                ),
                 "uncertaintyCalibrationParams.writeDiagnostics",
-                constants.UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
             )
         ),
         deleteBlockFactorSegmentCount=deleteBlockFactorSegmentCount,
@@ -1958,6 +2026,32 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.muncAR1VarianceFunctional` is not supported."
         )
+
+    def dependencePositiveInt(dottedKey: str) -> int:
+        rawValue = _cfgGet(configData, dottedKey, _cfgDefault(configData, dottedKey))
+        if isinstance(rawValue, (bool, np.bool_)):
+            raise ValueError(f"`{dottedKey}` must be a positive integer.")
+        if isinstance(rawValue, (float, np.floating)) and not float(
+            rawValue
+        ).is_integer():
+            raise ValueError(f"`{dottedKey}` must be a positive integer.")
+        out = _normalizeNonnegativeInt(rawValue, dottedKey)
+        if out <= 0:
+            raise ValueError(f"`{dottedKey}` must be a positive integer.")
+        return int(out)
+
+    def dependencePositiveFloat(dottedKey: str) -> float:
+        rawValue = _cfgGet(configData, dottedKey, _cfgDefault(configData, dottedKey))
+        if isinstance(rawValue, (bool, np.bool_)):
+            raise ValueError(f"`{dottedKey}` must be finite and positive.")
+        try:
+            out = float(rawValue)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"`{dottedKey}` must be finite and positive.") from exc
+        if not (np.isfinite(out) and out > 0.0):
+            raise ValueError(f"`{dottedKey}` must be finite and positive.")
+        return float(out)
+
     muncTrendBlockSizeBP = (
         _cfgGet(configData, "observationParams.muncTrendBlockSizeBP", None)
         if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
@@ -2001,6 +2095,88 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.muncDependenceMinContextSizeBP` must be positive."
         )
+    if (
+        muncDependenceMinContextSizeBP
+        < constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP
+    ):
+        raise ValueError(
+            "`observationParams.muncDependenceMinContextSizeBP` must be at least "
+            f"{constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP}."
+        )
+    dependenceMaxContextSizeBP = dependencePositiveInt(
+        "observationParams.dependenceMaxContextSizeBP"
+    )
+    if (
+        dependenceMaxContextSizeBP
+        > constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP
+    ):
+        raise ValueError(
+            "`observationParams.dependenceMaxContextSizeBP` must be at most "
+            f"{constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP}."
+        )
+    if dependenceMaxContextSizeBP < muncDependenceMinContextSizeBP:
+        raise ValueError(
+            "`observationParams.dependenceMaxContextSizeBP` must be at least "
+            "`observationParams.muncDependenceMinContextSizeBP`."
+        )
+    dependenceNumBlocks = dependencePositiveInt(
+        "observationParams.dependenceNumBlocks"
+    )
+    dependenceBlockMedianBP = dependencePositiveFloat(
+        "observationParams.dependenceBlockMedianBP"
+    )
+    dependenceBlockSigma = dependencePositiveFloat(
+        "observationParams.dependenceBlockSigma"
+    )
+    dependenceBlockMinBP = dependencePositiveInt(
+        "observationParams.dependenceBlockMinBP"
+    )
+    dependenceBlockMaxBP = dependencePositiveInt(
+        "observationParams.dependenceBlockMaxBP"
+    )
+    if dependenceBlockMaxBP < dependenceBlockMinBP:
+        raise ValueError(
+            "`observationParams.dependenceBlockMaxBP` must be at least "
+            "`observationParams.dependenceBlockMinBP`."
+        )
+    dependencePriorMedianSpan = dependencePositiveFloat(
+        "observationParams.dependencePriorMedianSpan"
+    )
+    dependencePriorLogSd = dependencePositiveFloat(
+        "observationParams.dependencePriorLogSd"
+    )
+    dependenceAcfPointThreshold = dependencePositiveFloat(
+        "observationParams.dependenceAcfPointThreshold"
+    )
+    if dependenceAcfPointThreshold >= 1.0:
+        raise ValueError(
+            "`observationParams.dependenceAcfPointThreshold` must be less than 1."
+        )
+    dependenceAcfRequiredCrossings = dependencePositiveInt(
+        "observationParams.dependenceAcfRequiredCrossings"
+    )
+    dependenceAcfMinEvidenceNatsRaw = _cfgGet(
+        configData,
+        "observationParams.dependenceAcfMinEvidenceNats",
+        _cfgDefault(configData, "observationParams.dependenceAcfMinEvidenceNats"),
+    )
+    if isinstance(dependenceAcfMinEvidenceNatsRaw, (bool, np.bool_)):
+        raise ValueError(
+            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
+        )
+    try:
+        dependenceAcfMinEvidenceNats = float(dependenceAcfMinEvidenceNatsRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
+        ) from exc
+    if not (
+        np.isfinite(dependenceAcfMinEvidenceNats)
+        and dependenceAcfMinEvidenceNats >= 0.0
+    ):
+        raise ValueError(
+            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
+        )
     muncTrendBlockDependenceMultiplierRaw = _cfgGet(
         configData,
         "observationParams.muncTrendBlockDependenceMultiplier",
@@ -2040,34 +2216,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     ):
         raise ValueError(
             "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
-        )
-    dependenceShapePolynomialDegreeRaw = _cfgGet(
-        configData,
-        "observationParams.dependenceShapePolynomialDegree",
-        _cfgDefault(
-            configData,
-            "observationParams.dependenceShapePolynomialDegree",
-        ),
-    )
-    if dependenceShapePolynomialDegreeRaw is None:
-        dependenceShapePolynomialDegreeRaw = (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE
-        )
-    if isinstance(dependenceShapePolynomialDegreeRaw, bool):
-        raise ValueError(
-            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
-        )
-    if (
-        isinstance(dependenceShapePolynomialDegreeRaw, (float, np.floating))
-        and not float(dependenceShapePolynomialDegreeRaw).is_integer()
-    ):
-        raise ValueError(
-            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
-        )
-    dependenceShapePolynomialDegree = int(dependenceShapePolynomialDegreeRaw)
-    if not 0 <= dependenceShapePolynomialDegree <= 6:
-        raise ValueError(
-            "`observationParams.dependenceShapePolynomialDegree` must be an integer in [0, 6]."
         )
     if _cfgHas(configData, "observationParams.muncSeedWeight") and not isinstance(
         _cfgGet(configData, "observationParams.muncSeedWeight"),
@@ -2489,9 +2637,19 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
         "muncDependenceMinContextSizeBP": muncDependenceMinContextSizeBP,
+        "dependenceMaxContextSizeBP": dependenceMaxContextSizeBP,
+        "dependenceNumBlocks": dependenceNumBlocks,
+        "dependenceBlockMedianBP": dependenceBlockMedianBP,
+        "dependenceBlockSigma": dependenceBlockSigma,
+        "dependenceBlockMinBP": dependenceBlockMinBP,
+        "dependenceBlockMaxBP": dependenceBlockMaxBP,
+        "dependencePriorMedianSpan": dependencePriorMedianSpan,
+        "dependencePriorLogSd": dependencePriorLogSd,
+        "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
+        "dependenceAcfRequiredCrossings": dependenceAcfRequiredCrossings,
+        "dependenceAcfMinEvidenceNats": dependenceAcfMinEvidenceNats,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
-        "dependenceShapePolynomialDegree": dependenceShapePolynomialDegree,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,
         "muncSeedWeightPasses": muncSeedWeightPasses,
         "muncSeedWeightMin": muncSeedWeightMin,
@@ -2713,6 +2871,34 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         if not np.isfinite(minPeakScore):
             raise ValueError("matchingParams.minPeakScore must be finite")
 
+    roccoSubpeakLengthScaleBP = _cfgGet(
+        configData,
+        "matchingParams.roccoSubpeakLengthScaleBP",
+        constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
+    )
+    if roccoSubpeakLengthScaleBP is not None:
+        if isinstance(roccoSubpeakLengthScaleBP, bool):
+            raise ValueError(
+                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
+            )
+        if (
+            isinstance(roccoSubpeakLengthScaleBP, (float, np.floating))
+            and not float(roccoSubpeakLengthScaleBP).is_integer()
+        ):
+            raise ValueError(
+                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
+            )
+        try:
+            roccoSubpeakLengthScaleBP = int(roccoSubpeakLengthScaleBP)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
+            ) from exc
+        if roccoSubpeakLengthScaleBP <= 0:
+            raise ValueError(
+                "matchingParams.roccoSubpeakLengthScaleBP must be a positive integer"
+            )
+
     matchingArgs = core.matchingParams(
         enabled=bool(
             _cfgGet(
@@ -2808,6 +2994,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
             )
         ),
+        roccoPeakMode=_normalizeMatchingRoccoPeakMode(
+            _cfgGet(
+                configData,
+                "matchingParams.roccoPeakMode",
+                constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE,
+            )
+        ),
+        roccoSubpeakLengthScaleBP=roccoSubpeakLengthScaleBP,
     )
 
     return {

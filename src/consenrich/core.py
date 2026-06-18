@@ -61,6 +61,8 @@ from .constants import (
     INPUT_DEFAULT_ROLE,
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    MATCHING_DEFAULT_ROCCO_PEAK_MODE,
+    MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
     MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
@@ -70,7 +72,9 @@ from .constants import (
     MUNC_SUPPORTED_VARIANCE_MODELS,
     MUNC_VARIANCE_MODEL_CODE_KALMAN,
     MUNC_VARIANCE_MODEL_KALMAN,
-    OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE,
+    OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS,
+    OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
+    OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q,
@@ -86,6 +90,14 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE,
+    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MAX_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MEDIAN_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MIN_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_SIGMA,
+    OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_NUM_BLOCKS,
+    OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_LOG_SD,
+    OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM,
@@ -506,14 +518,34 @@ class observationParams(NamedTuple):
     muncDependenceMinContextSizeBP: int | None = (
         OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
     )
+    dependenceMaxContextSizeBP: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP
+    )
+    dependenceNumBlocks: int | None = OBSERVATION_DEFAULT_DEPENDENCE_NUM_BLOCKS
+    dependenceBlockMedianBP: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MEDIAN_BP
+    )
+    dependenceBlockSigma: float | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_SIGMA
+    dependenceBlockMinBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MIN_BP
+    dependenceBlockMaxBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MAX_BP
+    dependencePriorMedianSpan: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN
+    )
+    dependencePriorLogSd: float | None = OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_LOG_SD
+    dependenceAcfPointThreshold: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
+    )
+    dependenceAcfRequiredCrossings: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS
+    )
+    dependenceAcfMinEvidenceNats: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS
+    )
     muncTrendBlockDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
     )
     muncLocalWindowDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
-    )
-    dependenceShapePolynomialDegree: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE
     )
     muncSeedWeightEnabled: bool | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED
     muncSeedWeightPasses: int | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES
@@ -1095,6 +1127,10 @@ class matchingParams(NamedTuple):
     metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
     minPeakScore: Optional[float] = MATCHING_DEFAULT_MIN_PEAK_SCORE
     useShrunkStateScores: bool = MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES
+    roccoPeakMode: str = MATCHING_DEFAULT_ROCCO_PEAK_MODE
+    roccoSubpeakLengthScaleBP: Optional[int] = (
+        MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
+    )
 
 
 class outputParams(NamedTuple):
@@ -9035,6 +9071,9 @@ def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
 
 def subtractGlobalMedianInPlace(
     values: npt.NDArray[np.floating],
+    *,
+    intervalSizeBP: int,
+    filterWindowBP: int = 1_000_000,
 ) -> dict[str, Any]:
     r"""Subtract each transformed track's finite global median in place."""
 
@@ -9047,23 +9086,33 @@ def subtractGlobalMedianInPlace(
         raise ValueError("values must be a one- or two-dimensional array")
     if not np.issubdtype(arr.dtype, np.floating):
         raise TypeError("values dtype must be floating point")
+    if tracks.shape[0] == 0 or tracks.shape[1] == 0:
+        raise ValueError("values must include at least one track and interval")
 
-    medians = np.zeros(tracks.shape[0], dtype=np.float64)
+    intervalSize = int(intervalSizeBP)
+    if intervalSize <= 0:
+        raise ValueError("intervalSizeBP must be positive")
+    filterWindowBP_ = int(filterWindowBP)
+    if filterWindowBP_ <= 0:
+        raise ValueError("filterWindowBP must be positive")
+    filterWindowIntervals = int(math.ceil(filterWindowBP_ / float(intervalSize)))
+    if filterWindowIntervals % 2 == 0:
+        filterWindowIntervals += 1
+
     appliedCount = 0
     for trackIndex in range(tracks.shape[0]):
         track = tracks[trackIndex]
-        finite = np.asarray(track[np.isfinite(track)], dtype=np.float64)
-        if finite.size == 0:
-            continue
-        median = float(np.median(finite))
-        medians[trackIndex] = median
-        np.subtract(track, median, out=track, casting="unsafe")
+        filtered = ndimage.median_filter(
+            track,
+            size=filterWindowIntervals,
+            mode="nearest",
+        )
+        np.subtract(track, filtered, out=track, casting="unsafe")
         appliedCount += 1
 
     return {
         "applied": bool(appliedCount > 0),
         "applied_tracks": int(appliedCount),
-        "track_medians": medians,
     }
 
 

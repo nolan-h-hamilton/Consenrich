@@ -966,12 +966,17 @@ def _caseSegShrinkProcessedContigContract():
         ("chrA", 1.0, 0.25),
         ("chrC", 4.0, 0.5),
     ):
+        targetScale = 1.0 if chromosome == "chrA" else 3.0
         prepared.append(
             {
                 "chromosome": chromosome,
                 "fullP": np.ones(6, dtype=np.float64),
                 "model": {
                     "global_factor": rawFactor,
+                    "target_calibration": {
+                        "uncertainty_track_scaled": targetScale != 1.0,
+                        "uncertainty_track_scale": targetScale,
+                    },
                     "contigShrinkage": [
                         {
                             "rawFactor": rawFactor,
@@ -1021,6 +1026,10 @@ def _caseSegShrinkProcessedContigContract():
         }
         assert item["calibrated"].shape == (6,)
         assert np.all(np.isfinite(item["calibrated"]))
+        targetScale = 1.0 if item["chromosome"] == "chrA" else 3.0
+        assert item["calibrated"] == pytest.approx(
+            np.sqrt(item["factor"]) * targetScale
+        )
 
 
 def _caseDeleteBlockCalibrationReportsRefitFailures(monkeypatch, caplog):

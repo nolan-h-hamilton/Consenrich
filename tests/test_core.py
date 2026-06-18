@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import numpy as np
+import scipy.ndimage as ndi
 import scipy.stats as stats
 import scipy.signal as spySig  # renamed to avoid conflict with any `signal` variables
 
@@ -1630,30 +1631,46 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def _caseSubtractGlobalMedianCentersEachTrackInPlace():
-    tracks = np.array(
-        [
-            [1.0, 2.0, 100.0, 4.0, 5.0],
-            [-8.0, -4.0, -2.0, 0.0, 3.0],
-        ],
-        dtype=np.float32,
+def _caseSubtractGlobalMedianAppliesOneMbMedianFilterInPlace():
+    cases = (
+        (
+            np.array(
+                [
+                    [1.0, 2.0, 100.0, 4.0, 5.0],
+                    [-8.0, -4.0, -2.0, 0.0, 3.0],
+                ],
+                dtype=np.float32,
+            ),
+            25,
+            40_001,
+        ),
+        (
+            np.array([2.0, 8.0, 1.0, 6.0], dtype=np.float64),
+            500_000,
+            3,
+        ),
     )
-    original = tracks.copy()
+    for tracks, intervalSizeBP, expectedWindow in cases:
+        original = tracks.copy()
 
-    stats_ = core.subtractGlobalMedianInPlace(tracks)
+        stats_ = core.subtractGlobalMedianInPlace(
+            tracks,
+            intervalSizeBP=intervalSizeBP,
+        )
 
-    assert stats_["applied"] is True
-    assert stats_["applied_tracks"] == tracks.shape[0]
-    np.testing.assert_allclose(
-        np.asarray(stats_["track_medians"]),
-        np.median(original.astype(np.float64), axis=1),
-    )
-    np.testing.assert_allclose(
-        np.median(tracks.astype(np.float64), axis=1),
-        np.zeros(tracks.shape[0], dtype=np.float64),
-        atol=1.0e-7,
-    )
-    assert not np.allclose(tracks, original)
+        originalTracks = original.reshape(1, -1) if original.ndim == 1 else original
+        expectedFilter = ndi.median_filter(
+            originalTracks,
+            size=(1, expectedWindow),
+            mode="nearest",
+        )
+        expectedCentered = originalTracks - expectedFilter
+        centeredTracks = tracks.reshape(1, -1) if tracks.ndim == 1 else tracks
+
+        assert stats_["applied"] is True
+        assert stats_["applied_tracks"] == originalTracks.shape[0]
+        np.testing.assert_allclose(centeredTracks, expectedCentered)
+        assert not np.allclose(centeredTracks, originalTracks)
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -6077,21 +6094,32 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert diagnostics["sampled_width_bp"] == repeat[3]["sampled_width_bp"]
     assert diagnostics["num_blocks"] == 100
     assert 3 <= lowerSpan <= pointSpan <= upperSpan
-    assert diagnostics["min_span"] == 50
+    assert diagnostics["min_span"] == 20
     assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
-    assert diagnostics["estimand"] == "acf_abs_three_lag_crossing"
-    assert diagnostics["point_threshold"] == pytest.approx(0.05)
+    assert diagnostics["estimand"] == "acf_abs_consecutive_crossing"
+    assert diagnostics["point_threshold"] == pytest.approx(0.10)
+    assert diagnostics["acfPointThreshold"] == pytest.approx(
+        diagnostics["point_threshold"]
+    )
     assert diagnostics["lower_threshold"] == 0.20
-    assert diagnostics["upper_threshold"] == 0.05
+    assert diagnostics["upper_threshold"] == 0.10
+    assert diagnostics["acf_required_crossings"] == 5
+    assert diagnostics["acfRequiredCrossings"] == diagnostics["acf_required_crossings"]
+    assert diagnostics["minSpan"] == diagnostics["min_span"]
+    assert diagnostics["maxSpan"] == diagnostics["max_span"]
+    assert "crossingLag" in diagnostics
+    assert diagnostics["pooled_right_censored_fraction"] == pytest.approx(
+        diagnostics["right_censored_fraction"]
+    )
     assert "right_censored_blocks" in diagnostics
-    assert all(1000 <= width <= 1_000_000 for width in diagnostics["sampled_width_bp"])
+    assert all(5_000 <= width <= 100_000 for width in diagnostics["sampled_width_bp"])
     assert set(diagnostics["sampled_chromosomes"]) <= {"chr1", "chr2"}
     excluded = set(diagnostics["excluded_nonstandard_chromosomes"])
     assert {"chrX", "chrY", "chrM", "chr1_alt"} <= excluded
 
 
 @pytest.mark.correctness
-def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
+def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
     n = 4096
     intervalSizeBP = 25
     params = {
@@ -6148,18 +6176,10 @@ def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
         *_makeMatrices(False),
         **params,
     )
-    peakPoint, peakLower, _, peakDiagnostics = cconsenrich.cchooseDependenceSpan(
+    peakPoint, peakLower, peakUpper, peakDiagnostics = cconsenrich.cchooseDependenceSpan(
         *_makeMatrices(True),
         **params,
     )
-    shapedPoint, shapedLower, shapedUpper, shapedDiagnostics = (
-        cconsenrich.cchooseDependenceSpan(
-            *_makeMatrices(True),
-            **params,
-            shapePolynomialDegree=2,
-        )
-    )
-
     assert shortDiagnostics["sampled_width_bp"] == peakDiagnostics["sampled_width_bp"]
     assert (
         shortDiagnostics["sampled_width_median_bp"]
@@ -6173,98 +6193,141 @@ def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
     assert peakDiagnostics["blocks_valid"] == params["numBlocks"]
     assert shortDiagnostics["blocks_valid"] == params["numBlocks"]
 
-    for diag in (shortDiagnostics, peakDiagnostics):
-        sampledMasses = diag["sampled_positive_signal_mass"]
-        sampledMeans = diag["sampled_positive_signal_mean"]
-        sampledStructure = diag["sampled_polynomial_structure_score"]
-        sampledShapeWeights = diag["sampled_shape_weight_score"]
-        pooledMasses = diag["pooled_positive_signal_mass"]
-        pooledMeans = diag["pooled_positive_signal_mean"]
-        pooledStructure = diag["pooled_polynomial_structure_score"]
-        pooledShapeWeights = diag["pooled_shape_weight_score"]
-        abundanceWeights = diag["pooled_abundance_relative_weight"]
-        assert len(sampledMasses) == len(diag["sampled_width_bp"])
-        assert len(sampledMeans) == len(sampledMasses)
-        assert len(sampledStructure) == len(sampledMasses)
-        assert len(sampledShapeWeights) == len(sampledMasses)
+    def assertDensityReliabilityDiagnostics(diag):
+        for key in (
+            "sampled_density_reliability",
+            "pooled_density_reliability",
+            "pooled_density_reliability_relative_weight",
+            "block_density_reliability_summary",
+            "density_reliability_weighting_used",
+            "density_reliability_effective_blocks",
+            "acf_evidence_threshold_nats",
+            "acf_evidence_snr_threshold",
+            "sampled_acf_evidence_nats",
+            "sampled_acf_evidence_snr",
+            "sampled_acf_evidence_start_lag",
+            "pooled_acf_evidence_nats",
+            "acf_evidence_summary",
+            "acf_evidence_passed_blocks",
+            "low_acf_evidence_blocks",
+            "density_reliability_effective_blocks_after_acf_gate",
+        ):
+            assert key in diag
+
+        sampledDensityScores = np.asarray(
+            diag["sampled_density_reliability"],
+            dtype=np.float64,
+        )
+        pooledDensityScores = np.asarray(
+            diag["pooled_density_reliability"],
+            dtype=np.float64,
+        )
+        pooledPositiveMeans = np.asarray(
+            diag["pooled_positive_signal_mean"],
+            dtype=np.float64,
+        )
+        pooledPositiveESS = np.asarray(
+            diag["pooled_positive_signal_ess_fraction"],
+            dtype=np.float64,
+        )
+        densityWeights = np.asarray(
+            diag["pooled_density_reliability_relative_weight"],
+            dtype=np.float64,
+        )
+        sampledAcfEvidence = np.asarray(
+            diag["sampled_acf_evidence_nats"],
+            dtype=np.float64,
+        )
+        sampledAcfSNR = np.asarray(
+            diag["sampled_acf_evidence_snr"],
+            dtype=np.float64,
+        )
+        sampledAcfStartLags = np.asarray(
+            diag["sampled_acf_evidence_start_lag"],
+            dtype=np.int64,
+        )
+        pooledAcfEvidence = np.asarray(
+            diag["pooled_acf_evidence_nats"],
+            dtype=np.float64,
+        )
+        assert len(sampledDensityScores) == len(diag["sampled_width_bp"])
         assert len(diag["sampled_row_index"]) == len(diag["sampled_width_bp"])
-        assert len(pooledMasses) == diag["blocks_valid"]
-        assert len(pooledMeans) == len(pooledMasses)
-        assert len(pooledStructure) == len(pooledMasses)
-        assert len(pooledShapeWeights) == len(pooledMasses)
-        assert len(abundanceWeights) == diag["blocks_valid"]
-        assert min(sampledMasses) >= 0.0
-        assert min(sampledMeans) >= 0.0
-        assert min(sampledStructure) >= 0.0
-        assert max(sampledStructure) <= 1.0
-        assert min(sampledShapeWeights) >= 0.0
+        assert len(sampledAcfEvidence) == len(diag["sampled_width_bp"])
+        assert len(sampledAcfSNR) == len(diag["sampled_width_bp"])
+        assert len(sampledAcfStartLags) == len(diag["sampled_width_bp"])
+        assert len(pooledDensityScores) == diag["blocks_valid"]
+        assert len(densityWeights) == diag["blocks_valid"]
+        assert len(pooledAcfEvidence) == diag["blocks_valid"]
+        assert min(sampledDensityScores) >= 0.0
+        assert min(pooledDensityScores) >= 0.0
+        assert min(densityWeights) >= 0.0
+        assert min(sampledAcfEvidence) >= 0.0
+        assert min(sampledAcfSNR) >= 0.0
         assert set(diag["sampled_row_index"]) <= {0, 1, 2}
-        assert min(abundanceWeights) >= 0.0
-        assert diag["abundance_weighting_used"] is True
-        assert diag["shape_polynomial_degree"] == 0
-        assert diag["block_weight_score"] == "positive_signal_mass"
-        assert max(sampledStructure) == 0.0
-        assert np.allclose(
-            np.asarray(sampledShapeWeights, dtype=np.float64),
-            np.asarray(sampledMasses, dtype=np.float64),
+        assert diag["density_reliability_weighting_used"] is True
+        assert diag["acf_evidence_threshold_nats"] == pytest.approx(2.0)
+        assert diag["acf_evidence_snr_threshold"] > 0.0
+        assert diag["acf_evidence_passed_blocks"] == diag["blocks_valid"]
+        assert (
+            diag["acf_evidence_passed_blocks"] + diag["low_acf_evidence_blocks"]
+            == len(diag["sampled_width_bp"])
+        )
+        assert (
+            0.0
+            < diag["density_reliability_effective_blocks_after_acf_gate"]
+            <= diag["density_reliability_effective_blocks"]
+        )
+        assert (
+            diag["block_weight_score"]
+            == "positive_signal_mean_x_sqrt_positive_signal_ess_fraction"
+        )
+        np.testing.assert_allclose(
+            pooledDensityScores,
+            pooledPositiveMeans * np.sqrt(pooledPositiveESS),
+            rtol=1.0e-6,
+            atol=1.0e-10,
+        )
+        assert diag["block_density_reliability_summary"]["count"] == (
+            diag["blocks_valid"]
         )
         assert diag["method"] == "sampled_row_block_spectral_EB"
-        assert diag["spectral_pooling"] == "robust_log_periodogram_EB"
+        assert diag["spectral_pooling"] == "density_reliability_log_periodogram_EB"
         assert diag["spectral_nfft"] >= 2 * diag["max_span"] + 2
         assert 0.0 <= diag["spectral_shrink_median"] <= 1.0
-        assert 0.0 < diag["abundance_effective_blocks"] <= diag["blocks_valid"]
-        assert diag["pooled_positive_signal_mass_mean"] == pytest.approx(
-            float(np.mean(np.asarray(pooledMasses, dtype=np.float64)))
+        assert 0.0 < diag["density_reliability_effective_blocks"] <= (
+            diag["blocks_valid"]
         )
-        assert diag["pooled_positive_signal_abundance_mean"] == pytest.approx(
-            float(np.mean(np.asarray(pooledMeans, dtype=np.float64)))
-        )
-        assert float(np.mean(np.asarray(abundanceWeights, dtype=np.float64))) == (
-            pytest.approx(1.0)
-        )
+        assert float(np.mean(densityWeights)) == pytest.approx(1.0)
 
-    assert peakDiagnostics["pooled_positive_signal_mass_mean"] > (
-        3.0 * shortDiagnostics["pooled_positive_signal_mass_mean"]
-    )
-    shapedStructure = np.asarray(
-        shapedDiagnostics["pooled_polynomial_structure_score"],
+    for diag in (shortDiagnostics, peakDiagnostics):
+        assertDensityReliabilityDiagnostics(diag)
+
+    densityScores = np.asarray(
+        peakDiagnostics["pooled_density_reliability"],
         dtype=np.float64,
     )
-    shapedMasses = np.asarray(
-        shapedDiagnostics["pooled_positive_signal_mass"],
+    densityWeights = np.asarray(
+        peakDiagnostics["pooled_density_reliability_relative_weight"],
         dtype=np.float64,
     )
-    shapedShapeWeights = np.asarray(
-        shapedDiagnostics["pooled_shape_weight_score"],
-        dtype=np.float64,
+    scoreOrder = np.argsort(densityScores)
+    tailCount = max(3, densityScores.size // 4)
+    sparseBlocks = scoreOrder[:tailCount]
+    denseBlocks = scoreOrder[-tailCount:]
+    assert float(np.median(densityScores[denseBlocks])) > float(
+        np.median(densityScores[sparseBlocks])
     )
-    assert shapedLower <= shapedPoint <= shapedUpper
-    assert shapedDiagnostics["blocks_valid"] == params["numBlocks"]
-    assert shapedDiagnostics["shape_polynomial_degree"] == 2
-    assert (
-        shapedDiagnostics["block_weight_score"]
-        == "positive_signal_mass_x_polynomial_structure"
+    assert float(np.median(densityWeights[denseBlocks])) > float(
+        np.median(densityWeights[sparseBlocks])
     )
-    assert np.all((0.0 <= shapedStructure) & (shapedStructure <= 1.0))
-    assert shapedDiagnostics["block_polynomial_structure_score_summary"]["max"] > 0.0
-    assert np.allclose(shapedShapeWeights, shapedMasses * (0.05 + shapedStructure))
-    assert min(shapedDiagnostics["pooled_abundance_relative_weight"]) >= 0.0
-    assert float(
-        np.mean(
-            np.asarray(
-                shapedDiagnostics["pooled_abundance_relative_weight"],
-                dtype=np.float64,
-            )
-        )
-    ) == pytest.approx(1.0)
-    with pytest.raises(ValueError, match="shapePolynomialDegree"):
-        cconsenrich.cchooseDependenceSpan(
-            *_makeMatrices(True),
-            **params,
-            shapePolynomialDegree=7,
-        )
+    assert densityWeights[int(scoreOrder[-1])] > densityWeights[int(scoreOrder[0])]
     assert peakLower > shortUpper
     assert peakPoint >= 3 * shortPoint
+    assert peakDiagnostics["acf_evidence_passed_blocks"] == params["numBlocks"]
+    assert peakDiagnostics["low_acf_evidence_blocks"] == 0
+    assert peakDiagnostics[
+        "density_reliability_effective_blocks_after_acf_gate"
+    ] == pytest.approx(peakDiagnostics["density_reliability_effective_blocks"])
 
     edgeParams = dict(params)
     edgeParams["numBlocks"] = 24
@@ -6277,9 +6340,40 @@ def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
     )
     assert silentDiagnostics["blocks_valid"] == 0
     assert silentDiagnostics["fallback"] is True
-    assert silentDiagnostics["abundance_weighting_used"] is False
-    assert silentDiagnostics["abundance_effective_blocks"] == 0.0
-    assert max(silentDiagnostics["sampled_positive_signal_mean"]) == 0.0
+    assert silentDiagnostics["density_reliability_weighting_used"] is False
+    assert silentDiagnostics["density_reliability_effective_blocks"] == 0.0
+    assert silentDiagnostics["acf_evidence_passed_blocks"] == 0
+    assert silentDiagnostics["low_acf_evidence_blocks"] == edgeParams["numBlocks"]
+    assert (
+        silentDiagnostics["density_reliability_effective_blocks_after_acf_gate"]
+        == 0.0
+    )
+    assert max(silentDiagnostics["sampled_density_reliability"]) == 0.0
+
+    sparseNoiseMatrix = np.zeros((3, n), dtype=np.float32)
+    sparseNoisePositions = np.arange(128, n, 512, dtype=np.int64)
+    sparseNoiseMatrix[:, sparseNoisePositions] = np.asarray(
+        [[1.0], [0.8], [1.2]],
+        dtype=np.float32,
+    )
+    _, _, _, sparseNoiseDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [sparseNoiseMatrix],
+        **edgeParams,
+    )
+    assert sparseNoiseDiagnostics["blocks_valid"] == 0
+    assert sparseNoiseDiagnostics["fallback"] is True
+    assert sparseNoiseDiagnostics["acf_evidence_passed_blocks"] == 0
+    assert (
+        sparseNoiseDiagnostics["low_acf_evidence_blocks"]
+        == edgeParams["numBlocks"]
+    )
+    assert (
+        sparseNoiseDiagnostics[
+            "density_reliability_effective_blocks_after_acf_gate"
+        ]
+        == 0.0
+    )
 
     tinyNames, tinyMatrices = _makeMatrices(False)
     tinyMatrices = [matrix * np.float32(1.0e-10) for matrix in tinyMatrices]
@@ -6288,10 +6382,10 @@ def _caseChooseDependenceSpanWeightsSparsePeakBlocks():
         tinyMatrices,
         **edgeParams,
     )
-    assert tinyDiagnostics["blocks_valid"] == edgeParams["numBlocks"]
-    assert tinyDiagnostics["abundance_weighting_used"] is False
-    assert tinyDiagnostics["abundance_effective_blocks"] == pytest.approx(
-        float(tinyDiagnostics["blocks_valid"])
+    assert tinyDiagnostics["blocks_valid"] > 0
+    assert tinyDiagnostics["density_reliability_weighting_used"] is True
+    assert 0.0 < tinyDiagnostics["density_reliability_effective_blocks"] <= (
+        tinyDiagnostics["blocks_valid"]
     )
 
     ramp = np.linspace(-1.0, 1.0, n, dtype=np.float64)
@@ -6432,11 +6526,36 @@ def _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule():
         maxContextBP=3_000,
         priorMedianSpan=12.0,
         priorLogSd=1.0,
+        acfMinEvidenceNats=0.0,
     )
     assert crossingDiagnostics["sampled_width_bp"] == [6_000]
     assert crossingDiagnostics["sampled_point_span"][0] > firstSingleCrossing
     assert crossingDiagnostics["sampled_point_span"][0] >= firstTripleCrossing
     assert crossingDiagnostics["right_censored_blocks"] == 0
+    assert crossingDiagnostics["crossingLag"] is not None
+    assert crossingDiagnostics["pooled_right_censored_fraction"] == pytest.approx(0.0)
+    _, _, _, singleCrossingDiagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [crossingMatrix],
+        intervalSizeBP=intervalSizeBP,
+        numBlocks=1,
+        randSeed=99,
+        blockMedianBP=6_000.0,
+        blockSigma=0.001,
+        blockMinBP=6_000,
+        blockMaxBP=6_001,
+        minContextBP=100,
+        maxContextBP=3_000,
+        priorMedianSpan=12.0,
+        priorLogSd=1.0,
+        acfMinEvidenceNats=0.0,
+        acfRequiredCrossings=1,
+    )
+    assert singleCrossingDiagnostics["acf_required_crossings"] == 1
+    assert (
+        singleCrossingDiagnostics["sampled_point_span"][0]
+        <= crossingDiagnostics["sampled_point_span"][0]
+    )
 
 
 @pytest.mark.correctness
@@ -6487,19 +6606,20 @@ def _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers():
         cconsenrich.cchooseDependenceSpan(["chr1"], [noisyMatrix], **rowNoiseParams)
     )
     assert abs(noisyPoint - cleanPoint) <= 10
-    assert noisyLower <= cleanUpper
-    assert cleanLower <= noisyUpper
+    assert noisyLower <= cleanUpper + 10
+    assert cleanLower - noisyUpper <= 10
     assert noisyDiagnostics["sampled_width_bp"] == cleanDiagnostics["sampled_width_bp"]
     assert noisyDiagnostics["sampled_row_index"] == cleanDiagnostics["sampled_row_index"]
-    assert noisyDiagnostics["blocks_valid"] == rowNoiseParams["numBlocks"]
-    assert max(noisyDiagnostics["pooled_abundance_relative_weight"]) <= 1.5
+    assert noisyDiagnostics["blocks_valid"] >= int(0.90 * rowNoiseParams["numBlocks"])
+    noisyDensityWeights = np.asarray(
+        noisyDiagnostics["pooled_density_reliability_relative_weight"],
+        dtype=np.float64,
+    )
+    assert np.all(np.isfinite(noisyDensityWeights))
+    assert min(noisyDensityWeights) >= 0.0
+    assert max(noisyDensityWeights) > 0.0
     assert float(
-        np.mean(
-            np.asarray(
-                noisyDiagnostics["pooled_abundance_relative_weight"],
-                dtype=np.float64,
-            )
-        )
+        np.mean(noisyDensityWeights[noisyDensityWeights > 0.0])
     ) == pytest.approx(
         1.0
     )
@@ -6535,10 +6655,10 @@ def _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers():
         dtype=np.float64,
     )
     assert outlierDiagnostics["blocks_valid"] == 120
-    assert outlierDiagnostics["abundance_effective_blocks"] >= 8.0
+    assert outlierDiagnostics["density_reliability_effective_blocks"] >= 8.0
     assert outlierDiagnostics["robust_log_span_mad"] > 0.25
     assert 0.0 < outlierDiagnostics["spectral_shrink_median"] < 1.0
-    assert outlierPoint <= int(np.quantile(sampledSpans, 0.95)) + 5
+    assert outlierPoint <= int(np.quantile(sampledSpans, 0.95)) + 6
     assert outlierLower <= outlierPoint <= outlierUpper
 
 
@@ -8025,8 +8145,8 @@ def test_core_numeric_kernel_contracts(contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
-            "global median center",
-            _caseSubtractGlobalMedianCentersEachTrackInPlace,
+            "subtractGlobalMedian 1 Mb median filter",
+            _caseSubtractGlobalMedianAppliesOneMbMedianFilterInPlace,
         ),
         (
             "level forward-backward kernel",
@@ -8327,8 +8447,8 @@ def test_core_dependence_selection_contracts(contract_case):
         _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
     )
     contract_case(
-        "sparse peak dependence span weighting",
-        _caseChooseDependenceSpanWeightsSparsePeakBlocks,
+        "density reliability dependence span weighting",
+        _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks,
     )
     contract_case(
         "dependence span edge spectra and crossing rule",

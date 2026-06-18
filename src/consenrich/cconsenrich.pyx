@@ -82,11 +82,12 @@ cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
 cdef const double __MASKED_OBSERVATION_VARIANCE_CUTOFF = <double>5.0e29
 cdef const double __DEPENDENCE_SPECTRAL_HUBER_C = <double>1.345
 cdef const int __DEPENDENCE_SPECTRAL_SMOOTH_HALF_WIDTH = 9
-cdef const double __DEPENDENCE_ACF_POINT_THRESHOLD = <double>0.05
+cdef const double __DEPENDENCE_DEFAULT_ACF_POINT_THRESHOLD = <double>0.10
+cdef const int __DEPENDENCE_DEFAULT_ACF_REQUIRED_CROSSINGS = 4
+cdef const double __DEPENDENCE_DEFAULT_ACF_EVIDENCE_NATS = <double>2.0
+cdef const int __DEPENDENCE_DEFAULT_ACF_EVIDENCE_MIN_BLOCKS = 2
 cdef const double __DEPENDENCE_ACF_LOWER_THRESHOLD = <double>0.20
-cdef const double __DEPENDENCE_ACF_UPPER_THRESHOLD = <double>0.05
-cdef const int __DEPENDENCE_MAX_SHAPE_POLYNOMIAL_DEGREE = 6
-cdef const double __DEPENDENCE_SHAPE_SCORE_OFFSET = <double>0.05
+cdef const int __DEPENDENCE_MAX_FINAL_CONTEXT_BP = 50000
 cdef const int __TRANSFORM_MODE_LOG = 0
 cdef const int __TRANSFORM_MODE_SQRT = 1
 cdef const int __TRANSFORM_MODE_ASINH = 2
@@ -1599,6 +1600,36 @@ cdef inline double _quantileInplaceF64(double* vals_, Py_ssize_t n, double q) no
     return <double>_quantileInplaceReal(vals_, n, q, <double>0.0)
 
 
+cdef inline double _linearQuantileInplaceF64(double* values, Py_ssize_t n, double q) noexcept nogil:
+    cdef double pos
+    cdef double frac
+    cdef double lowVal
+    cdef double highVal
+    cdef Py_ssize_t lowIndex
+    cdef Py_ssize_t highIndex
+
+    if n <= 0:
+        return NAN
+    if q <= 0.0:
+        pos = 0.0
+    elif q >= 1.0:
+        pos = <double>(n - 1)
+    else:
+        pos = q * <double>(n - 1)
+    lowIndex = <Py_ssize_t>floor(pos)
+    highIndex = lowIndex + 1
+    if highIndex >= n:
+        highIndex = n - 1
+    frac = pos - <double>lowIndex
+    _nthElementF64ThreeWay(values, n, lowIndex)
+    lowVal = values[lowIndex]
+    if highIndex == lowIndex:
+        return lowVal
+    _nthElementF64ThreeWay(values, n, highIndex)
+    highVal = values[highIndex]
+    return lowVal + frac * (highVal - lowVal)
+
+
 cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) noexcept nogil:
     # CALLERS: `_medianCopy_F32`
 
@@ -3007,26 +3038,99 @@ cdef tuple _normalizeDependenceSpanBounds(
     cdef int minSpan_ = max(1, int(minSpan))
     cdef int maxSpan_ = max(minSpan_, int(maxSpan))
     if n > 0:
-        maxSpan_ = min(maxSpan_, max(minSpan_, int(n) - 1))
+        maxSpan_ = min(maxSpan_, max(minSpan_, int(n)))
     return int(minSpan_), int(maxSpan_)
 
 
-cdef int _acfCrossingLag(cnp.ndarray[cnp.float64_t, ndim=1] acf, double threshold):
+cdef inline double _dependenceAcfWidthCorrection(double threshold) noexcept nogil:
+    return 3.0 / sqrt(-log(threshold))
+
+
+cdef int _acfCrossingLag(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    double threshold,
+    int requiredCrossings,
+):
     cdef double[::1] acfView = acf
     cdef Py_ssize_t i
-    if acfView.shape[0] < 3:
+    cdef Py_ssize_t j
+    cdef int requiredCrossings_ = max(1, int(requiredCrossings))
+    cdef bint crossed
+    if acfView.shape[0] < requiredCrossings_:
         return -1
-    for i in range(acfView.shape[0] - 2):
-        if (
-            isfinite(acfView[i])
-            and isfinite(acfView[i + 1])
-            and isfinite(acfView[i + 2])
-            and fabs(acfView[i]) < threshold
-            and fabs(acfView[i + 1]) < threshold
-            and fabs(acfView[i + 2]) < threshold
-        ):
+    for i in range(acfView.shape[0] - requiredCrossings_ + 1):
+        crossed = True
+        for j in range(requiredCrossings_):
+            if (not isfinite(acfView[i + j])) or fabs(acfView[i + j]) >= threshold:
+                crossed = False
+                break
+        if crossed:
             return int(i + 1)
     return -1
+
+
+cdef tuple _dependenceAcfEvidenceStats(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    cnp.ndarray[cnp.int64_t, ndim=1] pairCounts,
+    double threshold,
+    int requiredCrossings,
+    int limitLag,
+):
+    cdef double[::1] acfView = acf
+    cdef int64_t[::1] pairCountView = pairCounts
+    cdef Py_ssize_t maxLag = min(
+        min(<Py_ssize_t>acf.shape[0], <Py_ssize_t>pairCounts.shape[0]),
+        <Py_ssize_t>max(0, int(limitLag)),
+    )
+    cdef int requiredCrossings_ = max(1, int(requiredCrossings))
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] excess
+    cdef double[::1] excessView
+    cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    cdef int64_t nPairs
+    cdef double rho
+    cdef double prefixSq = 0.0
+    cdef double varRho
+    cdef double se
+    cdef double value
+    cdef double windowSum
+    cdef double bestWindowSum = 0.0
+    cdef int bestStartLag = -1
+    cdef double snr
+    cdef bint windowComplete
+
+    if maxLag < requiredCrossings_:
+        return 0.0, 0.0, -1
+    excess = np.zeros(maxLag, dtype=np.float64)
+    excessView = excess
+    with nogil:
+        for i in range(maxLag):
+            rho = acfView[i]
+            nPairs = pairCountView[i]
+            if isfinite(rho) and nPairs > 0:
+                varRho = (1.0 + (2.0 * prefixSq)) / <double>nPairs
+                if varRho > 0.0:
+                    se = sqrt(varRho)
+                    value = (fabs(rho) - threshold) / se
+                    if value > 0.0:
+                        excessView[i] = value
+                prefixSq += rho * rho
+        for i in range(maxLag - requiredCrossings_ + 1):
+            windowSum = 0.0
+            windowComplete = True
+            for j in range(requiredCrossings_):
+                value = excessView[i + j]
+                if value <= 0.0:
+                    windowComplete = False
+                    break
+                windowSum += value
+            if windowComplete and windowSum > bestWindowSum:
+                bestWindowSum = windowSum
+                bestStartLag = int(i + 1)
+    if bestWindowSum <= 0.0:
+        return 0.0, 0.0, -1
+    snr = bestWindowSum / sqrt(<double>requiredCrossings_)
+    return float(snr), float(0.5 * snr * snr), int(bestStartLag)
 
 
 cdef int _nextPowerOfTwoInt(int value):
@@ -3042,25 +3146,43 @@ cdef cnp.ndarray[cnp.float64_t, ndim=1] _localMeanF64(
     int halfWidth,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(values, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(arr.shape[0], dtype=np.float64)
+    cdef double[::1] arrView = arr
+    cdef double[::1] outView = out
+    cdef Py_ssize_t n = <Py_ssize_t>arr.shape[0]
+    cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    cdef int offset
     cdef int halfWidth_ = max(0, int(halfWidth))
     cdef int width = (2 * halfWidth_) + 1
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] padded
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] kernel
+    cdef double total
 
     if width <= 1:
         return arr.copy()
-    padded = np.pad(arr, (halfWidth_, halfWidth_), mode="edge")
-    kernel = np.full(width, 1.0 / <double>width, dtype=np.float64)
-    return np.ascontiguousarray(np.convolve(padded, kernel, mode="valid"), dtype=np.float64)
+    if n <= 0:
+        return out
+    with nogil:
+        for i in range(n):
+            total = 0.0
+            for offset in range(-halfWidth_, halfWidth_ + 1):
+                j = i + offset
+                if j < 0:
+                    j = 0
+                elif j >= n:
+                    j = n - 1
+                total += arrView[j]
+            outView[i] = total / <double>width
+    return out
 
 
-cdef double _weightedHuberLocationF64(
-    cnp.ndarray[cnp.float64_t, ndim=1] values,
-    cnp.ndarray[cnp.float64_t, ndim=1] weights,
-):
-    cdef Py_ssize_t n = <Py_ssize_t>values.shape[0]
-    cdef double[::1] valueView = values
-    cdef double[::1] weightView = weights
+cdef inline double _weightedHuberColumnLocationF64(
+    double[:, ::1] values,
+    double[:, ::1] weights,
+    Py_ssize_t blockCount,
+    Py_ssize_t freqIndex,
+    double* residualAbs,
+    double* weightSumOut,
+) noexcept nogil:
     cdef Py_ssize_t i
     cdef int iteration
     cdef double weightSum = 0.0
@@ -3071,39 +3193,48 @@ cdef double _weightedHuberLocationF64(
     cdef double nextLoc
     cdef double residual
     cdef double scale
+    cdef double scaleSq
     cdef double tuning
     cdef double baseWeight
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] residualAbs
 
-    if n <= 0 or weights.shape[0] != n:
-        raise ValueError("weighted Huber location requires matching nonempty arrays")
-    for i in range(n):
-        baseWeight = weightView[i]
+    if blockCount <= 0:
+        return NAN
+    for i in range(blockCount):
+        baseWeight = weights[i, freqIndex]
         if baseWeight > 0.0:
             weightSum += baseWeight
-            weightedSum += baseWeight * valueView[i]
+            weightedSum += baseWeight * values[i, freqIndex]
+    weightSumOut[0] = weightSum
     if weightSum <= 0.0:
-        raise ValueError("weighted Huber location requires positive weights")
+        return NAN
     loc = weightedSum / weightSum
     for iteration in range(5):
-        residualAbs = np.asarray(np.abs(values - loc), dtype=np.float64)
-        scale = 1.4826 * float(np.median(residualAbs))
+        for i in range(blockCount):
+            residualAbs[i] = fabs(values[i, freqIndex] - loc)
+        scale = 1.4826 * _linearQuantileInplaceF64(residualAbs, blockCount, 0.5)
         if scale <= 1.0e-8:
-            scale = sqrt(float(np.sum(weights * np.square(values - loc)) / weightSum))
+            scaleSq = 0.0
+            for i in range(blockCount):
+                baseWeight = weights[i, freqIndex]
+                if baseWeight <= 0.0:
+                    continue
+                residual = values[i, freqIndex] - loc
+                scaleSq += baseWeight * residual * residual
+            scale = sqrt(scaleSq / weightSum)
         if scale <= 1.0e-8:
             break
         tuning = __DEPENDENCE_SPECTRAL_HUBER_C * scale
         robustWeightSum = 0.0
         robustWeightedSum = 0.0
-        for i in range(n):
-            baseWeight = weightView[i]
+        for i in range(blockCount):
+            baseWeight = weights[i, freqIndex]
             if baseWeight <= 0.0:
                 continue
-            residual = fabs(valueView[i] - loc)
+            residual = fabs(values[i, freqIndex] - loc)
             if residual > tuning:
                 baseWeight *= tuning / residual
             robustWeightSum += baseWeight
-            robustWeightedSum += baseWeight * valueView[i]
+            robustWeightedSum += baseWeight * values[i, freqIndex]
         if robustWeightSum <= 0.0:
             break
         nextLoc = robustWeightedSum / robustWeightSum
@@ -3252,9 +3383,15 @@ cdef tuple _fallbackDependenceSpanResult(
     str reason,
     double positiveSignalMass=NAN,
     double positiveSignalMean=NAN,
+    double positiveSignalESSFraction=NAN,
+    double densityReliability=NAN,
+    double acfEvidenceThresholdNats=NAN,
 ):
     cdef int point = int(max(minSpan, min(maxSpan, max(minSpan, int(round(sqrt(max(float(n), 1.0))))))))
     cdef int contextSizeBP = int(point * (2 * max(int(intervalSizeBP), 1)) + 1)
+    cdef double acfEvidenceSNRThreshold = NAN
+    if isfinite(acfEvidenceThresholdNats) and acfEvidenceThresholdNats >= 0.0:
+        acfEvidenceSNRThreshold = sqrt(2.0 * acfEvidenceThresholdNats)
     return (
         int(point),
         int(point),
@@ -3270,10 +3407,22 @@ cdef tuple _fallbackDependenceSpanResult(
             "max_span": int(maxSpan),
             "finite_count": int(n),
             "context_size_bp": int(contextSizeBP),
-            "estimand": "acf_abs_three_lag_crossing",
+            "estimand": "acf_abs_consecutive_crossing",
             "right_censored": False,
             "positive_signal_mass": float(positiveSignalMass),
             "positive_signal_mean": float(positiveSignalMean),
+            "positive_signal_density": float(positiveSignalESSFraction),
+            "positive_signal_ess_fraction": float(positiveSignalESSFraction),
+            "density_reliability": float(densityReliability),
+            "acf_evidence_nats": 0.0,
+            "acfEvidenceNats": 0.0,
+            "acf_evidence_snr": 0.0,
+            "acfEvidenceSNR": 0.0,
+            "acf_evidence_start_lag": 0,
+            "acfEvidenceStartLag": 0,
+            "acf_evidence_passed": False,
+            "acf_evidence_threshold_nats": float(acfEvidenceThresholdNats),
+            "acf_evidence_snr_threshold": float(acfEvidenceSNRThreshold),
         },
     )
 
@@ -3424,159 +3573,30 @@ cdef tuple _dependenceSpectralAcfStats(
     )
 
 
-cdef double _dependencePolynomialStructureScore(
-    cnp.ndarray[cnp.float64_t, ndim=2] rowTracks,
-    int polynomialDegree,
-):
-    cdef int degree = int(polynomialDegree)
-    cdef int m
-    cdef Py_ssize_t rowCount = <Py_ssize_t>rowTracks.shape[0]
-    cdef Py_ssize_t n = <Py_ssize_t>rowTracks.shape[1]
-    cdef Py_ssize_t rowIndex
-    cdef Py_ssize_t j
-    cdef int p
-    cdef int q
-    cdef int r
-    cdef int col
-    cdef int pivot
-    cdef int scoredRows = 0
-    cdef int singular
-    cdef double[:, ::1] rowTrackView = rowTracks
-    cdef double sums[13]
-    cdef double rhs[7]
-    cdef double rhsOrig[7]
-    cdef double powers[13]
-    cdef double mat[7][8]
-    cdef double value
-    cdef double t
-    cdef double ySum
-    cdef double ySq
-    cdef double count
-    cdef double sse0
-    cdef double sseD
-    cdef double fittedSS
-    cdef double structure
-    cdef double totalStructure = 0.0
-    cdef double maxAbs
-    cdef double absValue
-    cdef double pivotValue
-    cdef double factor
-    cdef double tmp
-
-    if degree <= 0:
-        return 0.0
-    if degree > __DEPENDENCE_MAX_SHAPE_POLYNOMIAL_DEGREE:
-        degree = __DEPENDENCE_MAX_SHAPE_POLYNOMIAL_DEGREE
-    if rowCount <= 0 or n <= degree:
-        return 0.0
-
-    m = degree + 1
-    for rowIndex in range(rowCount):
-        for p in range(13):
-            sums[p] = 0.0
-            powers[p] = 0.0
-        for p in range(7):
-            rhs[p] = 0.0
-            rhsOrig[p] = 0.0
-            for q in range(8):
-                mat[p][q] = 0.0
-        ySum = 0.0
-        ySq = 0.0
-        count = 0.0
-
-        for j in range(n):
-            value = rowTrackView[rowIndex, j]
-            if isfinite(value):
-                if n > 1:
-                    t = -1.0 + (2.0 * <double>j / <double>(n - 1))
-                else:
-                    t = 0.0
-                powers[0] = 1.0
-                for p in range(1, (2 * degree) + 1):
-                    powers[p] = powers[p - 1] * t
-                for p in range((2 * degree) + 1):
-                    sums[p] += powers[p]
-                for p in range(degree + 1):
-                    rhs[p] += value * powers[p]
-                ySum += value
-                ySq += value * value
-                count += 1.0
-
-        if count <= <double>(degree + 1):
-            continue
-        sse0 = ySq - ((ySum * ySum) / count)
-        if (not isfinite(sse0)) or sse0 <= DBL_MIN:
-            continue
-
-        for p in range(m):
-            rhsOrig[p] = rhs[p]
-            for q in range(m):
-                mat[p][q] = sums[p + q]
-            mat[p][m] = rhs[p]
-
-        singular = 0
-        for col in range(m):
-            pivot = col
-            maxAbs = fabs(mat[col][col])
-            for r in range(col + 1, m):
-                absValue = fabs(mat[r][col])
-                if absValue > maxAbs:
-                    maxAbs = absValue
-                    pivot = r
-            if maxAbs <= 1.0e-12:
-                singular = 1
-                break
-            if pivot != col:
-                for q in range(col, m + 1):
-                    tmp = mat[col][q]
-                    mat[col][q] = mat[pivot][q]
-                    mat[pivot][q] = tmp
-            pivotValue = mat[col][col]
-            for q in range(col, m + 1):
-                mat[col][q] /= pivotValue
-            for r in range(m):
-                if r == col:
-                    continue
-                factor = mat[r][col]
-                if factor == 0.0:
-                    continue
-                for q in range(col, m + 1):
-                    mat[r][q] -= factor * mat[col][q]
-        if singular:
-            continue
-
-        fittedSS = 0.0
-        for p in range(m):
-            fittedSS += mat[p][m] * rhsOrig[p]
-        sseD = ySq - fittedSS
-        if sseD < 0.0:
-            sseD = 0.0
-        structure = 1.0 - (sseD / sse0)
-        if structure < 0.0:
-            structure = 0.0
-        elif structure > 1.0:
-            structure = 1.0
-        totalStructure += structure
-        scoredRows += 1
-
-    if scoredRows <= 0:
-        return 0.0
-    return totalStructure / <double>scoredRows
-
-
 cdef tuple _poolDependenceLogSpectra(
     object logSpectra,
-    cnp.ndarray[cnp.float64_t, ndim=1] weights,
+    cnp.ndarray[cnp.float64_t, ndim=1] densityReliability,
     int minSpan,
     int maxSpan,
     int spectralNFFT,
+    double acfPointThreshold,
+    int acfRequiredCrossings,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=2] logSpectraArr = np.ascontiguousarray(
         np.vstack(logSpectra),
         dtype=np.float64,
     )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] weightArr = np.ascontiguousarray(
-        weights,
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] densityReliabilityArr = np.ascontiguousarray(
+        densityReliability,
+        dtype=np.float64,
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] normalizedReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] spectralScatterArr = np.empty_like(
+        logSpectraArr,
+        dtype=np.float64,
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] precisionArr = np.empty_like(
+        logSpectraArr,
         dtype=np.float64,
     )
     cdef cnp.ndarray[cnp.float64_t, ndim=1] pooledLogSpectrum = np.empty(
@@ -3587,15 +3607,22 @@ cdef tuple _poolDependenceLogSpectra(
         logSpectraArr.shape[1],
         dtype=np.float64,
     )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] values
     cdef cnp.ndarray[cnp.float64_t, ndim=1] priorMean
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rough
     cdef cnp.ndarray[cnp.float64_t, ndim=1] obsVar
     cdef cnp.ndarray[cnp.float64_t, ndim=1] shrink
     cdef cnp.ndarray[cnp.float64_t, ndim=1] posteriorLogSpectrum
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rowSpectrum
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rowMean
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rowScatter
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acov
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acf
     cdef double[:, ::1] logSpectraView = logSpectraArr
+    cdef double[:, ::1] spectralScatterView = spectralScatterArr
+    cdef double[:, ::1] precisionView = precisionArr
+    cdef double[::1] densityReliabilityView = densityReliabilityArr
+    cdef double[::1] normalizedReliabilityView
+    cdef double[::1] pooledLogSpectrumView = pooledLogSpectrum
     cdef double[::1] pooledLogVarianceView = pooledLogVariance
     cdef double[::1] acovView
     cdef double[::1] acfView
@@ -3609,39 +3636,101 @@ cdef tuple _poolDependenceLogSpectra(
     cdef int pointSpan
     cdef int lowerSpan
     cdef int upperSpan
-    cdef double weightSum = float(np.sum(weightArr))
+    cdef int rawPointSpan
+    cdef int rawLowerSpan
+    cdef int rawUpperSpan
+    cdef double pointWidthCorrection
+    cdef double lowerWidthCorrection
+    cdef double densityReliabilitySum = 0.0
+    cdef double densityReliabilityMean
+    cdef double reliabilityValue
+    cdef double scatterValue
+    cdef double scatterFloor
+    cdef double precisionSum = 0.0
+    cdef double precisionSumTotal = 0.0
     cdef double loc
-    cdef double centered
     cdef double posteriorLogSpanSd
+    cdef Py_ssize_t positiveReliabilityCount = 0
+    cdef double* residualAbs = NULL
 
     if blockCount <= 0:
         raise ValueError("spectral dependence pooling requires block spectra")
-    if weightArr.shape[0] != blockCount:
-        raise ValueError("spectral dependence weights must align with block spectra")
-    if weightSum <= 0.0:
-        raise ValueError("spectral dependence weights require positive mass")
+    if densityReliabilityArr.shape[0] != blockCount:
+        raise ValueError("spectral density reliability must align with block spectra")
+    for blockIndex in range(blockCount):
+        reliabilityValue = densityReliabilityView[blockIndex]
+        if (not isfinite(reliabilityValue)) or reliabilityValue < 0.0:
+            raise ValueError("spectral density reliability must be nonnegative finite")
+        if reliabilityValue > 0.0:
+            densityReliabilitySum += reliabilityValue
+            positiveReliabilityCount += 1
+    if densityReliabilitySum <= 0.0 or positiveReliabilityCount <= 0:
+        raise ValueError("spectral density reliability requires positive mass")
+    densityReliabilityMean = densityReliabilitySum / <double>positiveReliabilityCount
+    normalizedReliabilityArr = np.ascontiguousarray(
+        densityReliabilityArr / densityReliabilityMean,
+        dtype=np.float64,
+    )
+    normalizedReliabilityView = normalizedReliabilityArr
 
-    for freqIndex in range(freqCount):
-        values = np.ascontiguousarray(logSpectraArr[:, freqIndex], dtype=np.float64)
-        loc = _weightedHuberLocationF64(values, weightArr)
-        pooledLogSpectrum[freqIndex] = loc
-        pooledLogVarianceView[freqIndex] = 0.0
+    for blockIndex in range(blockCount):
+        rowSpectrum = np.ascontiguousarray(logSpectraArr[blockIndex, :], dtype=np.float64)
+        rowMean = _localMeanF64(
+            rowSpectrum,
+            int(__DEPENDENCE_SPECTRAL_SMOOTH_HALF_WIDTH),
+        )
+        rowScatter = np.asarray(np.square(rowSpectrum - rowMean), dtype=np.float64)
+        scatterFloor = float(np.median(rowScatter))
+        if (not isfinite(scatterFloor)) or scatterFloor <= DBL_MIN:
+            scatterFloor = DBL_MIN
+        spectralScatterArr[blockIndex, :] = np.maximum(rowScatter, scatterFloor)
+
+    with nogil:
         for blockIndex in range(blockCount):
-            centered = logSpectraView[blockIndex, freqIndex] - loc
-            pooledLogVarianceView[freqIndex] += (
-                weightArr[blockIndex] * centered * centered
-            )
-        pooledLogVarianceView[freqIndex] /= weightSum
+            reliabilityValue = normalizedReliabilityView[blockIndex]
+            for freqIndex in range(freqCount):
+                if reliabilityValue <= 0.0:
+                    precisionView[blockIndex, freqIndex] = 0.0
+                else:
+                    scatterValue = spectralScatterView[blockIndex, freqIndex]
+                    if scatterValue <= DBL_MIN:
+                        scatterValue = DBL_MIN
+                    precisionView[blockIndex, freqIndex] = reliabilityValue / scatterValue
+
+    residualAbs = <double*>malloc(blockCount * sizeof(double))
+    if residualAbs == NULL:
+        raise MemoryError("failed to allocate spectral Huber work buffer")
+    try:
+        with nogil:
+            for freqIndex in range(freqCount):
+                loc = _weightedHuberColumnLocationF64(
+                    logSpectraView,
+                    precisionView,
+                    blockCount,
+                    freqIndex,
+                    residualAbs,
+                    &precisionSum,
+                )
+                pooledLogSpectrumView[freqIndex] = loc
+                if precisionSum > 0.0:
+                    pooledLogVarianceView[freqIndex] = 1.0 / precisionSum
+                    precisionSumTotal += precisionSum
+                else:
+                    pooledLogVarianceView[freqIndex] = NAN
+    finally:
+        free(residualAbs)
+    if (
+        not bool(np.all(np.isfinite(pooledLogSpectrum)))
+        or not bool(np.all(np.isfinite(pooledLogVariance)))
+    ):
+        raise ValueError("spectral density reliability produced invalid pooled log spectrum")
 
     priorMean = _localMeanF64(
         pooledLogSpectrum,
         int(__DEPENDENCE_SPECTRAL_SMOOTH_HALF_WIDTH),
     )
     rough = np.asarray(np.square(pooledLogSpectrum - priorMean), dtype=np.float64)
-    obsVar = np.asarray(
-        pooledLogVariance / max(1.0, float(blockCount)),
-        dtype=np.float64,
-    )
+    obsVar = np.asarray(pooledLogVariance, dtype=np.float64)
     shrink = np.asarray(rough / (rough + obsVar + DBL_MIN), dtype=np.float64)
     posteriorLogSpectrum = np.asarray(
         priorMean + shrink * (pooledLogSpectrum - priorMean),
@@ -3660,13 +3749,30 @@ cdef tuple _poolDependenceLogSpectra(
         for blockIndex in range(maxSpan):
             acfView[blockIndex] = acovView[blockIndex + 1] / acovView[0]
 
-    crossingLag = _acfCrossingLag(acf, __DEPENDENCE_ACF_POINT_THRESHOLD)
-    pointSpan = int(maxSpan) if crossingLag < 0 else int(crossingLag)
+    pointWidthCorrection = _dependenceAcfWidthCorrection(acfPointThreshold)
+    lowerWidthCorrection = _dependenceAcfWidthCorrection(__DEPENDENCE_ACF_LOWER_THRESHOLD)
+    crossingLag = _acfCrossingLag(
+        acf,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
+    )
+    rawPointSpan = int(maxSpan) if crossingLag < 0 else int(crossingLag)
+    pointSpan = int(round(<double>rawPointSpan * pointWidthCorrection))
     pointSpan = int(max(int(minSpan), min(int(maxSpan), pointSpan)))
-    lowerCrossing = _acfCrossingLag(acf, __DEPENDENCE_ACF_LOWER_THRESHOLD)
-    upperCrossing = _acfCrossingLag(acf, __DEPENDENCE_ACF_UPPER_THRESHOLD)
-    lowerSpan = int(lowerCrossing) if lowerCrossing >= 0 else pointSpan
-    upperSpan = int(upperCrossing) if upperCrossing >= 0 else pointSpan
+    lowerCrossing = _acfCrossingLag(
+        acf,
+        __DEPENDENCE_ACF_LOWER_THRESHOLD,
+        int(acfRequiredCrossings),
+    )
+    upperCrossing = _acfCrossingLag(
+        acf,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
+    )
+    rawLowerSpan = int(lowerCrossing) if lowerCrossing >= 0 else rawPointSpan
+    rawUpperSpan = int(upperCrossing) if upperCrossing >= 0 else rawPointSpan
+    lowerSpan = int(round(<double>rawLowerSpan * lowerWidthCorrection))
+    upperSpan = int(round(<double>rawUpperSpan * pointWidthCorrection))
     lowerSpan = int(max(int(minSpan), min(pointSpan, lowerSpan)))
     upperSpan = int(max(pointSpan, min(int(maxSpan), upperSpan)))
     if upperSpan > lowerSpan:
@@ -3680,15 +3786,32 @@ cdef tuple _poolDependenceLogSpectra(
         {
             "block_estimator": "row_block_spectral",
             "block_acf_estimator": "inverse_tapered_log_periodogram",
-            "spectral_pooling": "robust_log_periodogram_EB",
+            "spectral_pooling": "density_reliability_log_periodogram_EB",
             "spectral_frequency_count": int(freqCount),
             "spectral_nfft": int(spectralNFFT),
             "spectral_shrink_median": float(np.median(shrink)),
             "spectral_log_variance_median": float(np.median(pooledLogVariance)),
+            "spectral_scatter_median": float(np.median(spectralScatterArr)),
+            "density_reliability_median": float(np.median(densityReliabilityArr)),
+            "density_reliability_mean": float(densityReliabilityMean),
+            "spectral_precision_sum_mean": float(precisionSumTotal / <double>freqCount),
             "spectral_acf_first": float(acf[0]),
             "posterior_log_span_sd": float(posteriorLogSpanSd),
             "tau2": float(np.median(obsVar)),
             "right_censored": bool(crossingLag < 0),
+            "min_span": int(minSpan),
+            "minSpan": int(minSpan),
+            "max_span": int(maxSpan),
+            "maxSpan": int(maxSpan),
+            "crossing_lag": None if crossingLag < 0 else int(crossingLag),
+            "crossingLag": None if crossingLag < 0 else int(crossingLag),
+            "point_threshold": float(acfPointThreshold),
+            "acfPointThreshold": float(acfPointThreshold),
+            "lower_threshold": float(__DEPENDENCE_ACF_LOWER_THRESHOLD),
+            "upper_threshold": float(acfPointThreshold),
+            "acf_required_crossings": int(acfRequiredCrossings),
+            "acfRequiredCrossings": int(acfRequiredCrossings),
+            "point_width_correction": float(pointWidthCorrection),
         },
     )
 
@@ -3699,16 +3822,20 @@ cdef tuple _estimateDependenceSpanForBlock(
     int minContextBP,
     int maxContextBP,
     int spectralNFFT,
-    int shapePolynomialDegree,
+    double acfPointThreshold,
+    int acfRequiredCrossings,
+    double acfEvidenceThresholdNats,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=2] arr
     cdef cnp.ndarray[cnp.float64_t, ndim=2] rowTracks
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rowValues
     cdef cnp.ndarray[cnp.float64_t, ndim=1] finiteVals
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rowPositiveMassArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rowPositiveESSFractionArr
     cdef double[:, ::1] arrView
     cdef double[:, ::1] rowTrackView
     cdef double[::1] rowPositiveMassView
+    cdef double[::1] rowPositiveESSFractionView
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acf
     cdef cnp.ndarray[cnp.int64_t, ndim=1] pairCounts
     cdef cnp.ndarray[cnp.float64_t, ndim=1] logSpectrum
@@ -3728,6 +3855,11 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef int pointSpan
     cdef int lowerSpan
     cdef int upperSpan
+    cdef int rawPointSpan
+    cdef int rawLowerSpan
+    cdef int rawUpperSpan
+    cdef double pointWidthCorrection
+    cdef double lowerWidthCorrection
     cdef int contextSizeBP
     cdef double intervalSizeBP_ = <double>max(int(intervalSizeBP), 1)
     cdef double center
@@ -3738,37 +3870,72 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef double acfCrossingLogVariance
     cdef double positiveSignalMass = 0.0
     cdef double positiveSignalMean = NAN
-    cdef double polynomialStructureScore = 0.0
-    cdef double shapeWeightScore = 0.0
+    cdef double positiveSignalESSFraction = 0.0
+    cdef double positiveSignalESS = 0.0
+    cdef double densityReliability = 0.0
     cdef double rowPositiveSignalMass
+    cdef double rowPositiveSignalSqMass
+    cdef double rowPositiveESSFraction
     cdef double representativeFiniteCount
+    cdef double acfEvidenceSNR = 0.0
+    cdef double acfEvidenceNats = 0.0
+    cdef double acfEvidenceSNRThreshold = sqrt(2.0 * acfEvidenceThresholdNats)
     cdef Py_ssize_t rowIndex
     cdef Py_ssize_t j
     cdef double rowValue
     cdef double centeredValue
+    cdef int acfEvidenceStartLag = -1
+    cdef int acfEvidenceLimitLag
     cdef bint rightCensored
+    cdef bint acfEvidencePassed = False
 
     arr = np.ascontiguousarray(blockMat, dtype=np.float64)
     if arr.ndim != 2:
         raise ValueError("block matrices must be two-dimensional")
     rowCount = <Py_ssize_t>arr.shape[0]
     n = <Py_ssize_t>arr.shape[1]
-    minSpan = max(3, int(ceil(float(minContextBP) / (2.0 * intervalSizeBP_))))
-    maxSpan = max(minSpan, int(ceil(float(maxContextBP) / (2.0 * intervalSizeBP_))))
-    maxSpan = min(maxSpan, max(minSpan, max(3, int(n // 3))))
+    minSpan = max(3, int(ceil((float(minContextBP) - 1.0) / (2.0 * intervalSizeBP_))))
+    maxSpan = max(
+        minSpan,
+        int(floor((float(maxContextBP) - 1.0) / (2.0 * intervalSizeBP_))),
+    )
     minSpan, maxSpan = _normalizeDependenceSpanBounds(n, minSpan, maxSpan)
 
     if rowCount <= 0:
-        return _fallbackDependenceSpanResult(0, minSpan, maxSpan, intervalSizeBP, "no_rows")
+        return _fallbackDependenceSpanResult(
+            0,
+            minSpan,
+            maxSpan,
+            intervalSizeBP,
+            "no_rows",
+            NAN,
+            NAN,
+            NAN,
+            NAN,
+            acfEvidenceThresholdNats,
+        )
     if n < max(8, minSpan + 3):
-        return _fallbackDependenceSpanResult(n, minSpan, maxSpan, intervalSizeBP, "too_few_intervals")
+        return _fallbackDependenceSpanResult(
+            n,
+            minSpan,
+            maxSpan,
+            intervalSizeBP,
+            "too_few_intervals",
+            NAN,
+            NAN,
+            NAN,
+            NAN,
+            acfEvidenceThresholdNats,
+        )
 
     rowTracks = np.empty((rowCount, n), dtype=np.float64)
     rowTracks.fill(float("nan"))
     rowPositiveMassArr = np.zeros(rowCount, dtype=np.float64)
+    rowPositiveESSFractionArr = np.zeros(rowCount, dtype=np.float64)
     arrView = arr
     rowTrackView = rowTracks
     rowPositiveMassView = rowPositiveMassArr
+    rowPositiveESSFractionView = rowPositiveESSFractionArr
 
     for rowIndex in range(rowCount):
         rowValues = np.ascontiguousarray(arr[rowIndex, :], dtype=np.float64)
@@ -3794,6 +3961,7 @@ cdef tuple _estimateDependenceSpanForBlock(
             hi = center + (8.0 * scale)
 
         rowPositiveSignalMass = 0.0
+        rowPositiveSignalSqMass = 0.0
         with nogil:
             for j in range(n):
                 rowValue = arrView[rowIndex, j]
@@ -3806,7 +3974,19 @@ cdef tuple _estimateDependenceSpanForBlock(
                     rowTrackView[rowIndex, j] = centeredValue
                     if centeredValue > 0.0:
                         rowPositiveSignalMass += centeredValue
+                        rowPositiveSignalSqMass += centeredValue * centeredValue
+        rowPositiveESSFraction = 0.0
+        if rowPositiveSignalSqMass > 0.0 and rowFiniteCount > 0:
+            rowPositiveESSFraction = (
+                (rowPositiveSignalMass * rowPositiveSignalMass)
+                / (<double>rowFiniteCount * rowPositiveSignalSqMass)
+            )
+            if rowPositiveESSFraction < 0.0:
+                rowPositiveESSFraction = 0.0
+            elif rowPositiveESSFraction > 1.0:
+                rowPositiveESSFraction = 1.0
         rowPositiveMassView[validRowCount] = rowPositiveSignalMass
+        rowPositiveESSFractionView[validRowCount] = rowPositiveESSFraction
         validFiniteCount += rowFiniteCount
         validRowCount += 1
 
@@ -3821,6 +4001,9 @@ cdef tuple _estimateDependenceSpanForBlock(
             "no_valid_spectral_rows",
             positiveSignalMass,
             positiveSignalMean,
+            positiveSignalESSFraction,
+            densityReliability,
+            acfEvidenceThresholdNats,
         )
     positiveSignalMass = float(
         np.median(
@@ -3830,15 +4013,19 @@ cdef tuple _estimateDependenceSpanForBlock(
     representativeFiniteCount = <double>validFiniteCount / <double>validRowCount
     if representativeFiniteCount > 0.0:
         positiveSignalMean = positiveSignalMass / representativeFiniteCount
-    polynomialStructureScore = _dependencePolynomialStructureScore(
-        rowTracks,
-        int(shapePolynomialDegree),
-    )
-    shapeWeightScore = positiveSignalMass
-    if int(shapePolynomialDegree) > 0:
-        shapeWeightScore = positiveSignalMass * (
-            __DEPENDENCE_SHAPE_SCORE_OFFSET + polynomialStructureScore
+    positiveSignalESSFraction = float(
+        np.median(
+            np.asarray(rowPositiveESSFractionArr[:validRowCount], dtype=np.float64)
         )
+    )
+    positiveSignalESS = positiveSignalESSFraction * representativeFiniteCount
+    if (
+        isfinite(positiveSignalMean)
+        and positiveSignalMean > 0.0
+        and isfinite(positiveSignalESSFraction)
+        and positiveSignalESSFraction > 0.0
+    ):
+        densityReliability = positiveSignalMean * sqrt(positiveSignalESSFraction)
     acf, pairCounts, gamma0, finiteCount, spectralRowCount, logSpectrum = _dependenceSpectralAcfStats(
         rowTracks,
         int(maxSpan),
@@ -3853,17 +4040,53 @@ cdef tuple _estimateDependenceSpanForBlock(
             "zero_or_invalid_gamma0",
             positiveSignalMass,
             positiveSignalMean,
+            positiveSignalESSFraction,
+            densityReliability,
+            acfEvidenceThresholdNats,
         )
 
-    crossingLag = _acfCrossingLag(acf, __DEPENDENCE_ACF_POINT_THRESHOLD)
+    pointWidthCorrection = _dependenceAcfWidthCorrection(acfPointThreshold)
+    lowerWidthCorrection = _dependenceAcfWidthCorrection(__DEPENDENCE_ACF_LOWER_THRESHOLD)
+    crossingLag = _acfCrossingLag(
+        acf,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
+    )
     rightCensored = crossingLag < 0
-    pointSpan = int(maxSpan) if rightCensored else int(crossingLag)
+    rawPointSpan = int(maxSpan) if rightCensored else int(crossingLag)
+    acfEvidenceLimitLag = max(
+        int(acfRequiredCrossings),
+        min(int(maxSpan), int(rawPointSpan) + int(acfRequiredCrossings) - 1),
+    )
+    acfEvidenceSNR, acfEvidenceNats, acfEvidenceStartLag = _dependenceAcfEvidenceStats(
+        acf,
+        pairCounts,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
+        int(acfEvidenceLimitLag),
+    )
+    acfEvidencePassed = (
+        isfinite(acfEvidenceNats)
+        and isfinite(acfEvidenceSNR)
+        and acfEvidenceNats >= acfEvidenceThresholdNats
+    )
+    pointSpan = int(round(<double>rawPointSpan * pointWidthCorrection))
     pointSpan = int(max(minSpan, min(maxSpan, pointSpan)))
 
-    lowerCrossing = _acfCrossingLag(acf, __DEPENDENCE_ACF_LOWER_THRESHOLD)
-    upperCrossing = _acfCrossingLag(acf, __DEPENDENCE_ACF_UPPER_THRESHOLD)
-    lowerSpan = int(lowerCrossing) if lowerCrossing >= 0 else pointSpan
-    upperSpan = int(upperCrossing) if upperCrossing >= 0 else pointSpan
+    lowerCrossing = _acfCrossingLag(
+        acf,
+        __DEPENDENCE_ACF_LOWER_THRESHOLD,
+        int(acfRequiredCrossings),
+    )
+    upperCrossing = _acfCrossingLag(
+        acf,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
+    )
+    rawLowerSpan = int(lowerCrossing) if lowerCrossing >= 0 else rawPointSpan
+    rawUpperSpan = int(upperCrossing) if upperCrossing >= 0 else rawPointSpan
+    lowerSpan = int(round(<double>rawLowerSpan * lowerWidthCorrection))
+    upperSpan = int(round(<double>rawUpperSpan * pointWidthCorrection))
     lowerSpan = int(max(minSpan, min(maxSpan, min(lowerSpan, pointSpan))))
     upperSpan = int(max(minSpan, min(maxSpan, max(upperSpan, pointSpan))))
     contextSizeBP = int(pointSpan * (2 * max(int(intervalSizeBP), 1)) + 1)
@@ -3872,8 +4095,8 @@ cdef tuple _estimateDependenceSpanForBlock(
         pairCounts,
         int(minSpan),
         int(maxSpan),
-        __DEPENDENCE_ACF_POINT_THRESHOLD,
-        3,
+        acfPointThreshold,
+        int(acfRequiredCrossings),
     )
     return (
         int(pointSpan),
@@ -3886,31 +4109,48 @@ cdef tuple _estimateDependenceSpanForBlock(
             "lower_span": int(lowerSpan),
             "upper_span": int(upperSpan),
             "context_size_bp": int(contextSizeBP),
-            "estimand": "acf_abs_three_lag_crossing",
+            "estimand": "acf_abs_consecutive_crossing",
             "acf_estimator": "inverse_median_log_periodogram",
             "spectral_pooling": "tapered_log_periodogram",
             "spectral_nfft": int(spectralNFFT),
             "interval_size_bp": int(intervalSizeBP),
             "min_span": int(minSpan),
+            "minSpan": int(minSpan),
             "max_span": int(maxSpan),
+            "maxSpan": int(maxSpan),
             "finite_count": int(finiteCount),
             "row_count": int(rowCount),
             "valid_rows": int(spectralRowCount),
             "spectral_frequency_count": int(logSpectrum.shape[0]),
             "crossing_lag": None if crossingLag < 0 else int(crossingLag),
+            "crossingLag": None if crossingLag < 0 else int(crossingLag),
             "relaxed_crossing_lag": None if lowerCrossing < 0 else int(lowerCrossing),
             "strict_crossing_lag": None if upperCrossing < 0 else int(upperCrossing),
-            "point_threshold": float(__DEPENDENCE_ACF_POINT_THRESHOLD),
+            "point_threshold": float(acfPointThreshold),
+            "acfPointThreshold": float(acfPointThreshold),
             "lower_threshold": float(__DEPENDENCE_ACF_LOWER_THRESHOLD),
-            "upper_threshold": float(__DEPENDENCE_ACF_UPPER_THRESHOLD),
+            "upper_threshold": float(acfPointThreshold),
+            "acf_required_crossings": int(acfRequiredCrossings),
+            "acfRequiredCrossings": int(acfRequiredCrossings),
+            "point_width_correction": float(pointWidthCorrection),
             "right_censored": bool(rightCensored),
             "log_span_variance": float(acfCrossingLogVariance),
             "log_span_variance_method": "acf_bartlett_crossing_distribution",
             "positive_signal_mass": float(positiveSignalMass),
             "positive_signal_mean": float(positiveSignalMean),
-            "shape_polynomial_degree": int(shapePolynomialDegree),
-            "polynomial_structure_score": float(polynomialStructureScore),
-            "shape_weight_score": float(shapeWeightScore),
+            "positive_signal_density": float(positiveSignalESSFraction),
+            "positive_signal_ess_fraction": float(positiveSignalESSFraction),
+            "positive_signal_ess": float(positiveSignalESS),
+            "density_reliability": float(densityReliability),
+            "acf_evidence_snr": float(acfEvidenceSNR),
+            "acfEvidenceSNR": float(acfEvidenceSNR),
+            "acf_evidence_nats": float(acfEvidenceNats),
+            "acfEvidenceNats": float(acfEvidenceNats),
+            "acf_evidence_start_lag": int(max(0, acfEvidenceStartLag)),
+            "acfEvidenceStartLag": int(max(0, acfEvidenceStartLag)),
+            "acf_evidence_passed": bool(acfEvidencePassed),
+            "acf_evidence_threshold_nats": float(acfEvidenceThresholdNats),
+            "acf_evidence_snr_threshold": float(acfEvidenceSNRThreshold),
             "log_spectrum": logSpectrum,
         },
     )
@@ -3921,26 +4161,36 @@ cpdef tuple cestimateSpectralDependenceSpanForBlock(
     int intervalSizeBP,
     int minContextBP,
     int maxContextBP,
-    int shapePolynomialDegree=0,
+    double acfPointThreshold=0.10,
+    int acfRequiredCrossings=5,
+    double acfEvidenceThresholdNats=2.0,
 ):
     cdef int intervalSizeBP_ = max(int(intervalSizeBP), 1)
     cdef int maxSpan = max(
         3,
-        int(ceil(float(maxContextBP) / (2.0 * float(intervalSizeBP_)))),
+        int(floor((float(maxContextBP) - 1.0) / (2.0 * float(intervalSizeBP_)))),
     )
     cdef int n = int(np.asarray(blockMat).shape[1])
     cdef int spectralNFFT = _nextPowerOfTwoInt(max(max(8, n), (2 * maxSpan) + 2))
-    if int(shapePolynomialDegree) < 0 or int(shapePolynomialDegree) > __DEPENDENCE_MAX_SHAPE_POLYNOMIAL_DEGREE:
-        raise ValueError(
-            "shapePolynomialDegree must be between 0 and 6"
-        )
+    if int(maxContextBP) > __DEPENDENCE_MAX_FINAL_CONTEXT_BP:
+        raise ValueError("maxContextBP must be at most 50000")
+    if int(maxContextBP) < int(minContextBP):
+        raise ValueError("maxContextBP must be at least minContextBP")
+    if (not isfinite(acfPointThreshold)) or acfPointThreshold <= 0.0 or acfPointThreshold >= 1.0:
+        raise ValueError("acfPointThreshold must satisfy 0 < x < 1")
+    if int(acfRequiredCrossings) <= 0:
+        raise ValueError("acfRequiredCrossings must be positive")
+    if (not isfinite(acfEvidenceThresholdNats)) or acfEvidenceThresholdNats < 0.0:
+        raise ValueError("acfEvidenceThresholdNats must be nonnegative finite")
     return _estimateDependenceSpanForBlock(
         blockMat,
         int(intervalSizeBP),
         int(minContextBP),
         int(maxContextBP),
         int(spectralNFFT),
-        int(shapePolynomialDegree),
+        float(acfPointThreshold),
+        int(acfRequiredCrossings),
+        float(acfEvidenceThresholdNats),
     )
 
 
@@ -3948,17 +4198,20 @@ cpdef tuple cchooseDependenceSpan(
     object chromosomeNames,
     object chromosomeMatrices,
     int intervalSizeBP,
-    int numBlocks=100,
+    int numBlocks=250,
     int randSeed=1729,
     double blockMedianBP=50000.0,
     double blockSigma=1.0,
-    int blockMinBP=1000,
-    int blockMaxBP=1000000,
-    int minContextBP=2500,
-    int maxContextBP=100000,
-    double priorMedianSpan=80.0,
+    int blockMinBP=5000,
+    int blockMaxBP=100000,
+    int minContextBP=1000,
+    int maxContextBP=50000,
+    double priorMedianSpan=250.0,
     double priorLogSd=1.0,
-    int shapePolynomialDegree=0,
+    double acfPointThreshold=0.10,
+    int acfRequiredCrossings=5,
+    double acfMinEvidenceNats=2.0,
+    int acfEvidenceMinAcceptedBlocks=2,
 ):
     r"""Sample blocks across autosomes and choose a pooled dependence span."""
 
@@ -3973,26 +4226,43 @@ cpdef tuple cchooseDependenceSpan(
     cdef list sampledPointSpans = []
     cdef list sampledPositiveSignalMasses = []
     cdef list sampledPositiveSignalMeans = []
-    cdef list sampledPolynomialStructureScores = []
-    cdef list sampledShapeWeightScores = []
+    cdef list sampledPositiveSignalESSFractions = []
+    cdef list sampledDensityReliabilities = []
+    cdef list sampledAcfEvidenceNats = []
+    cdef list sampledAcfEvidenceSNRs = []
+    cdef list sampledAcfEvidenceStartLags = []
     cdef list sampledRowIndices = []
     cdef list logSpans = []
     cdef list blockLogSpectra = []
     cdef list positiveSignalMasses = []
     cdef list positiveSignalMeans = []
-    cdef list polynomialStructureScores = []
-    cdef list shapeWeightScores = []
+    cdef list positiveSignalESSFractions = []
+    cdef list densityReliabilities = []
+    cdef list acfEvidenceNatsList = []
+    cdef list acfEvidenceSNRs = []
     cdef list rightCensoredIndicators = []
     cdef Py_ssize_t i
     cdef Py_ssize_t selected
     cdef Py_ssize_t nBins
     cdef int intervalSizeBP_ = max(int(intervalSizeBP), 1)
-    cdef int minSpan = max(3, int(ceil(float(minContextBP) / (2.0 * float(intervalSizeBP_)))))
-    cdef int maxSpan = max(minSpan, int(ceil(float(maxContextBP) / (2.0 * float(intervalSizeBP_)))))
+    cdef int minSpan = max(
+        3,
+        int(ceil((float(minContextBP) - 1.0) / (2.0 * float(intervalSizeBP_)))),
+    )
+    cdef int maxSpan = max(
+        minSpan,
+        int(floor((float(maxContextBP) - 1.0) / (2.0 * float(intervalSizeBP_)))),
+    )
+    cdef int maxFinalSpan = max(
+        1,
+        int(floor((float(__DEPENDENCE_MAX_FINAL_CONTEXT_BP) - 1.0) / (2.0 * float(intervalSizeBP_)))),
+    )
     cdef int blocksRequested = max(0, int(numBlocks))
     cdef int validBlocks = 0
     cdef int fallbackBlocks = 0
     cdef int rightCensoredBlocks = 0
+    cdef int lowAcfEvidenceBlocks = 0
+    cdef int minAcceptedBlocks
     cdef int widthBP
     cdef int blockBins
     cdef int startBin
@@ -4012,33 +4282,37 @@ cpdef tuple cchooseDependenceSpan(
     cdef double tau2 = 0.0
     cdef double priorMu
     cdef double meanPositiveSignalMass = NAN
-    cdef double meanPositiveSignalAbundance = NAN
-    cdef double minPositiveSignalMean = NAN
-    cdef double maxPositiveSignalMean = NAN
-    cdef double positiveSignalScale = 0.0
+    cdef double meanPositiveSignalMean = NAN
+    cdef double meanPositiveSignalESSFraction = NAN
+    cdef double meanDensityReliability = NAN
     cdef double positiveSignalMass = NAN
     cdef double positiveSignalMean = NAN
-    cdef double polynomialStructureScore = NAN
-    cdef double shapeWeightScore = NAN
-    cdef double positiveSignalMeanFloor = 1.0e-8
-    cdef double abundanceWeight = 0.0
-    cdef double abundanceWeightSum = 0.0
-    cdef double abundanceWeightSqSum = 0.0
-    cdef double abundanceEffectiveBlockCount = 0.0
+    cdef double positiveSignalESSFraction = NAN
+    cdef double positiveSignalESS = NAN
+    cdef double densityReliability = NAN
+    cdef double acfEvidenceNats = 0.0
+    cdef double acfEvidenceSNR = 0.0
+    cdef double minPositiveSignalESS
+    cdef double densityWeight = 0.0
+    cdef double densityWeightSum = 0.0
+    cdef double densityWeightSqSum = 0.0
+    cdef double densityEffectiveBlockCount = 0.0
     cdef double weightedEffectiveBlockCount = 0.0
     cdef double rightCensoredWeightSum = 0.0
-    cdef bint abundanceWeightingUsed = False
+    cdef bint densityWeightingUsed = False
     cdef double robustLogMedian = NAN
     cdef double robustLogMad = NAN
     cdef double robustBlend = 0.0
     cdef double censorFraction = 0.0
+    cdef str fallbackReason = "none"
     cdef dict blockDiagnostics
     cdef dict diagnostics
     cdef dict positiveSignalMassSummary
     cdef dict positiveSignalMeanSummary
-    cdef dict polynomialStructureScoreSummary
-    cdef dict shapeWeightScoreSummary
-    cdef dict abundanceRelativeWeightSummary
+    cdef dict positiveSignalESSFractionSummary
+    cdef dict densityReliabilitySummary
+    cdef dict densityWeightSummary
+    cdef dict acfEvidenceSummary
     cdef object rng
     cdef object rowRng
     cdef object matrix
@@ -4046,14 +4320,13 @@ cpdef tuple cchooseDependenceSpan(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] logSpanArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveSignalMassArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveSignalMeanArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] polynomialStructureScoreArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] shapeWeightScoreArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] weightSourceArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] abundanceRelativeWeightArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveSignalESSFractionArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] densityReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] acfEvidenceNatsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveDensityReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] densityWeightArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] absDevArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rightCensoredArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] cappedSpectralWeights
-    cdef cnp.ndarray[cnp.int64_t, ndim=1] abundanceOrder
     cdef dict spectralDiagnostics
     cdef cnp.ndarray[cnp.int64_t, ndim=1] eligibleForBlock
     cdef list eligibleForBlockList
@@ -4065,10 +4338,25 @@ cpdef tuple cchooseDependenceSpan(
         raise ValueError("invalid dependence block-size distribution parameters")
     if priorMedianSpan <= 0.0 or priorLogSd <= 0.0:
         raise ValueError("invalid dependence span prior parameters")
-    if int(shapePolynomialDegree) < 0 or int(shapePolynomialDegree) > __DEPENDENCE_MAX_SHAPE_POLYNOMIAL_DEGREE:
-        raise ValueError(
-            "shapePolynomialDegree must be between 0 and 6"
-        )
+    if (not isfinite(acfPointThreshold)) or acfPointThreshold <= 0.0 or acfPointThreshold >= 1.0:
+        raise ValueError("acfPointThreshold must satisfy 0 < x < 1")
+    if int(acfRequiredCrossings) <= 0:
+        raise ValueError("acfRequiredCrossings must be positive")
+    if (not isfinite(acfMinEvidenceNats)) or acfMinEvidenceNats < 0.0:
+        raise ValueError("acfMinEvidenceNats must be finite and nonnegative")
+    if int(acfEvidenceMinAcceptedBlocks) <= 0:
+        raise ValueError("acfEvidenceMinAcceptedBlocks must be positive")
+    if int(maxContextBP) > __DEPENDENCE_MAX_FINAL_CONTEXT_BP:
+        raise ValueError("maxContextBP must be at most 50000")
+    if int(maxContextBP) < int(minContextBP):
+        raise ValueError("maxContextBP must be at least minContextBP")
+    if minSpan > maxFinalSpan:
+        raise ValueError("minContextBP requires a dependence span above 50000 bp")
+    maxSpan = min(maxSpan, maxFinalSpan)
+    minPositiveSignalESS = max(8.0, 2.0 * <double>int(acfRequiredCrossings))
+    minAcceptedBlocks = int(acfEvidenceMinAcceptedBlocks)
+    if blocksRequested > 0:
+        minAcceptedBlocks = min(minAcceptedBlocks, blocksRequested)
     spectralNFFT = _nextPowerOfTwoInt(
         max(
             max(8, int(ceil(float(blockMaxBP) / float(intervalSizeBP_)))),
@@ -4133,7 +4421,9 @@ cpdef tuple cchooseDependenceSpan(
                 minContextBP,
                 maxContextBP,
                 spectralNFFT,
-                int(shapePolynomialDegree),
+                float(acfPointThreshold),
+                int(acfRequiredCrossings),
+                float(acfMinEvidenceNats),
             )
             sampledChromosomes.append(str(eligibleNames[selected]))
             sampledWidths.append(int(widthBP))
@@ -4141,26 +4431,46 @@ cpdef tuple cchooseDependenceSpan(
             sampledRowIndices.append(int(rowIndex))
             positiveSignalMass = float(blockDiagnostics.get("positive_signal_mass", float("nan")))
             positiveSignalMean = float(blockDiagnostics.get("positive_signal_mean", float("nan")))
-            polynomialStructureScore = float(blockDiagnostics.get("polynomial_structure_score", float("nan")))
-            shapeWeightScore = float(blockDiagnostics.get("shape_weight_score", float("nan")))
+            positiveSignalESSFraction = float(blockDiagnostics.get("positive_signal_ess_fraction", float("nan")))
+            positiveSignalESS = float(blockDiagnostics.get("positive_signal_ess", float("nan")))
+            densityReliability = float(blockDiagnostics.get("density_reliability", float("nan")))
+            acfEvidenceNats = float(blockDiagnostics.get("acf_evidence_nats", 0.0))
+            acfEvidenceSNR = float(blockDiagnostics.get("acf_evidence_snr", 0.0))
             sampledPositiveSignalMasses.append(float(positiveSignalMass))
             sampledPositiveSignalMeans.append(float(positiveSignalMean))
-            sampledPolynomialStructureScores.append(float(polynomialStructureScore))
-            sampledShapeWeightScores.append(float(shapeWeightScore))
+            sampledPositiveSignalESSFractions.append(float(positiveSignalESSFraction))
+            sampledDensityReliabilities.append(float(densityReliability))
+            sampledAcfEvidenceNats.append(float(acfEvidenceNats))
+            sampledAcfEvidenceSNRs.append(float(acfEvidenceSNR))
+            sampledAcfEvidenceStartLags.append(int(blockDiagnostics.get("acf_evidence_start_lag", 0)))
             if bool(blockDiagnostics.get("fallback", False)):
                 fallbackBlocks += 1
+                lowAcfEvidenceBlocks += 1
                 continue
             if (
                 (not isfinite(positiveSignalMass))
                 or positiveSignalMass < 0.0
                 or (not isfinite(positiveSignalMean))
                 or positiveSignalMean < 0.0
-                or (not isfinite(polynomialStructureScore))
-                or polynomialStructureScore < 0.0
-                or (not isfinite(shapeWeightScore))
-                or shapeWeightScore < 0.0
+                or (not isfinite(positiveSignalESSFraction))
+                or positiveSignalESSFraction < 0.0
+                or positiveSignalESSFraction > 1.0
+                or (not isfinite(positiveSignalESS))
+                or positiveSignalESS < 0.0
+                or (not isfinite(densityReliability))
+                or densityReliability < 0.0
+                or (not isfinite(acfEvidenceNats))
+                or acfEvidenceNats < 0.0
+                or (not isfinite(acfEvidenceSNR))
+                or acfEvidenceSNR < 0.0
             ):
                 raise RuntimeError("dependence block weight metrics must be nonnegative finite values")
+            if (
+                positiveSignalESS < minPositiveSignalESS
+                or acfEvidenceNats < acfMinEvidenceNats
+            ):
+                lowAcfEvidenceBlocks += 1
+                continue
             if bool(blockDiagnostics.get("right_censored", False)):
                 rightCensoredBlocks += 1
                 rightCensoredIndicators.append(1.0)
@@ -4170,8 +4480,10 @@ cpdef tuple cchooseDependenceSpan(
             blockLogSpectra.append(blockDiagnostics["log_spectrum"])
             positiveSignalMasses.append(float(positiveSignalMass))
             positiveSignalMeans.append(float(positiveSignalMean))
-            polynomialStructureScores.append(float(polynomialStructureScore))
-            shapeWeightScores.append(float(shapeWeightScore))
+            positiveSignalESSFractions.append(float(positiveSignalESSFraction))
+            densityReliabilities.append(float(densityReliability))
+            acfEvidenceNatsList.append(float(acfEvidenceNats))
+            acfEvidenceSNRs.append(float(acfEvidenceSNR))
             validBlocks += 1
 
     positiveSignalMassSummary = {
@@ -4192,7 +4504,7 @@ cpdef tuple cchooseDependenceSpan(
         "q95": float("nan"),
         "max": float("nan"),
     }
-    polynomialStructureScoreSummary = {
+    positiveSignalESSFractionSummary = {
         "count": 0,
         "min": float("nan"),
         "q05": float("nan"),
@@ -4201,7 +4513,7 @@ cpdef tuple cchooseDependenceSpan(
         "q95": float("nan"),
         "max": float("nan"),
     }
-    shapeWeightScoreSummary = {
+    densityReliabilitySummary = {
         "count": 0,
         "min": float("nan"),
         "q05": float("nan"),
@@ -4210,8 +4522,20 @@ cpdef tuple cchooseDependenceSpan(
         "q95": float("nan"),
         "max": float("nan"),
     }
-    abundanceRelativeWeightSummary = {
+    densityWeightSummary = {
         "count": 0,
+        "min": float("nan"),
+        "q05": float("nan"),
+        "median": float("nan"),
+        "mean": float("nan"),
+        "q95": float("nan"),
+        "max": float("nan"),
+    }
+    acfEvidenceSummary = {
+        "count": 0,
+        "sampled_count": int(len(sampledAcfEvidenceNats)),
+        "passed_count": int(validBlocks),
+        "low_count": int(lowAcfEvidenceBlocks),
         "min": float("nan"),
         "q05": float("nan"),
         "median": float("nan"),
@@ -4226,39 +4550,24 @@ cpdef tuple cchooseDependenceSpan(
         logSpanArr = np.asarray(logSpans, dtype=np.float64)
         positiveSignalMassArr = np.asarray(positiveSignalMasses, dtype=np.float64)
         positiveSignalMeanArr = np.asarray(positiveSignalMeans, dtype=np.float64)
-        polynomialStructureScoreArr = np.asarray(polynomialStructureScores, dtype=np.float64)
-        shapeWeightScoreArr = np.asarray(shapeWeightScores, dtype=np.float64)
-        weightSourceArr = positiveSignalMassArr
-        if int(shapePolynomialDegree) > 0:
-            weightSourceArr = shapeWeightScoreArr
+        positiveSignalESSFractionArr = np.asarray(positiveSignalESSFractions, dtype=np.float64)
+        densityReliabilityArr = np.asarray(densityReliabilities, dtype=np.float64)
+        acfEvidenceNatsArr = np.asarray(acfEvidenceNatsList, dtype=np.float64)
         meanPositiveSignalMass = float(np.mean(positiveSignalMassArr))
-        meanPositiveSignalAbundance = float(np.mean(positiveSignalMeanArr))
-        minPositiveSignalMean = float(np.min(positiveSignalMeanArr))
-        maxPositiveSignalMean = float(np.max(positiveSignalMeanArr))
-        abundanceRelativeWeightArr = np.ones(logSpanArr.shape[0], dtype=np.float64)
-        if (
-            isfinite(float(np.mean(weightSourceArr)))
-            and float(np.mean(weightSourceArr)) > 0.0
-            and isfinite(meanPositiveSignalAbundance)
-            and meanPositiveSignalAbundance > positiveSignalMeanFloor
-            and float(np.max(weightSourceArr)) - float(np.min(weightSourceArr))
-            > max(positiveSignalMeanFloor, float(np.mean(weightSourceArr)) * 1.0e-6)
-        ):
-            abundanceRelativeWeightArr = np.ones(logSpanArr.shape[0], dtype=np.float64)
-            if abundanceRelativeWeightArr.size > 1:
-                abundanceOrder = np.ascontiguousarray(
-                    np.argsort(weightSourceArr),
-                    dtype=np.int64,
-                )
-                for i in range(abundanceRelativeWeightArr.size):
-                    abundanceRelativeWeightArr[int(abundanceOrder[i])] = (
-                        0.5
-                        + (
-                            float(i)
-                            / float(max(1, abundanceRelativeWeightArr.size - 1))
-                        )
-                    )
-            abundanceWeightingUsed = True
+        meanPositiveSignalMean = float(np.mean(positiveSignalMeanArr))
+        meanPositiveSignalESSFraction = float(np.mean(positiveSignalESSFractionArr))
+        positiveDensityReliabilityArr = np.asarray(
+            densityReliabilityArr[densityReliabilityArr > 0.0],
+            dtype=np.float64,
+        )
+        if positiveDensityReliabilityArr.size <= 0:
+            raise ValueError("dependence block density reliability requires positive mass")
+        meanDensityReliability = float(np.mean(positiveDensityReliabilityArr))
+        densityWeightArr = np.ascontiguousarray(
+            densityReliabilityArr / meanDensityReliability,
+            dtype=np.float64,
+        )
+        densityWeightingUsed = True
         positiveSignalMassSummary = {
             "count": int(positiveSignalMassArr.size),
             "min": float(np.min(positiveSignalMassArr)),
@@ -4273,76 +4582,71 @@ cpdef tuple cchooseDependenceSpan(
             "min": float(np.min(positiveSignalMeanArr)),
             "q05": float(np.quantile(positiveSignalMeanArr, 0.05)),
             "median": float(np.median(positiveSignalMeanArr)),
-            "mean": float(meanPositiveSignalAbundance),
+            "mean": float(meanPositiveSignalMean),
             "q95": float(np.quantile(positiveSignalMeanArr, 0.95)),
             "max": float(np.max(positiveSignalMeanArr)),
         }
-        polynomialStructureScoreSummary = {
-            "count": int(polynomialStructureScoreArr.size),
-            "min": float(np.min(polynomialStructureScoreArr)),
-            "q05": float(np.quantile(polynomialStructureScoreArr, 0.05)),
-            "median": float(np.median(polynomialStructureScoreArr)),
-            "mean": float(np.mean(polynomialStructureScoreArr)),
-            "q95": float(np.quantile(polynomialStructureScoreArr, 0.95)),
-            "max": float(np.max(polynomialStructureScoreArr)),
+        positiveSignalESSFractionSummary = {
+            "count": int(positiveSignalESSFractionArr.size),
+            "min": float(np.min(positiveSignalESSFractionArr)),
+            "q05": float(np.quantile(positiveSignalESSFractionArr, 0.05)),
+            "median": float(np.median(positiveSignalESSFractionArr)),
+            "mean": float(meanPositiveSignalESSFraction),
+            "q95": float(np.quantile(positiveSignalESSFractionArr, 0.95)),
+            "max": float(np.max(positiveSignalESSFractionArr)),
         }
-        shapeWeightScoreSummary = {
-            "count": int(shapeWeightScoreArr.size),
-            "min": float(np.min(shapeWeightScoreArr)),
-            "q05": float(np.quantile(shapeWeightScoreArr, 0.05)),
-            "median": float(np.median(shapeWeightScoreArr)),
-            "mean": float(np.mean(shapeWeightScoreArr)),
-            "q95": float(np.quantile(shapeWeightScoreArr, 0.95)),
-            "max": float(np.max(shapeWeightScoreArr)),
+        densityReliabilitySummary = {
+            "count": int(densityReliabilityArr.size),
+            "min": float(np.min(densityReliabilityArr)),
+            "q05": float(np.quantile(densityReliabilityArr, 0.05)),
+            "median": float(np.median(densityReliabilityArr)),
+            "mean": float(np.mean(densityReliabilityArr)),
+            "q95": float(np.quantile(densityReliabilityArr, 0.95)),
+            "max": float(np.max(densityReliabilityArr)),
         }
-        abundanceRelativeWeightSummary = {
-            "count": int(abundanceRelativeWeightArr.size),
-            "min": float(np.min(abundanceRelativeWeightArr)),
-            "q05": float(np.quantile(abundanceRelativeWeightArr, 0.05)),
-            "median": float(np.median(abundanceRelativeWeightArr)),
-            "mean": float(np.mean(abundanceRelativeWeightArr)),
-            "q95": float(np.quantile(abundanceRelativeWeightArr, 0.95)),
-            "max": float(np.max(abundanceRelativeWeightArr)),
+        densityWeightSummary = {
+            "count": int(densityWeightArr.size),
+            "min": float(np.min(densityWeightArr)),
+            "q05": float(np.quantile(densityWeightArr, 0.05)),
+            "median": float(np.median(densityWeightArr)),
+            "mean": float(np.mean(densityWeightArr)),
+            "q95": float(np.quantile(densityWeightArr, 0.95)),
+            "max": float(np.max(densityWeightArr)),
         }
-        cappedSpectralWeights = np.ascontiguousarray(
-            abundanceRelativeWeightArr,
-            dtype=np.float64,
-        )
-        if abundanceWeightingUsed:
-            positiveSignalScale = max(
-                1.0,
-                float(np.quantile(cappedSpectralWeights, 0.90)),
-            )
-            cappedSpectralWeights = np.ascontiguousarray(
-                np.minimum(cappedSpectralWeights, positiveSignalScale),
-                dtype=np.float64,
-            )
-            cappedSpectralWeights = np.ascontiguousarray(
-                cappedSpectralWeights / float(np.mean(cappedSpectralWeights)),
-                dtype=np.float64,
-            )
-        for i in range(cappedSpectralWeights.size):
-            abundanceWeight = float(cappedSpectralWeights[i])
-            if abundanceWeight <= 0.0:
+        acfEvidenceSummary = {
+            "count": int(acfEvidenceNatsArr.size),
+            "sampled_count": int(len(sampledAcfEvidenceNats)),
+            "passed_count": int(validBlocks),
+            "low_count": int(lowAcfEvidenceBlocks),
+            "min": float(np.min(acfEvidenceNatsArr)),
+            "q05": float(np.quantile(acfEvidenceNatsArr, 0.05)),
+            "median": float(np.median(acfEvidenceNatsArr)),
+            "mean": float(np.mean(acfEvidenceNatsArr)),
+            "q95": float(np.quantile(acfEvidenceNatsArr, 0.95)),
+            "max": float(np.max(acfEvidenceNatsArr)),
+        }
+        for i in range(densityWeightArr.size):
+            densityWeight = float(densityWeightArr[i])
+            if densityWeight <= 0.0:
                 continue
-            abundanceWeightSum += abundanceWeight
-            abundanceWeightSqSum += abundanceWeight * abundanceWeight
-        if abundanceWeightSum <= 0.0:
-            raise ValueError("dependence block abundance weights must have positive mass")
-        if abundanceWeightSqSum > 0.0:
-            abundanceEffectiveBlockCount = (abundanceWeightSum * abundanceWeightSum) / abundanceWeightSqSum
+            densityWeightSum += densityWeight
+            densityWeightSqSum += densityWeight * densityWeight
+        if densityWeightSum <= 0.0:
+            raise ValueError("dependence block density weights must have positive mass")
+        if densityWeightSqSum > 0.0:
+            densityEffectiveBlockCount = (densityWeightSum * densityWeightSum) / densityWeightSqSum
         if rightCensoredBlocks > 0:
             rightCensoredArr = np.asarray(rightCensoredIndicators, dtype=np.float64)
             for i in range(rightCensoredArr.size):
                 rightCensoredWeightSum += (
-                    float(rightCensoredArr[i]) * float(cappedSpectralWeights[i])
+                    float(rightCensoredArr[i]) * float(densityWeightArr[i])
                 )
-            censorFraction = min(1.0, max(0.0, rightCensoredWeightSum / abundanceWeightSum))
-        weightedEffectiveBlockCount = abundanceEffectiveBlockCount
-        if abundanceEffectiveBlockCount >= 8.0:
+            censorFraction = min(1.0, max(0.0, rightCensoredWeightSum / densityWeightSum))
+        weightedEffectiveBlockCount = densityEffectiveBlockCount
+        if densityEffectiveBlockCount >= 8.0:
             robustLogMedian = _weightedQuantileInterpolatedF64(
                 np.ascontiguousarray(logSpanArr, dtype=np.float64),
-                np.ascontiguousarray(cappedSpectralWeights, dtype=np.float64),
+                np.ascontiguousarray(densityWeightArr, dtype=np.float64),
                 0.5,
             )
             absDevArr = np.ascontiguousarray(
@@ -4351,21 +4655,32 @@ cpdef tuple cchooseDependenceSpan(
             )
             robustLogMad = 1.4826 * _weightedQuantileInterpolatedF64(
                 absDevArr,
-                np.ascontiguousarray(cappedSpectralWeights, dtype=np.float64),
+                np.ascontiguousarray(densityWeightArr, dtype=np.float64),
                 0.5,
             )
-        pointSpan, lowerSpan, upperSpan, spectralDiagnostics = _poolDependenceLogSpectra(
-            blockLogSpectra,
-            cappedSpectralWeights,
-            int(minSpan),
-            int(maxSpan),
-            int(spectralNFFT),
-        )
-        postMean = log(float(max(1, pointSpan)))
-        postSd = float(spectralDiagnostics.get("posterior_log_span_sd", 0.0))
-        tau2 = float(spectralDiagnostics.get("tau2", 0.0))
-        robustBlend = 0.0
-        fallback = False
+        if validBlocks >= minAcceptedBlocks:
+            pointSpan, lowerSpan, upperSpan, spectralDiagnostics = _poolDependenceLogSpectra(
+                blockLogSpectra,
+                densityReliabilityArr,
+                int(minSpan),
+                int(maxSpan),
+                int(spectralNFFT),
+                float(acfPointThreshold),
+                int(acfRequiredCrossings),
+            )
+            postMean = log(float(max(1, pointSpan)))
+            postSd = float(spectralDiagnostics.get("posterior_log_span_sd", 0.0))
+            tau2 = float(spectralDiagnostics.get("tau2", 0.0))
+            robustBlend = 0.0
+            fallback = False
+        else:
+            postMean = priorMu
+            postSd = priorLogSd
+            pointSpan = int(round(priorMedianSpan))
+            lowerSpan = pointSpan
+            upperSpan = pointSpan
+            fallback = True
+            fallbackReason = "too_few_acf_evidence_blocks"
     else:
         postMean = priorMu
         postSd = priorLogSd
@@ -4373,6 +4688,10 @@ cpdef tuple cchooseDependenceSpan(
         lowerSpan = pointSpan
         upperSpan = pointSpan
         fallback = True
+        if len(sampledWidths) > 0 and lowAcfEvidenceBlocks >= len(sampledWidths):
+            fallbackReason = "no_acf_evidence_blocks"
+        else:
+            fallbackReason = "no_accepted_blocks"
 
     pointSpan = int(max(minSpan, min(maxSpan, pointSpan)))
     lowerSpan = int(max(minSpan, min(pointSpan, lowerSpan)))
@@ -4386,10 +4705,11 @@ cpdef tuple cchooseDependenceSpan(
         "fallback_blocks": int(fallbackBlocks),
         "right_censored_blocks": int(rightCensoredBlocks),
         "fallback": bool(fallback),
+        "fallback_reason": str(fallbackReason),
         "block_estimator": "row_block_spectral",
         "block_acf_estimator": "inverse_tapered_log_periodogram",
         "spectral_pooling": str(
-            spectralDiagnostics.get("spectral_pooling", "robust_log_periodogram_EB")
+            spectralDiagnostics.get("spectral_pooling", "density_reliability_log_periodogram_EB")
         ),
         "spectral_nfft": int(spectralNFFT),
         "spectral_frequency_count": int(
@@ -4401,6 +4721,18 @@ cpdef tuple cchooseDependenceSpan(
         "spectral_log_variance_median": float(
             spectralDiagnostics.get("spectral_log_variance_median", float("nan"))
         ),
+        "spectral_scatter_median": float(
+            spectralDiagnostics.get("spectral_scatter_median", float("nan"))
+        ),
+        "spectral_precision_sum_mean": float(
+            spectralDiagnostics.get("spectral_precision_sum_mean", float("nan"))
+        ),
+        "spectral_density_reliability_median": float(
+            spectralDiagnostics.get("density_reliability_median", float("nan"))
+        ),
+        "spectral_density_reliability_mean": float(
+            spectralDiagnostics.get("density_reliability_mean", float("nan"))
+        ),
         "spectral_acf_first": float(
             spectralDiagnostics.get("spectral_acf_first", float("nan"))
         ),
@@ -4408,13 +4740,31 @@ cpdef tuple cchooseDependenceSpan(
         "lower_span": int(lowerSpan),
         "upper_span": int(upperSpan),
         "context_size_bp": int(contextSizeBP),
-        "estimand": "acf_abs_three_lag_crossing",
-        "point_threshold": float(__DEPENDENCE_ACF_POINT_THRESHOLD),
+        "estimand": "acf_abs_consecutive_crossing",
+        "point_threshold": float(acfPointThreshold),
+        "acfPointThreshold": float(acfPointThreshold),
+        "acf_evidence_threshold_nats": float(acfMinEvidenceNats),
+        "acf_evidence_snr_threshold": float(sqrt(2.0 * acfMinEvidenceNats)),
+        "acf_evidence_positive_signal_ess_min": float(minPositiveSignalESS),
+        "acf_evidence_passed_blocks": int(validBlocks),
+        "low_acf_evidence_blocks": int(lowAcfEvidenceBlocks),
+        "acf_evidence_min_accepted_blocks": int(minAcceptedBlocks),
         "lower_threshold": float(__DEPENDENCE_ACF_LOWER_THRESHOLD),
-        "upper_threshold": float(__DEPENDENCE_ACF_UPPER_THRESHOLD),
+        "upper_threshold": float(acfPointThreshold),
+        "acf_required_crossings": int(acfRequiredCrossings),
+        "acfRequiredCrossings": int(acfRequiredCrossings),
+        "point_width_correction": float(
+            spectralDiagnostics.get("point_width_correction", float("nan"))
+        ),
         "interval_size_bp": int(intervalSizeBP_),
         "min_span": int(minSpan),
+        "minSpan": int(minSpan),
         "max_span": int(maxSpan),
+        "maxSpan": int(maxSpan),
+        "crossing_lag": spectralDiagnostics.get("crossing_lag", None),
+        "crossingLag": spectralDiagnostics.get("crossingLag", None),
+        "max_final_context_bp": int(__DEPENDENCE_MAX_FINAL_CONTEXT_BP),
+        "max_final_span": int(maxFinalSpan),
         "chromosomes_used": sorted(set(sampledChromosomes)),
         "chromosomes_excluded": sorted(set(excludedNames)),
         "excluded_nonstandard_chromosomes": sorted(set(excludedNames)),
@@ -4425,34 +4775,44 @@ cpdef tuple cchooseDependenceSpan(
         "sampled_point_span": [int(v) for v in sampledPointSpans],
         "sampled_positive_signal_mass": [float(v) for v in sampledPositiveSignalMasses],
         "sampled_positive_signal_mean": [float(v) for v in sampledPositiveSignalMeans],
-        "sampled_polynomial_structure_score": [float(v) for v in sampledPolynomialStructureScores],
-        "sampled_shape_weight_score": [float(v) for v in sampledShapeWeightScores],
+        "sampled_positive_signal_ess_fraction": [float(v) for v in sampledPositiveSignalESSFractions],
+        "sampled_density_reliability": [float(v) for v in sampledDensityReliabilities],
+        "sampled_acf_evidence_nats": [float(v) for v in sampledAcfEvidenceNats],
+        "sampled_acf_evidence_snr": [float(v) for v in sampledAcfEvidenceSNRs],
+        "sampled_acf_evidence_start_lag": list(sampledAcfEvidenceStartLags),
         "pooled_positive_signal_mass": [float(v) for v in positiveSignalMasses],
         "pooled_positive_signal_mean": [float(v) for v in positiveSignalMeans],
-        "pooled_polynomial_structure_score": [float(v) for v in polynomialStructureScores],
-        "pooled_shape_weight_score": [float(v) for v in shapeWeightScores],
+        "pooled_positive_signal_ess_fraction": [float(v) for v in positiveSignalESSFractions],
+        "pooled_density_reliability": [float(v) for v in densityReliabilities],
+        "pooled_acf_evidence_nats": [float(v) for v in acfEvidenceNatsList],
+        "pooled_acf_evidence_snr": [float(v) for v in acfEvidenceSNRs],
         "pooled_positive_signal_mass_mean": float(meanPositiveSignalMass),
-        "pooled_positive_signal_abundance_mean": float(meanPositiveSignalAbundance),
+        "pooled_positive_signal_mean_mean": float(meanPositiveSignalMean),
+        "pooled_positive_signal_density_mean": float(meanPositiveSignalMean),
+        "pooled_density_reliability_mean": float(meanDensityReliability),
         "block_positive_signal_mass_summary": positiveSignalMassSummary,
         "block_positive_signal_mean_summary": positiveSignalMeanSummary,
-        "block_polynomial_structure_score_summary": polynomialStructureScoreSummary,
-        "block_shape_weight_score_summary": shapeWeightScoreSummary,
-        "shape_polynomial_degree": int(shapePolynomialDegree),
-        "block_weight_score": (
-            "positive_signal_mass_x_polynomial_structure"
-            if int(shapePolynomialDegree) > 0
-            else "positive_signal_mass"
-        ),
-        "abundance_relative_weight_summary": abundanceRelativeWeightSummary,
-        "pooled_abundance_relative_weight": (
-            [float(v) for v in cappedSpectralWeights]
-            if validBlocks > 0 and abundanceWeightingUsed
+        "block_positive_signal_density_summary": positiveSignalMeanSummary,
+        "block_positive_signal_ess_fraction_summary": positiveSignalESSFractionSummary,
+        "block_density_reliability_summary": densityReliabilitySummary,
+        "acf_evidence_summary": acfEvidenceSummary,
+        "block_weight_score": "positive_signal_mean_x_sqrt_positive_signal_ess_fraction",
+        "density_reliability_weight_summary": densityWeightSummary,
+        "density_reliability_relative_weight_summary": densityWeightSummary,
+        "pooled_density_reliability_relative_weight": (
+            [float(v) for v in densityWeightArr]
+            if validBlocks > 0 and densityWeightingUsed
             else []
         ),
-        "abundance_weighted": bool(abundanceWeightingUsed),
-        "abundance_weighting_used": bool(abundanceWeightingUsed),
-        "abundance_effective_block_count": float(abundanceEffectiveBlockCount),
-        "abundance_effective_blocks": float(abundanceEffectiveBlockCount),
+        "pooled_density_reliability_weight": (
+            [float(v) for v in densityWeightArr]
+            if validBlocks > 0 and densityWeightingUsed
+            else []
+        ),
+        "density_reliability_weighting_used": bool(densityWeightingUsed),
+        "density_reliability_effective_block_count": float(densityEffectiveBlockCount),
+        "density_reliability_effective_blocks": float(densityEffectiveBlockCount),
+        "density_reliability_effective_blocks_after_acf_gate": float(densityEffectiveBlockCount),
         "weighted_effective_block_count": float(weightedEffectiveBlockCount),
         "pooled_effective_blocks": float(weightedEffectiveBlockCount),
         "sampled_width_median_bp": (
@@ -4467,6 +4827,7 @@ cpdef tuple cchooseDependenceSpan(
         "robust_log_span_mad": float(robustLogMad),
         "robust_aggregation_blend": float(robustBlend),
         "right_censored_fraction": float(censorFraction),
+        "pooled_right_censored_fraction": float(censorFraction),
         "block_lognormal_median_bp": float(blockMedianBP),
         "block_lognormal_sigma": float(blockSigma),
         "block_min_bp": int(blockMinBP),

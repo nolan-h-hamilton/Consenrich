@@ -91,10 +91,19 @@ def writeGenomeCovariateCache(
 def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     coarseMinSpan, coarseMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(50)
     fineMinSpan, fineMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(25)
-    assert 2 * fineMinSpan * 25 == 2_500
+    assert 2 * fineMinSpan * 25 == 1_000
     assert fineMinSpan >= coarseMinSpan
     assert fineMaxSpan >= coarseMaxSpan
     assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
+    fragmentMinSpan, fragmentMaxSpan = (
+        consenrich_cli._dependenceSpanBoundsFromContextBP(
+            100,
+            medianFragmentLengthBP=1_800,
+        )
+    )
+    assert 2 * (fragmentMinSpan - 1) * 100 + 1 < 3_601
+    assert 2 * fragmentMinSpan * 100 + 1 >= 3_601
+    assert fragmentMaxSpan >= fragmentMinSpan
     coarseLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceSpanIntervals=coarseMaxSpan,
         backgroundBlockSizeBP=-1,
@@ -107,7 +116,9 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         intervalSizeBP=25,
         lengthScaleMultiplier=16.0,
     )
-    assert abs(coarseLen * 50 - fineLen * 25) <= 50
+    assert abs(coarseLen * 50 - fineLen * 25) <= (
+        16.0 * abs(coarseMaxSpan * 50 - fineMaxSpan * 25) + 50
+    )
 
     blockLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceSpanIntervals=5,
@@ -581,10 +592,18 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.precisionDiagnosticDetail: sampled
     outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
     outputParams.maxNonTrackFileBytes: 1024
+    observationParams.muncDependenceMinContextSizeBP: 2600
+    observationParams.muncTrendBlockDependenceMultiplier: 1.75
+    observationParams.muncLocalWindowDependenceMultiplier: 2.25
+    observationParams.dependenceAcfPointThreshold: 0.03
+    observationParams.dependenceAcfRequiredCrossings: 4
+    observationParams.dependenceAcfMinEvidenceNats: 3.5
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
     matchingParams.minPeakScore: 7.5
+    matchingParams.roccoPeakMode: broad
+    matchingParams.roccoSubpeakLengthScaleBP: 2400
     loggingParams.verbosity: debug
     loggingParams.progress: off
     loggingParams.logFile: runEvents.jsonl
@@ -611,11 +630,20 @@ def _case_readConfigDottedAndNestedEquivalent(
       precisionDiagnosticDetail: sampled
       maxPrecisionDiagnosticRowsPerChromosome: 7
       maxNonTrackFileBytes: 1024
+    observationParams:
+      muncDependenceMinContextSizeBP: 2600
+      muncTrendBlockDependenceMultiplier: 1.75
+      muncLocalWindowDependenceMultiplier: 2.25
+      dependenceAcfPointThreshold: 0.03
+      dependenceAcfRequiredCrossings: 4
+      dependenceAcfMinEvidenceNats: 3.5
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
       metadataDetail: full
       minPeakScore: 7.5
+      roccoPeakMode: broad
+      roccoSubpeakLengthScaleBP: 2400
     loggingParams:
       verbosity: debug
       progress: off
@@ -672,6 +700,12 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert type(processDotted) is type(processNested)
     assert observationDotted == observationNested
     assert processDotted == processNested
+    assert observationDotted.muncDependenceMinContextSizeBP == 2600
+    assert observationDotted.muncTrendBlockDependenceMultiplier == pytest.approx(1.75)
+    assert observationDotted.muncLocalWindowDependenceMultiplier == pytest.approx(2.25)
+    assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
+    assert observationDotted.dependenceAcfRequiredCrossings == 4
+    assert observationDotted.dependenceAcfMinEvidenceNats == pytest.approx(3.5)
 
     outputDotted = configDotted["outputArgs"]
     outputNested = configNested["outputArgs"]
@@ -726,6 +760,10 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
     assert matchingDotted.minPeakScore == pytest.approx(7.5)
     assert matchingNested.minPeakScore == pytest.approx(7.5)
+    assert matchingDotted.roccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
+    assert matchingNested.roccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
+    assert matchingDotted.roccoSubpeakLengthScaleBP == 2400
+    assert matchingNested.roccoSubpeakLengthScaleBP == 2400
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -1092,6 +1130,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.warmupOuterPasses",
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
+        "observationParams.dependenceAcfMinEvidenceNats",
         "outputParams.stateShrinkageModel",
         "outputParams.stateShrinkageScaleAnchorWeight",
         "outputParams.stateShrinkageStudentTDF",
@@ -1259,9 +1298,9 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.muncLocalWindowDependenceMultiplier"]
     )
     assert (
-        parsed["observationArgs"].dependenceShapePolynomialDegree
-        == profile["observationParams.dependenceShapePolynomialDegree"]
-        == constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE
+        parsed["observationArgs"].dependenceAcfMinEvidenceNats
+        == profile["observationParams.dependenceAcfMinEvidenceNats"]
+        == pytest.approx(2.0)
     )
     assert (
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
@@ -1474,6 +1513,21 @@ def _case_runtime_defaults_are_centralized(
         cliDefaults.matchMinPeakScore
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
     )
+    assert cliDefaults.matchRoccoPeakMode == constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE
+    assert (
+        cliDefaults.matchRoccoSubpeakLengthScaleBP
+        == constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP
+    )
+    cliBroad = consenrich_cli._buildArgParser().parse_args(
+        [
+            "--match-rocco-peak-mode",
+            constants.MATCHING_ROCCO_PEAK_MODE_BROAD,
+            "--match-rocco-subpeak-length-scale-bp",
+            "1200",
+        ]
+    )
+    assert cliBroad.matchRoccoPeakMode == constants.MATCHING_ROCCO_PEAK_MODE_BROAD
+    assert cliBroad.matchRoccoSubpeakLengthScaleBP == 1200
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
     assert cliDefaults.verbosity is None
@@ -1669,7 +1723,9 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.puncMaxScale: 2.5
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
-    observationParams.dependenceShapePolynomialDegree: 3
+    observationParams.dependenceAcfPointThreshold: 0.02
+    observationParams.dependenceAcfRequiredCrossings: 5
+    observationParams.dependenceAcfMinEvidenceNats: 4.25
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
@@ -1695,7 +1751,11 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
-    assert parsed["observationArgs"].dependenceShapePolynomialDegree == 3
+    assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
+    assert parsed["observationArgs"].dependenceAcfRequiredCrossings == 5
+    assert parsed["observationArgs"].dependenceAcfMinEvidenceNats == pytest.approx(
+        4.25
+    )
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False
@@ -2170,6 +2230,69 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
             configInvalidYaml,
         )
         with pytest.raises(ValueError, match=key):
+            readConfig(str(configInvalidPath))
+
+    invalidDeleteBlockScoringCases = (
+        (
+            "fraction_order",
+            (
+                "uncertaintyCalibrationParams.deleteBlockMinInformationFraction: 0.8",
+                "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8",
+            ),
+            "information fractions",
+        ),
+        (
+            "min_delta_variance",
+            ("uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 0",),
+            "deleteBlockMinDeltaVariance",
+        ),
+        (
+            "score_weight_mode",
+            (
+                "uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrtInformationFraction",
+            ),
+            "deleteBlockScoreWeightMode",
+        ),
+        (
+            "targets_empty",
+            ("uncertaintyCalibrationParams.targets: []",),
+            "targets",
+        ),
+        (
+            "target_delta_zero",
+            ("uncertaintyCalibrationParams.targetCalibrationDelta: 0",),
+            "targetCalibrationDelta",
+        ),
+        (
+            "target_delta_null_scaling",
+            (
+                "uncertaintyCalibrationParams.targetCalibrationDelta:",
+                "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: true",
+            ),
+            "targetCalibrationDelta",
+        ),
+        (
+            "target_scale_bool",
+            (
+                "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: 'false'",
+            ),
+            "scaleUncertaintyByTargetCalibration",
+        ),
+    )
+    for caseName, configLines, message in invalidDeleteBlockScoringCases:
+        configLinesYaml = "\n        ".join(configLines)
+        configInvalidYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        {configLinesYaml}
+        """
+        configInvalidPath = writeConfigFile(
+            tmp_path,
+            f"config_uncertainty_calibration_invalid_{caseName}.yaml",
+            configInvalidYaml,
+        )
+        with pytest.raises(ValueError, match=message):
             readConfig(str(configInvalidPath))
 
 
@@ -2792,7 +2915,7 @@ def _case_resolveFixedDeltaFRequiresPositiveFinite():
             consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
-def _caseGlobalMedianCenterRespectsUserFlagWithControlInputs():
+def _caseSubtractGlobalMedianRespectsUserFlagWithControlInputs():
     countingArgs = consenrich_core.countingParams(
         intervalSizeBP=25,
         backgroundBlockSizeBP=1000,
@@ -2806,14 +2929,14 @@ def _caseGlobalMedianCenterRespectsUserFlagWithControlInputs():
         subtractGlobalMedian=True,
     )
 
-    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
         countingArgs,
         controlsPresent=False,
     )
     assert enabled is True
     assert label == "yes"
 
-    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
         countingArgs,
         controlsPresent=True,
     )
@@ -2821,7 +2944,7 @@ def _caseGlobalMedianCenterRespectsUserFlagWithControlInputs():
     assert label == "yes"
 
     disabledArgs = countingArgs._replace(subtractGlobalMedian=False)
-    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+    enabled, label = consenrich_cli._resolveSubtractGlobalMedianStatus(
         disabledArgs,
         controlsPresent=True,
     )
@@ -2845,8 +2968,8 @@ def test_config_runtime_validation_contracts(tmp_path, contract_case):
         tmp_path,
     )
     contract_case(
-        "global median centering honors user request with controls",
-        _caseGlobalMedianCenterRespectsUserFlagWithControlInputs,
+        "subtractGlobalMedian honors user request with controls",
+        _caseSubtractGlobalMedianRespectsUserFlagWithControlInputs,
     )
     contract_case(
         "fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite
@@ -2918,13 +3041,13 @@ def test_config_parser_defaults_and_override_contracts(
             "generic overrides",
             _case_readConfigGenericDefaultsStillAllowExplicitOverrides,
         ),
-            (
-                "state shrinkage Student-t df validation",
-                _case_readConfigRejectsLowStateShrinkageStudentTDF,
-            ),
-            (
-                "process noise warmup pass-through",
-                _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
+        (
+            "state shrinkage Student-t df validation",
+            _case_readConfigRejectsLowStateShrinkageStudentTDF,
+        ),
+        (
+            "process noise warmup pass-through",
+            _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
         ),
         (
             "unknown default profile rejected",

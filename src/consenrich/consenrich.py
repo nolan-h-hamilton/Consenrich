@@ -2223,8 +2223,8 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("interval bp", int(countingArgs.intervalSizeBP)),
         ("normalization", countingArgs.normMethod),
         (
-            "global median center",
-            _resolveGlobalMedianCenterStatus(
+            "subtractGlobalMedian",
+            _resolveSubtractGlobalMedianStatus(
                 countingArgs,
                 controlsPresent=controlsPresent,
             )[1],
@@ -2352,7 +2352,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     core._logEvent("config.initial", rows, logger_=logger)
 
 
-def _resolveGlobalMedianCenterStatus(
+def _resolveSubtractGlobalMedianStatus(
     countingArgs: core.countingParams,
     controlsPresent: bool,
 ) -> tuple[bool, str]:
@@ -2361,10 +2361,13 @@ def _resolveGlobalMedianCenterStatus(
     return True, "yes"
 
 
-_DEPENDENCE_MIN_CONTEXT_BP = (
-    constants.OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
+_DEPENDENCE_MIN_CONTEXT_BP = max(
+    constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP,
+    constants.OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP,
 )
-_DEPENDENCE_MAX_CONTEXT_BP = 100_000
+_DEPENDENCE_MAX_CONTEXT_BP = (
+    constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP
+)
 
 
 def _oddIntervalsFromBP(
@@ -2386,12 +2389,27 @@ def _dependenceSpanBoundsFromContextBP(
     *,
     minContextBP: int = _DEPENDENCE_MIN_CONTEXT_BP,
     maxContextBP: int = _DEPENDENCE_MAX_CONTEXT_BP,
+    medianFragmentLengthBP: Optional[float] = None,
 ) -> tuple[int, int]:
     intervalSizeBP_ = max(1, int(intervalSizeBP))
-    minContextBP_ = max(1, int(minContextBP))
-    maxContextBP_ = max(minContextBP_, int(maxContextBP))
-    minSpan = max(3, int(math.ceil(minContextBP_ / float(2 * intervalSizeBP_))))
-    maxSpan = max(minSpan, int(math.ceil(maxContextBP_ / float(2 * intervalSizeBP_))))
+    minContextBP_ = max(_DEPENDENCE_MIN_CONTEXT_BP, 1, int(minContextBP))
+    if medianFragmentLengthBP is not None:
+        fragmentContextBP = int(
+            math.ceil(2.0 * float(medianFragmentLengthBP) + 1.0)
+        )
+        if fragmentContextBP > 0:
+            minContextBP_ = max(minContextBP_, fragmentContextBP)
+    maxContextBP_ = int(maxContextBP)
+    if maxContextBP_ < minContextBP_:
+        raise ValueError(
+            "dependence maximum context bp must be at least the dependence minimum"
+        )
+    minSpan = max(
+        3,
+        int(math.ceil((minContextBP_ - 1) / float(2 * intervalSizeBP_))),
+    )
+    maxSpan = int(math.floor((maxContextBP_ - 1) / float(2 * intervalSizeBP_)))
+    maxSpan = max(minSpan, maxSpan)
     return int(minSpan), int(maxSpan)
 
 
@@ -2874,9 +2892,23 @@ def _buildArgParser() -> argparse.ArgumentParser:
         default=constants.MATCHING_DEFAULT_MIN_PEAK_SCORE,
         dest="matchMinPeakScore",
         help=(
-            "Minimum narrowPeak signal, column 7, required to keep a ROCCO peak in the "
-            "exported result."
+            "Minimum ROCCO signalValue required to keep a peak in the exported result."
         ),
+    )
+    parser.add_argument(
+        "--match-rocco-peak-mode",
+        type=str,
+        choices=constants.MATCHING_ROCCO_PEAK_MODES,
+        default=constants.MATCHING_DEFAULT_ROCCO_PEAK_MODE,
+        dest="matchRoccoPeakMode",
+        help="ROCCO peak export mode.",
+    )
+    parser.add_argument(
+        "--match-rocco-subpeak-length-scale-bp",
+        type=int,
+        default=constants.MATCHING_DEFAULT_ROCCO_SUBPEAK_LENGTH_SCALE_BP,
+        dest="matchRoccoSubpeakLengthScaleBP",
+        help="Optional BP length scale for broad-mode gappedPeak subpeak blocks.",
     )
     parser.add_argument(
         "--match-uncertainty-score-mode",
@@ -3015,6 +3047,8 @@ def main():
                 args.matchExportFilterUncertaintyMultiplier
             ),
             minPeakScore=args.matchMinPeakScore,
+            roccoPeakMode=args.matchRoccoPeakMode,
+            roccoSubpeakLengthScaleBP=args.matchRoccoSubpeakLengthScaleBP,
             uncertaintyScoreMode=args.matchUncertaintyScoreMode,
             uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
@@ -3145,6 +3179,144 @@ def main():
         raise ValueError(
             "observationParams.muncDependenceMinContextSizeBP must be positive"
         )
+    if (
+        muncDependenceMinContextSizeBP_
+        < constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP
+    ):
+        raise ValueError(
+            "observationParams.muncDependenceMinContextSizeBP must be at least "
+            f"{constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP}"
+        )
+    dependenceMaxContextSizeBP_ = int(
+        getattr(
+            observationArgs,
+            "dependenceMaxContextSizeBP",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP,
+        )
+    )
+    if (
+        dependenceMaxContextSizeBP_
+        > constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP
+    ):
+        raise ValueError(
+            "observationParams.dependenceMaxContextSizeBP must be at most "
+            f"{constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP}"
+        )
+    if dependenceMaxContextSizeBP_ < muncDependenceMinContextSizeBP_:
+        raise ValueError(
+            "observationParams.dependenceMaxContextSizeBP must be at least "
+            "observationParams.muncDependenceMinContextSizeBP"
+        )
+    dependenceNumBlocks_ = int(
+        getattr(
+            observationArgs,
+            "dependenceNumBlocks",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_NUM_BLOCKS,
+        )
+    )
+    if dependenceNumBlocks_ <= 0:
+        raise ValueError("observationParams.dependenceNumBlocks must be positive")
+    dependenceBlockMedianBP_ = float(
+        getattr(
+            observationArgs,
+            "dependenceBlockMedianBP",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MEDIAN_BP,
+        )
+    )
+    dependenceBlockSigma_ = float(
+        getattr(
+            observationArgs,
+            "dependenceBlockSigma",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_SIGMA,
+        )
+    )
+    dependenceBlockMinBP_ = int(
+        getattr(
+            observationArgs,
+            "dependenceBlockMinBP",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MIN_BP,
+        )
+    )
+    dependenceBlockMaxBP_ = int(
+        getattr(
+            observationArgs,
+            "dependenceBlockMaxBP",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MAX_BP,
+        )
+    )
+    if (
+        not np.isfinite(dependenceBlockMedianBP_)
+        or dependenceBlockMedianBP_ <= 0.0
+        or not np.isfinite(dependenceBlockSigma_)
+        or dependenceBlockSigma_ <= 0.0
+        or dependenceBlockMinBP_ <= 0
+        or dependenceBlockMaxBP_ < dependenceBlockMinBP_
+    ):
+        raise ValueError("observationParams dependence block settings are invalid")
+    dependencePriorMedianSpan_ = float(
+        getattr(
+            observationArgs,
+            "dependencePriorMedianSpan",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN,
+        )
+    )
+    dependencePriorLogSd_ = float(
+        getattr(
+            observationArgs,
+            "dependencePriorLogSd",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_LOG_SD,
+        )
+    )
+    if (
+        not np.isfinite(dependencePriorMedianSpan_)
+        or dependencePriorMedianSpan_ <= 0.0
+        or not np.isfinite(dependencePriorLogSd_)
+        or dependencePriorLogSd_ <= 0.0
+    ):
+        raise ValueError("observationParams dependence prior settings are invalid")
+    dependenceAcfPointThreshold_ = float(
+        getattr(
+            observationArgs,
+            "dependenceAcfPointThreshold",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
+        )
+    )
+    if (
+        not np.isfinite(dependenceAcfPointThreshold_)
+        or dependenceAcfPointThreshold_ <= 0.0
+        or dependenceAcfPointThreshold_ >= 1.0
+    ):
+        raise ValueError(
+            "observationParams.dependenceAcfPointThreshold must satisfy 0 < x < 1"
+        )
+    dependenceAcfRequiredCrossings_ = int(
+        getattr(
+            observationArgs,
+            "dependenceAcfRequiredCrossings",
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS,
+        )
+    )
+    if dependenceAcfRequiredCrossings_ <= 0:
+        raise ValueError(
+            "observationParams.dependenceAcfRequiredCrossings must be positive"
+        )
+    dependenceAcfMinEvidenceNatsRaw = getattr(
+        observationArgs,
+        "dependenceAcfMinEvidenceNats",
+        constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS,
+    )
+    if isinstance(dependenceAcfMinEvidenceNatsRaw, (bool, np.bool_)):
+        raise ValueError(
+            "observationParams.dependenceAcfMinEvidenceNats must be finite and nonnegative"
+        )
+    dependenceAcfMinEvidenceNats_ = float(dependenceAcfMinEvidenceNatsRaw)
+    if (
+        not np.isfinite(dependenceAcfMinEvidenceNats_)
+        or dependenceAcfMinEvidenceNats_ < 0.0
+    ):
+        raise ValueError(
+            "observationParams.dependenceAcfMinEvidenceNats must be finite and nonnegative"
+        )
     muncTrendBlockDependenceMultiplier_ = float(
         getattr(
             observationArgs,
@@ -3159,17 +3331,6 @@ def main():
             constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
         )
     )
-    dependenceShapePolynomialDegree_ = int(
-        getattr(
-            observationArgs,
-            "dependenceShapePolynomialDegree",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_SHAPE_POLYNOMIAL_DEGREE,
-        )
-    )
-    if not 0 <= dependenceShapePolynomialDegree_ <= 6:
-        raise ValueError(
-            "observationParams.dependenceShapePolynomialDegree must be an integer in [0, 6]"
-        )
     muncVarianceModel_ = core._normalizeMuncVarianceModel(
         getattr(
             observationArgs,
@@ -3454,6 +3615,20 @@ def main():
             characteristicFragmentLengthsTreatment,
             characteristicFragmentLengthsControl,
         )
+
+    positiveFragmentLengths = [
+        int(value)
+        for value in (
+            list(characteristicFragmentLengthsTreatment)
+            + list(characteristicFragmentLengthsControl)
+        )
+        if int(value) > 0
+    ]
+    medianFragmentLengthBP_: Optional[float] = (
+        float(np.median(np.asarray(positiveFragmentLengths, dtype=np.float64)))
+        if positiveFragmentLengths
+        else None
+    )
 
     def _resolveCountExtendFrom5pBP(
         source: core.inputSource,
@@ -3813,7 +3988,9 @@ def main():
     if chromosomePlans:
         for file_ in os.listdir("."):
             if file_.startswith(f"consenrichOutput_{experimentName}") and (
-                file_.endswith(".bedGraph") or file_.endswith(".narrowPeak")
+                file_.endswith(".bedGraph")
+                or file_.endswith(".narrowPeak")
+                or file_.endswith(".gappedPeak")
             ):
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
@@ -4424,34 +4601,22 @@ def main():
                 time.perf_counter() - transformStart,
             )
 
-        centerEnabled, _ = _resolveGlobalMedianCenterStatus(
+        subtractGlobalMedianEnabled, _ = _resolveSubtractGlobalMedianStatus(
             countingArgs,
             controlsPresent=controlsPresent,
         )
-        if centerEnabled:
-            centerStart = time.perf_counter()
-            centerStats = core.subtractGlobalMedianInPlace(chromMat)
-            trackMedians = np.asarray(
-                centerStats.get("track_medians", []),
-                dtype=np.float64,
-            )
-            finiteTrackMedians = trackMedians[np.isfinite(trackMedians)]
-            medianRange = (
-                "NA"
-                if finiteTrackMedians.size == 0
-                else (
-                    f"[{float(np.min(finiteTrackMedians)):.4g}, "
-                    f"{float(np.max(finiteTrackMedians)):.4g}]"
-                )
+        if subtractGlobalMedianEnabled:
+            subtractStart = time.perf_counter()
+            subtractStats = core.subtractGlobalMedianInPlace(
+                chromMat,
+                intervalSizeBP=intervalSizeBP,
             )
             logger.info(
-                "global median center.done %s samples=%d applied=%d "
-                "medianRange=%s elapsed=%.3fs",
+                "subtractGlobalMedian.done %s samples=%d applied=%d elapsed=%.3fs",
                 chromosome,
                 int(numSamples),
-                int(centerStats.get("applied_tracks", 0)),
-                medianRange,
-                time.perf_counter() - centerStart,
+                int(subtractStats.get("applied_tracks", 0)),
+                time.perf_counter() - subtractStart,
             )
 
         return (
@@ -4860,6 +5025,15 @@ def main():
         if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
             return
 
+        dependenceMinSpan, dependenceMaxSpan = _dependenceSpanBoundsFromContextBP(
+            intervalSizeBP,
+            minContextBP=int(muncDependenceMinContextSizeBP_),
+            maxContextBP=int(dependenceMaxContextSizeBP_),
+            medianFragmentLengthBP=medianFragmentLengthBP_,
+        )
+        dependenceMinContextBP = int(2 * dependenceMinSpan * int(intervalSizeBP))
+        dependenceMaxContextBP = int(2 * dependenceMaxSpan * int(intervalSizeBP) + 1)
+
         chromNames: list[str] = []
         chromMatrices: list[np.ndarray] = []
         for chromPlan in chromosomePlans:
@@ -4875,17 +5049,19 @@ def main():
                 chromNames,
                 chromMatrices,
                 intervalSizeBP,
-                numBlocks=100,
+                numBlocks=int(dependenceNumBlocks_),
                 randSeed=int(constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED),
-                blockMedianBP=50_000.0,
-                blockSigma=1.0,
-                blockMinBP=1_000,
-                blockMaxBP=1_000_000,
-                minContextBP=int(muncDependenceMinContextSizeBP_),
-                maxContextBP=int(_DEPENDENCE_MAX_CONTEXT_BP),
-                priorMedianSpan=80.0,
-                priorLogSd=1.0,
-                shapePolynomialDegree=int(dependenceShapePolynomialDegree_),
+                blockMedianBP=float(dependenceBlockMedianBP_),
+                blockSigma=float(dependenceBlockSigma_),
+                blockMinBP=int(dependenceBlockMinBP_),
+                blockMaxBP=int(dependenceBlockMaxBP_),
+                minContextBP=dependenceMinContextBP,
+                maxContextBP=dependenceMaxContextBP,
+                priorMedianSpan=float(dependencePriorMedianSpan_),
+                priorLogSd=float(dependencePriorLogSd_),
+                acfPointThreshold=float(dependenceAcfPointThreshold_),
+                acfRequiredCrossings=int(dependenceAcfRequiredCrossings_),
+                acfMinEvidenceNats=float(dependenceAcfMinEvidenceNats_),
             )
         )
         dependenceSpanIntervals_ = int(depPoint)
@@ -4905,30 +5081,86 @@ def main():
             if not np.isfinite(sampledWidthMedian)
             else str(int(round(sampledWidthMedian)))
         )
+        crossingLag = depDiagnostics.get(
+            "crossingLag",
+            depDiagnostics.get("crossing_lag", None),
+        )
+        crossingLagLabel = "NA" if crossingLag is None else str(int(crossingLag))
         logger.info(
             "chooseDependenceSpan.sampledBlocks chromosomes_used=%d "
             "chromosomes_excluded=%s blocks_requested=%d blocks_valid=%d "
             "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
             "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
-            "span=%d lower=%d upper=%d context_bp=%d right_censored_blocks=%d "
+            "acfPointThreshold=%.6g acfRequiredCrossings=%d minSpan=%d maxSpan=%d "
+            "crossingLag=%s span=%d lower=%d upper=%d context_bp=%d "
+            "right_censored_blocks=%d pooled_right_censored_fraction=%.6g "
             "posterior_log_sd=%.6g tau2=%.6g fallback=%s",
             int(len(depDiagnostics.get("chromosomes_used", []))),
             excludedLabel,
-            int(depDiagnostics.get("blocks_requested", 100)),
+            int(depDiagnostics.get("blocks_requested", dependenceNumBlocks_)),
             int(depDiagnostics.get("blocks_valid", 0)),
-            int(depDiagnostics.get("block_lognormal_median_bp", 50_000)),
-            float(depDiagnostics.get("block_lognormal_sigma", 1.0)),
-            int(depDiagnostics.get("block_min_bp", 1_000)),
-            int(depDiagnostics.get("block_max_bp", 1_000_000)),
+            int(
+                depDiagnostics.get(
+                    "block_lognormal_median_bp",
+                    dependenceBlockMedianBP_,
+                )
+            ),
+            float(depDiagnostics.get("block_lognormal_sigma", dependenceBlockSigma_)),
+            int(depDiagnostics.get("block_min_bp", dependenceBlockMinBP_)),
+            int(depDiagnostics.get("block_max_bp", dependenceBlockMaxBP_)),
             sampledWidthLabel,
+            float(
+                depDiagnostics.get(
+                    "acfPointThreshold",
+                    dependenceAcfPointThreshold_,
+                )
+            ),
+            int(
+                depDiagnostics.get(
+                    "acfRequiredCrossings",
+                    dependenceAcfRequiredCrossings_,
+                )
+            ),
+            int(depDiagnostics.get("minSpan", dependenceMinSpan)),
+            int(depDiagnostics.get("maxSpan", dependenceMaxSpan)),
+            crossingLagLabel,
             int(depPoint),
             int(depLower),
             int(depUpper),
             int(dependenceContextBP_),
             int(depDiagnostics.get("right_censored_blocks", 0)),
+            float(depDiagnostics.get("pooled_right_censored_fraction", 0.0)),
             float(depDiagnostics.get("posterior_log_span_sd", float("nan"))),
             float(depDiagnostics.get("tau2", float("nan"))),
             "true" if bool(depDiagnostics.get("fallback", False)) else "false",
+        )
+        densityReliabilityWeighted = bool(
+            depDiagnostics.get(
+                "density_reliability_weighting_used",
+                depDiagnostics.get("abundance_weighting_used", False),
+            )
+        )
+        densityReliabilityEffectiveBlocks = float(
+            depDiagnostics.get(
+                "density_reliability_effective_blocks",
+                depDiagnostics.get("pooled_effective_blocks", float("nan")),
+            )
+        )
+        logger.info(
+            "chooseDependenceSpan.densityReliability weighted=%s "
+            "effectiveBlocks=%.6g median=%.6g spectralShrinkMedian=%.6g "
+            "spectralLogVarianceMedian=%.6g spectralAcfFirst=%.6g",
+            "true" if densityReliabilityWeighted else "false",
+            densityReliabilityEffectiveBlocks,
+            float(
+                depDiagnostics.get("block_density_reliability_summary", {}).get(
+                    "median",
+                    float("nan"),
+                )
+            ),
+            float(depDiagnostics.get("spectral_shrink_median", float("nan"))),
+            float(depDiagnostics.get("spectral_log_variance_median", float("nan"))),
+            float(depDiagnostics.get("spectral_acf_first", float("nan"))),
         )
 
     def _collectPooledMuncBlocks(
@@ -7561,6 +7793,9 @@ def main():
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
                 minPeakScore=matchingArgs.minPeakScore,
+                roccoPeakMode=matchingArgs.roccoPeakMode,
+                roccoSubpeakLengthScaleBP=matchingArgs.roccoSubpeakLengthScaleBP,
+                broadSubpeakDependenceSpan=dependenceSpanIntervals_,
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,

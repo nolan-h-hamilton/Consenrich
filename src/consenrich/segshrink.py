@@ -463,6 +463,20 @@ def combinePreparedContigs(
             fullP,
             float(positiveFloor),
         )
+        targetCalibration = model.get("target_calibration")
+        uncertaintyTrackScale = 1.0
+        if isinstance(targetCalibration, dict) and bool(
+            targetCalibration.get("uncertainty_track_scaled", False)
+        ):
+            uncertaintyTrackScale = float(
+                targetCalibration.get("uncertainty_track_scale", 1.0)
+            )
+            if not (np.isfinite(uncertaintyTrackScale) and uncertaintyTrackScale > 0.0):
+                raise ValueError("segShrink target uncertainty scale is not positive")
+            calibrated = (
+                np.asarray(calibrated, dtype=np.float32)
+                * np.float32(uncertaintyTrackScale)
+            )
         segmentTable = []
         for localIDX, row in enumerate(segmentRows):
             rawLog = segmentLog[offset + localIDX]
