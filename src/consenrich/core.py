@@ -35,12 +35,16 @@ from .constants import (
     COUNTING_DEFAULT_LOG_MULT,
     COUNTING_DEFAULT_LOG_OFFSET,
     COUNTING_DEFAULT_CENTER_MB,
+    COUNTING_DEFAULT_CENTER_MB_METHOD,
+    COUNTING_CENTER_MB_METHOD_MEDFILT,
+    COUNTING_CENTER_MB_METHOD_SAVGOL,
     COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
     COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
     COUNTING_DEFAULT_TRANSFORM_METHOD,
     COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
     COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
     COUNTING_DEFAULT_TRANSFORM_SHAPE,
+    COUNTING_SUPPORTED_CENTER_MB_METHODS,
     FRAGMENTS_SOURCE_KIND,
     FIT_DEFAULT_BACKGROUND,
     FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER,
@@ -124,8 +128,8 @@ from .constants import (
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
-    OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT,
-    OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT,
+    OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SPIKE_PROP,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_DF,
@@ -1021,6 +1025,7 @@ class countingParams(NamedTuple):
     transformOutputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET
     transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE
     centerMB: bool | None = COUNTING_DEFAULT_CENTER_MB
+    centerMBMethod: str | None = COUNTING_DEFAULT_CENTER_MB_METHOD
 
 
 class scParams(NamedTuple):
@@ -1183,10 +1188,12 @@ class outputParams(NamedTuple):
     writeUncertainty: bool
     writeStateShrinkage: bool = OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE
     stateShrinkageModel: str = OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
-    stateShrinkagePriorNull: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL
+    stateShrinkagePriorSpikeProp: Optional[
+        float
+    ] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SPIKE_PROP
     stateShrinkagePriorScale: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE
-    stateShrinkageNullPseudoCount: Optional[float] = (
-        OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT
+    stateShrinkageSpikePseudoCount: Optional[float] = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT
     )
     stateShrinkageScaleAnchorWeight: Optional[float] = (
         OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT
@@ -8509,6 +8516,7 @@ def _formatPSplineTrendSummary(
     eps: float,
     maxVariance: float | None = None,
     pointCount: int = 9,
+    sampleFile: str | None = None,
 ) -> str:
     support = np.asarray(supportSignedMeans, dtype=np.float64).ravel()
     support = support[np.isfinite(support)]
@@ -8531,8 +8539,11 @@ def _formatPSplineTrendSummary(
     beta = getattr(trend, "beta", np.empty(0, dtype=np.float64))
     basisCount = diagnostics.get("num_basis", len(beta))
     requestedBasis = diagnostics.get("requested_num_basis", len(beta))
+    sampleText = (
+        "" if sampleFile is None else f" sampleFile={_quoteLogString(sampleFile)}"
+    )
     return (
-        "MUNC P-spline signed-mean-SD trend:\n"
+        f"MUNC P-spline signed-mean-SD trend{sampleText}:\n"
         f"\tlambda={getattr(trend, 'lambdaHat', float('nan')):.4g}\t"
         f"edf={getattr(trend, 'edf', float('nan')):.3g}\t"
         f"basis={basisCount}/{requestedBasis}\n"
@@ -8550,6 +8561,7 @@ def _formatMuncVarianceDiagnostics(
     finalVarianceTrack: np.ndarray,
     supportAbsMeans: np.ndarray,
     countModelVarianceFloorTrack: np.ndarray | None = None,
+    sampleFile: str | None = None,
 ) -> str:
     probs = np.asarray([0.05, 0.25, 0.50, 0.75, 0.95], dtype=np.float64)
     labels = ("p05", "p25", "p50", "p75", "p95")
@@ -8593,8 +8605,11 @@ def _formatMuncVarianceDiagnostics(
         globalName = "G"
         finalName = "V0"
 
+    sampleText = (
+        "" if sampleFile is None else f" sampleFile={_quoteLogString(sampleFile)}"
+    )
     return (
-        "MUNC variance SD diagnostics:\n"
+        f"MUNC variance SD diagnostics{sampleText}:\n"
         f"\t{_sdQuantiles(localName, localVarianceTrack)}\n"
         f"\t{_sdQuantiles(globalName, globalVarianceTrack)}\n"
         f"\t{_sdQuantiles(finalName, finalVarianceTrack)}"
@@ -9060,6 +9075,7 @@ def centerMBInPlace(
     *,
     intervalSizeBP: int,
     filterWindowBP: int = 1_000_000,
+    centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD,
 ) -> dict[str, Any]:
     arr = np.asarray(values)
     if arr.ndim == 1:
@@ -9082,21 +9098,42 @@ def centerMBInPlace(
     filterWindowIntervals = int(math.ceil(filterWindowBP_ / float(intervalSize)))
     if filterWindowIntervals % 2 == 0:
         filterWindowIntervals += 1
+    if centerMBMethod not in COUNTING_SUPPORTED_CENTER_MB_METHODS:
+        supported = ", ".join(COUNTING_SUPPORTED_CENTER_MB_METHODS)
+        raise ValueError(f"centerMBMethod must be one of: {supported}")
 
+    meanTrackValBeforeCenterMB = float(np.mean(tracks))
+    stdTrackValBeforeCenterMB = float(np.std(tracks))
     appliedCount = 0
     for trackIndex in range(tracks.shape[0]):
         track = tracks[trackIndex]
-        filtered = ndimage.median_filter(
-            track,
-            size=filterWindowIntervals,
-            mode="nearest",
-        )
+        if centerMBMethod == COUNTING_CENTER_MB_METHOD_MEDFILT:
+            filtered = ndimage.median_filter(
+                track,
+                size=filterWindowIntervals,
+                mode="nearest",
+            )
+        elif centerMBMethod == COUNTING_CENTER_MB_METHOD_SAVGOL:
+            filtered = signal.savgol_filter(
+                track,
+                window_length=filterWindowIntervals,
+                polyorder=0,
+                mode="nearest",
+            )
+        else:
+            raise ValueError(f"centerMBMethod must be one of: {supported}")
         np.subtract(track, filtered, out=track, casting="unsafe")
         appliedCount += 1
+    meanTrackValAfterCenterMB = float(np.mean(tracks))
+    stdTrackValAfterCenterMB = float(np.std(tracks))
 
     return {
         "applied": bool(appliedCount > 0),
         "applied_tracks": int(appliedCount),
+        "meanTrackValBeforeCenterMB": meanTrackValBeforeCenterMB,
+        "meanTrackValAfterCenterMB": meanTrackValAfterCenterMB,
+        "stdTrackValBeforeCenterMB": stdTrackValBeforeCenterMB,
+        "stdTrackValAfterCenterMB": stdTrackValAfterCenterMB,
     }
 
 
@@ -9876,6 +9913,7 @@ def getMuncTrack(
     covariateTrack: Optional[np.ndarray] = None,
     additiveCovariateModel: Optional[MuncAdditiveCovariateModel] = None,
     replicateIndex: int | None = None,
+    sampleFile: str | None = None,
     countModelVarianceFloor: Optional[np.ndarray] = None,
     localVarianceTrack: Optional[np.ndarray] = None,
     priorVarianceTrack: Optional[np.ndarray] = None,
@@ -9943,6 +9981,13 @@ def getMuncTrack(
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
     if intervalsArr.shape[0] != valuesArr.size:
         raise ValueError("intervalsArr must match values length")
+    sampleFileText = None if sampleFile is None else str(sampleFile)[:7]
+    if sampleFileText == "":
+        raise ValueError("sampleFile must be non-empty when provided")
+    sampleFileRows = (
+        (("sample file", sampleFileText),) if sampleFileText is not None else ()
+    )
+    sampleFileLog = "NA" if sampleFileText is None else sampleFileText
     countModelVarianceFloorArr = _coerceMuncCountModelVarianceFloor(
         countModelVarianceFloor,
         valuesArr.size,
@@ -9977,6 +10022,7 @@ def getMuncTrack(
         "MUNC track parameters",
         (
             ("chromosome", chromosome),
+            *sampleFileRows,
             ("intervals", int(valuesArr.size)),
             ("interval size bp", int(intervalSizeBP)),
             ("MUNC variance model", muncVarianceModelName),
@@ -10054,6 +10100,7 @@ def getMuncTrack(
             "MUNC pooled trend reuse",
             (
                 ("chromosome", chromosome),
+                *sampleFileRows,
                 ("intervals", int(valuesArr.size)),
             ),
         )
@@ -10069,6 +10116,7 @@ def getMuncTrack(
                     means_Sorted,
                     eps=varianceFloor_,
                     maxVariance=varianceCap_,
+                    sampleFile=sampleFileText,
                 )
             )
 
@@ -10085,6 +10133,7 @@ def getMuncTrack(
             "MUNC EB shrinkage skipped",
             (
                 ("chromosome", chromosome),
+                *sampleFileRows,
                 ("reason", "MUNC variance EB disabled"),
                 ("support fraction", float(supportFraction)),
             ),
@@ -10133,8 +10182,9 @@ def getMuncTrack(
         if finiteAdditional.size:
             logger.info(
                 "MUNC additive genomic covariate variance: replicate=%s "
-                "active_fraction=%.4f median=%.4g q95=%.4g",
+                "sampleFile=%s active_fraction=%.4f median=%.4g q95=%.4g",
                 "pooled" if replicateIndex is None else int(replicateIndex),
+                sampleFileLog,
                 float(np.count_nonzero(finiteAdditional > 0.0))
                 / float(finiteAdditional.size),
                 float(np.median(finiteAdditional)),
@@ -10149,7 +10199,11 @@ def getMuncTrack(
 
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
-        logger.info(f"Using fixed/specified Nu_L={Nu_L:.2f}")
+        logger.info(
+            "Using fixed/specified Nu_L=%.2f sampleFile=%s",
+            Nu_L,
+            sampleFileLog,
+        )
     elif EB_effectiveNuL is not None:
         Nu_L = float(EB_effectiveNuL)
         if not np.isfinite(Nu_L) or Nu_L < 4.0:
@@ -10173,10 +10227,18 @@ def getMuncTrack(
     if specifiedNu0 is not None:
         # check if Nu_0 is specified before computing
         Nu_0 = specifiedNu0
-        logger.info(f"Using fixed/specified Nu_0={Nu_0:.2f}")
+        logger.info(
+            "Using fixed/specified Nu_0=%.2f sampleFile=%s",
+            Nu_0,
+            sampleFileLog,
+        )
     elif pooledNu0 is not None:
         Nu_0 = pooledNu0
-        logger.info(f"Using pooled Nu_0={Nu_0:.2f}")
+        logger.info(
+            "Using pooled Nu_0=%.2f sampleFile=%s",
+            Nu_0,
+            sampleFileLog,
+        )
     else:
         # only pass matched finite pairs into EB_computePriorStrength
         if np.count_nonzero(nu0Evidence) < 4:
@@ -10196,9 +10258,10 @@ def getMuncTrack(
     Nu_0_cap = 50.0 * float(Nu_L)
     if np.isfinite(Nu_0_cap) and Nu_0 > Nu_0_cap:
         logger.info(
-            "Capping Nu_0=%.2f at 50*Nu_L=%.2f",
+            "Capping Nu_0=%.2f at 50*Nu_L=%.2f sampleFile=%s",
             float(Nu_0),
             float(Nu_0_cap),
+            sampleFileLog,
         )
         Nu_0 = float(Nu_0_cap)
 
@@ -10206,6 +10269,7 @@ def getMuncTrack(
         "MUNC EB shrinkage",
         (
             ("chromosome", chromosome),
+            *sampleFileRows,
             ("Nu_0", float(Nu_0)),
             ("Nu_L", float(Nu_L)),
             ("posterior sample size", float(Nu_L + Nu_0)),
@@ -10213,7 +10277,12 @@ def getMuncTrack(
             ("MUNC variance model", muncVarianceModelName),
         ),
     )
-    logger.info("MUNC EB shrinkage:\n\tNu_0=%.2f\n\tNu_L=%.2f", Nu_0, Nu_L)
+    logger.info(
+        "MUNC EB shrinkage: sampleFile=%s\n\tNu_0=%.2f\n\tNu_L=%.2f",
+        sampleFileLog,
+        Nu_0,
+        Nu_L,
+    )
     posteriorSampleSize: float = Nu_L + Nu_0
     if not np.isfinite(posteriorSampleSize) or posteriorSampleSize <= 0.0:
         raise ValueError(
@@ -10237,10 +10306,11 @@ def getMuncTrack(
     countFloorAddedCount = int(finalizeDiagnostics["countFloorAddedCount"])
 
     logger.info(
-        "MUNC EB evidence: chromosome=%s localAboveFloorFraction=%.6g "
+        "MUNC EB evidence: chromosome=%s sampleFile=%s localAboveFloorFraction=%.6g "
         "nu0PairFraction=%.6g finalShrinkagePairFraction=%.6g "
         "countFloorAddedCount=%d",
         chromosome,
+        sampleFileLog,
         float(supportFraction),
         (
             float(np.count_nonzero(nu0Evidence) / nu0Evidence.size)
@@ -10258,12 +10328,15 @@ def getMuncTrack(
             posteriorVarTrack,
             np.abs(means_Sorted),
             countModelVarianceFloorArr,
+            sampleFile=sampleFileText,
         )
     )
 
     if verbose:
         logger.info(
-            f"Median variance after shrinkage: {float(np.nanmedian(posteriorVarTrack)):.4f}",
+            "Median variance after shrinkage: %.4f sampleFile=%s",
+            float(np.nanmedian(posteriorVarTrack)),
+            sampleFileLog,
         )
 
     return posteriorVarTrack.astype(np.float32, copy=False), float(supportFraction)

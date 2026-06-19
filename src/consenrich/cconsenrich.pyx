@@ -10755,7 +10755,7 @@ cpdef tuple cstateShrinkInitialSums(
 cpdef tuple cstateShrinkMixtureEMStep(
     object state,
     object variance,
-    double priorNull,
+    double priorSpikeProp,
     object slabVariance,
     object slabWeight,
     int blockSize=1,
@@ -10767,7 +10767,7 @@ cpdef tuple cstateShrinkMixtureEMStep(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
     cdef Py_ssize_t slabCount
     cdef Py_ssize_t j
-    cdef double pi0 = priorNull
+    cdef double pi0 = priorSpikeProp
     cdef double slabWeightTotal = 0.0
     cdef double logPriorScale
 
@@ -10783,7 +10783,7 @@ cpdef tuple cstateShrinkMixtureEMStep(
     if slabPriorWeightArr.shape[0] != slabCount:
         raise ValueError("slabVariance and slabWeight must have the same length")
     if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+        raise ValueError("priorSpikeProp must be finite with 0 < priorSpikeProp < 1")
 
     cdef double[::1] tauView = tauArr
     cdef double[::1] slabPriorWeightView = slabPriorWeightArr
@@ -10823,7 +10823,7 @@ cpdef tuple cstateShrinkMixtureEMStep(
 cpdef tuple cstateShrinkMixtureEMStepPrepared(
     object state,
     object variance,
-    double priorNull,
+    double priorSpikeProp,
     object slabVariance,
     object logSlabPrior,
     int blockSize=1,
@@ -10845,7 +10845,7 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
     cdef Py_ssize_t start, end, i, j, blockIndex, blockCount
     cdef Py_ssize_t validInBlock
     cdef int block = blockSize if blockSize > 0 else 1
-    cdef double pi0 = priorNull
+    cdef double pi0 = priorSpikeProp
     cdef double x, v, weight, logNull, logDenom
     cdef double maxLog, denomSum, resp, tau2, slabShrinkage, slabMean
     cdef double slabPosteriorVariance, logNullPrior, logValue, x2, vPlusTau
@@ -10870,7 +10870,7 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
     if logSlabPriorArr.shape[0] != slabCount:
         raise ValueError("slabVariance and logSlabPrior must have the same length")
     if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+        raise ValueError("priorSpikeProp must be finite with 0 < priorSpikeProp < 1")
 
     cdef double[::1] xView = xArr
     cdef double[::1] vView = vArr
@@ -10965,7 +10965,7 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
 cpdef tuple cstateShrinkMixturePosterior(
     object state,
     object variance,
-    double priorNull,
+    double priorSpikeProp,
     object slabVariance,
     object slabWeight,
 ):
@@ -10976,7 +10976,7 @@ cpdef tuple cstateShrinkMixturePosterior(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
     cdef Py_ssize_t slabCount
     cdef Py_ssize_t j
-    cdef double pi0 = priorNull
+    cdef double pi0 = priorSpikeProp
     cdef double slabWeightTotal = 0.0
     cdef double logPriorScale
 
@@ -10992,7 +10992,7 @@ cpdef tuple cstateShrinkMixturePosterior(
     if slabPriorWeightArr.shape[0] != slabCount:
         raise ValueError("slabVariance and slabWeight must have the same length")
     if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+        raise ValueError("priorSpikeProp must be finite with 0 < priorSpikeProp < 1")
 
     cdef double[::1] tauView = tauArr
     cdef double[::1] slabPriorWeightView = slabPriorWeightArr
@@ -11031,7 +11031,7 @@ cpdef tuple cstateShrinkMixturePosterior(
 cpdef tuple cstateShrinkMixturePosteriorPrepared(
     object state,
     object variance,
-    double priorNull,
+    double priorSpikeProp,
     object slabVariance,
     object logSlabPrior,
 ):
@@ -11047,7 +11047,7 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSlabPriorArr
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t slabCount
-    cdef double pi0 = priorNull
+    cdef double pi0 = priorSpikeProp
     cdef double logNullPrior, x, v, logNull, maxLog, denomSum, resp
     cdef double logValue, nullProb, tau2, slabShrinkage, slabMean
     cdef double slabPosteriorVariance, shrunk, postSecond, postVariance, posteriorSd
@@ -11072,7 +11072,7 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
     if logSlabPriorArr.shape[0] != slabCount:
         raise ValueError("slabVariance and logSlabPrior must have the same length")
     if (not isfinite(pi0)) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError("priorNull must be finite with 0 < priorNull < 1")
+        raise ValueError("priorSpikeProp must be finite with 0 < priorSpikeProp < 1")
 
     cdef double[::1] xView = xArr
     cdef double[::1] vView = vArr
@@ -11091,14 +11091,12 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] shrunkArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] posteriorSdArr = np.empty(n, dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] factorArr = np.empty(n, dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] nullArr = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] spikePropArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabMeanArr = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] slabWeightArr = np.empty(n, dtype=np.float32)
     cdef cnp.float32_t[::1] shrunkView = shrunkArr
     cdef cnp.float32_t[::1] posteriorSdView = posteriorSdArr
-    cdef cnp.float32_t[::1] factorView = factorArr
-    cdef cnp.float32_t[::1] nullView = nullArr
+    cdef cnp.float32_t[::1] spikePropView = spikePropArr
     cdef cnp.float32_t[::1] slabMeanView = slabMeanArr
     cdef cnp.float32_t[::1] slabWeightView = slabWeightArr
 
@@ -11154,11 +11152,7 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
                     posteriorSd = sqrt(postVariance)
                     shrunkView[i] = <cnp.float32_t>shrunk
                     posteriorSdView[i] = <cnp.float32_t>posteriorSd
-                    if fabs(x) > 1.0e-12:
-                        factorView[i] = <cnp.float32_t>(shrunk / x)
-                    else:
-                        factorView[i] = <cnp.float32_t>0.0
-                    nullView[i] = <cnp.float32_t>nullProb
+                    spikePropView[i] = <cnp.float32_t>nullProb
                     if slabPosteriorWeight > 1.0e-12:
                         slabMeanView[i] = <cnp.float32_t>(shrunk / slabPosteriorWeight)
                     else:
@@ -11167,11 +11161,10 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
                 else:
                     shrunkView[i] = <cnp.float32_t>x
                     posteriorSdView[i] = <cnp.float32_t>NAN
-                    factorView[i] = <cnp.float32_t>1.0
-                    nullView[i] = <cnp.float32_t>NAN
+                    spikePropView[i] = <cnp.float32_t>NAN
                     slabMeanView[i] = <cnp.float32_t>NAN
                     slabWeightView[i] = <cnp.float32_t>NAN
     finally:
         free(respScratch)
         free(logSlabScratch)
-    return shrunkArr, posteriorSdArr, factorArr, nullArr, slabMeanArr, slabWeightArr
+    return shrunkArr, posteriorSdArr, spikePropArr, slabMeanArr, slabWeightArr

@@ -130,6 +130,7 @@ _OUTPUT_TRACK_FALLBACK_NAMES: Dict[str, Tuple[str, ...]] = {
 GAIN_SUMMARY_COLUMNS = [
     "replicate_index",
     "sample_name",
+    "sample_file",
     "treatment_path",
     "control_path",
     "chromosome_count",
@@ -286,7 +287,7 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_finite_count",
     "state_shrinkage_effective_block_count",
     "state_shrinkage_block_size_intervals",
-    "state_shrinkage_prior_null",
+    "state_shrinkage_prior_spike_prop",
     "state_shrinkage_prior_scale",
     "state_shrinkage_prior_variance",
     "state_shrinkage_prior_variance_defined",
@@ -299,7 +300,7 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_student_t_scale",
     "state_shrinkage_student_t_quadrature_order",
     "state_shrinkage_student_t_quadrature_alpha",
-    "state_shrinkage_estimated_prior_null",
+    "state_shrinkage_estimated_prior_spike_prop",
     "state_shrinkage_estimated_prior_scale",
     "state_shrinkage_estimated_slab_weights",
     "state_shrinkage_estimated_slab_scales",
@@ -308,8 +309,7 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_log_likelihood",
     "state_shrinkage_state_abs_median_before",
     "state_shrinkage_state_abs_median_after",
-    "state_shrinkage_factor_median",
-    "state_shrinkage_null_probability_median",
+    "state_shrinkage_spike_prop_median",
     "state_shrinkage_posterior_sd_median",
     "delete_block_global_factor",
     "delete_block_factor_model",
@@ -722,6 +722,18 @@ def _diagnosticLogPaths(experimentName: str) -> DiagnosticLogPaths:
 def _runSummaryPath(experimentName: str) -> Path:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.jsonl")
+
+
+def _chromSizesOrderForPlannedChromosomes(
+    chromSizes: Mapping[str, Any],
+    plannedChromosomes: Sequence[str],
+) -> List[str]:
+    plannedChromosomeSet = {str(chromosome) for chromosome in plannedChromosomes}
+    return [
+        str(chromosome)
+        for chromosome in chromSizes.keys()
+        if str(chromosome) in plannedChromosomeSet
+    ]
 
 
 def _initializeDiagnosticLogs(paths: DiagnosticLogPaths) -> None:
@@ -1623,8 +1635,7 @@ def _stateShrinkageOutputTracks(
     if writeStateShrinkageTracks:
         tracks.extend(
             [
-                ("stateShrinkageFactor", "stateShrinkageFactor"),
-                ("stateNullProbability", "stateNullProbability"),
+                ("stateSpikeProp", "stateSpikeProp"),
             ]
         )
     return tracks
@@ -1653,8 +1664,8 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_block_size_intervals": _summaryInt(
             stateShrinkage.get("block_size_intervals")
         ),
-        "state_shrinkage_prior_null": _summaryNumber(
-            stateShrinkage.get("prior_null")
+        "state_shrinkage_prior_spike_prop": _summaryNumber(
+            stateShrinkage.get("prior_spike_prop")
         ),
         "state_shrinkage_prior_scale": _summaryNumber(
             stateShrinkage.get("prior_scale")
@@ -1692,8 +1703,8 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_student_t_quadrature_alpha": _summaryNumber(
             stateShrinkage.get("student_t_quadrature_alpha")
         ),
-        "state_shrinkage_estimated_prior_null": _jsonDiagnosticValue(
-            stateShrinkage.get("estimated_prior_null")
+        "state_shrinkage_estimated_prior_spike_prop": _jsonDiagnosticValue(
+            stateShrinkage.get("estimated_prior_spike_prop")
         ),
         "state_shrinkage_estimated_prior_scale": _jsonDiagnosticValue(
             stateShrinkage.get("estimated_prior_scale")
@@ -1717,11 +1728,8 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_state_abs_median_after": _summaryNumber(
             stateShrinkage.get("state_abs_median_after")
         ),
-        "state_shrinkage_factor_median": _summaryNumber(
-            stateShrinkage.get("shrinkage_factor_median")
-        ),
-        "state_shrinkage_null_probability_median": _summaryNumber(
-            stateShrinkage.get("null_probability_median")
+        "state_shrinkage_spike_prop_median": _summaryNumber(
+            stateShrinkage.get("spike_prop_median")
         ),
         "state_shrinkage_posterior_sd_median": _summaryNumber(
             stateShrinkage.get("posterior_sd_median")
@@ -2091,6 +2099,7 @@ def _replicateGainSummaryRows(
                 or f"replicate_{i + 1}"
             )
             treatmentPath = str(source.path)
+        sampleFile = os.path.basename(treatmentPath)[:7]
         controlPath = str(controlSources_[i].path) if i < len(controlSources_) else None
         count = int(finiteCounts[i])
         if count > 0:
@@ -2104,6 +2113,7 @@ def _replicateGainSummaryRows(
             {
                 "replicate_index": int(i + 1),
                 "sample_name": sourceId,
+                "sample_file": sampleFile,
                 "treatment_path": treatmentPath,
                 "control_path": controlPath,
                 "chromosome_count": int(chromosomeCounts[i]),
@@ -2254,6 +2264,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
                 controlsPresent=controlsPresent,
             )[1],
         ),
+        ("centerMB method", countingArgs.centerMBMethod),
         ("MUNC variance model", observationArgs.muncVarianceModel),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         (
@@ -3144,6 +3155,13 @@ def main():
     bamFiles = core.getSourcePaths(treatmentSources)
     bamFilesControl = core.getSourcePaths(controlSources)
     numSamples = len(bamFiles)
+    sampleFileByIndex = [
+        os.path.basename(str(source.path))[:7] for source in treatmentSources
+    ]
+    if len(sampleFileByIndex) != numSamples or any(
+        not sampleFile for sampleFile in sampleFileByIndex
+    ):
+        raise ValueError("treatment source sampleFile must be non-empty")
     intervalSizeBP = countingArgs.intervalSizeBP
     excludeForNorm = genomeArgs.excludeForNorm
     chromSizes = genomeArgs.chromSizesFile
@@ -4617,12 +4635,21 @@ def main():
             centerStats = core.centerMBInPlace(
                 chromMat,
                 intervalSizeBP=intervalSizeBP,
+                centerMBMethod=countingArgs.centerMBMethod,
             )
             logger.info(
-                "centerMB.done %s samples=%d applied=%d elapsed=%.3fs",
+                "centerMB.done\t%s\tsamples=%d\tapplied=%d\t"
+                "meanTrackValBeforeCenterMB=%.6g\t"
+                "meanTrackValAfterCenterMB=%.6g\t"
+                "stdTrackValBeforeCenterMB=%.6g\t"
+                "stdTrackValAfterCenterMB=%.6g\telapsed=%.3fs",
                 chromosome,
                 int(numSamples),
                 int(centerStats.get("applied_tracks", 0)),
+                float(centerStats["meanTrackValBeforeCenterMB"]),
+                float(centerStats["meanTrackValAfterCenterMB"]),
+                float(centerStats["stdTrackValBeforeCenterMB"]),
+                float(centerStats["stdTrackValAfterCenterMB"]),
                 time.perf_counter() - centerStart,
             )
 
@@ -6341,13 +6368,14 @@ def main():
     logger.info(
         "pooled MUNC deterministic block trend: pairs=%d samples=%d "
         "nu_L=%.2f nu_L_W=%d nu_L_H=%d nu_L_eta=%.4g "
-        "sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
+        "sampleFile=%s sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
         int(pooledBlockMeans.size),
         int(numSamples),
         float(pooledNuL),
         int(pooledLocalWindowIntervals),
         int(pooledNuLHorizon),
         float(pooledNuLEta),
+        sampleFileByIndex,
         np.array2string(
             np.asarray(pooledMuncNu0BySample, dtype=np.float64),
             precision=2,
@@ -6484,7 +6512,19 @@ def main():
     if saveBackgroundTracks:
         bedGraphTracks.append(("background", "background"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
-    bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
+    bedGraphPlanChromOrder = [
+        str(chromPlan["chromosome"]) for chromPlan in chromosomePlans
+    ]
+    bedGraphChromOrder = _chromSizesOrderForPlannedChromosomes(
+        chromSizesDict,
+        bedGraphPlanChromOrder,
+    )
+    bedGraphPlanOrderDiffers = bedGraphChromOrder != bedGraphPlanChromOrder
+    if bedGraphPlanOrderDiffers:
+        logger.info(
+            "bedGraph track order uses chrom.sizes order because execution plan "
+            "order differs."
+        )
     genomeOptimizationPathRows: List[Mapping[str, Any]] = []
     runSummaryRows: List[Dict[str, Any]] = []
     segShrinkGenomeRequested = bool(
@@ -6733,6 +6773,7 @@ def main():
                 covariateTrack=chromMuncCovariates,
                 additiveCovariateModel=additiveCovariateModel,
                 replicateIndex=j,
+                sampleFile=sampleFileByIndex[j],
                 localVarianceTrack=muncLocalEvidenceMat[j, :],
                 **finalMuncFloorKwargs,
             )
@@ -7620,9 +7661,9 @@ def main():
         stateShrinkPrior = shrinkState.fitStateShrinkagePrior(
             stateShrinkDeferred,
             model=getattr(outputArgs, "stateShrinkageModel", None),
-            priorNull=getattr(outputArgs, "stateShrinkagePriorNull", None),
+            priorSpikeProp=getattr(outputArgs, "stateShrinkagePriorSpikeProp", None),
             priorScale=getattr(outputArgs, "stateShrinkagePriorScale", None),
-            stateShrinkageNullPseudoCount=outputArgs.stateShrinkageNullPseudoCount,
+            stateShrinkageSpikePseudoCount=outputArgs.stateShrinkageSpikePseudoCount,
             stateShrinkageScaleAnchorWeight=getattr(
                 outputArgs,
                 "stateShrinkageScaleAnchorWeight",
@@ -7642,14 +7683,14 @@ def main():
         )
         logger.info(
             "stateShrinkage.prior: model=%s scope=%s blockIntervals=%d "
-            "effectiveBlocks=%s priorNull=%s priorScale=%s iterations=%d "
+            "effectiveBlocks=%s priorSpikeProp=%s priorScale=%s iterations=%d "
             "converged=%s slabCount=%s slabWeight=%s slabVariance=%s "
             "componentWeights=%s",
             str(stateShrinkPrior.metadata.get("model") or "NA"),
             str(stateShrinkPrior.metadata.get("scope") or "NA"),
             int(stateShrinkPrior.metadata.get("block_size_intervals") or 1),
             _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("effective_block_count")),
-            _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_null")),
+            _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_spike_prop")),
             _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_scale")),
             int(stateShrinkPrior.metadata.get("iterations") or 0),
             bool(stateShrinkPrior.metadata.get("converged")),
@@ -7696,8 +7737,7 @@ def main():
                 }
             )
             if writeStateShrinkageTracks:
-                dfShrink["stateShrinkageFactor"] = stateShrinkageResult.shrinkageFactor
-                dfShrink["stateNullProbability"] = stateShrinkageResult.nullProbability
+                dfShrink["stateSpikeProp"] = stateShrinkageResult.spikeProp
             dfShrink = dfShrink.sort_values(
                 by=["Start", "End"],
                 kind="mergesort",
@@ -7763,12 +7803,16 @@ def main():
         int(len(suffixes)),
     )
 
+    validatedBedGraphs = set()
     for suffix in suffixes:
         bedgraphPath = (
             f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
         try:
+            if bedGraphPlanOrderDiffers:
+                _sortBedGraphInPlace(bedgraphPath, chromOrder=bedGraphChromOrder)
             _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
+            validatedBedGraphs.add(os.path.abspath(bedgraphPath))
         except Exception as ex:
             logger.warning(
                 "bedGraph %s failed genome-order validation; sorting as fallback:\n%s",
@@ -7777,6 +7821,8 @@ def main():
             )
             try:
                 _sortBedGraphInPlace(bedgraphPath, chromOrder=bedGraphChromOrder)
+                _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
+                validatedBedGraphs.add(os.path.abspath(bedgraphPath))
             except Exception as sortEx:
                 logger.warning(f"Failed to sort {bedgraphPath}:\n{sortEx}")
 
@@ -7785,6 +7831,7 @@ def main():
             experimentName,
             genomeArgs.chromSizesFile,
             suffixes=suffixes,
+            validatedBedGraphs=validatedBedGraphs,
         )
 
     if peakCallingEnabled:

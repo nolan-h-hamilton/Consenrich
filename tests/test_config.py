@@ -150,7 +150,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     sources = [
         consenrich_core.inputSource(
-            path="/tmp/sampleA.bam",
+            path="/tmp/ENCFF12345_sampleA.bam",
             sourceKind="BAM",
             sampleName="sampleA",
         ),
@@ -192,6 +192,7 @@ def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     expectedSumSq = ((0.0125**2 + 0.125**2) * 4.0) + ((0.025**2 + 0.25**2) * 6.0)
     expectedStd = np.sqrt((expectedSumSq / 10.0) - (expectedAvg**2))
     assert rows[0]["sample_name"] == "sampleA"
+    assert rows[0]["sample_file"] == "ENCFF12"
     assert rows[0]["control_path"] == "/tmp/controlA.bam"
     assert rows[0]["chromosome_count"] == 2
     assert rows[0]["finite_interval_count"] == 10
@@ -205,6 +206,7 @@ def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
         for line in path.read_text(encoding="utf-8").splitlines()
     ]
     assert [record["replicate_index"] for record in records] == [1, 2]
+    assert records[0]["sample_file"] == "ENCFF12"
     assert records[0]["gain_avg"] == pytest.approx(expectedAvg)
     assert records[0]["gain_std"] == pytest.approx(expectedStd)
     assert "gain_median" not in records[0]
@@ -585,6 +587,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     genomeParams.name: testGenome
     genomeParams.excludeChroms: [chrM]
     countingParams.intervalSizeBP: 50
+    countingParams.centerMBMethod: savgol
     samParams.defaultCountMode: ffp-center
     outputParams.plotOptimizationPath: false
     outputParams.cutoffReport: true
@@ -619,6 +622,7 @@ def _case_readConfigDottedAndNestedEquivalent(
         - chrM
     countingParams:
       intervalSizeBP: 50
+      centerMBMethod: savgol
     samParams:
       defaultCountMode: ffp-center
     outputParams:
@@ -686,6 +690,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert countingDotted.intervalSizeBP == 50
     assert countingNested.intervalSizeBP == 50
     assert countingDotted.intervalSizeBP == countingNested.intervalSizeBP
+    assert countingDotted.centerMBMethod == "savgol"
+    assert countingNested.centerMBMethod == "savgol"
 
     observationDotted = configDotted["observationArgs"]
     observationNested = configNested["observationArgs"]
@@ -1157,10 +1163,10 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T,
     )
-    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT is None
-    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_FRACTION == 0.1
-    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MIN == 1.0e-6
-    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MAX == 1.0e6
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT is None
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_FRACTION == 0.1
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MIN == 1.0e-6
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MAX == 1.0e6
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT is None
     assert (
         constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_FRACTION
@@ -1172,6 +1178,56 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert "observationParams.muncEBPrior.mode" not in defaults
     assert "observationParams.muncAR1VarianceFunctional" not in defaults
     assert "observationParams.muncGUncertaintyMode" not in defaults
+
+
+def _case_readConfigRejectsUnsupportedCenterMBMethod(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    countingParams.centerMBMethod: mean
+    """
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_bad_center_mb_method.yaml",
+        configYaml,
+    )
+
+    with pytest.raises(ValueError, match="countingParams.centerMBMethod"):
+        readConfig(str(configPath))
+
+
+def _case_readConfigRejectsRemovedStateShrinkageKeys(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    for key in (
+        "outputParams.stateShrinkagePriorNull",
+        "outputParams.stateShrinkageNullPseudoCount",
+    ):
+        configYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        {key}: 0.25
+        """
+        configPath = writeConfigFile(
+            tmp_path,
+            f"config_removed_{key.rsplit('.', 1)[-1]}.yaml",
+            configYaml,
+        )
+
+        with pytest.raises(ValueError, match=key):
+            readConfig(str(configPath))
 
 
 def _case_runtime_defaults_are_centralized(
@@ -1343,6 +1399,10 @@ def _case_runtime_defaults_are_centralized(
     )
     assert (
         parsed["countingArgs"].centerMB == profile["countingParams.centerMB"]
+    )
+    assert (
+        parsed["countingArgs"].centerMBMethod
+        == profile["countingParams.centerMBMethod"]
     )
     assert (
         parsed["outputArgs"].saveBackgroundTracks
@@ -1696,6 +1756,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_outerIters: 16
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.centerMB: false
+    countingParams.centerMBMethod: savgol
     processParams.processNoiseCalibration: seed
     processParams.puncMinScale: 0.75
     processParams.puncMaxScale: 2.5
@@ -1708,7 +1769,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
     outputParams.stateShrinkageModel: spikeAndStudentT
-    outputParams.stateShrinkageNullPseudoCount: 2.5
+    outputParams.stateShrinkagePriorSpikeProp: 0.33
+    outputParams.stateShrinkageSpikePseudoCount: 2.5
     outputParams.stateShrinkageScaleAnchorWeight: 9
     outputParams.stateShrinkageStudentTDF: 5
     outputParams.stateShrinkageStudentTQuadratureOrder: 32
@@ -1724,6 +1786,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["fitArgs"].ECM_outerIters == 16
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].centerMB is False
+    assert parsed["countingArgs"].centerMBMethod == "savgol"
     assert parsed["processArgs"].processNoiseCalibration == "seed"
     assert parsed["processArgs"].puncMinScale == pytest.approx(0.75)
     assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
@@ -1741,7 +1804,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
         parsed["outputArgs"].stateShrinkageModel
         == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
     )
-    assert parsed["outputArgs"].stateShrinkageNullPseudoCount == pytest.approx(2.5)
+    assert parsed["outputArgs"].stateShrinkagePriorSpikeProp == pytest.approx(0.33)
+    assert parsed["outputArgs"].stateShrinkageSpikePseudoCount == pytest.approx(2.5)
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight == pytest.approx(9.0)
     assert parsed["outputArgs"].stateShrinkageStudentTDF == pytest.approx(5.0)
     assert parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder == 32
@@ -2826,6 +2890,118 @@ def _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph(tmp_path):
     assert not bigWigPath.exists()
 
 
+def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch):
+    experimentName = "toy"
+    version = consenrich_io.__version__
+    chromSizesPath = tmp_path / "toy.chrom.sizes"
+    chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+    suffixes = ["state", "uncertainty"]
+    bedGraphPaths = {
+        suffix: (
+            tmp_path
+            / f"consenrichOutput_{experimentName}_{suffix}.v{version}.bedGraph"
+        )
+        for suffix in suffixes
+    }
+    for bedGraphPath in bedGraphPaths.values():
+        bedGraphPath.write_text("chr1\t0\t10\t1.0\n", encoding="ascii")
+
+    validateCalls = []
+    readCalls = []
+    convertCalls = []
+    realReadChromSizes = consenrich_io._readChromSizes
+
+    def recordReadChromSizes(path):
+        readCalls.append(path)
+        return realReadChromSizes(path)
+
+    def recordValidate(path, chromOrder=None):
+        validateCalls.append((path, tuple(chromOrder or ())))
+
+    def recordConvert(
+        bedGraphPath,
+        chromSizesFile,
+        bigWigPath,
+        chunkSize=200_000,
+        *,
+        chromSizes=None,
+    ):
+        convertCalls.append((bedGraphPath, chromSizesFile, bigWigPath, chromSizes))
+        Path(bigWigPath).write_bytes(b"x" * 128)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(consenrich_io, "_readChromSizes", recordReadChromSizes)
+    monkeypatch.setattr(consenrich_io, "_validateBedGraphSorted", recordValidate)
+    monkeypatch.setattr(
+        consenrich_io,
+        "_convertBedGraphToBigWigPyBigWig",
+        recordConvert,
+    )
+
+    consenrich_io.convertBedGraphToBigWig(
+        experimentName,
+        str(chromSizesPath),
+        suffixes=suffixes,
+        validatedBedGraphs={str(bedGraphPaths["state"])},
+    )
+
+    assert readCalls == [str(chromSizesPath)]
+    assert validateCalls == [
+        (
+            f"consenrichOutput_{experimentName}_uncertainty.v{version}.bedGraph",
+            ("chr1",),
+        )
+    ]
+    assert [call[0] for call in convertCalls] == [
+        f"consenrichOutput_{experimentName}_state.v{version}.bedGraph",
+        f"consenrichOutput_{experimentName}_uncertainty.v{version}.bedGraph",
+    ]
+    assert all(call[3] == [("chr1", 100)] for call in convertCalls)
+
+
+def test_convertBedGraphToBigWigValidatedSkipStillRejectsUnsortedTrack(
+    tmp_path,
+    monkeypatch,
+):
+    pytest.importorskip("pyBigWig")
+    experimentName = "toy"
+    version = consenrich_io.__version__
+    chromSizesPath = tmp_path / "toy.chrom.sizes"
+    chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+    bedGraphPath = (
+        tmp_path / f"consenrichOutput_{experimentName}_state.v{version}.bedGraph"
+    )
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "chr1\t10\t20\t1.0",
+                "chr1\t0\t5\t2.0",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    validateCalls = []
+    realValidate = consenrich_io._validateBedGraphSorted
+
+    def recordValidate(path, chromOrder=None):
+        validateCalls.append(path)
+        return realValidate(path, chromOrder=chromOrder)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(consenrich_io, "_validateBedGraphSorted", recordValidate)
+
+    consenrich_io.convertBedGraphToBigWig(
+        experimentName,
+        str(chromSizesPath),
+        suffixes=["state"],
+        validatedBedGraphs={str(bedGraphPath)},
+    )
+
+    assert validateCalls == []
+    assert not (tmp_path / f"{experimentName}_consenrich_state.v{version}.bw").exists()
+
+
 def _case_sortBedGraphInPlace(tmp_path):
     bedGraphPath = tmp_path / "toy.bedGraph"
     bedGraphPath.write_text(
@@ -2897,6 +3073,66 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
         "chr1\t0\t10\t1.0000",
         "chr1\t10\t20\t1.5000",
     ]
+
+
+def _case_sortBedGraphUsesSizesOrderFilteredToPlannedChromosomes(tmp_path):
+    bedGraphPath = tmp_path / "planned_order.bedGraph"
+    chromSizesPath = tmp_path / "planned_order.chrom.sizes"
+    chromSizesPath.write_text(
+        "chr1\t100\nchr2\t100\nchr10\t100\nchrM\t100\n",
+        encoding="ascii",
+    )
+    plannedChromosomes = ["chr10", "chr1", "chr10"]
+    chromSizes = {
+        chrom: int(size)
+        for chrom, size in (
+            line.split("\t")
+            for line in chromSizesPath.read_text(encoding="ascii").splitlines()
+        )
+    }
+    chromOrder = consenrich_cli._chromSizesOrderForPlannedChromosomes(
+        chromSizes,
+        plannedChromosomes,
+    )
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "chr10\t20\t30\t10.0",
+                "chr1\t10\t20\t1.0",
+                "chr10\t0\t10\t8.0",
+                "chr1\t0\t10\t0.5",
+                "chr10\t10\t20\t9.0",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    consenrich_io._sortBedGraphInPlace(str(bedGraphPath), chromOrder=chromOrder)
+    consenrich_io._validateBedGraphSorted(str(bedGraphPath), chromOrder=chromOrder)
+
+    rows = [
+        line.split("\t")
+        for line in bedGraphPath.read_text(encoding="utf-8").splitlines()
+    ]
+    emittedChromosomes = [row[0] for row in rows]
+    chromosomeRuns = [
+        chrom
+        for index, chrom in enumerate(emittedChromosomes)
+        if index == 0 or chrom != emittedChromosomes[index - 1]
+    ]
+    startsByChromosome = {
+        chrom: [int(row[1]) for row in rows if row[0] == chrom]
+        for chrom in chromosomeRuns
+    }
+
+    assert chromOrder == ["chr1", "chr10"]
+    assert chromosomeRuns == ["chr1", "chr10"]
+    assert "chr2" not in emittedChromosomes
+    assert chromosomeRuns.count("chr10") == 1
+    assert startsByChromosome == {
+        chrom: sorted(starts) for chrom, starts in startsByChromosome.items()
+    }
 
 
 def _case_resolveFixedDeltaFRequiresPositiveFinite():
@@ -3044,6 +3280,14 @@ def test_config_parser_defaults_and_override_contracts(
         (
             "unknown default profile rejected",
             _case_readConfigRejectsUnknownDefaultConfiguration,
+        ),
+        (
+            "unsupported centerMB method rejected",
+            _case_readConfigRejectsUnsupportedCenterMBMethod,
+        ),
+        (
+            "removed state shrinkage keys rejected",
+            _case_readConfigRejectsRemovedStateShrinkageKeys,
         ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
@@ -3344,8 +3588,7 @@ def test_state_shrinkage_output_helpers_keep_required_tracks():
     assert consenrich_cli._stateShrinkageOutputTracks(True) == [
         ("stateShrunk", "stateShrunk"),
         ("stateShrunkUncertainty", "stateShrunkUncertainty"),
-        ("stateShrinkageFactor", "stateShrinkageFactor"),
-        ("stateNullProbability", "stateNullProbability"),
+        ("stateSpikeProp", "stateSpikeProp"),
     ]
 
 
@@ -3510,7 +3753,7 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "finite_count": np.int64(10),
         "effective_block_count": np.float64(6.0),
         "block_size_intervals": np.int64(3),
-        "prior_null": np.float64(0.4),
+        "prior_spike_prop": np.float64(0.4),
         "prior_scale": np.float64(1.25),
         "prior_variance": np.float64(1.5625),
         "prior_variance_defined": np.bool_(True),
@@ -3527,7 +3770,7 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "student_t_scale": np.float64(0.7216878364870323),
         "student_t_quadrature_order": np.int64(24),
         "student_t_quadrature_alpha": np.float64(0.5),
-        "estimated_prior_null": np.bool_(True),
+        "estimated_prior_spike_prop": np.bool_(True),
         "estimated_prior_scale": np.bool_(True),
         "estimated_slab_weights": np.bool_(True),
         "estimated_slab_scales": np.bool_(True),
@@ -3541,7 +3784,7 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "intervals": 12,
         "samples": 2,
         "elapsed_seconds": 0.25,
-        "output_track_count": 4,
+        "output_track_count": 3,
     }
     row.update(consenrich_cli._stateShrinkageSummaryFields(metadata))
     summaryPath = tmp_path / "summary.jsonl"
@@ -3557,6 +3800,8 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
     assert record["state_shrinkage_slab_variance"] == [0.5, 2.0]
     assert record["state_shrinkage_slab_multiplier"] == [0.32, 1.28]
     assert record["state_shrinkage_component_weights"] == [0.4, 0.15, 0.45]
+    assert record["state_shrinkage_prior_spike_prop"] == pytest.approx(0.4)
+    assert record["state_shrinkage_estimated_prior_spike_prop"] is True
     assert record["state_shrinkage_student_t_df"] == pytest.approx(3.0)
     assert record["state_shrinkage_student_t_scale"] == pytest.approx(
         0.7216878364870323
@@ -3679,6 +3924,10 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
         (
             "bedGraph genome-order validation",
             _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback,
+        ),
+        (
+            "bedGraph sizes-order planned chromosome filtering",
+            _case_sortBedGraphUsesSizesOrderFilteredToPlannedChromosomes,
         ),
     ):
         contract_case(label, func, tmp_path)

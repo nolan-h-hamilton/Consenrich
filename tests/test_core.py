@@ -4,6 +4,7 @@
 # 'core' as in 'central' or 'basic', not the literal
 # `consenrich.core` module
 
+import logging
 import math
 import os
 import tempfile
@@ -1669,8 +1670,64 @@ def _caseCenterMBAppliesMedianFilterInPlace():
 
         assert stats_["applied"] is True
         assert stats_["applied_tracks"] == originalTracks.shape[0]
+        assert stats_["meanTrackValBeforeCenterMB"] == pytest.approx(
+            float(np.mean(originalTracks))
+        )
+        assert stats_["meanTrackValAfterCenterMB"] == pytest.approx(
+            float(np.mean(expectedCentered))
+        )
+        assert stats_["stdTrackValBeforeCenterMB"] == pytest.approx(
+            float(np.std(originalTracks))
+        )
+        assert stats_["stdTrackValAfterCenterMB"] == pytest.approx(
+            float(np.std(expectedCentered))
+        )
         np.testing.assert_allclose(centeredTracks, expectedCentered)
         assert not np.allclose(centeredTracks, originalTracks)
+
+    savgolTracks = np.array(
+        [
+            [1.0, 4.0, 12.0, 5.0, 2.0],
+            [3.0, 3.0, 9.0, 3.0, 3.0],
+        ],
+        dtype=np.float64,
+    )
+    savgolOriginal = savgolTracks.copy()
+    savgolStats = core.centerMBInPlace(
+        savgolTracks,
+        intervalSizeBP=500_000,
+        centerMBMethod="savgol",
+    )
+    savgolFilter = spySig.savgol_filter(
+        savgolOriginal,
+        window_length=3,
+        polyorder=0,
+        mode="nearest",
+        axis=1,
+    )
+
+    assert savgolStats["applied"] is True
+    assert savgolStats["applied_tracks"] == 2
+    assert savgolStats["meanTrackValBeforeCenterMB"] == pytest.approx(
+        float(np.mean(savgolOriginal))
+    )
+    assert savgolStats["meanTrackValAfterCenterMB"] == pytest.approx(
+        float(np.mean(savgolOriginal - savgolFilter))
+    )
+    assert savgolStats["stdTrackValBeforeCenterMB"] == pytest.approx(
+        float(np.std(savgolOriginal))
+    )
+    assert savgolStats["stdTrackValAfterCenterMB"] == pytest.approx(
+        float(np.std(savgolOriginal - savgolFilter))
+    )
+    np.testing.assert_allclose(savgolTracks, savgolOriginal - savgolFilter)
+
+    with pytest.raises(ValueError, match="centerMBMethod"):
+        core.centerMBInPlace(
+            np.array([1.0, 2.0, 3.0], dtype=np.float64),
+            intervalSizeBP=500_000,
+            centerMBMethod="mean",
+        )
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -5680,6 +5737,7 @@ def test_core_munc_eb_finalization_uses_native_count_floor_nan_sentinel(
 @pytest.mark.correctness
 def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
     values = np.linspace(-1.0, 1.0, intervals.size, dtype=np.float32)
@@ -5714,6 +5772,8 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
         "EB_computePriorStrength",
         lambda *args, **kwargs: pytest.fail("pooled Nu_0 should be reused"),
     )
+    caplog.clear()
+    caplog.set_level(logging.INFO, logger=core.logger.name)
 
     muncTrack, _ = core.getMuncTrack(
         chromosome="chrTest",
@@ -5733,10 +5793,14 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean(
         localVarianceTrack=localVarTrack,
         varianceFloor=0.0,
         varianceCap=20.0,
+        sampleFile="ENCFF12345_sampleA.bam",
     )
 
     expected = (10.0 * localVarTrack + 4.0 * priorVarTrack) / 14.0
     assert np.allclose(muncTrack, expected.astype(np.float32))
+    assert "sampleFile=ENCFF12" in caplog.text
+    assert "sample_file=ENCFF12" in caplog.text
+    assert "ENCFF123" not in caplog.text
 
 
 @pytest.mark.correctness
@@ -8145,7 +8209,7 @@ def test_core_numeric_kernel_contracts(contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
-            "centerMB median filter",
+            "centerMB filters",
             _caseCenterMBAppliesMedianFilterInPlace,
         ),
         (
@@ -8356,6 +8420,7 @@ def test_core_em_loop_contracts(monkeypatch, contract_case):
 def test_core_pspline_sparse_support_and_trend_contracts(
     tmp_path,
     monkeypatch,
+    caplog,
     contract_case,
 ):
     contract_case(
@@ -8425,6 +8490,7 @@ def test_core_pspline_sparse_support_and_trend_contracts(
         "MUNC supplied pooled trend",
         _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean,
         monkeypatch,
+        caplog,
     )
     contract_case(
         "MUNC EMA prior mean",

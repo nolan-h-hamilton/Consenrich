@@ -647,6 +647,12 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
 
 def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outputParams:
     configData = loadConfig(config_path)
+    for removedKey in (
+        "outputParams.stateShrinkagePriorNull",
+        "outputParams.stateShrinkageNullPseudoCount",
+    ):
+        if _cfgHas(configData, removedKey):
+            raise ValueError(f"{removedKey} was removed")
 
     convertToBigWig_ = _cfgGet(
         configData,
@@ -676,13 +682,13 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
             _cfgDefault(configData, "outputParams.stateShrinkageModel"),
         )
     )
-    stateShrinkagePriorNull_ = _normalizeOptionalOpenUnitInterval(
+    stateShrinkagePriorSpikeProp_ = _normalizeOptionalOpenUnitInterval(
         _cfgGet(
             configData,
-            "outputParams.stateShrinkagePriorNull",
-            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_NULL,
+            "outputParams.stateShrinkagePriorSpikeProp",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SPIKE_PROP,
         ),
-        "outputParams.stateShrinkagePriorNull",
+        "outputParams.stateShrinkagePriorSpikeProp",
     )
     stateShrinkagePriorScale_ = _normalizeOptionalPositiveFloat(
         _cfgGet(
@@ -692,13 +698,13 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         ),
         "outputParams.stateShrinkagePriorScale",
     )
-    stateShrinkageNullPseudoCount_ = _normalizeOptionalNonnegativeFloat(
+    stateShrinkageSpikePseudoCount_ = _normalizeOptionalNonnegativeFloat(
         _cfgGet(
             configData,
-            "outputParams.stateShrinkageNullPseudoCount",
-            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT,
+            "outputParams.stateShrinkageSpikePseudoCount",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT,
         ),
-        "outputParams.stateShrinkageNullPseudoCount",
+        "outputParams.stateShrinkageSpikePseudoCount",
     )
     stateShrinkageScaleAnchorWeight_ = _normalizeOptionalNonnegativeFloat(
         _cfgGet(
@@ -791,9 +797,9 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         writeUncertainty=writeUncertainty_,
         writeStateShrinkage=bool(writeStateShrinkage_),
         stateShrinkageModel=stateShrinkageModel_,
-        stateShrinkagePriorNull=stateShrinkagePriorNull_,
+        stateShrinkagePriorSpikeProp=stateShrinkagePriorSpikeProp_,
         stateShrinkagePriorScale=stateShrinkagePriorScale_,
-        stateShrinkageNullPseudoCount=stateShrinkageNullPseudoCount_,
+        stateShrinkageSpikePseudoCount=stateShrinkageSpikePseudoCount_,
         stateShrinkageScaleAnchorWeight=stateShrinkageScaleAnchorWeight_,
         stateShrinkageStudentTDF=stateShrinkageStudentTDF_,
         stateShrinkageStudentTQuadratureOrder=stateShrinkageStudentTQuadratureOrder_,
@@ -1198,6 +1204,16 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         "countingParams.centerMB",
         _cfgDefault(configData, "countingParams.centerMB"),
     )
+    centerMBMethod_ = _cfgGet(
+        configData,
+        "countingParams.centerMBMethod",
+        _cfgDefault(configData, "countingParams.centerMBMethod"),
+    )
+    if centerMBMethod_ not in constants.COUNTING_SUPPORTED_CENTER_MB_METHODS:
+        supported = ", ".join(constants.COUNTING_SUPPORTED_CENTER_MB_METHODS)
+        raise ValueError(
+            f"countingParams.centerMBMethod must be one of: {supported}"
+        )
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
@@ -1215,6 +1231,7 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         transformOutputOffset=transformOutputOffset_,
         transformShape=transformShape_,
         centerMB=bool(centerMB_),
+        centerMBMethod=centerMBMethod_,
     )
 
 

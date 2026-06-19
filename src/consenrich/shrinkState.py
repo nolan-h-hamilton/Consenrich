@@ -36,17 +36,17 @@ _STATE_SHRINKAGE_DEFAULT_TOL = 1.0e-5
 _STATE_SHRINKAGE_DEFAULT_NULL_Z = 1.5
 _STATE_SHRINKAGE_DEFAULT_MIN_NULL = 1.0e-2
 _STATE_SHRINKAGE_DEFAULT_MAX_NULL = 1.0 - 1.0e-4
-_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT = (
-    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT
+_STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT
 )
-_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_FRACTION = (
-    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_FRACTION
+_STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_FRACTION = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_FRACTION
 )
-_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MIN = (
-    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MIN
+_STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_MIN = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MIN
 )
-_STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MAX = (
-    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_NULL_PSEUDO_COUNT_MAX
+_STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_MAX = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MAX
 )
 _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT = (
     constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT
@@ -71,7 +71,7 @@ class stateShrinkPrior(NamedTuple):
     r"""Specifies genome-wide EB prior for state shrinkage (spike+normal, mixture)."""
 
     model: str
-    priorNull: float
+    priorSpikeProp: float
     priorScale: float
     priorVariance: float
     blockSize: int
@@ -95,11 +95,10 @@ class stateShrinkResult(NamedTuple):
 
     shrunkState: np.ndarray
     posteriorSd: np.ndarray
-    shrinkageFactor: np.ndarray
-    nullProbability: np.ndarray
+    spikeProp: np.ndarray
     slabPosteriorMean: np.ndarray
     slabPosteriorWeight: np.ndarray
-    priorNull: float
+    priorSpikeProp: float
     priorScale: float
     metadata: dict[str, Any]
 
@@ -308,17 +307,20 @@ def _priorSlabArrays(prior: stateShrinkPrior) -> tuple[np.ndarray, np.ndarray]:
     return _sortedPositiveWeights((prior.priorVariance,), (1.0,))
 
 
-def _componentWeights(priorNull: float, slabWeight: np.ndarray) -> tuple[float, ...]:
-    pi0 = float(priorNull)
+def _componentWeights(
+    priorSpikeProp: float,
+    slabWeight: np.ndarray,
+) -> tuple[float, ...]:
+    pi0 = float(priorSpikeProp)
     return tuple([pi0] + [float((1.0 - pi0) * weight) for weight in slabWeight])
 
 
 def _modelComponentWeights(
     model: str,
-    priorNull: float,
+    priorSpikeProp: float,
     slabWeight: np.ndarray,
 ) -> tuple[float, ...]:
-    return _componentWeights(priorNull, slabWeight)
+    return _componentWeights(priorSpikeProp, slabWeight)
 
 
 def _slabMultipliersForModel(model: str) -> tuple[float, ...]:
@@ -329,10 +331,12 @@ def _slabMultipliersForModel(model: str) -> tuple[float, ...]:
     return _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS
 
 
-def _logSlabPrior(priorNull: float, slabWeight: np.ndarray) -> np.ndarray:
-    pi0 = float(priorNull)
+def _logSlabPrior(priorSpikeProp: float, slabWeight: np.ndarray) -> np.ndarray:
+    pi0 = float(priorSpikeProp)
     if not np.isfinite(pi0) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError("`priorNull` must be finite and strictly between 0 and 1")
+        raise ValueError(
+            "`priorSpikeProp` must be finite and strictly between 0 and 1"
+        )
     weight = np.asarray(slabWeight, dtype=np.float64).reshape(-1)
     weightTotal = float(np.sum(weight))
     if weight.size == 0 or weightTotal <= 0.0 or not np.isfinite(weightTotal):
@@ -356,7 +360,7 @@ def _emStep(
     state: np.ndarray,
     variance: np.ndarray,
     *,
-    priorNull: float,
+    priorSpikeProp: float,
     slabVariance: np.ndarray,
     logSlabPrior: np.ndarray,
     blockSize: int,
@@ -364,7 +368,7 @@ def _emStep(
     out = _cstateShrinkMixtureEMStepPrepared(
         state,
         variance,
-        float(priorNull),
+        float(priorSpikeProp),
         slabVariance,
         logSlabPrior,
         int(blockSize),
@@ -382,19 +386,19 @@ def _emStep(
 def _chunksLogLikelihood(
     chunks: Sequence[tuple[np.ndarray, np.ndarray]],
     *,
-    priorNull: float,
+    priorSpikeProp: float,
     slabVariance: np.ndarray,
     slabWeight: np.ndarray,
     blockSize: int,
 ) -> float:
-    logSlabPrior = _logSlabPrior(priorNull, slabWeight)
+    logSlabPrior = _logSlabPrior(priorSpikeProp, slabWeight)
     logLikelihood = 0.0
     for state, variance in chunks:
         logLikelihood += float(
             _emStep(
                 state,
                 variance,
-                priorNull=priorNull,
+                priorSpikeProp=priorSpikeProp,
                 slabVariance=slabVariance,
                 logSlabPrior=logSlabPrior,
                 blockSize=blockSize,
@@ -405,22 +409,22 @@ def _chunksLogLikelihood(
 
 def _logObjectivePenalty(
     *,
-    priorNull: float,
+    priorSpikeProp: float,
     slabVariance: np.ndarray,
     slabMultiplier: np.ndarray | None,
-    nullPseudoCount: float,
+    spikePseudoCount: float,
     slabPseudoCount: float,
     scaleVarianceAnchor: float,
     scalePriorWeight: float,
 ) -> float:
     penalty = 0.0
-    if nullPseudoCount > 0.0:
-        penalty += float(nullPseudoCount) * math.log(
-            max(float(priorNull), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+    if spikePseudoCount > 0.0:
+        penalty += float(spikePseudoCount) * math.log(
+            max(float(priorSpikeProp), _STATE_SHRINKAGE_POSITIVE_FLOOR)
         )
     if slabPseudoCount > 0.0:
         penalty += float(slabPseudoCount) * math.log(
-            max(1.0 - float(priorNull), _STATE_SHRINKAGE_POSITIVE_FLOOR)
+            max(1.0 - float(priorSpikeProp), _STATE_SHRINKAGE_POSITIVE_FLOOR)
         )
     if scalePriorWeight > 0.0:
         if slabMultiplier is None:
@@ -440,10 +444,10 @@ def fitStateShrinkagePrior(
     chunks: Sequence[Any],
     *,
     model: str | None = None,
-    priorNull: float | None = None,
+    priorSpikeProp: float | None = None,
     priorScale: float | None = None,
-    stateShrinkageNullPseudoCount: float | None = (
-        _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT
+    stateShrinkageSpikePseudoCount: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT
     ),
     stateShrinkageScaleAnchorWeight: float | None = (
         _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT
@@ -511,25 +515,25 @@ def fitStateShrinkagePrior(
             "state shrinkage prior fit has no finite positive-variance intervals"
         )
 
-    if stateShrinkageNullPseudoCount is None:
-        nullPseudoCount = float(
+    if stateShrinkageSpikePseudoCount is None:
+        spikePseudoCount = float(
             np.clip(
-                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_FRACTION * totalWeight,
-                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MIN,
-                _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT_MAX,
+                _STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_FRACTION * totalWeight,
+                _STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_MIN,
+                _STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT_MAX,
             )
         )
     else:
-        if isinstance(stateShrinkageNullPseudoCount, bool):
-            raise ValueError("`stateShrinkageNullPseudoCount` must be nonnegative")
+        if isinstance(stateShrinkageSpikePseudoCount, bool):
+            raise ValueError("`stateShrinkageSpikePseudoCount` must be nonnegative")
         try:
-            nullPseudoCount = float(stateShrinkageNullPseudoCount)
+            spikePseudoCount = float(stateShrinkageSpikePseudoCount)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "`stateShrinkageNullPseudoCount` must be nonnegative"
+                "`stateShrinkageSpikePseudoCount` must be nonnegative"
             ) from exc
-        if not np.isfinite(nullPseudoCount) or nullPseudoCount < 0.0:
-            raise ValueError("`stateShrinkageNullPseudoCount` must be nonnegative")
+        if not np.isfinite(spikePseudoCount) or spikePseudoCount < 0.0:
+            raise ValueError("`stateShrinkageSpikePseudoCount` must be nonnegative")
     slabPseudoCount = 0.0
     if stateShrinkageScaleAnchorWeight is None:
         scalePriorWeight = max(
@@ -542,9 +546,9 @@ def fitStateShrinkagePrior(
             stateShrinkageScaleAnchorWeight,
         )
 
-    estimateNull = priorNull is None
+    estimateSpikeProp = priorSpikeProp is None
 
-    if priorNull is None:
+    if priorSpikeProp is None:
         expectedCentral = float(
             math.erf(
                 float(max(nullZ, _STATE_SHRINKAGE_POSITIVE_FLOOR)) / math.sqrt(2.0)
@@ -556,9 +560,11 @@ def fitStateShrinkagePrior(
             pi0 = (centralWeight / totalWeight) / expectedCentral
         pi0 = float(np.clip(pi0, minNull_, maxNull_))
     else:
-        pi0 = float(priorNull)
+        pi0 = float(priorSpikeProp)
         if not np.isfinite(pi0) or pi0 <= 0.0 or pi0 >= 1.0:
-            raise ValueError("`priorNull` must be finite and strictly between 0 and 1")
+            raise ValueError(
+                "`priorSpikeProp` must be finite and strictly between 0 and 1"
+            )
         pi0 = float(np.clip(pi0, minNull_, maxNull_))
 
     if priorScale is None:
@@ -642,7 +648,7 @@ def fitStateShrinkagePrior(
     logLikelihood = float("nan")
     tol_ = float(max(tol, 0.0))
     maxIter_ = int(max(maxIter, 1))
-    if estimateNull or estimateSlabScales or estimateSlabWeights:
+    if estimateSpikeProp or estimateSlabScales or estimateSlabWeights:
         for iteration in range(maxIter_):
             iterations = iteration + 1
             emTotalWeight = 0.0
@@ -655,7 +661,7 @@ def fitStateShrinkagePrior(
                 sums = _emStep(
                     state,
                     variance,
-                    priorNull=pi0,
+                    priorSpikeProp=pi0,
                     slabVariance=slabVariance,
                     logSlabPrior=logSlabPrior,
                     blockSize=blockSize_,
@@ -668,12 +674,12 @@ def fitStateShrinkagePrior(
             nextPi0 = pi0
             nextSlabWeight = slabWeight.copy()
             nextSlabVariance = slabVariance.copy()
-            if estimateNull and emTotalWeight > 0.0:
+            if estimateSpikeProp and emTotalWeight > 0.0:
                 totalMass = float(emTotalWeight)
                 nextPi0 = float(
                     np.clip(
-                        (nullMass + nullPseudoCount)
-                        / (totalMass + nullPseudoCount + slabPseudoCount),
+                        (nullMass + spikePseudoCount)
+                        / (totalMass + spikePseudoCount + slabPseudoCount),
                         minNull_,
                         maxNull_,
                     )
@@ -723,29 +729,29 @@ def fitStateShrinkagePrior(
                 nextSlabVariance, nextSlabWeight = _sortedPositiveWeights(
                     nextSlabVariance,
                     nextSlabWeight,
-                )
+            )
             if studentTModel:
                 objective = logLikelihood + _logObjectivePenalty(
-                    priorNull=pi0,
+                    priorSpikeProp=pi0,
                     slabVariance=slabVariance,
                     slabMultiplier=slabMultiplier,
-                    nullPseudoCount=nullPseudoCount,
+                    spikePseudoCount=spikePseudoCount,
                     slabPseudoCount=slabPseudoCount,
                     scaleVarianceAnchor=scaleVarianceAnchor,
                     scalePriorWeight=scalePriorWeight,
                 )
                 nextLogLikelihood = _chunksLogLikelihood(
                     chunks_,
-                    priorNull=nextPi0,
+                    priorSpikeProp=nextPi0,
                     slabVariance=nextSlabVariance,
                     slabWeight=nextSlabWeight,
                     blockSize=blockSize_,
                 )
                 nextObjective = nextLogLikelihood + _logObjectivePenalty(
-                    priorNull=nextPi0,
+                    priorSpikeProp=nextPi0,
                     slabVariance=nextSlabVariance,
                     slabMultiplier=slabMultiplier,
-                    nullPseudoCount=nullPseudoCount,
+                    spikePseudoCount=spikePseudoCount,
                     slabPseudoCount=slabPseudoCount,
                     scaleVarianceAnchor=scaleVarianceAnchor,
                     scalePriorWeight=scalePriorWeight,
@@ -779,16 +785,16 @@ def fitStateShrinkagePrior(
                             )
                             trialLogLikelihood = _chunksLogLikelihood(
                                 chunks_,
-                                priorNull=nextPi0,
+                                priorSpikeProp=nextPi0,
                                 slabVariance=trialSlabVariance,
                                 slabWeight=nextSlabWeight,
                                 blockSize=blockSize_,
                             )
                             trialObjective = trialLogLikelihood + _logObjectivePenalty(
-                                priorNull=nextPi0,
+                                priorSpikeProp=nextPi0,
                                 slabVariance=trialSlabVariance,
                                 slabMultiplier=slabMultiplier,
-                                nullPseudoCount=nullPseudoCount,
+                                spikePseudoCount=spikePseudoCount,
                                 slabPseudoCount=slabPseudoCount,
                                 scaleVarianceAnchor=scaleVarianceAnchor,
                                 scalePriorWeight=scalePriorWeight,
@@ -894,7 +900,7 @@ def fitStateShrinkagePrior(
         "finite_count": int(finiteCount),
         "effective_block_count": _metadataFloat(totalWeight),
         "block_size_intervals": int(blockSize_),
-        "prior_null": _metadataFloat(pi0),
+        "prior_spike_prop": _metadataFloat(pi0),
         "prior_scale": _metadataFloat(priorScaleOut),
         "prior_variance": _metadataFloat(priorVariance),
         "prior_variance_defined": bool(priorVarianceDefined),
@@ -902,8 +908,8 @@ def fitStateShrinkagePrior(
         "slab_variance": [float(value) for value in slabVariance],
         "slab_weight": [float(value) for value in slabWeight],
         "component_weights": [float(value) for value in componentWeights],
-        "estimated_prior_null": bool(estimateNull),
-        "null_pseudo_count": _metadataFloat(nullPseudoCount),
+        "estimated_prior_spike_prop": bool(estimateSpikeProp),
+        "spike_pseudo_count": _metadataFloat(spikePseudoCount),
         "estimated_prior_scale": bool(estimateSlabScales),
         "estimated_slab_weights": bool(estimateSlabWeights),
         "estimated_slab_scales": bool(estimateSlabScales),
@@ -936,7 +942,7 @@ def fitStateShrinkagePrior(
         )
     return stateShrinkPrior(
         model=model_,
-        priorNull=float(pi0),
+        priorSpikeProp=float(pi0),
         priorScale=priorScaleOut,
         priorVariance=priorVariance,
         blockSize=int(blockSize_),
@@ -951,17 +957,17 @@ def _posterior(
     state: np.ndarray,
     variance: np.ndarray,
     *,
-    priorNull: float,
+    priorSpikeProp: float,
     slabVariance: np.ndarray,
     slabWeight: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return tuple(
         _cstateShrinkMixturePosteriorPrepared(
             state,
             variance,
-            float(priorNull),
+            float(priorSpikeProp),
             slabVariance,
-            _logSlabPrior(priorNull, slabWeight),
+            _logSlabPrior(priorSpikeProp, slabWeight),
         )
     )  # type: ignore[return-value]
 
@@ -981,14 +987,13 @@ def applyStateShrinkagePrior(
     (
         shrunk,
         posteriorSd,
-        shrinkFactor,
-        nullProb,
+        spikeProp,
         slabMean,
         slabWeight,
     ) = _posterior(
         stateArr,
         varianceArr,
-        priorNull=float(prior.priorNull),
+        priorSpikeProp=float(prior.priorSpikeProp),
         slabVariance=priorSlabVariance,
         slabWeight=priorSlabWeight,
     )
@@ -1006,7 +1011,7 @@ def applyStateShrinkagePrior(
             float(value)
             for value in _modelComponentWeights(
                 prior.model,
-                prior.priorNull,
+                prior.priorSpikeProp,
                 priorSlabWeight,
             )
         ],
@@ -1016,11 +1021,8 @@ def applyStateShrinkagePrior(
         "state_abs_median_after": _metadataFloat(
             np.median(np.abs(shrunk[valid])) if np.any(valid) else float("nan")
         ),
-        "shrinkage_factor_median": _metadataFloat(
-            np.median(shrinkFactor[valid]) if np.any(valid) else float("nan")
-        ),
-        "null_probability_median": _metadataFloat(
-            np.median(nullProb[valid]) if np.any(valid) else float("nan")
+        "spike_prop_median": _metadataFloat(
+            np.median(spikeProp[valid]) if np.any(valid) else float("nan")
         ),
         "posterior_sd_median": _metadataFloat(
             np.median(posteriorSd[valid]) if np.any(valid) else float("nan")
@@ -1029,11 +1031,10 @@ def applyStateShrinkagePrior(
     return stateShrinkResult(
         shrunkState=np.asarray(shrunk, dtype=np.float32),
         posteriorSd=np.asarray(posteriorSd, dtype=np.float32),
-        shrinkageFactor=np.asarray(shrinkFactor, dtype=np.float32),
-        nullProbability=np.asarray(nullProb, dtype=np.float32),
+        spikeProp=np.asarray(spikeProp, dtype=np.float32),
         slabPosteriorMean=np.asarray(slabMean, dtype=np.float32),
         slabPosteriorWeight=np.asarray(slabWeight, dtype=np.float32),
-        priorNull=float(prior.priorNull),
+        priorSpikeProp=float(prior.priorSpikeProp),
         priorScale=float(prior.priorScale),
         metadata=metadata,
     )
@@ -1044,10 +1045,10 @@ def shrinkStateEB(
     stateVariance: npt.ArrayLike,
     *,
     model: str | None = None,
-    priorNull: float | None = None,
+    priorSpikeProp: float | None = None,
     priorScale: float | None = None,
-    stateShrinkageNullPseudoCount: float | None = (
-        _STATE_SHRINKAGE_DEFAULT_NULL_PSEUDO_COUNT
+    stateShrinkageSpikePseudoCount: float | None = (
+        _STATE_SHRINKAGE_DEFAULT_SPIKE_PSEUDO_COUNT
     ),
     stateShrinkageScaleAnchorWeight: float | None = (
         _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT
@@ -1075,9 +1076,9 @@ def shrinkStateEB(
     prior = fitStateShrinkagePrior(
         [(stateArr, varianceArr)],
         model=model,
-        priorNull=priorNull,
+        priorSpikeProp=priorSpikeProp,
         priorScale=priorScale,
-        stateShrinkageNullPseudoCount=stateShrinkageNullPseudoCount,
+        stateShrinkageSpikePseudoCount=stateShrinkageSpikePseudoCount,
         stateShrinkageScaleAnchorWeight=stateShrinkageScaleAnchorWeight,
         studentTDF=studentTDF,
         studentTQuadratureOrder=studentTQuadratureOrder,

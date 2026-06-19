@@ -535,10 +535,16 @@ def convertBedGraphToBigWig(
     experimentName,
     chromSizesFile,
     suffixes: Optional[List[str]] = None,
+    *,
+    validatedBedGraphs: Optional[Sequence[str]] = None,
 ):
     if suffixes is None:
         # at least look for `state` bedGraph
         suffixes = ["state"]
+    validatedPaths = {
+        os.path.abspath(str(path)) for path in (validatedBedGraphs or ())
+    }
+    chromSizes = None
     logger.info(
         "Attempting to generate bigWig files from bedGraph format via pyBigWig..."
     )
@@ -554,23 +560,26 @@ def convertBedGraphToBigWig(
                 f"{chromSizesFile} does not exist. Skipping bigWig conversion."
             )
             return
-        chromOrder = _readChromOrder(chromSizesFile)
-        try:
-            _validateBedGraphSorted(bedgraph, chromOrder=chromOrder)
-        except Exception as e:
-            logger.warning(
-                "bedGraph %s failed sorted validation before bigWig conversion; "
-                "sorting as a fallback:\n%s",
-                bedgraph,
-                e,
-            )
+        if chromSizes is None:
+            chromSizes = _readChromSizes(chromSizesFile)
+        chromOrder = [chrom for chrom, _size in chromSizes]
+        if os.path.abspath(bedgraph) not in validatedPaths:
             try:
-                _sortBedGraphInPlace(bedgraph, chromOrder=chromOrder)
-            except Exception as sortError:
+                _validateBedGraphSorted(bedgraph, chromOrder=chromOrder)
+            except Exception as e:
                 logger.warning(
-                    f"Failed to sort {bedgraph} before bigWig conversion:\n{sortError}"
+                    "bedGraph %s failed sorted validation before bigWig conversion; "
+                    "sorting as a fallback:\n%s",
+                    bedgraph,
+                    e,
                 )
-                continue
+                try:
+                    _sortBedGraphInPlace(bedgraph, chromOrder=chromOrder)
+                except Exception as sortError:
+                    logger.warning(
+                        f"Failed to sort {bedgraph} before bigWig conversion:\n{sortError}"
+                    )
+                    continue
         bigwig = f"{experimentName}_consenrich_{suffix}.v{__version__}.bw"
         logger.info(f"Start: {bedgraph} --> {bigwig}...")
         try:
@@ -578,6 +587,7 @@ def convertBedGraphToBigWig(
                 bedgraph,
                 chromSizesFile,
                 bigwig,
+                chromSizes=chromSizes,
             )
         except Exception as e:
             logger.warning(
@@ -620,15 +630,13 @@ def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:
     return chromSizes
 
 
-def _readChromOrder(chromSizesFile: str) -> List[str]:
-    return [chrom for chrom, _size in _readChromSizes(chromSizesFile)]
-
-
 def _convertBedGraphToBigWigPyBigWig(
     bedgraphPath: str,
     chromSizesFile: str,
     bigwigPath: str,
     chunkSize: int = 200_000,
+    *,
+    chromSizes: Optional[Sequence[Tuple[str, int]]] = None,
 ) -> None:
     try:
         import pyBigWig
@@ -637,9 +645,15 @@ def _convertBedGraphToBigWigPyBigWig(
             "pyBigWig is not installed; cannot convert bedGraph files to bigWig"
         ) from e
 
-    chromSizes = _readChromSizes(chromSizesFile)
-    chromSizeByName = dict(chromSizes)
-    chromRankByName = {chrom: rank for rank, (chrom, _size) in enumerate(chromSizes)}
+    chromSizes_ = (
+        list(_readChromSizes(chromSizesFile))
+        if chromSizes is None
+        else [(str(chrom), int(size)) for chrom, size in chromSizes]
+    )
+    if len(chromSizes_) == 0:
+        raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
+    chromSizeByName = dict(chromSizes_)
+    chromRankByName = {chrom: rank for rank, (chrom, _size) in enumerate(chromSizes_)}
 
     chunkSize_ = max(int(chunkSize), 1)
     outDir = os.path.dirname(os.path.abspath(bigwigPath)) or "."
@@ -658,7 +672,7 @@ def _convertBedGraphToBigWigPyBigWig(
         ) as tempHandle:
             tempPath = tempHandle.name
         bw = pyBigWig.open(tempPath, "w")
-        bw.addHeader(chromSizes)
+        bw.addHeader(chromSizes_)
         chroms: List[str] = []
         starts: List[int] = []
         ends: List[int] = []
