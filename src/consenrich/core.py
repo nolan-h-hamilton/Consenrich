@@ -6,6 +6,7 @@ Consenrich core functions and classes.
 
 import logging
 import math
+import operator
 import os
 import sys
 import time
@@ -57,6 +58,7 @@ from .constants import (
     FIT_DEFAULT_OUTER_ITERS,
     FIT_DEFAULT_OUTER_NLL_RTOL,
     FIT_DEFAULT_ROBUST_T_NU,
+    FIT_DEFAULT_T_INNER_ITERS,
     FIT_DEFAULT_USE_APN,
     FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
     FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
@@ -1188,10 +1190,12 @@ class outputParams(NamedTuple):
     writeUncertainty: bool
     writeStateShrinkage: bool = OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE
     stateShrinkageModel: str = OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
-    stateShrinkagePriorSpikeProp: Optional[
-        float
-    ] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SPIKE_PROP
-    stateShrinkagePriorScale: Optional[float] = OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE
+    stateShrinkagePriorSpikeProp: Optional[float] = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SPIKE_PROP
+    )
+    stateShrinkagePriorScale: Optional[float] = (
+        OUTPUT_DEFAULT_STATE_SHRINKAGE_PRIOR_SCALE
+    )
     stateShrinkageSpikePseudoCount: Optional[float] = (
         OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT
     )
@@ -1294,6 +1298,7 @@ class fitParams(NamedTuple):
 
     ECM_fixedBackgroundIters: int | None = FIT_DEFAULT_FIXED_BACKGROUND_ITERS
     ECM_fixedBackgroundRtol: float | None = FIT_DEFAULT_FIXED_BACKGROUND_RTOL
+    t_innerIters: int | None = FIT_DEFAULT_T_INNER_ITERS
     ECM_robustTNu: float | None = FIT_DEFAULT_ROBUST_T_NU
     ECM_useObsPrecisionReweighting: bool | None = (
         FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING
@@ -3346,6 +3351,7 @@ def _runFixedBackgroundECMPhase(
     stateCovarInit: float,
     ecmItersLocal: int,
     ecmRtolLocal: float,
+    t_innerItersLocal: int,
     pad: float,
     ECM_robustTNu: float,
     ECM_useObsPrecisionReweighting: bool,
@@ -3381,6 +3387,7 @@ def _runFixedBackgroundECMPhase(
         stateCovarInit=float(stateCovarInit),
         ECM_fixedBackgroundIters=int(ecmItersLocal),
         ECM_fixedBackgroundRtol=float(ecmRtolLocal),
+        t_innerIters=int(t_innerItersLocal),
         pad=float(pad),
         ECM_robustTNu=float(ECM_robustTNu),
         returnIntermediates=True,
@@ -4934,6 +4941,7 @@ def runConsenrich(
     pad: float = 1.0e-4,
     ECM_fixedBackgroundIters: int = 50,
     ECM_fixedBackgroundRtol: float = 1.0e-4,
+    t_innerIters: int = FIT_DEFAULT_T_INNER_ITERS,
     ECM_robustTNu: float = 8.0,
     ECM_useObsPrecisionReweighting: bool = True,
     ECM_useProcessPrecisionReweighting: bool = True,
@@ -5188,6 +5196,14 @@ def runConsenrich(
     )
     processNoiseWarmupECMIters = max(1, int(processNoiseWarmupECMIters))
     processNoiseWarmupOuterPasses = max(1, int(processNoiseWarmupOuterPasses))
+    if isinstance(t_innerIters, (bool, np.bool_)):
+        raise ValueError("t_innerIters must be a positive integer")
+    try:
+        t_innerIters = operator.index(t_innerIters)
+    except TypeError as ex:
+        raise ValueError("t_innerIters must be a positive integer") from ex
+    if t_innerIters <= 0:
+        raise ValueError("t_innerIters must be a positive integer")
     ECM_outerIters = max(1, int(ECM_outerIters))
     ECM_minOuterIters = (
         3 if ECM_minOuterIters is None else max(1, int(ECM_minOuterIters))
@@ -6085,6 +6101,7 @@ def runConsenrich(
                 stateCovarInit=float(stateCovarInit),
                 ecmItersLocal=int(ecmItersLocal),
                 ecmRtolLocal=float(ecmRtolLocal),
+                t_innerItersLocal=int(t_innerIters),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
@@ -6375,18 +6392,50 @@ def runConsenrich(
             lastBackgroundObjectiveLocal = currentBackgroundObjective
             lastBackgroundObjectivePerCellLocal = currentBackgroundObjectivePerCell
 
+            shiftWeights = np.asarray(
+                backgroundWeightTrack,
+                dtype=np.float64,
+            )
+            shiftWeightSum = float(np.sum(shiftWeights, dtype=np.float64))
+            if shiftWeightSum <= 0.0:
+                raise ValueError("shift RMS requires positive weights")
+            proposalG = np.asarray(nextBackground, dtype=np.float64)
+            referenceG = np.asarray(currentBackground, dtype=np.float64)
+            shiftDelta = proposalG - referenceG
             bgChange = float(
-                np.max(
-                    np.abs(np.asarray(nextBackground) - np.asarray(currentBackground))
+                np.sqrt(
+                    float(
+                        np.dot(
+                            shiftWeights,
+                            shiftDelta * shiftDelta,
+                        )
+                    )
+                    / shiftWeightSum
                 )
             )
-            bgScale = float(
-                max(
-                    np.max(np.abs(np.asarray(nextBackground))),
-                    np.max(np.abs(np.asarray(currentBackground))),
-                    1.0,
+            proposalRMS = float(
+                np.sqrt(
+                    float(
+                        np.dot(
+                            shiftWeights,
+                            proposalG * proposalG,
+                        )
+                    )
+                    / shiftWeightSum
                 )
             )
+            referenceRMS = float(
+                np.sqrt(
+                    float(
+                        np.dot(
+                            shiftWeights,
+                            referenceG * referenceG,
+                        )
+                    )
+                    / shiftWeightSum
+                )
+            )
+            bgScale = float(max(proposalRMS, referenceRMS, 1.0))
             bgTol = float(backgroundShiftTolMultiplier * bgScale)
             currentBackground = np.asarray(nextBackground, dtype=np.float32)
             lastBackgroundShiftLocal = float(bgChange)
@@ -6558,6 +6607,7 @@ def runConsenrich(
                 stateCovarInit=float(stateCovarInit),
                 ecmItersLocal=int(ecmItersLocal),
                 ecmRtolLocal=float(ecmRtolLocal),
+                t_innerItersLocal=int(t_innerIters),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
@@ -9074,7 +9124,7 @@ def centerMBInPlace(
     values: npt.NDArray[np.floating],
     *,
     intervalSizeBP: int,
-    filterWindowBP: int = 1_000_000,
+    filterWindowBP: int = 5_000_000,
     centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD,
 ) -> dict[str, Any]:
     arr = np.asarray(values)
@@ -9114,12 +9164,14 @@ def centerMBInPlace(
                 mode="nearest",
             )
         elif centerMBMethod == COUNTING_CENTER_MB_METHOD_SAVGOL:
-            filtered = signal.savgol_filter(
-                track,
-                window_length=filterWindowIntervals,
-                polyorder=0,
-                mode="nearest",
-            )
+            halfWindow = filterWindowIntervals // 2
+            paddedTrack = np.pad(track, (halfWindow, halfWindow), mode="edge")
+            cumulative = np.empty(paddedTrack.size + 1, dtype=np.float64)
+            cumulative[0] = 0.0
+            np.cumsum(paddedTrack, dtype=np.float64, out=cumulative[1:])
+            filtered = (
+                cumulative[filterWindowIntervals:] - cumulative[:-filterWindowIntervals]
+            ) / float(filterWindowIntervals)
         else:
             raise ValueError(f"centerMBMethod must be one of: {supported}")
         np.subtract(track, filtered, out=track, casting="unsafe")
@@ -9521,7 +9573,7 @@ def _resolveMuncRuntimeSizing(
         trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
         usedDependenceSpan = trendIntervals is not None
         if trendIntervals is not None:
-            trendSource = "dependence span"
+            trendSource = "correlation length"
         if trendIntervals is None:
             trendIntervals = int(defaultTrendIntervals)
             trendSource = "fallback default"
@@ -9532,7 +9584,7 @@ def _resolveMuncRuntimeSizing(
         localIntervals = resolveDependenceIntervals(localMultiplier, 4)
         usedDependenceSpan = usedDependenceSpan or localIntervals is not None
         if localIntervals is not None:
-            localSource = "dependence span"
+            localSource = "correlation length"
         if localIntervals is None:
             localIntervals = int(defaultLocalIntervals)
             localSource = "fallback default"
@@ -10031,7 +10083,7 @@ def getMuncTrack(
             ("MUNC local window bp", int(sizing.localWindowSizeBP)),
             ("local window intervals", int(localWindowIntervals)),
             (
-                "MUNC dependence span",
+                "MUNC correlation length",
                 (
                     "NA"
                     if sizing.dependenceSpanIntervals is None
@@ -10039,7 +10091,7 @@ def getMuncTrack(
                 ),
             ),
             (
-                "trend span multiplier",
+                "trend correlation length multiplier",
                 float(
                     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
                     if muncTrendBlockDependenceMultiplier is None
@@ -10047,7 +10099,7 @@ def getMuncTrack(
                 ),
             ),
             (
-                "local span multiplier",
+                "local correlation length multiplier",
                 float(
                     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
                     if muncLocalWindowDependenceMultiplier is None

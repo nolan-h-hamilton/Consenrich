@@ -139,6 +139,19 @@ GAIN_SUMMARY_COLUMNS = [
     "gain_std",
 ]
 
+CORRELATION_LENGTH_COLUMNS = [
+    "interval_size_bp",
+    "correlation_length_intervals",
+    "correlation_length_bp",
+    "context_bp",
+    "chromosomes_used",
+    "blocks_valid",
+    "sampled_width_median_bp",
+    "posterior_log_correlation_length_mean",
+    "posterior_log_correlation_length_sd",
+    "sampler_used_fallback",
+]
+
 MUNC_LAMBDA_LOG_COLUMNS = [
     "record_type",
     "event",
@@ -722,6 +735,13 @@ def _diagnosticLogPaths(experimentName: str) -> DiagnosticLogPaths:
 def _runSummaryPath(experimentName: str) -> Path:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.jsonl")
+
+
+def _correlationLengthPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(
+        f"consenrichOutput_{experimentToken}_correlationLength.v{__version__}.tsv"
+    )
 
 
 def _chromSizesOrderForPlannedChromosomes(
@@ -2015,6 +2035,57 @@ def _writeRunSummary(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
     )
 
 
+def _correlationLengthRow(
+    *,
+    intervalSizeBP: int,
+    pointIntervals: int,
+    contextBP: int,
+    details: Mapping[str, Any],
+) -> dict[str, Any]:
+    intervalSize = int(intervalSizeBP)
+
+    def intValue(key: str) -> int | None:
+        return _summaryInt(details.get(key))
+
+    def numberValue(key: str) -> float | int | None:
+        return _summaryNumber(details.get(key))
+
+    def intervalsToBP(value: int | None) -> int | None:
+        return None if value is None else int(value) * intervalSize
+
+    usedChromosomes = details.get("chromosomes_used") or ()
+    return {
+        "interval_size_bp": intervalSize,
+        "correlation_length_intervals": int(pointIntervals),
+        "correlation_length_bp": intervalsToBP(int(pointIntervals)),
+        "context_bp": int(contextBP),
+        "chromosomes_used": int(len(usedChromosomes)),
+        "blocks_valid": intValue("blocks_valid"),
+        "sampled_width_median_bp": numberValue("sampled_width_median_bp"),
+        "posterior_log_correlation_length_mean": numberValue(
+            "posterior_log_span_mean"
+        ),
+        "posterior_log_correlation_length_sd": numberValue(
+            "posterior_log_span_sd"
+        ),
+        "sampler_used_fallback": bool(details.get("fallback")),
+    }
+
+
+def _writeCorrelationLengthSummary(
+    row: Mapping[str, Any],
+    path: Path,
+) -> None:
+    frame = pd.DataFrame([dict(row)], columns=CORRELATION_LENGTH_COLUMNS)
+    frame.to_csv(path, sep="\t", header=True, index=False, lineterminator="\n")
+    logging_utils.log_file_written(
+        logger,
+        event="artifact.correlation_length",
+        path=str(path),
+        fields=(("rows", int(len(frame))),),
+    )
+
+
 def _replicateGainSummaryPath(experimentName: str) -> str:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return f"consenrichOutput_{experimentToken}_replicateGains.v{__version__}.jsonl"
@@ -2522,15 +2593,15 @@ def _logMuncEstimationParameters(
             ("local window intervals", int(sizing.localWindowIntervals)),
             ("MUNC local window source", sizing.localWindowSource),
             (
-                "MUNC dependence span",
+                "MUNC correlation length",
                 _formatOptionalLogValue(dependenceSpanIntervals),
             ),
             (
                 "MUNC derived context bp",
                 _formatOptionalLogValue(dependenceContextBP),
             ),
-            ("trend span multiplier", float(trendMultiplier)),
-            ("local span multiplier", float(localMultiplier)),
+            ("trend correlation length multiplier", float(trendMultiplier)),
+            ("local correlation length multiplier", float(localMultiplier)),
             ("MUNC trend mode", "pooled"),
             ("MUNC pooled trend pairs", int(pooledPairCount)),
             ("MUNC seed passes", int(seedPassCount)),
@@ -3129,6 +3200,7 @@ def main():
     config = readConfig(args.config)
     experimentName = config["experimentName"]
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
+    correlationLengthPath = _correlationLengthPath(str(experimentName))
     _initializeDiagnosticLogs(diagnosticLogPaths)
     genomeArgs = config["genomeArgs"]
     inputArgs = config["inputArgs"]
@@ -3367,6 +3439,7 @@ def main():
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
+    correlationLengthRow_: dict[str, Any] | None = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -3376,6 +3449,7 @@ def main():
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
     )
+    _logCliSubphase("Correlation length TSV: %s", correlationLengthPath)
     _logCliSubphase(
         "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d roccoMetadata=%s",
         int(outputArgs.maxNonTrackFileBytes),
@@ -5054,7 +5128,7 @@ def main():
     def _ensureSampledDependenceSpan(
         cachedMatrixPaths: Mapping[str, str],
     ) -> None:
-        nonlocal dependenceContextBP_, dependenceSpanIntervals_
+        nonlocal correlationLengthRow_, dependenceContextBP_, dependenceSpanIntervals_
 
         if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
             return
@@ -5078,6 +5152,13 @@ def main():
             chromNames.append(chromosome)
             chromMatrices.append(np.load(cachePath, mmap_mode="r"))
 
+        _logCliPhase(
+            "Correlation length",
+            "chromosomes=%d blocks=%d",
+            int(len(chromNames)),
+            int(dependenceNumBlocks_),
+        )
+        correlationLengthStart = time.perf_counter()
         depPoint, depLower, depUpper, depDiagnostics = (
             cconsenrich.cchooseDependenceSpan(
                 chromNames,
@@ -5102,6 +5183,12 @@ def main():
         dependenceContextBP_ = int(
             2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
         )
+        correlationLengthRow_ = _correlationLengthRow(
+            intervalSizeBP=intervalSizeBP,
+            pointIntervals=int(depPoint),
+            contextBP=int(dependenceContextBP_),
+            details=depDiagnostics,
+        )
 
         excluded = [
             str(value) for value in depDiagnostics.get("chromosomes_excluded", [])
@@ -5121,14 +5208,15 @@ def main():
         )
         crossingLagLabel = "NA" if crossingLag is None else str(int(crossingLag))
         logger.info(
-            "chooseDependenceSpan.sampledBlocks chromosomes_used=%d "
+            "chooseCorrelationLength.sampledBlocks chromosomes_used=%d "
             "chromosomes_excluded=%s blocks_requested=%d blocks_valid=%d "
             "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
             "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
-            "acfPointThreshold=%.6g acfRequiredCrossings=%d minSpan=%d maxSpan=%d "
-            "crossingLag=%s span=%d lower=%d upper=%d context_bp=%d "
+            "acfPointThreshold=%.6g acfRequiredCrossings=%d "
+            "minCorrelationLength=%d maxCorrelationLength=%d "
+            "crossingLag=%s correlationLength=%d context_bp=%d "
             "right_censored_blocks=%d pooled_right_censored_fraction=%.6g "
-            "posterior_log_sd=%.6g tau2=%.6g fallback=%s",
+            "posterior_log_correlation_length_sd=%.6g tau2=%.6g fallback=%s",
             int(len(depDiagnostics.get("chromosomes_used", []))),
             excludedLabel,
             int(depDiagnostics.get("blocks_requested", dependenceNumBlocks_)),
@@ -5159,8 +5247,6 @@ def main():
             int(depDiagnostics.get("maxSpan", dependenceMaxSpan)),
             crossingLagLabel,
             int(depPoint),
-            int(depLower),
-            int(depUpper),
             int(dependenceContextBP_),
             int(depDiagnostics.get("right_censored_blocks", 0)),
             float(depDiagnostics.get("pooled_right_censored_fraction", 0.0)),
@@ -5181,7 +5267,7 @@ def main():
             )
         )
         logger.info(
-            "chooseDependenceSpan.densityReliability weighted=%s "
+            "chooseCorrelationLength.densityReliability weighted=%s "
             "effectiveBlocks=%.6g median=%.6g spectralShrinkMedian=%.6g "
             "spectralLogVarianceMedian=%.6g spectralAcfFirst=%.6g",
             "true" if densityReliabilityWeighted else "false",
@@ -5195,6 +5281,12 @@ def main():
             float(depDiagnostics.get("spectral_shrink_median", float("nan"))),
             float(depDiagnostics.get("spectral_log_variance_median", float("nan"))),
             float(depDiagnostics.get("spectral_acf_first", float("nan"))),
+        )
+        _logCliProgressMilestone(
+            "Correlation length: intervals=%d bp=%d elapsed=%.1fs",
+            int(depPoint),
+            int(depPoint) * int(intervalSizeBP),
+            time.perf_counter() - correlationLengthStart,
         )
 
     def _collectPooledMuncBlocks(
@@ -5799,7 +5891,7 @@ def main():
         ):
             nuLSpanIntervals = muncSizing.dependenceSpanIntervals
             if nuLSpanIntervals is None:
-                raise RuntimeError("MUNC ESS Nu_L requires a dependence span")
+                raise RuntimeError("MUNC ESS Nu_L requires a correlation length")
             nuLHorizon = min(
                 int(nuLSpanIntervals),
                 int(muncSizing.localWindowIntervals) - 1,
@@ -6258,7 +6350,7 @@ def main():
         pooledNuL = float(observationArgs.EB_setNuL)
     else:
         if pooledMuncSizing.dependenceSpanIntervals is None:
-            raise RuntimeError("MUNC ESS Nu_L requires a dependence span")
+            raise RuntimeError("MUNC ESS Nu_L requires a correlation length")
         if pooledNuLHorizon < 1:
             raise RuntimeError(
                 "MUNC ESS Nu_L requires a positive truncation horizon"
@@ -6981,6 +7073,7 @@ def main():
             pad=pad_,
             ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
             ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
+            t_innerIters=fitArgs.t_innerIters,
             ECM_robustTNu=fitArgs.ECM_robustTNu,
             ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
@@ -7239,6 +7332,7 @@ def main():
                 pad=pad_,
                 ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
                 ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
+                t_innerIters=fitArgs.t_innerIters,
                 ECM_robustTNu=fitArgs.ECM_robustTNu,
                 ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
@@ -7770,6 +7864,12 @@ def main():
         _writeReplicateGainSummary(
             gainRows,
             _replicateGainSummaryPath(str(experimentName)),
+        )
+
+    if correlationLengthRow_ is not None:
+        _writeCorrelationLengthSummary(
+            correlationLengthRow_,
+            correlationLengthPath,
         )
 
     if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:

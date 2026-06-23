@@ -88,10 +88,11 @@ def writeGenomeCovariateCache(
     return cacheDir
 
 
-def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
+def _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier():
     coarseMinSpan, coarseMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(50)
     fineMinSpan, fineMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(25)
-    assert 2 * fineMinSpan * 25 == 1_000
+    assert 2 * fineMinSpan * 25 >= consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP
+    assert 2 * (fineMinSpan - 1) * 25 < consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP
     assert fineMinSpan >= coarseMinSpan
     assert fineMaxSpan >= coarseMaxSpan
     assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
@@ -145,6 +146,16 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         )
         == 45
     )
+    sizing = consenrich_core._resolveMuncRuntimeSizing(
+        intervalSizeBP=50,
+        dependenceSpanIntervals=5,
+        muncTrendBlockSizeBP=None,
+        muncLocalWindowSizeBP=None,
+        muncTrendBlockDependenceMultiplier=2.0,
+        muncLocalWindowDependenceMultiplier=3.0,
+    )
+    assert sizing.trendBlockSource == "correlation length"
+    assert sizing.localWindowSource == "correlation length"
 
 
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
@@ -1310,6 +1321,7 @@ def _case_runtime_defaults_are_centralized(
         parsed["processArgs"].processNoiseWarmupOuterPasses
         == profile["processParams.processNoiseWarmupOuterPasses"]
     )
+    assert parsed["fitArgs"].t_innerIters == profile["fitParams.t_innerIters"]
     assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
     assert (
         parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier
@@ -1508,6 +1520,10 @@ def _case_runtime_defaults_are_centralized(
     assert (
         consenrich_core.fitParams().backgroundNegativePenaltyMultiplier
         == constants.FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    )
+    assert (
+        consenrich_core.fitParams().t_innerIters
+        == constants.FIT_DEFAULT_T_INNER_ITERS
     )
     assert parsed["matchingArgs"].exportFilterUncertaintyMultiplier == (
         constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
@@ -1753,6 +1769,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
+    fitParams.t_innerIters: 7
     fitParams.ECM_outerIters: 16
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.centerMB: false
@@ -1783,6 +1800,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     parsed = readConfig(str(configPath))
 
     assert parsed["defaultConfiguration"] == "generic"
+    assert parsed["fitArgs"].t_innerIters == 7
     assert parsed["fitArgs"].ECM_outerIters == 16
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].centerMB is False
@@ -2109,6 +2127,21 @@ def _case_readConfigUsesECMAndOuterPassToleranceFields(
     assert parsed["fitArgs"].ECM_fixedBackgroundRtol == pytest.approx(1.0e-6)
     assert parsed["fitArgs"].ECM_backgroundShiftRtol == pytest.approx(2.5e-3)
     assert parsed["fitArgs"].ECM_outerNLLRtol == pytest.approx(3.5e-4)
+
+    for rawValue in ("0", "1.5"):
+        invalidYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        fitParams.t_innerIters: {rawValue}
+        """
+        invalidPath = writeConfigFile(
+            tmp_path,
+            f"config_t_inner_iters_invalid_{rawValue.replace('.', '_')}.yaml",
+            invalidYaml,
+        )
+        with pytest.raises(ValueError, match="fitParams.t_innerIters"):
+            readConfig(str(invalidPath))
 
 
 def _case_readConfigUsesUncertaintyCalibrationFields(
@@ -3187,8 +3220,8 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
 
 def test_config_runtime_validation_contracts(tmp_path, contract_case):
     contract_case(
-        "runtime background span",
-        _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier,
+        "runtime correlation length sizing",
+        _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier,
     )
     contract_case(
         "replicate gain summary",
@@ -3815,6 +3848,154 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         consenrich_cli._diagnosticJsonText(metadata["component_weights"])
         == "[0.4,0.15,0.45]"
     )
+
+
+def test_correlation_length_summary_writes_tsv_and_artifact_log(tmp_path, monkeypatch):
+    logCalls = []
+
+    def fakeLogFileWritten(loggerArg, *, event, path, fields):
+        logCalls.append((event, path, tuple(fields)))
+
+    monkeypatch.setattr(
+        consenrich_cli.logging_utils,
+        "log_file_written",
+        fakeLogFileWritten,
+    )
+    details = {
+        "min_span": 3,
+        "max_span": 20,
+        "crossing_lag": 6,
+        "point_threshold": 0.1,
+        "acf_required_crossings": 5,
+        "acf_evidence_threshold_nats": 2.0,
+        "blocks_requested": 100,
+        "blocks_valid": 80,
+        "chromosomes_used": ["chr1", "chr2"],
+        "chromosomes_excluded": ["chrM"],
+        "sampled_width_median_bp": 4500,
+        "right_censored_blocks": 4,
+        "pooled_right_censored_fraction": 0.05,
+        "posterior_log_span_mean": 1.95,
+        "posterior_log_span_sd": 0.2,
+        "tau2": 0.3,
+        "density_reliability_weighting_used": True,
+        "density_reliability_effective_blocks": 75.0,
+        "block_density_reliability_summary": {"median": 0.8},
+        "spectral_shrink_median": 0.4,
+        "spectral_log_variance_median": 0.6,
+        "spectral_acf_first": 0.9,
+        "acf_evidence_passed_blocks": 70,
+        "low_acf_evidence_blocks": 10,
+        "acf_evidence_summary": {"count": 80, "median": 3.0},
+        "fallback": False,
+    }
+    row = consenrich_cli._correlationLengthRow(
+        intervalSizeBP=50,
+        pointIntervals=7,
+        contextBP=701,
+        details=details,
+    )
+    path = tmp_path / "correlation_length.tsv"
+
+    consenrich_cli._writeCorrelationLengthSummary(row, path)
+
+    frame = pd.read_csv(path, sep="\t")
+    assert set(row) <= set(consenrich_cli.CORRELATION_LENGTH_COLUMNS)
+    assert frame.columns.tolist() == consenrich_cli.CORRELATION_LENGTH_COLUMNS
+    assert len(frame.columns) == 10
+    assert consenrich_cli._correlationLengthPath("exp name").name == (
+        f"consenrichOutput_exp_name_correlationLength.v{consenrich_cli.__version__}.tsv"
+    )
+    assert frame.loc[0, "correlation_length_intervals"] == 7
+    assert frame.loc[0, "correlation_length_bp"] == 350
+    assert frame.loc[0, "context_bp"] == 701
+    assert frame.loc[0, "chromosomes_used"] == 2
+    assert frame.loc[0, "blocks_valid"] == 80
+    assert frame.loc[0, "sampled_width_median_bp"] == 4500
+    assert frame.loc[0, "posterior_log_correlation_length_mean"] == pytest.approx(
+        1.95
+    )
+    assert frame.loc[0, "posterior_log_correlation_length_sd"] == pytest.approx(0.2)
+    assert bool(frame.loc[0, "sampler_used_fallback"]) is False
+    assert not any("dependence" in column for column in frame.columns)
+    assert not any("span" in column for column in frame.columns)
+    assert logCalls == [
+        ("artifact.correlation_length", str(path), (("rows", 1),))
+    ]
+
+
+def test_munc_estimation_log_uses_correlation_length_label(monkeypatch):
+    logCalls = []
+
+    def fakeLogAsciiBlock(title, rows, **kwargs):
+        logCalls.append((title, tuple(rows)))
+
+    monkeypatch.setattr(consenrich_core, "_logAsciiBlock", fakeLogAsciiBlock)
+    sizing = consenrich_core._resolveMuncRuntimeSizing(
+        intervalSizeBP=50,
+        dependenceSpanIntervals=7,
+        muncTrendBlockSizeBP=None,
+        muncLocalWindowSizeBP=None,
+        muncTrendBlockDependenceMultiplier=2.0,
+        muncLocalWindowDependenceMultiplier=3.0,
+    )
+
+    consenrich_cli._logMuncEstimationParameters(
+        chromosomeCount=1,
+        sampleCount=2,
+        intervalSizeBP=50,
+        sizing=sizing,
+        muncVarianceModel="kalman",
+        samplingIters=100,
+        dependenceContextBP=701,
+        dependenceSpanIntervals=7,
+        trendMultiplier=2.0,
+        localMultiplier=3.0,
+        observationArgs=consenrich_core.observationParams(
+            minR=constants.OBSERVATION_DEFAULT_MIN_R,
+            maxR=constants.OBSERVATION_DEFAULT_MAX_R,
+            samplingIters=constants.OBSERVATION_DEFAULT_SAMPLING_ITERS,
+            EB_use=constants.OBSERVATION_DEFAULT_EB_USE,
+            EB_setNu0=constants.OBSERVATION_DEFAULT_EB_SET_NU0,
+            EB_setNuL=constants.OBSERVATION_DEFAULT_EB_SET_NUL,
+            trendNumBasis=constants.OBSERVATION_DEFAULT_TREND_NUM_BASIS,
+            trendMinObsPerBasis=constants.OBSERVATION_DEFAULT_TREND_MIN_OBS_PER_BASIS,
+            trendMinEdf=constants.OBSERVATION_DEFAULT_TREND_MIN_EDF,
+            trendMaxEdf=constants.OBSERVATION_DEFAULT_TREND_MAX_EDF,
+            trendLambdaMin=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MIN,
+            trendLambdaMax=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MAX,
+            trendLambdaGridSize=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_GRID_SIZE,
+            numNearest=constants.OBSERVATION_DEFAULT_NUM_NEAREST,
+            sparseSupportScaleBP=constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP,
+            sparseSupportPrior=constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
+            pad=constants.OBSERVATION_DEFAULT_PAD,
+        ),
+        sparseBedEnabled=False,
+        varianceFloor=0.01,
+        varianceCap=10.0,
+        trendNumBasis=25,
+        trendMinObsPerBasis=50.0,
+        trendMinEdf=2.0,
+        trendMaxEdf=10.0,
+        trendLambdaMin=1.0e-6,
+        trendLambdaMax=1.0e6,
+        trendLambdaGridSize=101,
+        pooledPairCount=12,
+        seedPassCount=3,
+    )
+
+    assert len(logCalls) == 1
+    title, rows = logCalls[0]
+    rowMap = dict(rows)
+    assert title == "MUNC estimation parameters"
+    assert rowMap["MUNC correlation length"] == 7
+    assert rowMap["MUNC trend block source"] == "correlation length"
+    assert rowMap["MUNC local window source"] == "correlation length"
+    assert rowMap["trend correlation length multiplier"] == pytest.approx(2.0)
+    assert rowMap["local correlation length multiplier"] == pytest.approx(3.0)
+    assert "MUNC dependence span" not in rowMap
+    assert "trend span multiplier" not in rowMap
+    assert "local span multiplier" not in rowMap
 
 
 def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):

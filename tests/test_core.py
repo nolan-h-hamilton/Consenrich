@@ -822,6 +822,64 @@ def test_core_process_prior_q_respects_q_bounds(qKwargs, expectedMessage):
         core.runConsenrich(matrixData, matrixMunc, **kwargs)
 
 
+def test_run_consenrich_passes_t_inner_iters_to_fixed_background_ecm(monkeypatch):
+    capturedInnerIters = []
+
+    def fakeCFixedBackgroundECM(**kwargs):
+        capturedInnerIters.append(kwargs["t_innerIters"])
+        matrixData = np.asarray(kwargs["matrixData"], dtype=np.float32)
+        trackCount, intervalCount = matrixData.shape
+        stateDim = 2
+        return (
+            1,
+            0.0,
+            np.zeros((intervalCount, stateDim), dtype=np.float32),
+            np.zeros((intervalCount, stateDim, stateDim), dtype=np.float32),
+            np.zeros((intervalCount - 1, stateDim, stateDim), dtype=np.float32),
+            np.zeros((intervalCount, trackCount), dtype=np.float32),
+            None,
+            None,
+            {"converged": True},
+        )
+
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", fakeCFixedBackgroundECM)
+
+    runKwargs = {
+        "deltaF": 0.1,
+        "minQ": 1.0e-4,
+        "maxQ": 1.0,
+        "stateInit": 0.0,
+        "stateCovarInit": 1.0,
+        "boundState": False,
+        "stateLowerBound": 0.0,
+        "stateUpperBound": 0.0,
+        "blockLenIntervals": 2,
+        "ECM_fixedBackgroundIters": 1,
+        "ECM_outerIters": 1,
+        "ECM_minOuterIters": 1,
+        "ECM_useObsPrecisionReweighting": False,
+        "ECM_useProcessPrecisionReweighting": False,
+        "fitBackground": False,
+        "processNoiseCalibration": core.PROCESS_NOISE_CALIBRATION_FIXED,
+    }
+    with pytest.raises(ValueError, match="t_innerIters"):
+        core.runConsenrich(
+            np.zeros((2, 5), dtype=np.float32),
+            np.ones((2, 5), dtype=np.float32),
+            **runKwargs,
+            t_innerIters=1.5,
+        )
+
+    core.runConsenrich(
+        np.zeros((2, 5), dtype=np.float32),
+        np.ones((2, 5), dtype=np.float32),
+        **runKwargs,
+        t_innerIters=4,
+    )
+
+    assert capturedInnerIters == [4]
+
+
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
@@ -1657,6 +1715,7 @@ def _caseCenterMBAppliesMedianFilterInPlace():
         stats_ = core.centerMBInPlace(
             tracks,
             intervalSizeBP=intervalSizeBP,
+            centerMBMethod="medfilt",
         )
 
         originalTracks = original.reshape(1, -1) if original.ndim == 1 else original
@@ -4569,6 +4628,87 @@ def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
     assert warmStart["background"] is True
     assert warmStart["background_prepass"] is False
     assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is True
+
+
+@pytest.mark.correctness
+def test_core_run_consenrich_weighted_rms_shift_gate(monkeypatch):
+    matrixData = np.asarray([[100.0, 0.0]], dtype=np.float32)
+    matrixMunc = np.asarray([[0.01, 1.0]], dtype=np.float32)
+    seedG = np.asarray([100.0, 0.0], dtype=np.float32)
+    proposalG = np.asarray([100.1, 10.0], dtype=np.float32)
+    capturedWeights = []
+
+    def fakeECM(**kwargs):
+        trackCount, intervalCount = kwargs["matrixDataLocal"].shape
+        stateDim = 1 if kwargs["stateModelMode"] == core.STATE_MODEL_LEVEL else 2
+        state = np.zeros((intervalCount, stateDim), dtype=np.float32)
+        covar = np.zeros((intervalCount, stateDim, stateDim), dtype=np.float32)
+        residuals = np.zeros((trackCount, intervalCount), dtype=np.float32)
+        return core._FixedBackgroundECMResult(
+            iters_done=1,
+            nll=1.0,
+            state_smoothed=state,
+            state_covar_smoothed=covar,
+            lag_covar_smoothed=covar,
+            post_fit_residuals=residuals,
+            lambda_exp=None,
+            process_prec_exp=None,
+            diagnostics={"converged": True, "nll_increase_count": 0},
+        )
+
+    def fakeSolve(**kwargs):
+        capturedWeights.append(np.asarray(kwargs["weightTrack"], dtype=np.float64))
+        return proposalG
+
+    monkeypatch.setattr(core, "_runFixedBackgroundECMPhase", fakeECM)
+    monkeypatch.setattr(core, "solveZeroCenteredBackground", fakeSolve)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=1.0,
+        minQ=1.0e-4,
+        maxQ=0.5,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=2,
+        pad=0.0,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        ECM_backgroundShiftRtol=0.05,
+        initialBackground=seedG,
+        initialProcessQ=np.diag([1.0e-3, 1.0e-4]).astype(np.float32),
+        useNonnegativeBackground=False,
+        returnDiagnostics=True,
+    )
+
+    weights = np.asarray([100.0, 1.0], dtype=np.float64)
+    np.testing.assert_allclose(capturedWeights, [weights], rtol=0.0, atol=1.0e-10)
+    shiftDelta = proposalG.astype(np.float64) - seedG.astype(np.float64)
+    expectedShift = math.sqrt(float(np.dot(weights, shiftDelta * shiftDelta)) / 101.0)
+    expectedScale = max(
+        math.sqrt(float(np.dot(weights, proposalG * proposalG)) / 101.0),
+        math.sqrt(float(np.dot(weights, seedG * seedG)) / 101.0),
+        1.0,
+    )
+    maxShift = float(np.max(np.abs(shiftDelta)))
+    maxThreshold = 0.05 * max(
+        float(np.max(np.abs(proposalG))),
+        float(np.max(np.abs(seedG))),
+        1.0,
+    )
+
+    loopDiagnostics = out[-1]["post_process_noise_fit"]["fixed_background_ecm"][0]
+    assert loopDiagnostics["background_shift"] == pytest.approx(expectedShift)
+    assert loopDiagnostics["background_shift_threshold"] == pytest.approx(
+        0.05 * expectedScale
+    )
+    assert loopDiagnostics["background_shift_stable"] is True
+    assert maxShift > maxThreshold
 
 
 @pytest.mark.correctness
@@ -8509,19 +8649,19 @@ def test_core_dependence_selection_contracts(contract_case):
         _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat,
     )
     contract_case(
-        "sampled dependence span autosome diagnostics",
+        "sampled correlation length autosome diagnostics",
         _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
     )
     contract_case(
-        "density reliability dependence span weighting",
+        "density reliability correlation length weighting",
         _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks,
     )
     contract_case(
-        "dependence span edge spectra and crossing rule",
+        "correlation length edge spectra and crossing rule",
         _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule,
     )
     contract_case(
-        "dependence span row noise and pooled outliers",
+        "correlation length row noise and pooled outliers",
         _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers,
     )
     contract_case(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import operator
 import os
 from collections import namedtuple
 from collections.abc import Mapping
@@ -2693,6 +2694,21 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     ECM_useAPN_ = bool(
         _cfgGet(configData, "fitParams.ECM_useAPN", constants.FIT_DEFAULT_USE_APN)
     )
+    rawTInnerIters = _cfgGet(
+        configData,
+        "fitParams.t_innerIters",
+        _cfgDefault(configData, "fitParams.t_innerIters"),
+    )
+    if isinstance(rawTInnerIters, (bool, np.bool_)):
+        raise ValueError("`fitParams.t_innerIters` must be a positive integer.")
+    try:
+        t_innerIters = operator.index(rawTInnerIters)
+    except TypeError as ex:
+        raise ValueError(
+            "`fitParams.t_innerIters` must be a positive integer."
+        ) from ex
+    if t_innerIters <= 0:
+        raise ValueError("`fitParams.t_innerIters` must be a positive integer.")
 
     fitArgs = core.fitParams(
         ECM_fixedBackgroundIters=_cfgGet(
@@ -2705,6 +2721,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "fitParams.ECM_fixedBackgroundRtol",
             _cfgDefault(configData, "fitParams.ECM_fixedBackgroundRtol"),
         ),
+        t_innerIters=t_innerIters,
         ECM_robustTNu=_cfgGet(
             configData,
             "fitParams.ECM_robustTNu",
