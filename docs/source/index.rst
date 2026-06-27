@@ -12,13 +12,12 @@ Consenrich
    method
    glossary
    constants
-   modules
 
 Consenrich is a regularized estimator of genome-wide consensus signal in noisy multi-replicate HTS data.
 
 The underlying method is a linear filter-smoother with explicit accounting of heteroskedasticity across replicates and loci.
 
-The resulting estimates and uncertainty tracks can be analyzed directly or used downstream for consensus peak calling, model training, variant prioritization, differential analysis, and other tasks that require reliable high-resolution cohort-level signal estimates.
+Model outputs can be analyzed directly or used downstream for consensus peak calling, model training, variant prioritization, differential analysis, and other tasks that require reliable high-resolution cohort-level signal estimates.
 
 **Input:** Sequencing data (BAM files, fragments, etc.) from ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, and other functional genomics assays where multiple samples or replicates measure a shared regulatory signal but differ in local noise, artifacts, sequencing depth, assay quality, or biological heterogeneity.
 

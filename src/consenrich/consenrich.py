@@ -5216,6 +5216,10 @@ def main():
             "minCorrelationLength=%d maxCorrelationLength=%d "
             "crossingLag=%s correlationLength=%d context_bp=%d "
             "right_censored_blocks=%d pooled_right_censored_fraction=%.6g "
+            "acfSpan0p05=%s acfSpan0p10=%s acfSpan0p20=%s "
+            "positiveAcfTau=%.6g positiveAcfEffectiveFraction=%.6g "
+            "spectralDensityReliabilityCap=%.6g "
+            "spectralDensityReliabilityCappedFraction=%.6g "
             "posterior_log_correlation_length_sd=%.6g tau2=%.6g fallback=%s",
             int(len(depDiagnostics.get("chromosomes_used", []))),
             excludedLabel,
@@ -5250,6 +5254,23 @@ def main():
             int(dependenceContextBP_),
             int(depDiagnostics.get("right_censored_blocks", 0)),
             float(depDiagnostics.get("pooled_right_censored_fraction", 0.0)),
+            str(depDiagnostics.get("acf_span_0p05", "NA")),
+            str(depDiagnostics.get("acf_span_0p10", "NA")),
+            str(depDiagnostics.get("acf_span_0p20", "NA")),
+            float(depDiagnostics.get("positive_acf_tau", float("nan"))),
+            float(depDiagnostics.get("positive_acf_effective_fraction", float("nan"))),
+            float(
+                depDiagnostics.get(
+                    "spectral_density_reliability_cap",
+                    float("nan"),
+                )
+            ),
+            float(
+                depDiagnostics.get(
+                    "spectral_density_reliability_capped_fraction",
+                    float("nan"),
+                )
+            ),
             float(depDiagnostics.get("posterior_log_span_sd", float("nan"))),
             float(depDiagnostics.get("tau2", float("nan"))),
             "true" if bool(depDiagnostics.get("fallback", False)) else "false",

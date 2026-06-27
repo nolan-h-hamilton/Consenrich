@@ -82,10 +82,8 @@ cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
 cdef const double __MASKED_OBSERVATION_VARIANCE_CUTOFF = <double>5.0e29
 cdef const double __DEPENDENCE_SPECTRAL_HUBER_C = <double>1.345
 cdef const int __DEPENDENCE_SPECTRAL_SMOOTH_HALF_WIDTH = 9
-cdef const double __DEPENDENCE_DEFAULT_ACF_POINT_THRESHOLD = <double>0.10
-cdef const int __DEPENDENCE_DEFAULT_ACF_REQUIRED_CROSSINGS = 4
-cdef const double __DEPENDENCE_DEFAULT_ACF_EVIDENCE_NATS = <double>2.0
-cdef const int __DEPENDENCE_DEFAULT_ACF_EVIDENCE_MIN_BLOCKS = 2
+cdef const double __DEPENDENCE_LOG_PERIODOGRAM_VARIANCE_FLOOR = <double>1.6449340668482264
+cdef const double __DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE = <double>0.95
 cdef const double __DEPENDENCE_ACF_LOWER_THRESHOLD = <double>0.20
 cdef const int __DEPENDENCE_MAX_FINAL_CONTEXT_BP = 50000
 cdef const int __TRANSFORM_MODE_LOG = 0
@@ -3069,6 +3067,105 @@ cdef int _acfCrossingLag(
     return -1
 
 
+cdef dict _dependenceAcfSpanDiagnostic(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    int minSpan,
+    int maxSpan,
+    double threshold,
+    int requiredCrossings,
+):
+    cdef int crossingLag = _acfCrossingLag(
+        acf,
+        threshold,
+        int(requiredCrossings),
+    )
+    cdef int rawSpan = int(maxSpan) if crossingLag < 0 else int(crossingLag)
+    cdef double widthCorrection = _dependenceAcfWidthCorrection(threshold)
+    cdef int span = int(round(<double>rawSpan * widthCorrection))
+    span = int(max(int(minSpan), min(int(maxSpan), span)))
+    return {
+        "threshold": float(threshold),
+        "required_crossings": int(requiredCrossings),
+        "crossing_lag": None if crossingLag < 0 else int(crossingLag),
+        "raw_span": int(rawSpan),
+        "span": int(span),
+        "width_correction": float(widthCorrection),
+    }
+
+
+cdef dict _dependenceAcfThresholdDiagnostics(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    int minSpan,
+    int maxSpan,
+    int requiredCrossings,
+):
+    cdef dict threshold005 = _dependenceAcfSpanDiagnostic(
+        acf,
+        int(minSpan),
+        int(maxSpan),
+        0.05,
+        int(requiredCrossings),
+    )
+    cdef dict threshold010 = _dependenceAcfSpanDiagnostic(
+        acf,
+        int(minSpan),
+        int(maxSpan),
+        0.10,
+        int(requiredCrossings),
+    )
+    cdef dict threshold020 = _dependenceAcfSpanDiagnostic(
+        acf,
+        int(minSpan),
+        int(maxSpan),
+        0.20,
+        int(requiredCrossings),
+    )
+    return {
+        "by_threshold": {
+            "0.05": threshold005,
+            "0.10": threshold010,
+            "0.20": threshold020,
+        },
+        "span_0p05": int(threshold005["span"]),
+        "span_0p10": int(threshold010["span"]),
+        "span_0p20": int(threshold020["span"]),
+        "crossing_lag_0p05": threshold005["crossing_lag"],
+        "crossing_lag_0p10": threshold010["crossing_lag"],
+        "crossing_lag_0p20": threshold020["crossing_lag"],
+    }
+
+
+cdef dict _dependencePositiveAcfDiagnostics(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    int windowLag,
+    int sampleCount,
+):
+    cdef double[::1] acfView = acf
+    cdef Py_ssize_t maxLag = <Py_ssize_t>acf.shape[0]
+    cdef Py_ssize_t lagLimit = <Py_ssize_t>max(0, int(windowLag))
+    cdef Py_ssize_t lagIndex
+    cdef double rho
+    cdef double tauPositive = 0.5
+    cdef double effectiveFraction
+    cdef double effectiveCount = NAN
+    if lagLimit > maxLag:
+        lagLimit = maxLag
+    with nogil:
+        for lagIndex in range(lagLimit):
+            rho = acfView[lagIndex]
+            if isfinite(rho) and rho > 0.0:
+                tauPositive += rho
+    effectiveFraction = 1.0 / (2.0 * tauPositive)
+    if int(sampleCount) > 0:
+        effectiveCount = <double>int(sampleCount) * effectiveFraction
+    return {
+        "positive_acf_window_lag": int(lagLimit),
+        "positive_acf_tau": float(tauPositive),
+        "positive_acf_effective_fraction": float(effectiveFraction),
+        "positive_acf_effective_count": float(effectiveCount),
+    }
+
+
 cdef tuple _dependenceAcfEvidenceStats(
     cnp.ndarray[cnp.float64_t, ndim=1] acf,
     cnp.ndarray[cnp.int64_t, ndim=1] pairCounts,
@@ -3540,7 +3637,7 @@ cdef tuple _dependenceSpectralAcfStats(
         dtype=np.float64,
     )
     pooledSpectrum = np.asarray(np.exp(pooledLogSpectrum), dtype=np.float64)
-    acov = np.ascontiguousarray(np.fft.irfft(pooledSpectrum, int(n)), dtype=np.float64)
+    acov = np.ascontiguousarray(np.fft.irfft(pooledSpectrum, int(nfft)), dtype=np.float64)
     acovView = acov
     acfView = acf
     pairCountView = pairCounts
@@ -3591,6 +3688,10 @@ cdef tuple _poolDependenceLogSpectra(
         dtype=np.float64,
     )
     cdef cnp.ndarray[cnp.float64_t, ndim=1] normalizedReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawNormalizedReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveNormalizedReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] cappedReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveCappedReliabilityArr
     cdef cnp.ndarray[cnp.float64_t, ndim=2] spectralScatterArr = np.empty_like(
         logSpectraArr,
         dtype=np.float64,
@@ -3639,19 +3740,29 @@ cdef tuple _poolDependenceLogSpectra(
     cdef int rawPointSpan
     cdef int rawLowerSpan
     cdef int rawUpperSpan
+    cdef int positiveAcfWindowLag
     cdef double pointWidthCorrection
     cdef double lowerWidthCorrection
     cdef double densityReliabilitySum = 0.0
     cdef double densityReliabilityMean
+    cdef double densityReliabilityCap
+    cdef double cappedReliabilityMean
+    cdef double densityReliabilityCappedFraction
     cdef double reliabilityValue
     cdef double scatterValue
     cdef double scatterFloor
+    cdef double logPeriodogramVarianceFloor = __DEPENDENCE_LOG_PERIODOGRAM_VARIANCE_FLOOR
+    cdef double pooledLogVarianceFloor
     cdef double precisionSum = 0.0
     cdef double precisionSumTotal = 0.0
     cdef double loc
     cdef double posteriorLogSpanSd
     cdef Py_ssize_t positiveReliabilityCount = 0
     cdef double* residualAbs = NULL
+    cdef bint maxSpanHit
+    cdef bint rightCensored
+    cdef dict thresholdDiagnostics
+    cdef dict positiveAcfDiagnostics
 
     if blockCount <= 0:
         raise ValueError("spectral dependence pooling requires block spectra")
@@ -3667,10 +3778,41 @@ cdef tuple _poolDependenceLogSpectra(
     if densityReliabilitySum <= 0.0 or positiveReliabilityCount <= 0:
         raise ValueError("spectral density reliability requires positive mass")
     densityReliabilityMean = densityReliabilitySum / <double>positiveReliabilityCount
-    normalizedReliabilityArr = np.ascontiguousarray(
+    pooledLogVarianceFloor = logPeriodogramVarianceFloor / <double>positiveReliabilityCount
+    rawNormalizedReliabilityArr = np.ascontiguousarray(
         densityReliabilityArr / densityReliabilityMean,
         dtype=np.float64,
     )
+    positiveNormalizedReliabilityArr = np.asarray(
+        rawNormalizedReliabilityArr[rawNormalizedReliabilityArr > 0.0],
+        dtype=np.float64,
+    )
+    densityReliabilityCap = float(
+        np.quantile(
+            positiveNormalizedReliabilityArr,
+            __DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE,
+        )
+    )
+    if (not isfinite(densityReliabilityCap)) or densityReliabilityCap <= 0.0:
+        densityReliabilityCap = float(np.max(positiveNormalizedReliabilityArr))
+    cappedReliabilityArr = np.ascontiguousarray(
+        np.minimum(rawNormalizedReliabilityArr, densityReliabilityCap),
+        dtype=np.float64,
+    )
+    positiveCappedReliabilityArr = np.asarray(
+        cappedReliabilityArr[cappedReliabilityArr > 0.0],
+        dtype=np.float64,
+    )
+    cappedReliabilityMean = float(np.mean(positiveCappedReliabilityArr))
+    if (not isfinite(cappedReliabilityMean)) or cappedReliabilityMean <= 0.0:
+        raise ValueError("spectral density reliability cap removed positive mass")
+    normalizedReliabilityArr = np.ascontiguousarray(
+        cappedReliabilityArr / cappedReliabilityMean,
+        dtype=np.float64,
+    )
+    densityReliabilityCappedFraction = float(
+        np.count_nonzero(rawNormalizedReliabilityArr > densityReliabilityCap)
+    ) / <double>blockCount
     normalizedReliabilityView = normalizedReliabilityArr
 
     for blockIndex in range(blockCount):
@@ -3681,8 +3823,8 @@ cdef tuple _poolDependenceLogSpectra(
         )
         rowScatter = np.asarray(np.square(rowSpectrum - rowMean), dtype=np.float64)
         scatterFloor = float(np.median(rowScatter))
-        if (not isfinite(scatterFloor)) or scatterFloor <= DBL_MIN:
-            scatterFloor = DBL_MIN
+        if (not isfinite(scatterFloor)) or scatterFloor <= logPeriodogramVarianceFloor:
+            scatterFloor = logPeriodogramVarianceFloor
         spectralScatterArr[blockIndex, :] = np.maximum(rowScatter, scatterFloor)
 
     with nogil:
@@ -3693,8 +3835,8 @@ cdef tuple _poolDependenceLogSpectra(
                     precisionView[blockIndex, freqIndex] = 0.0
                 else:
                     scatterValue = spectralScatterView[blockIndex, freqIndex]
-                    if scatterValue <= DBL_MIN:
-                        scatterValue = DBL_MIN
+                    if scatterValue <= logPeriodogramVarianceFloor:
+                        scatterValue = logPeriodogramVarianceFloor
                     precisionView[blockIndex, freqIndex] = reliabilityValue / scatterValue
 
     residualAbs = <double*>malloc(blockCount * sizeof(double))
@@ -3775,10 +3917,31 @@ cdef tuple _poolDependenceLogSpectra(
     upperSpan = int(round(<double>rawUpperSpan * pointWidthCorrection))
     lowerSpan = int(max(int(minSpan), min(pointSpan, lowerSpan)))
     upperSpan = int(max(pointSpan, min(int(maxSpan), upperSpan)))
+    maxSpanHit = pointSpan >= int(maxSpan) or upperSpan >= int(maxSpan)
+    rightCensored = crossingLag < 0 or maxSpanHit
     if upperSpan > lowerSpan:
         posteriorLogSpanSd = log((float(upperSpan) + 1.0) / (float(lowerSpan) + 1.0)) / (2.0 * 1.96)
     else:
         posteriorLogSpanSd = 0.0
+    if rightCensored and maxSpan > minSpan:
+        posteriorLogSpanSd = max(
+            posteriorLogSpanSd,
+            log((float(maxSpan) + 1.0) / (float(minSpan) + 1.0)) / (2.0 * 1.96),
+        )
+    thresholdDiagnostics = _dependenceAcfThresholdDiagnostics(
+        acf,
+        int(minSpan),
+        int(maxSpan),
+        int(acfRequiredCrossings),
+    )
+    positiveAcfWindowLag = rawPointSpan
+    if positiveAcfWindowLag < 1:
+        positiveAcfWindowLag = int(maxSpan)
+    positiveAcfDiagnostics = _dependencePositiveAcfDiagnostics(
+        acf,
+        int(positiveAcfWindowLag),
+        int(maxSpan),
+    )
     return (
         int(pointSpan),
         int(lowerSpan),
@@ -3791,14 +3954,34 @@ cdef tuple _poolDependenceLogSpectra(
             "spectral_nfft": int(spectralNFFT),
             "spectral_shrink_median": float(np.median(shrink)),
             "spectral_log_variance_median": float(np.median(pooledLogVariance)),
+            "spectral_log_periodogram_variance_floor": float(logPeriodogramVarianceFloor),
+            "spectral_log_variance_floor": float(pooledLogVarianceFloor),
             "spectral_scatter_median": float(np.median(spectralScatterArr)),
             "density_reliability_median": float(np.median(densityReliabilityArr)),
             "density_reliability_mean": float(densityReliabilityMean),
+            "density_reliability_cap_quantile": float(__DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE),
+            "density_reliability_cap": float(densityReliabilityCap),
+            "density_reliability_capped_fraction": float(densityReliabilityCappedFraction),
+            "density_reliability_weight_median_after_cap": float(np.median(normalizedReliabilityArr)),
+            "density_reliability_weight_max_after_cap": float(np.max(normalizedReliabilityArr)),
             "spectral_precision_sum_mean": float(precisionSumTotal / <double>freqCount),
             "spectral_acf_first": float(acf[0]),
+            "acf_threshold_spans": thresholdDiagnostics["by_threshold"],
+            "acf_span_0p05": int(thresholdDiagnostics["span_0p05"]),
+            "acf_span_0p10": int(thresholdDiagnostics["span_0p10"]),
+            "acf_span_0p20": int(thresholdDiagnostics["span_0p20"]),
+            "acf_crossing_lag_0p05": thresholdDiagnostics["crossing_lag_0p05"],
+            "acf_crossing_lag_0p10": thresholdDiagnostics["crossing_lag_0p10"],
+            "acf_crossing_lag_0p20": thresholdDiagnostics["crossing_lag_0p20"],
+            "positive_acf_window_lag": int(positiveAcfDiagnostics["positive_acf_window_lag"]),
+            "positive_acf_tau": float(positiveAcfDiagnostics["positive_acf_tau"]),
+            "positive_acf_effective_fraction": float(positiveAcfDiagnostics["positive_acf_effective_fraction"]),
+            "positive_acf_effective_count": float(positiveAcfDiagnostics["positive_acf_effective_count"]),
             "posterior_log_span_sd": float(posteriorLogSpanSd),
             "tau2": float(np.median(obsVar)),
-            "right_censored": bool(crossingLag < 0),
+            "right_censored": bool(rightCensored),
+            "max_span_hit": bool(maxSpanHit),
+            "maxSpanHit": bool(maxSpanHit),
             "min_span": int(minSpan),
             "minSpan": int(minSpan),
             "max_span": int(maxSpan),
@@ -3858,6 +4041,7 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef int rawPointSpan
     cdef int rawLowerSpan
     cdef int rawUpperSpan
+    cdef int positiveAcfWindowLag
     cdef double pointWidthCorrection
     cdef double lowerWidthCorrection
     cdef int contextSizeBP
@@ -3887,7 +4071,10 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef int acfEvidenceStartLag = -1
     cdef int acfEvidenceLimitLag
     cdef bint rightCensored
+    cdef bint maxSpanHit
     cdef bint acfEvidencePassed = False
+    cdef dict thresholdDiagnostics
+    cdef dict positiveAcfDiagnostics
 
     arr = np.ascontiguousarray(blockMat, dtype=np.float64)
     if arr.ndim != 2:
@@ -4089,6 +4276,8 @@ cdef tuple _estimateDependenceSpanForBlock(
     upperSpan = int(round(<double>rawUpperSpan * pointWidthCorrection))
     lowerSpan = int(max(minSpan, min(maxSpan, min(lowerSpan, pointSpan))))
     upperSpan = int(max(minSpan, min(maxSpan, max(upperSpan, pointSpan))))
+    maxSpanHit = pointSpan >= int(maxSpan) or upperSpan >= int(maxSpan)
+    rightCensored = rightCensored or maxSpanHit
     contextSizeBP = int(pointSpan * (2 * max(int(intervalSizeBP), 1)) + 1)
     acfCrossingLogVariance = _dependenceAcfCrossingLogVariance(
         acf,
@@ -4097,6 +4286,20 @@ cdef tuple _estimateDependenceSpanForBlock(
         int(maxSpan),
         acfPointThreshold,
         int(acfRequiredCrossings),
+    )
+    thresholdDiagnostics = _dependenceAcfThresholdDiagnostics(
+        acf,
+        int(minSpan),
+        int(maxSpan),
+        int(acfRequiredCrossings),
+    )
+    positiveAcfWindowLag = rawPointSpan
+    if positiveAcfWindowLag < 1:
+        positiveAcfWindowLag = int(maxSpan)
+    positiveAcfDiagnostics = _dependencePositiveAcfDiagnostics(
+        acf,
+        int(positiveAcfWindowLag),
+        int(finiteCount),
     )
     return (
         int(pointSpan),
@@ -4130,10 +4333,23 @@ cdef tuple _estimateDependenceSpanForBlock(
             "acfPointThreshold": float(acfPointThreshold),
             "lower_threshold": float(__DEPENDENCE_ACF_LOWER_THRESHOLD),
             "upper_threshold": float(acfPointThreshold),
+            "acf_threshold_spans": thresholdDiagnostics["by_threshold"],
+            "acf_span_0p05": int(thresholdDiagnostics["span_0p05"]),
+            "acf_span_0p10": int(thresholdDiagnostics["span_0p10"]),
+            "acf_span_0p20": int(thresholdDiagnostics["span_0p20"]),
+            "acf_crossing_lag_0p05": thresholdDiagnostics["crossing_lag_0p05"],
+            "acf_crossing_lag_0p10": thresholdDiagnostics["crossing_lag_0p10"],
+            "acf_crossing_lag_0p20": thresholdDiagnostics["crossing_lag_0p20"],
             "acf_required_crossings": int(acfRequiredCrossings),
             "acfRequiredCrossings": int(acfRequiredCrossings),
             "point_width_correction": float(pointWidthCorrection),
+            "positive_acf_window_lag": int(positiveAcfDiagnostics["positive_acf_window_lag"]),
+            "positive_acf_tau": float(positiveAcfDiagnostics["positive_acf_tau"]),
+            "positive_acf_effective_fraction": float(positiveAcfDiagnostics["positive_acf_effective_fraction"]),
+            "positive_acf_effective_count": float(positiveAcfDiagnostics["positive_acf_effective_count"]),
             "right_censored": bool(rightCensored),
+            "max_span_hit": bool(maxSpanHit),
+            "maxSpanHit": bool(maxSpanHit),
             "log_span_variance": float(acfCrossingLogVariance),
             "log_span_variance_method": "acf_bartlett_crossing_distribution",
             "positive_signal_mass": float(positiveSignalMass),
@@ -4241,6 +4457,7 @@ cpdef tuple cchooseDependenceSpan(
     cdef list acfEvidenceNatsList = []
     cdef list acfEvidenceSNRs = []
     cdef list rightCensoredIndicators = []
+    cdef list maxSpanHitIndicators = []
     cdef Py_ssize_t i
     cdef Py_ssize_t selected
     cdef Py_ssize_t nBins
@@ -4261,6 +4478,7 @@ cpdef tuple cchooseDependenceSpan(
     cdef int validBlocks = 0
     cdef int fallbackBlocks = 0
     cdef int rightCensoredBlocks = 0
+    cdef int maxSpanHitBlocks = 0
     cdef int lowAcfEvidenceBlocks = 0
     cdef int minAcceptedBlocks
     cdef int widthBP
@@ -4269,10 +4487,13 @@ cpdef tuple cchooseDependenceSpan(
     cdef int endBin
     cdef int rowIndex
     cdef int rowCount
+    cdef int summitOffset
+    cdef int summitBin
     cdef int spectralNFFT
     cdef int point
     cdef int lower
     cdef int upper
+    cdef int censorUpperSpan
     cdef int pointSpan
     cdef int lowerSpan
     cdef int upperSpan
@@ -4298,12 +4519,25 @@ cpdef tuple cchooseDependenceSpan(
     cdef double densityWeightSqSum = 0.0
     cdef double densityEffectiveBlockCount = 0.0
     cdef double weightedEffectiveBlockCount = 0.0
+    cdef double densityReliabilityQ95Cap = NAN
+    cdef double densityReliabilityRelativeWeightQ95Cap = NAN
+    cdef double meanCappedDensityReliability = NAN
+    cdef double densityReliabilityCappedFraction = 0.0
     cdef double rightCensoredWeightSum = 0.0
+    cdef double maxSpanHitWeightSum = 0.0
     cdef bint densityWeightingUsed = False
+    cdef bint densityReliabilityCapUsed = False
+    cdef bint blockMaxSpanHit = False
+    cdef bint blockRightCensored = False
+    cdef bint pooledMaxSpanHit = False
     cdef double robustLogMedian = NAN
     cdef double robustLogMad = NAN
     cdef double robustBlend = 0.0
     cdef double censorFraction = 0.0
+    cdef double maxSpanHitFraction = 0.0
+    cdef double censorEvidenceFraction = 0.0
+    cdef double censorLogSpanSd = 0.0
+    cdef double rawPostSd = 0.0
     cdef str fallbackReason = "none"
     cdef dict blockDiagnostics
     cdef dict diagnostics
@@ -4312,6 +4546,7 @@ cpdef tuple cchooseDependenceSpan(
     cdef dict positiveSignalESSFractionSummary
     cdef dict densityReliabilitySummary
     cdef dict densityWeightSummary
+    cdef dict rawDensityWeightSummary
     cdef dict acfEvidenceSummary
     cdef object rng
     cdef object rowRng
@@ -4322,11 +4557,15 @@ cpdef tuple cchooseDependenceSpan(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveSignalMeanArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveSignalESSFractionArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] densityReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] cappedDensityReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveCappedDensityReliabilityArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acfEvidenceNatsArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] positiveDensityReliabilityArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawDensityWeightArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] densityWeightArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] absDevArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rightCensoredArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] maxSpanHitArr
     cdef dict spectralDiagnostics
     cdef cnp.ndarray[cnp.int64_t, ndim=1] eligibleForBlock
     cdef list eligibleForBlockList
@@ -4415,6 +4654,11 @@ cpdef tuple cchooseDependenceSpan(
                 fallbackBlocks += 1
                 continue
             rowIndex = int(rowRng.integers(0, max(1, rowCount)))
+            summitOffset = int(np.argmax(matrix[rowIndex, startBin:endBin]))
+            summitBin = startBin + summitOffset
+            startBin = summitBin - (blockBins // 2)
+            startBin = max(0, min(nBins - blockBins, startBin))
+            endBin = startBin + blockBins
             point, lower, upper, blockDiagnostics = _estimateDependenceSpanForBlock(
                 matrix[rowIndex : rowIndex + 1, startBin:endBin],
                 intervalSizeBP_,
@@ -4471,7 +4715,18 @@ cpdef tuple cchooseDependenceSpan(
             ):
                 lowAcfEvidenceBlocks += 1
                 continue
-            if bool(blockDiagnostics.get("right_censored", False)):
+            blockMaxSpanHit = (
+                bool(blockDiagnostics.get("max_span_hit", False))
+                or int(blockDiagnostics.get("point_span", point)) >= int(blockDiagnostics.get("max_span", maxSpan))
+                or int(blockDiagnostics.get("upper_span", upper)) >= int(blockDiagnostics.get("max_span", maxSpan))
+            )
+            blockRightCensored = bool(blockDiagnostics.get("right_censored", False)) or blockMaxSpanHit
+            if blockMaxSpanHit:
+                maxSpanHitBlocks += 1
+                maxSpanHitIndicators.append(1.0)
+            else:
+                maxSpanHitIndicators.append(0.0)
+            if blockRightCensored:
                 rightCensoredBlocks += 1
                 rightCensoredIndicators.append(1.0)
             else:
@@ -4531,6 +4786,15 @@ cpdef tuple cchooseDependenceSpan(
         "q95": float("nan"),
         "max": float("nan"),
     }
+    rawDensityWeightSummary = {
+        "count": 0,
+        "min": float("nan"),
+        "q05": float("nan"),
+        "median": float("nan"),
+        "mean": float("nan"),
+        "q95": float("nan"),
+        "max": float("nan"),
+    }
     acfEvidenceSummary = {
         "count": 0,
         "sampled_count": int(len(sampledAcfEvidenceNats)),
@@ -4563,10 +4827,43 @@ cpdef tuple cchooseDependenceSpan(
         if positiveDensityReliabilityArr.size <= 0:
             raise ValueError("dependence block density reliability requires positive mass")
         meanDensityReliability = float(np.mean(positiveDensityReliabilityArr))
-        densityWeightArr = np.ascontiguousarray(
+        rawDensityWeightArr = np.ascontiguousarray(
             densityReliabilityArr / meanDensityReliability,
             dtype=np.float64,
         )
+        densityReliabilityQ95Cap = float(
+            np.quantile(
+                positiveDensityReliabilityArr,
+                __DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE,
+            )
+        )
+        if (not isfinite(densityReliabilityQ95Cap)) or densityReliabilityQ95Cap <= 0.0:
+            densityReliabilityQ95Cap = float(np.max(positiveDensityReliabilityArr))
+        cappedDensityReliabilityArr = np.ascontiguousarray(
+            np.minimum(densityReliabilityArr, densityReliabilityQ95Cap),
+            dtype=np.float64,
+        )
+        positiveCappedDensityReliabilityArr = np.asarray(
+            cappedDensityReliabilityArr[cappedDensityReliabilityArr > 0.0],
+            dtype=np.float64,
+        )
+        if positiveCappedDensityReliabilityArr.size <= 0:
+            raise ValueError("dependence block density reliability cap removed positive mass")
+        meanCappedDensityReliability = float(np.mean(positiveCappedDensityReliabilityArr))
+        if (not isfinite(meanCappedDensityReliability)) or meanCappedDensityReliability <= 0.0:
+            raise ValueError("dependence block capped density reliability must have positive mean")
+        densityWeightArr = np.ascontiguousarray(
+            cappedDensityReliabilityArr / meanCappedDensityReliability,
+            dtype=np.float64,
+        )
+        densityReliabilityRelativeWeightQ95Cap = (
+            densityReliabilityQ95Cap / meanCappedDensityReliability
+        )
+        densityReliabilityCappedFraction = (
+            float(np.count_nonzero(densityReliabilityArr > densityReliabilityQ95Cap))
+            / <double>densityReliabilityArr.size
+        )
+        densityReliabilityCapUsed = bool(densityReliabilityCappedFraction > 0.0)
         densityWeightingUsed = True
         positiveSignalMassSummary = {
             "count": int(positiveSignalMassArr.size),
@@ -4613,6 +4910,15 @@ cpdef tuple cchooseDependenceSpan(
             "q95": float(np.quantile(densityWeightArr, 0.95)),
             "max": float(np.max(densityWeightArr)),
         }
+        rawDensityWeightSummary = {
+            "count": int(rawDensityWeightArr.size),
+            "min": float(np.min(rawDensityWeightArr)),
+            "q05": float(np.quantile(rawDensityWeightArr, 0.05)),
+            "median": float(np.median(rawDensityWeightArr)),
+            "mean": float(np.mean(rawDensityWeightArr)),
+            "q95": float(np.quantile(rawDensityWeightArr, 0.95)),
+            "max": float(np.max(rawDensityWeightArr)),
+        }
         acfEvidenceSummary = {
             "count": int(acfEvidenceNatsArr.size),
             "sampled_count": int(len(sampledAcfEvidenceNats)),
@@ -4642,6 +4948,14 @@ cpdef tuple cchooseDependenceSpan(
                     float(rightCensoredArr[i]) * float(densityWeightArr[i])
                 )
             censorFraction = min(1.0, max(0.0, rightCensoredWeightSum / densityWeightSum))
+        if maxSpanHitBlocks > 0:
+            maxSpanHitArr = np.asarray(maxSpanHitIndicators, dtype=np.float64)
+            for i in range(maxSpanHitArr.size):
+                maxSpanHitWeightSum += (
+                    float(maxSpanHitArr[i]) * float(densityWeightArr[i])
+                )
+            maxSpanHitFraction = min(1.0, max(0.0, maxSpanHitWeightSum / densityWeightSum))
+        censorEvidenceFraction = max(censorFraction, maxSpanHitFraction)
         weightedEffectiveBlockCount = densityEffectiveBlockCount
         if densityEffectiveBlockCount >= 8.0:
             robustLogMedian = _weightedQuantileInterpolatedF64(
@@ -4661,7 +4975,7 @@ cpdef tuple cchooseDependenceSpan(
         if validBlocks >= minAcceptedBlocks:
             pointSpan, lowerSpan, upperSpan, spectralDiagnostics = _poolDependenceLogSpectra(
                 blockLogSpectra,
-                densityReliabilityArr,
+                cappedDensityReliabilityArr,
                 int(minSpan),
                 int(maxSpan),
                 int(spectralNFFT),
@@ -4670,12 +4984,36 @@ cpdef tuple cchooseDependenceSpan(
             )
             postMean = log(float(max(1, pointSpan)))
             postSd = float(spectralDiagnostics.get("posterior_log_span_sd", 0.0))
+            rawPostSd = postSd
+            pooledMaxSpanHit = (
+                bool(spectralDiagnostics.get("max_span_hit", False))
+                or pointSpan >= maxSpan
+                or upperSpan >= maxSpan
+            )
+            if pooledMaxSpanHit:
+                censorEvidenceFraction = 1.0
+            if censorEvidenceFraction > 0.0 and maxSpan > minSpan:
+                censorLogSpanSd = (
+                    sqrt(censorEvidenceFraction)
+                    * log((float(maxSpan) + 1.0) / (float(minSpan) + 1.0))
+                    / (2.0 * 1.96)
+                )
+                if censorLogSpanSd > postSd:
+                    postSd = censorLogSpanSd
+                    censorUpperSpan = int(
+                        round(
+                            exp(log(float(pointSpan) + 1.0) + (1.96 * postSd))
+                            - 1.0
+                        )
+                    )
+                    upperSpan = int(max(upperSpan, max(pointSpan, min(maxSpan, censorUpperSpan))))
             tau2 = float(spectralDiagnostics.get("tau2", 0.0))
             robustBlend = 0.0
             fallback = False
         else:
             postMean = priorMu
             postSd = priorLogSd
+            rawPostSd = postSd
             pointSpan = int(round(priorMedianSpan))
             lowerSpan = pointSpan
             upperSpan = pointSpan
@@ -4684,6 +5022,7 @@ cpdef tuple cchooseDependenceSpan(
     else:
         postMean = priorMu
         postSd = priorLogSd
+        rawPostSd = postSd
         pointSpan = int(round(priorMedianSpan))
         lowerSpan = pointSpan
         upperSpan = pointSpan
@@ -4704,6 +5043,7 @@ cpdef tuple cchooseDependenceSpan(
         "blocks_valid": int(validBlocks),
         "fallback_blocks": int(fallbackBlocks),
         "right_censored_blocks": int(rightCensoredBlocks),
+        "max_span_hit_blocks": int(maxSpanHitBlocks),
         "fallback": bool(fallback),
         "fallback_reason": str(fallbackReason),
         "block_estimator": "row_block_spectral",
@@ -4721,6 +5061,12 @@ cpdef tuple cchooseDependenceSpan(
         "spectral_log_variance_median": float(
             spectralDiagnostics.get("spectral_log_variance_median", float("nan"))
         ),
+        "spectral_log_periodogram_variance_floor": float(
+            spectralDiagnostics.get("spectral_log_periodogram_variance_floor", float("nan"))
+        ),
+        "spectral_log_variance_floor": float(
+            spectralDiagnostics.get("spectral_log_variance_floor", float("nan"))
+        ),
         "spectral_scatter_median": float(
             spectralDiagnostics.get("spectral_scatter_median", float("nan"))
         ),
@@ -4733,8 +5079,40 @@ cpdef tuple cchooseDependenceSpan(
         "spectral_density_reliability_mean": float(
             spectralDiagnostics.get("density_reliability_mean", float("nan"))
         ),
+        "spectral_density_reliability_cap_quantile": float(
+            spectralDiagnostics.get("density_reliability_cap_quantile", float("nan"))
+        ),
+        "spectral_density_reliability_cap": float(
+            spectralDiagnostics.get("density_reliability_cap", float("nan"))
+        ),
+        "spectral_density_reliability_capped_fraction": float(
+            spectralDiagnostics.get("density_reliability_capped_fraction", float("nan"))
+        ),
+        "spectral_density_reliability_weight_median_after_cap": float(
+            spectralDiagnostics.get("density_reliability_weight_median_after_cap", float("nan"))
+        ),
+        "spectral_density_reliability_weight_max_after_cap": float(
+            spectralDiagnostics.get("density_reliability_weight_max_after_cap", float("nan"))
+        ),
         "spectral_acf_first": float(
             spectralDiagnostics.get("spectral_acf_first", float("nan"))
+        ),
+        "acf_threshold_spans": spectralDiagnostics.get("acf_threshold_spans", {}),
+        "acf_span_0p05": spectralDiagnostics.get("acf_span_0p05", None),
+        "acf_span_0p10": spectralDiagnostics.get("acf_span_0p10", None),
+        "acf_span_0p20": spectralDiagnostics.get("acf_span_0p20", None),
+        "acf_crossing_lag_0p05": spectralDiagnostics.get("acf_crossing_lag_0p05", None),
+        "acf_crossing_lag_0p10": spectralDiagnostics.get("acf_crossing_lag_0p10", None),
+        "acf_crossing_lag_0p20": spectralDiagnostics.get("acf_crossing_lag_0p20", None),
+        "positive_acf_window_lag": spectralDiagnostics.get("positive_acf_window_lag", None),
+        "positive_acf_tau": float(
+            spectralDiagnostics.get("positive_acf_tau", float("nan"))
+        ),
+        "positive_acf_effective_fraction": float(
+            spectralDiagnostics.get("positive_acf_effective_fraction", float("nan"))
+        ),
+        "positive_acf_effective_count": float(
+            spectralDiagnostics.get("positive_acf_effective_count", float("nan"))
         ),
         "point_span": int(pointSpan),
         "lower_span": int(lowerSpan),
@@ -4763,6 +5141,8 @@ cpdef tuple cchooseDependenceSpan(
         "maxSpan": int(maxSpan),
         "crossing_lag": spectralDiagnostics.get("crossing_lag", None),
         "crossingLag": spectralDiagnostics.get("crossingLag", None),
+        "pooled_max_span_hit": bool(pooledMaxSpanHit),
+        "pooledMaxSpanHit": bool(pooledMaxSpanHit),
         "max_final_context_bp": int(__DEPENDENCE_MAX_FINAL_CONTEXT_BP),
         "max_final_span": int(maxFinalSpan),
         "chromosomes_used": sorted(set(sampledChromosomes)),
@@ -4799,8 +5179,19 @@ cpdef tuple cchooseDependenceSpan(
         "block_weight_score": "positive_signal_mean_x_sqrt_positive_signal_ess_fraction",
         "density_reliability_weight_summary": densityWeightSummary,
         "density_reliability_relative_weight_summary": densityWeightSummary,
+        "density_reliability_raw_weight_summary": rawDensityWeightSummary,
+        "density_reliability_q95_cap": float(densityReliabilityQ95Cap),
+        "density_reliability_cap_quantile": float(__DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE),
+        "density_reliability_cap_used": bool(densityReliabilityCapUsed),
+        "density_reliability_capped_fraction": float(densityReliabilityCappedFraction),
+        "density_reliability_relative_weight_q95_cap": float(densityReliabilityRelativeWeightQ95Cap),
         "pooled_density_reliability_relative_weight": (
             [float(v) for v in densityWeightArr]
+            if validBlocks > 0 and densityWeightingUsed
+            else []
+        ),
+        "pooled_density_reliability_raw_relative_weight": (
+            [float(v) for v in rawDensityWeightArr]
             if validBlocks > 0 and densityWeightingUsed
             else []
         ),
@@ -4822,12 +5213,20 @@ cpdef tuple cchooseDependenceSpan(
         ),
         "posterior_log_span_mean": float(postMean),
         "posterior_log_span_sd": float(postSd),
+        "posterior_log_span_sd_raw": float(rawPostSd),
+        "right_censored_log_span_sd_floor": float(censorLogSpanSd),
         "tau2": float(tau2),
         "robust_log_span_median": float(robustLogMedian),
         "robust_log_span_mad": float(robustLogMad),
         "robust_aggregation_blend": float(robustBlend),
-        "right_censored_fraction": float(censorFraction),
-        "pooled_right_censored_fraction": float(censorFraction),
+        "block_right_censored_fraction": float(censorFraction),
+        "right_censored_fraction": float(censorEvidenceFraction),
+        "pooled_right_censored_fraction": float(censorEvidenceFraction),
+        "block_max_span_hit_fraction": float(maxSpanHitFraction),
+        "max_span_hit_fraction": float(maxSpanHitFraction),
+        "pooled_max_span_hit_fraction": (
+            1.0 if bool(pooledMaxSpanHit) else float(maxSpanHitFraction)
+        ),
         "block_lognormal_median_bp": float(blockMedianBP),
         "block_lognormal_sigma": float(blockSigma),
         "block_min_bp": int(blockMinBP),

@@ -1,20 +1,9 @@
 Quickstart + Usage
 ------------------
 
-After installing Consenrich, you can run it from the command line
-(``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
+After installing Consenrich, run it from the command line with
+``consenrich -h`` or import it from Python.
 The examples below are intentionally short demos on a couple chromosomes.
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Quickstart + Usage
-   :name: Usage
-
-.. tip::
-
-   Refer to the ``<process,observation,etc.>Params`` classes in the
-   :ref:`API` for complete documentation of configuration options.
-
 
 .. _getting-started:
 
@@ -166,7 +155,7 @@ Download Alignments
 .. code-block:: bash
 
   encodeFiles=https://www.encodeproject.org/files
-  for file in ENCFF009NCL ENCFF110EWQ ENCFF231YYD ENCFF239RGZ ENCFF724QHH ENCFF767FGV ENCFF801THG ENCFF822BKT ENCFF925NDY ENCFF978QLZ; do
+  for file in ENCFF326QXM ENCFF447ZRG ENCFF462RHM ENCFF495DQP ENCFF497QOS ENCFF632MBC ENCFF687QML ENCFF767FGV ENCFF919PWF ENCFF949CVL; do
       wget "$encodeFiles/$file/@@download/$file.bam"
   done
   samtools index -M *.bam
@@ -184,21 +173,24 @@ Save the following as ``atacDemo.yaml``:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22]
+    chromosomes: [chr6, chr13, chr17, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
     bamFiles:
-      - ENCFF009NCL.bam
-      - ENCFF110EWQ.bam
-      - ENCFF231YYD.bam
-      - ENCFF239RGZ.bam
-      - ENCFF724QHH.bam
+      - ENCFF326QXM.bam
+      - ENCFF447ZRG.bam
+      - ENCFF462RHM.bam
+      - ENCFF495DQP.bam
+      - ENCFF497QOS.bam
+      - ENCFF632MBC.bam
+      - ENCFF687QML.bam
       - ENCFF767FGV.bam
-      - ENCFF801THG.bam
-      - ENCFF822BKT.bam
-      - ENCFF925NDY.bam
-      - ENCFF978QLZ.bam
+      - ENCFF919PWF.bam
+      - ENCFF949CVL.bam
+
+  countingParams.intervalSizeBP: 50
+  samParams.minMappingQuality: 30
 
 
 Run Consenrich
@@ -213,14 +205,14 @@ Principal output files:
 
 .. code-block:: text
 
-  atacDemo_consenrich_state.v0.10.5a0.bw
-  atacDemo_consenrich_uncertainty.v0.10.5a0.bw
-  consenrichOutput_atacDemo_state.v0.10.5a0_rocco.narrowPeak
+  atacDemo_consenrich_state.VERSION..bw
+  atacDemo_consenrich_uncertainty.VERSION.bw
+  consenrichOutput_atacDemo_state.VERSION_rocco.narrowPeak
 
 Results
 """""""
 
-.. admonition:: Image placeholder
+.. admonition:: ATAC-IGV
 
    IGV/browser snapshot of the ATAC-seq state estimate, local uncertainty, and
    ROCCO peaks over a representative locus.
@@ -238,39 +230,37 @@ Download Alignments
 """""""""""""""""""
 
 The H3K4me1 YAML uses descriptive filenames that include both the file
-accession and experiment accession, so the download commands use ``wget -O`` to
+accession and experiment accession, so the download loop uses ``wget -O`` to
 write each BAM to the expected name.
 
 .. code-block:: bash
 
   encodeFiles=https://www.encodeproject.org/files
-  download_bam () {
-      accession="$1"
-      output="$2"
+
+  while read -r accession output; do
       wget -O "$output" "$encodeFiles/$accession/@@download/$accession.bam"
-  }
-
-  download_bam ENCFF365LTV ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
-  download_bam ENCFF630KZV ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
-  download_bam ENCFF851FLQ ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
-  download_bam ENCFF581VRR ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
-  download_bam ENCFF451FGF ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
-  download_bam ENCFF660DDB ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
-  download_bam ENCFF828GWI ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
-  download_bam ENCFF392MXC ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
-  download_bam ENCFF366HMH ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
-  download_bam ENCFF671AAF ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
-
-  download_bam ENCFF536MLZ ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
-  download_bam ENCFF007LNN ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
-  download_bam ENCFF422MKH ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
-  download_bam ENCFF525NLT ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
-  download_bam ENCFF013ION ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
-  download_bam ENCFF730PAF ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
-  download_bam ENCFF971XWL ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
-  download_bam ENCFF273EYI ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
-  download_bam ENCFF944AYC ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
-  download_bam ENCFF271VZL ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+  done <<'EOF'
+  ENCFF365LTV ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
+  ENCFF630KZV ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
+  ENCFF851FLQ ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
+  ENCFF581VRR ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
+  ENCFF451FGF ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
+  ENCFF660DDB ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
+  ENCFF828GWI ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
+  ENCFF392MXC ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
+  ENCFF366HMH ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
+  ENCFF671AAF ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
+  ENCFF536MLZ ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
+  ENCFF007LNN ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
+  ENCFF422MKH ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
+  ENCFF525NLT ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
+  ENCFF013ION ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
+  ENCFF730PAF ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
+  ENCFF971XWL ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
+  ENCFF273EYI ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
+  ENCFF944AYC ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
+  ENCFF271VZL ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+  EOF
 
   samtools index -M *.bam
 
@@ -377,8 +367,6 @@ Save the following as ``bigH3K4me1Demo.yaml``:
   countingParams:
     intervalSizeBP: 100
 
-  fitParams.ECM_backgroundLengthScaleMultiplier: 32
-
 
 Run Consenrich
 """"""""""""""
@@ -392,55 +380,6 @@ Principal output files:
 
 .. code-block:: text
 
-  bigH3K4me1Demo_consenrich_state.v0.10.5a0.bw
-  bigH3K4me1Demo_consenrich_uncertainty.v0.10.5a0.bw
-  consenrichOutput_bigH3K4me1Demo_state.v0.10.5a0_rocco.narrowPeak
-
-Results
-"""""""
-
-.. admonition:: Image placeholder
-
-   IGV/browser snapshot of the H3K4me1 state estimate, local uncertainty, and
-   ROCCO peaks over a representative locus.
-
-
-Configuration Suggestions
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Consenrich offers data-driven defaults so that many analyses should not require
-exhaustive tuning. If a specific experiment requires adjustments, here are some suggestions:
-
-Want stronger (weaker) shrinkage to the smooth prior process model?
-
-* ``processParams.stateModel``: Default is ``levelTrend``. Use ``level`` for a
-  stronger smoothness assumption when a separate slope state is not supported by
-  the data.
-* ``processParams.minQ``: Decrease the level-noise floor to permit smoother
-  state estimates. Increase it only when the fitted state is too stiff.
-* ``processParams.processNoiseCalibration``: Default is ``punc``. Use ``seed``
-  to fit the robust global seed without local process-Q scaling, or ``fixed``
-  to keep the seeded process noise fixed.
-* ``processParams.puncMinScale`` and ``processParams.puncMaxScale``: Narrow
-  these bounds when local PUNC process-Q scaling should be more conservative.
-* ``outputParams.diagnosticTracks``: Use ``preKappaQLevel``,
-  ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``, and
-  ``puncQScale`` for process-Q diagnostics. ``puncQScale[0]`` is fixed to 1;
-  the transition into interval ``i`` uses ``puncQScale[i]``.
-
-Want broader (narrower) signal resolution?
-
-* ``countingParams.intervalSizeBP``: Default is 25 bp. Consider larger bins for broader signal targets or shallow sequencing depth (for example: 100-250bp for H3K4me1, H3K27me3, H3K36me3, etc.).
-  Consider smaller bins (for example: 5-10 bp) to capture narrow signal targets in deeply-sequenced data in assays like ATAC-seq or TF ChIP-seq.
-
-* ``fitParams.ECM_backgroundLengthScaleMultiplier``: Default is 16.0 which mitigates risk of signal-background conflation. Smaller values allow a more flexible background that can adapt to sharper local changes in signal.
-  Note, values below 4.0 may dilute signal estimates and should be used with caution.
-
-Want reduced computational expense?
-
-* ``processParams.processNoiseWarmupECMIters``: Reduce this if process-noise
-  diagnostics are stable across runs.
-* ``fitParams.ECM_fixedBackgroundIters``: Lower this to reduce per-fit ECM work
-  when convergence diagnostics remain acceptable.
-* ``uncertaintyCalibrationParams.enabled``: Disable delete-block uncertainty
-  calibration when calibrated uncertainty tracks are not needed.
+  bigH3K4me1Demo_consenrich_state.VERSION.bw
+  bigH3K4me1Demo_consenrich_uncertainty.VERSION.bw
+  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.narrowPeak

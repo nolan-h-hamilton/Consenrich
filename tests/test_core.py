@@ -6415,6 +6415,30 @@ def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
             "acf_evidence_passed_blocks",
             "low_acf_evidence_blocks",
             "density_reliability_effective_blocks_after_acf_gate",
+            "spectral_log_periodogram_variance_floor",
+            "spectral_log_variance_floor",
+            "acf_threshold_spans",
+            "acf_span_0p05",
+            "acf_span_0p10",
+            "acf_span_0p20",
+            "acf_crossing_lag_0p05",
+            "acf_crossing_lag_0p10",
+            "acf_crossing_lag_0p20",
+            "positive_acf_window_lag",
+            "positive_acf_tau",
+            "positive_acf_effective_fraction",
+            "positive_acf_effective_count",
+            "density_reliability_raw_weight_summary",
+            "density_reliability_q95_cap",
+            "density_reliability_cap_quantile",
+            "density_reliability_cap_used",
+            "density_reliability_capped_fraction",
+            "density_reliability_relative_weight_q95_cap",
+            "pooled_density_reliability_raw_relative_weight",
+            "spectral_density_reliability_cap_quantile",
+            "spectral_density_reliability_cap",
+            "spectral_density_reliability_capped_fraction",
+            "spectral_density_reliability_weight_max_after_cap",
         ):
             assert key in diag
 
@@ -6436,6 +6460,10 @@ def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
         )
         densityWeights = np.asarray(
             diag["pooled_density_reliability_relative_weight"],
+            dtype=np.float64,
+        )
+        rawDensityWeights = np.asarray(
+            diag["pooled_density_reliability_raw_relative_weight"],
             dtype=np.float64,
         )
         sampledAcfEvidence = np.asarray(
@@ -6461,10 +6489,12 @@ def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
         assert len(sampledAcfStartLags) == len(diag["sampled_width_bp"])
         assert len(pooledDensityScores) == diag["blocks_valid"]
         assert len(densityWeights) == diag["blocks_valid"]
+        assert len(rawDensityWeights) == diag["blocks_valid"]
         assert len(pooledAcfEvidence) == diag["blocks_valid"]
         assert min(sampledDensityScores) >= 0.0
         assert min(pooledDensityScores) >= 0.0
         assert min(densityWeights) >= 0.0
+        assert min(rawDensityWeights) >= 0.0
         assert min(sampledAcfEvidence) >= 0.0
         assert min(sampledAcfSNR) >= 0.0
         assert set(diag["sampled_row_index"]) <= {0, 1, 2}
@@ -6498,6 +6528,59 @@ def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
         assert diag["spectral_pooling"] == "density_reliability_log_periodogram_EB"
         assert diag["spectral_nfft"] >= 2 * diag["max_span"] + 2
         assert 0.0 <= diag["spectral_shrink_median"] <= 1.0
+        logPeriodogramVarianceFloor = math.pi * math.pi / 6.0
+        assert diag["spectral_log_periodogram_variance_floor"] == pytest.approx(
+            logPeriodogramVarianceFloor
+        )
+        assert diag["spectral_scatter_median"] >= logPeriodogramVarianceFloor
+        assert diag["spectral_log_variance_floor"] == pytest.approx(
+            logPeriodogramVarianceFloor / float(diag["blocks_valid"])
+        )
+        assert diag["spectral_log_variance_median"] >= (
+            diag["spectral_log_variance_floor"] * (1.0 - 1.0e-12)
+        )
+        thresholdSpans = diag["acf_threshold_spans"]
+        assert set(thresholdSpans) == {"0.05", "0.10", "0.20"}
+        assert thresholdSpans["0.05"]["span"] == diag["acf_span_0p05"]
+        assert thresholdSpans["0.10"]["span"] == diag["acf_span_0p10"]
+        assert thresholdSpans["0.20"]["span"] == diag["acf_span_0p20"]
+        assert thresholdSpans["0.05"]["crossing_lag"] == (
+            diag["acf_crossing_lag_0p05"]
+        )
+        assert thresholdSpans["0.10"]["crossing_lag"] == (
+            diag["acf_crossing_lag_0p10"]
+        )
+        assert thresholdSpans["0.20"]["crossing_lag"] == (
+            diag["acf_crossing_lag_0p20"]
+        )
+        for key in ("acf_span_0p05", "acf_span_0p10", "acf_span_0p20"):
+            assert diag["min_span"] <= diag[key] <= diag["max_span"]
+        assert diag["positive_acf_window_lag"] >= 0
+        assert diag["positive_acf_tau"] >= 0.5
+        assert 0.0 < diag["positive_acf_effective_fraction"] <= 1.0
+        assert diag["positive_acf_effective_count"] >= 0.0
+        assert diag["positive_acf_tau"] == pytest.approx(
+            0.5 / diag["positive_acf_effective_fraction"]
+        )
+        assert diag["density_reliability_cap_quantile"] == pytest.approx(0.95)
+        assert 0.0 <= diag["density_reliability_capped_fraction"] <= 1.0
+        assert diag["density_reliability_q95_cap"] > 0.0
+        assert diag["density_reliability_relative_weight_q95_cap"] > 0.0
+        assert max(densityWeights) <= (
+            diag["density_reliability_relative_weight_q95_cap"] * (1.0 + 1.0e-12)
+        )
+        assert diag["spectral_density_reliability_cap_quantile"] == pytest.approx(
+            0.95
+        )
+        assert diag["spectral_density_reliability_cap"] > 0.0
+        assert 0.0 <= diag["spectral_density_reliability_capped_fraction"] <= 1.0
+        assert diag["spectral_density_reliability_weight_max_after_cap"] > 0.0
+        assert diag["density_reliability_raw_weight_summary"]["count"] == (
+            diag["blocks_valid"]
+        )
+        assert diag["density_reliability_raw_weight_summary"]["mean"] == pytest.approx(
+            1.0
+        )
         assert 0.0 < diag["density_reliability_effective_blocks"] <= (
             diag["blocks_valid"]
         )
@@ -6604,6 +6687,25 @@ def _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks():
     assert rampDiagnostics["spectral_frequency_count"] == (
         rampDiagnostics["spectral_nfft"] // 2
     ) + 1
+    assert 0 < rampDiagnostics["max_span_hit_blocks"] <= (
+        rampDiagnostics["blocks_valid"]
+    )
+    assert rampDiagnostics["right_censored_blocks"] >= (
+        rampDiagnostics["max_span_hit_blocks"]
+    )
+    assert rampDiagnostics["pooled_max_span_hit"] is True
+    assert rampDiagnostics["block_right_censored_fraction"] >= (
+        rampDiagnostics["block_max_span_hit_fraction"]
+    )
+    assert rampDiagnostics["block_max_span_hit_fraction"] > 0.0
+    assert rampDiagnostics["pooled_right_censored_fraction"] == pytest.approx(1.0)
+    assert rampDiagnostics["right_censored_log_span_sd_floor"] > 0.0
+    assert rampDiagnostics["posterior_log_span_sd"] >= (
+        rampDiagnostics["right_censored_log_span_sd_floor"]
+    )
+    assert rampDiagnostics["posterior_log_span_sd"] >= (
+        rampDiagnostics["posterior_log_span_sd_raw"]
+    )
 
 
 @pytest.mark.correctness
@@ -6735,9 +6837,16 @@ def _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule():
     assert crossingDiagnostics["sampled_width_bp"] == [6_000]
     assert crossingDiagnostics["sampled_point_span"][0] > firstSingleCrossing
     assert crossingDiagnostics["sampled_point_span"][0] >= firstTripleCrossing
-    assert crossingDiagnostics["right_censored_blocks"] == 0
+    assert crossingDiagnostics["right_censored_blocks"] == 1
+    assert crossingDiagnostics["max_span_hit_blocks"] == 1
     assert crossingDiagnostics["crossingLag"] is not None
-    assert crossingDiagnostics["pooled_right_censored_fraction"] == pytest.approx(0.0)
+    assert crossingDiagnostics["pooled_right_censored_fraction"] == pytest.approx(1.0)
+    assert crossingDiagnostics["posterior_log_span_sd"] >= (
+        crossingDiagnostics["right_censored_log_span_sd_floor"]
+    )
+    assert crossingDiagnostics["posterior_log_span_sd"] > (
+        crossingDiagnostics["posterior_log_span_sd_raw"]
+    )
     _, _, _, singleCrossingDiagnostics = cconsenrich.cchooseDependenceSpan(
         ["chr1"],
         [crossingMatrix],
@@ -6760,6 +6869,43 @@ def _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule():
         singleCrossingDiagnostics["sampled_point_span"][0]
         <= crossingDiagnostics["sampled_point_span"][0]
     )
+
+
+@pytest.mark.correctness
+def _caseDependenceSpanBlockEstimatorUsesSpectralFFTGrid():
+    n = 256
+    grid = np.arange(n, dtype=np.float64)
+    track = np.exp(-0.5 * np.square((grid - 128.0) / 12.0))
+    track += 0.2 * np.sin(2.0 * np.pi * grid / 37.0)
+    track += np.random.default_rng(123).normal(scale=0.03, size=n)
+    blockMat = np.vstack([track, track + 0.01, track - 0.01]).astype(np.float32)
+    kwargs = {
+        "intervalSizeBP": 25,
+        "minContextBP": 300,
+        "acfEvidenceThresholdNats": 0.0,
+    }
+
+    tightPoint, tightLower, tightUpper, tightDiagnostics = (
+        cconsenrich.cestimateSpectralDependenceSpanForBlock(
+            blockMat,
+            maxContextBP=6_000,
+            **kwargs,
+        )
+    )
+    widePoint, wideLower, wideUpper, wideDiagnostics = (
+        cconsenrich.cestimateSpectralDependenceSpanForBlock(
+            blockMat,
+            maxContextBP=50_000,
+            **kwargs,
+        )
+    )
+
+    assert tightDiagnostics["spectral_nfft"] == n
+    assert wideDiagnostics["spectral_nfft"] > n
+    for diag in (tightDiagnostics, wideDiagnostics):
+        assert diag["spectral_frequency_count"] == (diag["spectral_nfft"] // 2) + 1
+    assert (widePoint, wideLower, wideUpper) == (tightPoint, tightLower, tightUpper)
+    assert wideDiagnostics["crossing_lag"] == tightDiagnostics["crossing_lag"]
 
 
 @pytest.mark.correctness
@@ -8659,6 +8805,10 @@ def test_core_dependence_selection_contracts(contract_case):
     contract_case(
         "correlation length edge spectra and crossing rule",
         _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule,
+    )
+    contract_case(
+        "correlation length spectral FFT grid",
+        _caseDependenceSpanBlockEstimatorUsesSpectralFFTGrid,
     )
     contract_case(
         "correlation length row noise and pooled outliers",
