@@ -131,7 +131,6 @@ version, the principal output files are:
   demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
 
-
 .. _atac-demo:
 
 ATAC-seq Demo
@@ -200,10 +199,10 @@ Principal output files:
 Results
 """""""
 
-.. admonition:: ATAC-IGV
-
-   IGV/browser snapshot of the ATAC-seq state estimate, local uncertainty, and
-   ROCCO peaks over a representative locus.
+.. image:: ../images/atacDemo.png
+   :alt: ATAC-seq demo IGV snapshot
+   :align: center
+   :width: 100%
 
 
 Broad Mark ChIP-seq Demo
@@ -367,3 +366,11 @@ Principal output files:
   bigH3K4me1Demo_consenrich_state.VERSION.bw
   bigH3K4me1Demo_consenrich_uncertainty.VERSION.bw
   consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.gappedPeak
+
+Results
+"""""""
+
+.. image:: ../images/bigH3K4me1Demo.png
+   :alt: H3K4me1 demo IGV snapshot
+   :align: center
+   :width: 100%

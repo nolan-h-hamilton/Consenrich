@@ -12,7 +12,11 @@ author = 'Nolan H. Hamilton'
 
 extensions = []
 
-exclude_patterns = []
+exclude_patterns = [
+    "constants.rst",
+    "glossary.rst",
+    "method.rst",
+]
 
 html_theme = "furo"
 html_logo = None

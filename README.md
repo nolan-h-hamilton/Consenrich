@@ -1,14 +1,12 @@
 # Consenrich
 
-Consenrich is a regularized state-space consensus estimator for genome-wide signal in noisy multi-replicate HTS data.
+Consenrich estimates regulatory signals from multi-sample functional genomics datasets.
 
-The underlying method is a working linear Gaussian filter-smoother with explicit accounting for heteroskedasticity across replicates and loci.
+![Consenrich overview](docs/images/fig.png)
 
-The resulting estimates and uncertainty tracks can be analyzed directly or used downstream for consensus peak calling, model training, variant prioritization, differential analysis, and other tasks that require reliable high-resolution cohort-level signal estimates.
+**Input:** Sequencing data (BAM files, fragments, etc.) from ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, and other functional genomics assays where multiple samples or replicates measure a shared regulatory signal but differ in local noise, artifacts, sequencing depth, assay quality, or biological heterogeneity.
 
-**Input:** Sequencing data (alignments, fragments, etc.) from ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, and other functional genomics assays where multiple samples or replicates measure a shared regulatory signal but differ in local noise, artifacts, sequencing depth, assay quality, or biological heterogeneity.
-
-**Output:** Consensus signal estimate tracks (bedGraph, bigWig), associated uncertainty tracks (bedGraph, bigWig), and optional consensus peak calls (narrowPeak, BED).
+**Output:** Consensus signal estimate tracks (bedGraph, bigWig), associated uncertainty tracks (bedGraph, bigWig), and optional consensus peak calls (narrowPeak, broadPeak, gappedPeak, BED).
 
 
 [**See the Documentation**](https://nolan-h-hamilton.github.io/Consenrich/) for usage examples, installation details, configuration options, and an API reference.
