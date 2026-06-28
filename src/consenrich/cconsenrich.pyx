@@ -85,7 +85,7 @@ cdef const int __DEPENDENCE_SPECTRAL_SMOOTH_HALF_WIDTH = 9
 cdef const double __DEPENDENCE_LOG_PERIODOGRAM_VARIANCE_FLOOR = <double>1.6449340668482264
 cdef const double __DEPENDENCE_DENSITY_RELIABILITY_CAP_QUANTILE = <double>0.95
 cdef const double __DEPENDENCE_ACF_LOWER_THRESHOLD = <double>0.20
-cdef const int __DEPENDENCE_MAX_FINAL_CONTEXT_BP = 50000
+cdef const int __DEPENDENCE_MAX_FINAL_CONTEXT_BP = 100000
 cdef const int __TRANSFORM_MODE_LOG = 0
 cdef const int __TRANSFORM_MODE_SQRT = 1
 cdef const int __TRANSFORM_MODE_ASINH = 2
@@ -4377,7 +4377,7 @@ cpdef tuple cestimateSpectralDependenceSpanForBlock(
     int intervalSizeBP,
     int minContextBP,
     int maxContextBP,
-    double acfPointThreshold=0.10,
+    double acfPointThreshold=0.1,
     int acfRequiredCrossings=5,
     double acfEvidenceThresholdNats=2.0,
 ):
@@ -4389,7 +4389,7 @@ cpdef tuple cestimateSpectralDependenceSpanForBlock(
     cdef int n = int(np.asarray(blockMat).shape[1])
     cdef int spectralNFFT = _nextPowerOfTwoInt(max(max(8, n), (2 * maxSpan) + 2))
     if int(maxContextBP) > __DEPENDENCE_MAX_FINAL_CONTEXT_BP:
-        raise ValueError("maxContextBP must be at most 50000")
+        raise ValueError("maxContextBP must be at most 100000")
     if int(maxContextBP) < int(minContextBP):
         raise ValueError("maxContextBP must be at least minContextBP")
     if (not isfinite(acfPointThreshold)) or acfPointThreshold <= 0.0 or acfPointThreshold >= 1.0:
@@ -4421,10 +4421,10 @@ cpdef tuple cchooseDependenceSpan(
     int blockMinBP=5000,
     int blockMaxBP=100000,
     int minContextBP=1000,
-    int maxContextBP=50000,
+    int maxContextBP=100000,
     double priorMedianSpan=250.0,
     double priorLogSd=1.0,
-    double acfPointThreshold=0.10,
+    double acfPointThreshold=0.1,
     int acfRequiredCrossings=5,
     double acfMinEvidenceNats=2.0,
     int acfEvidenceMinAcceptedBlocks=2,
@@ -4586,11 +4586,11 @@ cpdef tuple cchooseDependenceSpan(
     if int(acfEvidenceMinAcceptedBlocks) <= 0:
         raise ValueError("acfEvidenceMinAcceptedBlocks must be positive")
     if int(maxContextBP) > __DEPENDENCE_MAX_FINAL_CONTEXT_BP:
-        raise ValueError("maxContextBP must be at most 50000")
+        raise ValueError("maxContextBP must be at most 100000")
     if int(maxContextBP) < int(minContextBP):
         raise ValueError("maxContextBP must be at least minContextBP")
     if minSpan > maxFinalSpan:
-        raise ValueError("minContextBP requires a dependence span above 50000 bp")
+        raise ValueError("minContextBP requires a dependence span above 100000 bp")
     maxSpan = min(maxSpan, maxFinalSpan)
     minPositiveSignalESS = max(8.0, 2.0 * <double>int(acfRequiredCrossings))
     minAcceptedBlocks = int(acfEvidenceMinAcceptedBlocks)

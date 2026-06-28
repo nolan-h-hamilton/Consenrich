@@ -616,6 +616,9 @@ def _case_readConfigDottedAndNestedEquivalent(
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
     matchingParams.minPeakScore: 7.5
+    matchingParams.peakMode: broad
+    matchingParams.broadWeakThresholdZ: 1.1
+    matchingParams.broadMaxGapBP: 12000
     loggingParams.verbosity: debug
     loggingParams.progress: off
     loggingParams.logFile: runEvents.jsonl
@@ -655,6 +658,9 @@ def _case_readConfigDottedAndNestedEquivalent(
       uncertaintyScoreZ: 1.25
       metadataDetail: full
       minPeakScore: 7.5
+      peakMode: broad
+      broadWeakThresholdZ: 1.1
+      broadMaxGapBP: 12000
     loggingParams:
       verbosity: debug
       progress: off
@@ -773,6 +779,12 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
     assert matchingDotted.minPeakScore == pytest.approx(7.5)
     assert matchingNested.minPeakScore == pytest.approx(7.5)
+    assert matchingDotted.peakMode == "broad"
+    assert matchingNested.peakMode == "broad"
+    assert matchingDotted.broadWeakThresholdZ == pytest.approx(1.1)
+    assert matchingNested.broadWeakThresholdZ == pytest.approx(1.1)
+    assert matchingDotted.broadMaxGapBP == 12000
+    assert matchingNested.broadMaxGapBP == 12000
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -1538,6 +1550,14 @@ def _case_runtime_defaults_are_centralized(
         parsed["matchingArgs"].minPeakScore
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
     )
+    assert parsed["matchingArgs"].peakMode == constants.MATCHING_DEFAULT_PEAK_MODE
+    assert parsed["matchingArgs"].broadWeakThresholdZ == pytest.approx(
+        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
+    )
+    assert (
+        parsed["matchingArgs"].broadMaxGapBP
+        == constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP
+    )
     assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
     assert (
         consenrich_core.processParams().qSeedPriorLevel
@@ -1581,6 +1601,14 @@ def _case_runtime_defaults_are_centralized(
     assert (
         cliDefaults.matchMinPeakScore
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
+    )
+    assert cliDefaults.matchPeakMode == constants.MATCHING_DEFAULT_PEAK_MODE
+    assert cliDefaults.matchBroadWeakThresholdZ == pytest.approx(
+        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
+    )
+    assert (
+        cliDefaults.matchBroadMaxGapBP
+        == constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP
     )
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None

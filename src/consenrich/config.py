@@ -356,6 +356,52 @@ def _normalizeMatchingMetadataDetail(value: Any) -> str:
     )
 
 
+def _normalizeMatchingPeakMode(value: Any) -> str:
+    raw = constants.MATCHING_DEFAULT_PEAK_MODE if value is None else value
+    peakMode = str(raw)
+    if peakMode in constants.MATCHING_PEAK_MODES:
+        return peakMode
+    supported = ", ".join(constants.MATCHING_PEAK_MODES)
+    raise ValueError(
+        f"Unsupported matchingParams.peakMode {value!r}. Supported values: {supported}."
+    )
+
+
+def _validateMatchingBroadWeakThresholdZ(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError("matchingParams.broadWeakThresholdZ must be numeric")
+    try:
+        thresholdZ = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("matchingParams.broadWeakThresholdZ must be numeric") from exc
+    if not np.isfinite(thresholdZ) or thresholdZ < 0.0:
+        raise ValueError(
+            "matchingParams.broadWeakThresholdZ must be finite and non-negative"
+        )
+    return thresholdZ
+
+
+def _validateMatchingBroadMaxGapBP(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("matchingParams.broadMaxGapBP must be an integer or null")
+    try:
+        asFloat = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "matchingParams.broadMaxGapBP must be an integer or null"
+        ) from exc
+    if not np.isfinite(asFloat) or not asFloat.is_integer():
+        raise ValueError("matchingParams.broadMaxGapBP must be an integer or null")
+    gapBP = int(asFloat)
+    if gapBP < 0:
+        raise ValueError(
+            "matchingParams.broadMaxGapBP must be non-negative when provided"
+        )
+    return gapBP
+
+
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
     return _sharedValidateMatchingUncertaintyScoreZ(value)
 
@@ -2995,6 +3041,27 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 configData,
                 "matchingParams.useShrunkStateScores",
                 constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
+            )
+        ),
+        peakMode=_normalizeMatchingPeakMode(
+            _cfgGet(
+                configData,
+                "matchingParams.peakMode",
+                constants.MATCHING_DEFAULT_PEAK_MODE,
+            )
+        ),
+        broadWeakThresholdZ=_validateMatchingBroadWeakThresholdZ(
+            _cfgGet(
+                configData,
+                "matchingParams.broadWeakThresholdZ",
+                constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
+            )
+        ),
+        broadMaxGapBP=_validateMatchingBroadMaxGapBP(
+            _cfgGet(
+                configData,
+                "matchingParams.broadMaxGapBP",
+                constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
             )
         ),
     )

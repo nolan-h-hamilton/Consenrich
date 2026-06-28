@@ -40,9 +40,16 @@ from .constants import (
     MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+    MATCHING_DEFAULT_BROAD_BRIDGE_DIP_PENALTY_FRACTION,
+    MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
+    MATCHING_DEFAULT_BROAD_MIN_PEAK_BP,
+    MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER,
+    MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
     MATCHING_DEFAULT_METADATA_DETAIL,
     MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    MATCHING_DEFAULT_PEAK_MODE,
     MATCHING_METADATA_DETAILS,
+    MATCHING_PEAK_MODES,
     MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     NESTED_ROCCO_ITERS_DEFAULT,
@@ -74,8 +81,15 @@ _ROCCO_MAX_ITER_DEFAULT = ROCCO_MAX_ITER_DEFAULT
 _ROCCO_MIN_PEAK_BP = ROCCO_MIN_PEAK_BP
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
 _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
+_MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z = MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
+_MATCHING_DEFAULT_BROAD_MAX_GAP_BP = MATCHING_DEFAULT_BROAD_MAX_GAP_BP
+_MATCHING_DEFAULT_BROAD_MIN_PEAK_BP = MATCHING_DEFAULT_BROAD_MIN_PEAK_BP
+_MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER = (
+    MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER
+)
 _MATCHING_DEFAULT_METADATA_DETAIL = MATCHING_DEFAULT_METADATA_DETAIL
 _MATCHING_DEFAULT_MIN_PEAK_SCORE = MATCHING_DEFAULT_MIN_PEAK_SCORE
+_MATCHING_DEFAULT_PEAK_MODE = MATCHING_DEFAULT_PEAK_MODE
 _OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES = OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
 _NESTED_ROCCO_ITERS_DEFAULT = NESTED_ROCCO_ITERS_DEFAULT
 _NESTED_ROCCO_JACCARD_DEFAULT = NESTED_ROCCO_JACCARD_DEFAULT
@@ -85,6 +99,9 @@ _NESTED_ROCCO_BUDGET_SCALE_DEFAULT = NESTED_ROCCO_BUDGET_SCALE_DEFAULT
 _NESTED_ROCCO_SUBTASK_MAX_ITER = NESTED_ROCCO_SUBTASK_MAX_ITER
 _NESTED_ROCCO_BUDGET_POLICY = "soft_selection_penalty"
 _NESTED_ROCCO_PARENT_EDGE_COST = 1.0e-12
+_BROAD_BRIDGE_DIP_PENALTY_FRACTION = (
+    MATCHING_DEFAULT_BROAD_BRIDGE_DIP_PENALTY_FRACTION
+)
 _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = (
     EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
 )
@@ -166,6 +183,33 @@ def _normalizeRoccoMetadataDetail(value: str | None) -> str:
     raise ValueError(
         f"Unsupported metadataDetail {value!r}; supported values: {supported}."
     )
+
+
+def _normalizeRoccoPeakMode(value: str | None) -> str:
+    raw = _MATCHING_DEFAULT_PEAK_MODE if value is None else value
+    peakMode = str(raw)
+    if peakMode in MATCHING_PEAK_MODES:
+        return peakMode
+    supported = ", ".join(MATCHING_PEAK_MODES)
+    raise ValueError(f"Unsupported peakMode {value!r}. Supported values: {supported}.")
+
+
+def _validateBroadWeakThresholdZ(value: float) -> float:
+    thresholdZ = float(value)
+    if not np.isfinite(thresholdZ) or thresholdZ < 0.0:
+        raise ValueError("`broadWeakThresholdZ` must be finite and non-negative")
+    return thresholdZ
+
+
+def _validateBroadMaxGapBP(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("`broadMaxGapBP` must be an integer or None")
+    gapBP = int(value)
+    if gapBP != value or gapBP < 0:
+        raise ValueError("`broadMaxGapBP` must be a non-negative integer or None")
+    return gapBP
 
 
 def _readBlacklistIntervalsByChrom(blacklistBedFile: str | None) -> Dict[str, np.ndarray]:
@@ -1820,6 +1864,145 @@ def _selectedRunBounds(mask: np.ndarray) -> List[Tuple[int, int]]:
         runs.append((int(start), int(i)))
         i += 1
     return runs
+
+
+def _selectedCoordinateRunBounds(
+    mask: np.ndarray,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+) -> List[Tuple[int, int]]:
+    mask_ = np.asarray(mask, dtype=bool)
+    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+    ends_ = np.asarray(ends, dtype=np.int64).ravel()
+    if intervals_.size != mask_.size or ends_.size != mask_.size:
+        raise ValueError("`intervals`, `ends`, and `mask` must match length")
+    runs: List[Tuple[int, int]] = []
+    n = int(mask_.size)
+    i = 0
+    while i < n:
+        if not bool(mask_[i]):
+            i += 1
+            continue
+        start = i
+        while (
+            i + 1 < n
+            and bool(mask_[i + 1])
+            and int(ends_[i]) == int(intervals_[i + 1])
+        ):
+            i += 1
+        runs.append((int(start), int(i)))
+        i += 1
+    return runs
+
+
+def _mergeBroadRunsByObjective(
+    runs: Sequence[Tuple[int, int]],
+    scores: np.ndarray,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    chromosome: str,
+    selectionPenalty: float,
+    boundaryCost: float,
+    maxGapBP: int,
+    blacklistByChrom: Mapping[str, np.ndarray],
+    runPenalty: float = 0.0,
+    dipPenaltyFraction: float = 1.0,
+) -> Tuple[List[Tuple[int, int]], Dict[str, Any]]:
+    dipPenaltyFraction_ = float(np.clip(float(dipPenaltyFraction), 0.0, 1.0))
+    if not runs:
+        return [], {
+            "policy": (
+                "soft_dip_objective_delta"
+                if dipPenaltyFraction_ < 1.0
+                else "objective_delta"
+            ),
+            "num_input_runs": 0,
+            "num_output_runs": 0,
+            "num_gaps_evaluated": 0,
+            "num_gaps_merged": 0,
+            "num_gaps_blocked_by_blacklist": 0,
+            "num_gaps_blocked_by_distance": 0,
+            "max_gap_bp": int(maxGapBP),
+            "run_penalty": float(max(float(runPenalty), 0.0)),
+            "dip_penalty_fraction": float(dipPenaltyFraction_),
+        }
+    scores_ = np.asarray(scores, dtype=np.float64).ravel()
+    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+    ends_ = np.asarray(ends, dtype=np.int64).ravel()
+    if scores_.size != intervals_.size or scores_.size != ends_.size:
+        raise ValueError("`scores`, `intervals`, and `ends` must match length")
+    selectionPenalty_ = float(max(float(selectionPenalty), 0.0))
+    boundaryCost_ = float(max(float(boundaryCost), 0.0))
+    runPenalty_ = float(max(float(runPenalty), 0.0))
+    maxGapBP_ = int(max(int(maxGapBP), 0))
+    mergedRuns: List[Tuple[int, int]] = []
+    gapsEvaluated = 0
+    gapsMerged = 0
+    blockedBlacklist = 0
+    blockedDistance = 0
+    activeStart, activeEnd = int(runs[0][0]), int(runs[0][1])
+    for nextStart, nextEnd in runs[1:]:
+        nextStart_ = int(nextStart)
+        nextEnd_ = int(nextEnd)
+        gapsEvaluated += 1
+        gapStartBP = int(ends_[activeEnd])
+        gapEndBP = int(intervals_[nextStart_])
+        gapBP = int(max(gapEndBP - gapStartBP, 0))
+        if gapBP > maxGapBP_:
+            blockedDistance += 1
+            mergedRuns.append((int(activeStart), int(activeEnd)))
+            activeStart, activeEnd = nextStart_, nextEnd_
+            continue
+        if _intervalOverlapsBlacklist(
+            str(chromosome),
+            gapStartBP,
+            gapEndBP,
+            blacklistByChrom,
+        ):
+            blockedBlacklist += 1
+            mergedRuns.append((int(activeStart), int(activeEnd)))
+            activeStart, activeEnd = nextStart_, nextEnd_
+            continue
+        if nextStart_ - activeEnd <= 1:
+            gapScore = 0.0
+        else:
+            gapScores = scores_[activeEnd + 1 : nextStart_]
+            gapExcess = np.asarray(gapScores - selectionPenalty_, dtype=np.float64)
+            gapScore = float(
+                np.sum(
+                    np.where(
+                        gapExcess < 0.0,
+                        dipPenaltyFraction_ * gapExcess,
+                        gapExcess,
+                    )
+                )
+            )
+        mergeGain = float(gapScore + 2.0 * boundaryCost_ + runPenalty_)
+        if mergeGain > 0.0:
+            gapsMerged += 1
+            activeEnd = nextEnd_
+            continue
+        mergedRuns.append((int(activeStart), int(activeEnd)))
+        activeStart, activeEnd = nextStart_, nextEnd_
+    mergedRuns.append((int(activeStart), int(activeEnd)))
+    return mergedRuns, {
+        "policy": (
+            "soft_dip_objective_delta"
+            if dipPenaltyFraction_ < 1.0
+            else "objective_delta"
+        ),
+        "num_input_runs": int(len(runs)),
+        "num_output_runs": int(len(mergedRuns)),
+        "num_gaps_evaluated": int(gapsEvaluated),
+        "num_gaps_merged": int(gapsMerged),
+        "num_gaps_blocked_by_blacklist": int(blockedBlacklist),
+        "num_gaps_blocked_by_distance": int(blockedDistance),
+        "selection_penalty": float(selectionPenalty_),
+        "boundary_cost": float(boundaryCost_),
+        "run_penalty": float(runPenalty_),
+        "max_gap_bp": int(maxGapBP_),
+        "dip_penalty_fraction": float(dipPenaltyFraction_),
+    }
 
 
 def _maskJaccard(a: np.ndarray, b: np.ndarray) -> float:
@@ -4484,10 +4667,9 @@ def _forceMassiveSubpeakSegments(
 
     def _recurse(start: int, end: int, depth: int) -> List[Dict[str, Any]]:
         widthBP = int(max(int(ends_[end]) - int(intervals_[start]), 0))
-        candidate = bool(
-            widthBP >= threshold_
-            or (depth > 0 and widthBP >= contractThreshold)
-        )
+        needsSplitSearch = bool(widthBP >= threshold_)
+        needsChildContract = bool(depth > 0 and widthBP >= contractThreshold)
+        candidate = bool(needsSplitSearch or needsChildContract)
         if not candidate:
             return [
                 _makeSubpeakSegment(
@@ -4504,6 +4686,10 @@ def _forceMassiveSubpeakSegments(
                     cleanupApplied=False,
                 )
             ]
+        if not needsSplitSearch:
+            counts["candidates"] += 1
+            counts["evaluated"] += 1
+            return _contract_or_keep(start, end, None)
         if depth >= maxDepth_:
             counts["candidates"] += 1
             counts["evaluated"] += 1
@@ -5339,6 +5525,296 @@ def _solutionToChromNarrowPeakRows(
     return outRows, rowsMeta
 
 
+def _blocksForBroadParent(
+    parentStartIdx: int,
+    parentEndIdx: int,
+    childRuns: Sequence[Tuple[int, int]],
+    intervals: np.ndarray,
+    ends: np.ndarray,
+) -> List[Tuple[int, int]]:
+    parentStartBP = int(intervals[parentStartIdx])
+    parentEndBP = int(ends[parentEndIdx])
+    blocks: List[Tuple[int, int]] = []
+    for childStart, childEnd in childRuns:
+        if int(childEnd) < int(parentStartIdx) or int(childStart) > int(parentEndIdx):
+            continue
+        blockStartIdx = int(max(int(childStart), int(parentStartIdx)))
+        blockEndIdx = int(min(int(childEnd), int(parentEndIdx)))
+        blockStartBP = int(max(int(intervals[blockStartIdx]), parentStartBP))
+        blockEndBP = int(min(int(ends[blockEndIdx]), parentEndBP))
+        if blockEndBP > blockStartBP:
+            blocks.append((blockStartBP, blockEndBP))
+    if not blocks:
+        blocks = [(parentStartBP, parentEndBP)]
+    blocks.sort()
+    merged: List[Tuple[int, int]] = []
+    for start, end in blocks:
+        if not merged or int(start) > int(merged[-1][1]):
+            merged.append((int(start), int(end)))
+        else:
+            prevStart, prevEnd = merged[-1]
+            merged[-1] = (int(prevStart), max(int(prevEnd), int(end)))
+    if int(merged[0][0]) > parentStartBP:
+        merged.insert(0, (parentStartBP, parentStartBP + 1))
+    if int(merged[-1][1]) < parentEndBP:
+        merged.append((parentEndBP - 1, parentEndBP))
+    return merged
+
+
+def _solutionToChromBroadPeakRows(
+    chromosome: str,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    state: np.ndarray,
+    scores: np.ndarray,
+    parentSolution: np.ndarray,
+    childSolution: np.ndarray,
+    prefix: str,
+    uncertainty: np.ndarray | None = None,
+    exportFilterUncertaintyMultiplier: float = (
+        _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
+    ),
+    minPeakBP: int = _MATCHING_DEFAULT_BROAD_MIN_PEAK_BP,
+    scoreFloor: float = 250.0,
+    scoreCeil: float = 1000.0,
+    returnExportDetails: bool = False,
+) -> (
+    Tuple[List[List[str | int | float]], List[List[str | int | float]], List[Dict[str, Any]]]
+    | Tuple[
+        List[List[str | int | float]],
+        List[List[str | int | float]],
+        List[Dict[str, Any]],
+        Dict[str, Any],
+    ]
+):
+    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+    ends_ = np.asarray(ends, dtype=np.int64).ravel()
+    state_ = np.asarray(state, dtype=np.float64).ravel()
+    scores_ = np.asarray(scores, dtype=np.float64).ravel()
+    parentSolution_ = np.asarray(parentSolution, dtype=np.uint8).ravel()
+    childSolution_ = np.asarray(childSolution, dtype=np.uint8).ravel()
+    if (
+        intervals_.size != state_.size
+        or ends_.size != state_.size
+        or scores_.size != state_.size
+        or parentSolution_.size != state_.size
+        or childSolution_.size != state_.size
+    ):
+        raise ValueError(
+            "`intervals`, `ends`, `state`, `scores`, and solutions must match length"
+        )
+    uncertainty_: np.ndarray | None = None
+    if uncertainty is not None:
+        uncertainty_ = np.asarray(uncertainty, dtype=np.float64).ravel()
+        if uncertainty_.size != state_.size:
+            raise ValueError("`uncertainty` must match `state` length")
+    exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
+        exportFilterUncertaintyMultiplier
+    )
+    minPeakBP_ = int(max(int(minPeakBP), 1))
+    exportDetails: Dict[str, Any] = {
+        "num_candidate_segments": 0,
+        "num_segments_dropped_median_signal_local_p": 0,
+        "num_segments_dropped_min_peak_bp": 0,
+        "min_peak_bp": int(minPeakBP_),
+        "median_signal_local_p_multiplier": float(exportFilterUncertaintyMultiplier_),
+        "median_signal_local_p_filter_active": bool(uncertainty_ is not None),
+        "num_broad_parent_segments": 0,
+        "num_gapped_peak_blocks": 0,
+    }
+    parentRuns = _selectedCoordinateRunBounds(parentSolution_, intervals_, ends_)
+    childRuns = _selectedCoordinateRunBounds(childSolution_, intervals_, ends_)
+    rowsRaw: List[Dict[str, Any]] = []
+    rowsMeta: List[Dict[str, Any]] = []
+    for parentStartIdx, parentEndIdx in parentRuns:
+        parentState = np.asarray(
+            state_[parentStartIdx : parentEndIdx + 1], dtype=np.float64
+        )
+        parentScores = np.asarray(
+            scores_[parentStartIdx : parentEndIdx + 1], dtype=np.float64
+        )
+        exportDetails["num_candidate_segments"] += 1
+        medianState = float(np.median(parentState))
+        localMedianP = None
+        medianSignalThreshold = None
+        if uncertainty_ is not None:
+            localP = np.asarray(
+                uncertainty_[parentStartIdx : parentEndIdx + 1],
+                dtype=np.float64,
+            )
+            localP = localP[np.isfinite(localP)]
+            if localP.size > 0:
+                localMedianP = float(np.median(localP))
+                medianSignalThreshold = float(
+                    -exportFilterUncertaintyMultiplier_ * localMedianP
+                )
+                if medianState < medianSignalThreshold:
+                    exportDetails["num_segments_dropped_median_signal_local_p"] += 1
+                    continue
+        chromStart = int(intervals_[parentStartIdx])
+        chromEnd = int(ends_[parentEndIdx])
+        if chromEnd - chromStart < minPeakBP_:
+            exportDetails["num_segments_dropped_min_peak_bp"] += 1
+            continue
+        summitLocal = int(np.argmax(parentState))
+        summitIdx = int(parentStartIdx + summitLocal)
+        summitAbs = int(
+            intervals_[summitIdx]
+            + max(1, int((ends_[summitIdx] - intervals_[summitIdx]) // 2))
+        )
+        blocks = _blocksForBroadParent(
+            int(parentStartIdx),
+            int(parentEndIdx),
+            childRuns,
+            intervals_,
+            ends_,
+        )
+        blockSizes = [int(end - start) for start, end in blocks]
+        blockStarts = [int(start - chromStart) for start, _end in blocks]
+        if blockStarts[0] != 0:
+            raise RuntimeError("gappedPeak first block must start at parent start")
+        if blockStarts[-1] + blockSizes[-1] != chromEnd - chromStart:
+            raise RuntimeError("gappedPeak final block must end at parent end")
+        peakName = f"{prefix}_{chromosome}_{len(rowsRaw) + 1}"
+        rowsRaw.append(
+            {
+                "chromosome": str(chromosome),
+                "start": int(chromStart),
+                "end": int(chromEnd),
+                "name": str(peakName),
+                "signal": float(np.mean(parentState)),
+                "raw_score": float(np.mean(parentScores)),
+                "block_sizes": blockSizes,
+                "block_starts": blockStarts,
+            }
+        )
+        rowsMeta.append(
+            {
+                "name": str(peakName),
+                "chromosome": str(chromosome),
+                "start": int(chromStart),
+                "end": int(chromEnd),
+                "summit": int(summitAbs),
+                "start_idx": int(parentStartIdx),
+                "end_idx": int(parentEndIdx),
+                "summit_idx": int(summitIdx),
+                "median_state": float(medianState),
+                "mean_state": float(np.mean(parentState)),
+                "max_state": float(np.max(parentState)),
+                "mean_score": float(np.mean(parentScores)),
+                "max_score": float(np.max(parentScores)),
+                "local_median_p": (
+                    None if localMedianP is None else float(localMedianP)
+                ),
+                "median_signal_threshold": (
+                    None
+                    if medianSignalThreshold is None
+                    else float(medianSignalThreshold)
+                ),
+                "block_count": int(len(blocks)),
+                "block_sizes": [int(value) for value in blockSizes],
+                "block_starts": [int(value) for value in blockStarts],
+            }
+        )
+    if len(rowsRaw) == 0:
+        exportDetails["num_segments_kept"] = 0
+        if returnExportDetails:
+            return [], [], [], exportDetails
+        return [], [], []
+    rawScores = np.asarray([row["raw_score"] for row in rowsRaw], dtype=np.float64)
+    minScore = float(np.min(rawScores))
+    maxScore = float(np.max(rawScores))
+    span = max(maxScore - minScore, 1.0e-12)
+    broadRows: List[List[str | int | float]] = []
+    gappedRows: List[List[str | int | float]] = []
+    for row in rowsRaw:
+        scaled = scoreFloor + (scoreCeil - scoreFloor) * (
+            (float(row["raw_score"]) - minScore) / span
+        )
+        score = int(round(scaled))
+        blockSizesText = ",".join(str(int(value)) for value in row["block_sizes"])
+        blockStartsText = ",".join(str(int(value)) for value in row["block_starts"])
+        broadRows.append(
+            [
+                str(row["chromosome"]),
+                int(row["start"]),
+                int(row["end"]),
+                str(row["name"]),
+                score,
+                ".",
+                float(row["signal"]),
+                -1,
+                -1,
+            ]
+        )
+        gappedRows.append(
+            [
+                str(row["chromosome"]),
+                int(row["start"]),
+                int(row["end"]),
+                str(row["name"]),
+                score,
+                ".",
+                0,
+                0,
+                0,
+                int(len(row["block_sizes"])),
+                blockSizesText,
+                blockStartsText,
+                float(row["signal"]),
+                -1,
+                -1,
+            ]
+        )
+    exportDetails["num_segments_kept"] = int(len(broadRows))
+    exportDetails["num_broad_parent_segments"] = int(len(broadRows))
+    exportDetails["num_gapped_peak_blocks"] = int(
+        sum(int(row[9]) for row in gappedRows)
+    )
+    if returnExportDetails:
+        return broadRows, gappedRows, rowsMeta, exportDetails
+    return broadRows, gappedRows, rowsMeta
+
+
+def _pairedGappedRowsForPeakMeta(
+    gappedRows: Sequence[List[str | int | float]],
+    peakMeta: Sequence[Mapping[str, Any]],
+) -> List[List[str | int | float]]:
+    byName = {str(row[3]): list(row) for row in gappedRows}
+    paired: List[List[str | int | float]] = []
+    for meta in peakMeta:
+        name = str(meta["name"])
+        if name not in byName:
+            raise RuntimeError("Missing gappedPeak row for broad peak")
+        paired.append(byName[name])
+    return paired
+
+
+def _negativeLog10OrMissing(value: Any) -> float | int:
+    if value is None:
+        return -1
+    numeric = float(value)
+    if numeric <= 0.0 or numeric > 1.0:
+        raise ValueError("empirical p/q values must lie in (0, 1]")
+    return float(-math.log10(numeric))
+
+
+def _fillBroadRowsDWBValues(
+    broadRows: List[List[str | int | float]],
+    gappedRows: List[List[str | int | float]],
+    peakMeta: Sequence[Mapping[str, Any]],
+) -> None:
+    metaByName = {str(meta["name"]): meta for meta in peakMeta}
+    for row in broadRows:
+        meta = metaByName[str(row[3])]
+        row[7] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_p"))
+        row[8] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_q"))
+    for row in gappedRows:
+        meta = metaByName[str(row[3])]
+        row[13] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_p"))
+        row[14] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_q"))
+
+
 def _fileInventoryEntry(path: str | None, kind: str) -> Dict[str, Any]:
     entry: Dict[str, Any] = {"kind": str(kind), "path": path, "exists": False, "bytes": None}
     if path is None:
@@ -5380,6 +5856,7 @@ def _buildRoccoSummary(
     outPath: str,
     metaPath: str | None,
     nestedRoccoSubproblemDetailsPath: str | None,
+    gappedPath: str | None = None,
     rows: List[List[str | int | float]],
     meta: Mapping[str, Any],
 ) -> Dict[str, Any]:
@@ -5466,6 +5943,8 @@ def _buildRoccoSummary(
         _fileInventoryEntry(outPath, outputFormat),
         _fileInventoryEntry(metaPath, "metadata_json"),
     ]
+    if gappedPath is not None:
+        inventory.append(_fileInventoryEntry(gappedPath, "gappedPeak"))
     if nestedRoccoSubproblemDetailsPath is not None:
         inventory.append(
             _fileInventoryEntry(
@@ -5476,7 +5955,14 @@ def _buildRoccoSummary(
     summary: Dict[str, Any] = {
         "peak_path": str(outPath),
         "peak_output_format": outputFormat,
-        "narrowPeak_path": str(outPath),
+        "narrowPeak_path": str(outPath) if outputFormat == "narrowPeak" else None,
+        "broadPeak_path": str(outPath) if outputFormat == "broadPeak" else None,
+        "gappedPeak_path": gappedPath,
+        "peak_paths": (
+            [str(outPath)]
+            if gappedPath is None
+            else [str(outPath), str(gappedPath)]
+        ),
         "metadata_json_path": None if metaPath is None else str(metaPath),
         "nested_jsonl_path": nestedRoccoSubproblemDetailsPath,
         **widthSummary,
@@ -5789,6 +6275,9 @@ def solveRocco(
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
     minPeakScore: float | None = _MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    peakMode: str = _MATCHING_DEFAULT_PEAK_MODE,
+    broadWeakThresholdZ: float = _MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
+    broadMaxGapBP: int | None = _MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
     uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     randSeed: int = 42,
@@ -5807,9 +6296,20 @@ def solveRocco(
         exportFilterUncertaintyMultiplier
     )
     minPeakScore_ = _validateMinPeakScore(minPeakScore)
-    outputFormat = "narrowPeak"
-    effectiveNestedRoccoIters = int(max(int(nestedRoccoIters), 0))
-    effectiveMassiveSubpeakCleanup = bool(massiveSubpeakCleanup)
+    peakMode_ = _normalizeRoccoPeakMode(peakMode)
+    broadWeakThresholdZ_ = _validateBroadWeakThresholdZ(broadWeakThresholdZ)
+    broadMaxGapBP_ = _validateBroadMaxGapBP(broadMaxGapBP)
+    thresholdZ_ = float(thresholdZ)
+    if peakMode_ == "broad" and broadWeakThresholdZ_ > thresholdZ_:
+        raise ValueError("`broadWeakThresholdZ` cannot exceed `thresholdZ`")
+    outputFormat = "broadPeak" if peakMode_ == "broad" else "narrowPeak"
+    requestedNestedRoccoIters = int(max(int(nestedRoccoIters), 0))
+    effectiveNestedRoccoIters = (
+        min(requestedNestedRoccoIters, 1)
+        if peakMode_ == "broad"
+        else requestedNestedRoccoIters
+    )
+    effectiveMassiveSubpeakCleanup = bool(massiveSubpeakCleanup) and peakMode_ == "narrow"
     uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
     uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
     metadataDetail_ = _normalizeRoccoMetadataDetail(metadataDetail)
@@ -5826,6 +6326,9 @@ def solveRocco(
     stateBase = Path(stateBedGraphFile)
     if outPath is None:
         outPath = str(stateBase.with_name(f"{stateBase.stem}_rocco.{outputFormat}"))
+    gappedPath: str | None = None
+    if peakMode_ == "broad":
+        gappedPath = str(Path(outPath).with_suffix(".gappedPeak"))
     if writeMetadata and metaPath is None:
         metaPath = f"{outPath}.json"
     if not writeMetadata:
@@ -5844,6 +6347,7 @@ def solveRocco(
         )
 
     allRows: List[List[str | int | float]] = []
+    allGappedRows: List[List[str | int | float]] = []
     meta: Dict[str, Any] = {
         "settings": {
             "state_bedgraph": str(stateBedGraphFile),
@@ -5859,10 +6363,20 @@ def solveRocco(
             "peak_scoring_method": "stationary_dwb_null_replay_multiscale_segments",
             "num_bootstrap": int(numBootstrap),
             "threshold_z": float(thresholdZ),
+            "peak_mode": str(peakMode_),
+            "broad_weak_threshold_z": float(broadWeakThresholdZ_),
+            "broad_max_gap_bp": broadMaxGapBP_,
+            "broad_min_peak_bp": int(_MATCHING_DEFAULT_BROAD_MIN_PEAK_BP),
+            "broad_parent_gamma_multiplier": float(
+                _MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER
+            ),
+            "broad_bridge_dip_penalty_fraction": float(
+                _BROAD_BRIDGE_DIP_PENALTY_FRACTION
+            ),
             "null_quantile": float(_ROCCO_NULL_QUANTILE),
             "threshold_z_grid": [float(z) for z in _resolveThresholdZGrid(thresholdZ)],
             "nested_rocco_iters": int(effectiveNestedRoccoIters),
-            "nested_rocco_requested_iters": int(max(int(nestedRoccoIters), 0)),
+            "nested_rocco_requested_iters": int(requestedNestedRoccoIters),
             "nested_rocco_budget_scale": float(
                 np.clip(float(nestedRoccoBudgetScale), 0.0, 1.0)
             ),
@@ -5934,7 +6448,7 @@ def solveRocco(
         prepared = _prepareROCCOScoreAndNull(
             state,
             uncertainty=uncertainty,
-            thresholdZ=thresholdZ,
+            thresholdZ=thresholdZ_,
             numBootstrap=numBootstrap,
             dependenceSpan=dependenceSpan,
             kernel="bartlett",
@@ -5950,7 +6464,7 @@ def solveRocco(
             statistic="occupancy",
             numBootstrap=numBootstrap,
             dependenceSpan=dependenceSpan,
-            thresholdZ=thresholdZ,
+            thresholdZ=thresholdZ_,
             randomSeed=int(randSeed) + chromIndex,
             nullQuantile=_ROCCO_NULL_QUANTILE,
             returnDetails=True,
@@ -5968,6 +6482,48 @@ def solveRocco(
             threshold=float(prepared["threshold"]),
             returnDetails=True,
         )
+        weakPrepared = None
+        weakBudgetRaw = None
+        weakBudgetDetails = None
+        weakGamma = None
+        weakGammaDetails = None
+        weakScoreTrack = None
+        if peakMode_ == "broad":
+            weakPrepared = _prepareROCCOScoreAndNull(
+                state,
+                uncertainty=uncertainty,
+                thresholdZ=broadWeakThresholdZ_,
+                numBootstrap=numBootstrap,
+                dependenceSpan=dependenceSpan,
+                kernel="bartlett",
+                randomSeed=int(randSeed) + chromIndex,
+                nullQuantile=_ROCCO_NULL_QUANTILE,
+                thresholdZGrid=_ROCCO_BUDGET_Z_GRID,
+                uncertaintyScoreMode=uncertaintyScoreMode_,
+                uncertaintyScoreZ=uncertaintyScoreZ_,
+            )
+            weakScoreTrack = np.asarray(weakPrepared["score_track"], dtype=np.float64)
+            weakBudgetRaw, weakBudgetDetails = _estimateBudgetForPreparedROCCOScore(
+                weakPrepared,
+                statistic="occupancy",
+                numBootstrap=numBootstrap,
+                dependenceSpan=dependenceSpan,
+                thresholdZ=broadWeakThresholdZ_,
+                randomSeed=int(randSeed) + chromIndex,
+                nullQuantile=_ROCCO_NULL_QUANTILE,
+                returnDetails=True,
+            )
+            weakGamma = float(
+                _MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER * float(gamma_)
+            )
+            weakGammaDetails = {
+                "method": "child_gamma_multiplier",
+                "child_gamma": float(gamma_),
+                "parent_gamma_multiplier": float(
+                    _MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER
+                ),
+                "gamma": float(weakGamma),
+            }
         chromWork[str(chromosome)] = {
             "state": state,
             "uncertainty": uncertainty,
@@ -5979,6 +6535,12 @@ def solveRocco(
             "budget_details": dict(budgetDetails),
             "gamma": float(gamma_),
             "gamma_details": dict(gammaDetails),
+            "weak_prepared": weakPrepared,
+            "weak_score_track": weakScoreTrack,
+            "weak_budget_raw": weakBudgetRaw,
+            "weak_budget_details": weakBudgetDetails,
+            "weak_gamma": weakGamma,
+            "weak_gamma_details": weakGammaDetails,
             "interval_bp": int(np.median(ends - intervals)),
             "prepared": prepared,
         }
@@ -6044,7 +6606,7 @@ def solveRocco(
         solveDetails["final_selected_count"] = int(np.sum(solution))
         solveDetails["nested_rocco_iters"] = int(effectiveNestedRoccoIters)
         solveDetails["nested_rocco_requested_iters"] = int(
-            max(int(nestedRoccoIters), 0)
+            requestedNestedRoccoIters
         )
         solveDetails["nested_rocco_budget_scale"] = float(
             np.clip(float(nestedRoccoBudgetScale), 0.0, 1.0)
@@ -6053,37 +6615,139 @@ def solveRocco(
         solveDetails["nested_rocco_stop_reason"] = str(nestedDetails["stop_reason"])
         exportTrimScoreFloor = 0.0
         roccoPrefix = "consenrichROCCO"
-        nestedHierarchy = _buildRoccoNestedHierarchy(
-            str(chromosome),
-            intervals,
-            ends,
-            firstPassSolution,
-            solution,
-            roccoPrefix,
-        )
-        rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
-            str(chromosome),
-            intervals,
-            ends,
-            state,
-            np.asarray(scoreTrack, dtype=np.float64),
-            solution,
-            prefix=roccoPrefix,
-            nullScale=float(nullScale),
-            uncertainty=uncertainty,
-            trimScoreFloor=float(exportTrimScoreFloor),
-            subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
-            subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
-            minSubpeakBins=int(exportMinSubpeakBins),
-            exportFilterUncertaintyMultiplier=float(
-                exportFilterUncertaintyMultiplier_
-            ),
-            nestedHierarchy=nestedHierarchy,
-            returnExportDetails=True,
-        )
-        initialPeakWidthsBP.extend(
-            [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
-        )
+        broadParentSolution = None
+        broadParentDetails: Dict[str, Any] | None = None
+        if peakMode_ == "broad":
+            weakScoreTrack = np.asarray(work["weak_score_track"], dtype=np.float64)
+            weakBudgetDetails = dict(work["weak_budget_details"])
+            weakSolution, weakObjective, weakSolveDetails = solveChromROCCO(
+                weakScoreTrack,
+                budget=float(work["weak_budget_raw"]),
+                gamma=float(work["weak_gamma"]),
+                selectionPenalty=selectionPenalty,
+                returnDetails=True,
+            )
+            envelopeSolution = (
+                (np.asarray(weakSolution, dtype=np.uint8) > 0)
+                | (np.asarray(solution, dtype=np.uint8) > 0)
+            ).astype(np.uint8)
+            anchorSolution = np.asarray(envelopeSolution, dtype=bool)
+            weakSupportThreshold = float(work["weak_prepared"]["threshold"])
+            weakSupportSolution = np.asarray(
+                weakScoreTrack >= weakSupportThreshold,
+                dtype=np.uint8,
+            )
+            weakSupportRuns = _selectedCoordinateRunBounds(
+                weakSupportSolution,
+                intervals,
+                ends,
+            )
+            weakRuns = []
+            for supportStart, supportEnd in weakSupportRuns:
+                if np.any(anchorSolution[int(supportStart) : int(supportEnd) + 1]):
+                    weakRuns.append((int(supportStart), int(supportEnd)))
+            if not weakRuns:
+                weakRuns = _selectedCoordinateRunBounds(
+                    envelopeSolution,
+                    intervals,
+                    ends,
+                )
+            broadMaxGapResolved = (
+                int(broadMaxGapBP_)
+                if broadMaxGapBP_ is not None
+                else int(
+                    4
+                    * int(weakBudgetDetails["dependence_span"])
+                    * max(int(work["interval_bp"]), 1)
+                )
+            )
+            mergedRuns, mergeDetails = _mergeBroadRunsByObjective(
+                weakRuns,
+                weakScoreTrack,
+                intervals,
+                ends,
+                str(chromosome),
+                selectionPenalty=float(weakSolveDetails["selection_penalty"]),
+                boundaryCost=float(work["weak_gamma"]),
+                maxGapBP=int(broadMaxGapResolved),
+                blacklistByChrom=blacklistByChrom,
+                dipPenaltyFraction=float(_BROAD_BRIDGE_DIP_PENALTY_FRACTION),
+            )
+            broadParentSolution = np.zeros_like(envelopeSolution, dtype=np.uint8)
+            for parentStart, parentEnd in mergedRuns:
+                broadParentSolution[int(parentStart) : int(parentEnd) + 1] = 1
+            broadParentDetails = {
+                "enabled": True,
+                "weak_threshold_z": float(broadWeakThresholdZ_),
+                "weak_budget": float(work["weak_budget_raw"]),
+                "weak_objective": float(weakObjective),
+                "weak_solve_details": dict(weakSolveDetails),
+                "weak_budget_details": weakBudgetDetails,
+                "weak_gamma": float(work["weak_gamma"]),
+                "weak_gamma_details": dict(work["weak_gamma_details"]),
+                "strong_child_union_applied": True,
+                "weak_support_threshold": float(weakSupportThreshold),
+                "weak_support_run_count": int(len(weakSupportRuns)),
+                "weak_support_touching_run_count": int(len(weakRuns)),
+                "broad_bridge_dip_penalty_fraction": float(
+                    _BROAD_BRIDGE_DIP_PENALTY_FRACTION
+                ),
+                "max_gap_bp": int(broadMaxGapResolved),
+                "merge_details": mergeDetails,
+            }
+            rows, gappedRows, peakMeta, exportDetails = _solutionToChromBroadPeakRows(
+                str(chromosome),
+                intervals,
+                ends,
+                state,
+                np.asarray(weakScoreTrack, dtype=np.float64),
+                broadParentSolution,
+                solution,
+                prefix=roccoPrefix,
+                uncertainty=uncertainty,
+                exportFilterUncertaintyMultiplier=float(
+                    exportFilterUncertaintyMultiplier_
+                ),
+                minPeakBP=int(_MATCHING_DEFAULT_BROAD_MIN_PEAK_BP),
+                returnExportDetails=True,
+            )
+            initialPeakWidthsBP.extend(
+                [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
+            )
+            nestedHierarchy = None
+        else:
+            nestedHierarchy = _buildRoccoNestedHierarchy(
+                str(chromosome),
+                intervals,
+                ends,
+                firstPassSolution,
+                solution,
+                roccoPrefix,
+            )
+            rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
+                str(chromosome),
+                intervals,
+                ends,
+                state,
+                np.asarray(scoreTrack, dtype=np.float64),
+                solution,
+                prefix=roccoPrefix,
+                nullScale=float(nullScale),
+                uncertainty=uncertainty,
+                trimScoreFloor=float(exportTrimScoreFloor),
+                subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
+                subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
+                minSubpeakBins=int(exportMinSubpeakBins),
+                exportFilterUncertaintyMultiplier=float(
+                    exportFilterUncertaintyMultiplier_
+                ),
+                nestedHierarchy=nestedHierarchy,
+                returnExportDetails=True,
+            )
+            gappedRows = []
+            initialPeakWidthsBP.extend(
+                [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
+            )
         chromResults[str(chromosome)] = {
             "state": state,
             "intervals": intervals,
@@ -6098,10 +6762,13 @@ def solveRocco(
             "solve_details": solveDetails,
             "nested_details": nestedDetails,
             "nested_hierarchy": nestedHierarchy,
+            "broad_parent_solution": broadParentSolution,
+            "broad_parent_details": broadParentDetails,
             "first_pass_solution": firstPassSolution,
             "solution": solution,
             "export_trim_score_floor": float(exportTrimScoreFloor),
             "initial_rows": rows,
+            "initial_gapped_rows": gappedRows,
             "initial_peak_meta": peakMeta,
             "initial_export_details": exportDetails,
             "nested_min_region_bp": int(nestedMinRegionBP),
@@ -6158,8 +6825,10 @@ def solveRocco(
                 nestedHierarchy=nestedHierarchy,
                 returnExportDetails=True,
             )
+            gappedRows = []
         else:
             rows = list(result["initial_rows"])
+            gappedRows = list(result["initial_gapped_rows"])
             peakMeta = list(result["initial_peak_meta"])
             exportDetails = dict(result["initial_export_details"])
             exportDetails["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
@@ -6173,11 +6842,18 @@ def solveRocco(
             peakMeta,
             blacklistByChrom,
         )
+        if peakMode_ == "broad":
+            gappedRows = _pairedGappedRowsForPeakMeta(gappedRows, peakMeta)
         blacklistDroppedTotal += int(blacklistDropped)
+        scoringTrack = scoreTrack
+        scoringPrepared = work.get("prepared", {})
+        if peakMode_ == "broad":
+            scoringTrack = np.asarray(work["weak_score_track"], dtype=np.float64)
+            scoringPrepared = work.get("weak_prepared", {})
         _addDWBPeakScoringToPeakMeta(
             peakMeta,
-            scoreTrack,
-            work.get("prepared", {}),
+            scoringTrack,
+            scoringPrepared,
             exportDetails=exportDetails,
             minRunBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
             intervals=intervals,
@@ -6207,6 +6883,10 @@ def solveRocco(
             )
             rows = retainedRows
             peakMeta = retainedPeakMeta
+            if peakMode_ == "broad":
+                gappedRows = _pairedGappedRowsForPeakMeta(gappedRows, peakMeta)
+        if peakMode_ == "broad":
+            _fillBroadRowsDWBValues(rows, gappedRows, peakMeta)
         nullReplayDiagnostics = dict(
             exportDetails.get("null_replay_false_segment_diagnostics", {})
         )
@@ -6256,6 +6936,8 @@ def solveRocco(
         if hierarchySummary:
             exportDetails["nested_hierarchy_summary"] = hierarchySummary
         allRows.extend(rows)
+        if peakMode_ == "broad":
+            allGappedRows.extend(gappedRows)
 
         firstPassSolution = np.asarray(result["first_pass_solution"], dtype=np.uint8)
         meta["chromosomes"][str(chromosome)] = {
@@ -6294,6 +6976,7 @@ def solveRocco(
             "gamma_details": dict(work["gamma_details"]),
             "solve_details": solveDetails,
             "nested_rocco_details": result["nested_details"],
+            "broad_parent_details": result["broad_parent_details"],
             "nested_hierarchy": nestedHierarchy,
             "nested_hierarchy_summary": dict(
                 exportDetails.get("nested_hierarchy_summary", {})
@@ -6311,6 +6994,7 @@ def solveRocco(
         }
 
     allRows.sort(key=lambda row: (str(row[0]), int(row[1]), int(row[2])))
+    allGappedRows.sort(key=lambda row: (str(row[0]), int(row[1]), int(row[2])))
     meta["blacklist_filter"] = {
         "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
         "policy": "drop_any_overlap",
@@ -6320,6 +7004,10 @@ def solveRocco(
     with open(outPath, "w", encoding="utf-8") as handle:
         for row in allRows:
             handle.write("\t".join(map(str, row)) + "\n")
+    if gappedPath is not None:
+        with open(gappedPath, "w", encoding="utf-8") as handle:
+            for row in allGappedRows:
+                handle.write("\t".join(map(str, row)) + "\n")
 
     if metaPath is not None:
         _writeRoccoMetadata(
@@ -6332,6 +7020,7 @@ def solveRocco(
         outPath=str(outPath),
         metaPath=str(metaPath),
         nestedRoccoSubproblemDetailsPath=nestedRoccoSubproblemDetailsPath,
+        gappedPath=gappedPath,
         rows=allRows,
         meta=meta,
     )

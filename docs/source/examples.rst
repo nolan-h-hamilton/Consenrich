@@ -127,17 +127,9 @@ version, the principal output files are:
 
 .. code-block:: text
 
-  demoHistoneChIPSeq_consenrich_state.v0.10.5a0.bw
-  demoHistoneChIPSeq_consenrich_uncertainty.v0.10.5a0.bw
-  consenrichOutput_demoHistoneChIPSeq_state.v0.10.5a0_rocco.narrowPeak
-
-Results
-"""""""
-
-.. admonition:: Image placeholder
-
-   IGV/browser snapshot of the H3K27ac state estimate, local uncertainty, and
-   ROCCO peaks over a representative locus.
+  demoHistoneChIPSeq_consenrich_state.VERSION.bw
+  demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
+  consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
 
 
 .. _atac-demo:
@@ -146,8 +138,7 @@ ATAC-seq Demo
 ~~~~~~~~~~~~~
 
 This demo estimates a consensus chromatin-accessibility signal from ten ENCODE
-ATAC-seq alignments. ATAC-seq does not require matched input controls, so only
-treatment samples are listed.
+ATAC-seq alignments.
 
 Download Alignments
 """""""""""""""""""
@@ -173,7 +164,7 @@ Save the following as ``atacDemo.yaml``:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr6, chr13, chr17, chr19, chr20, chr21, chr22]
+    # chromosomes: [chr11, chr22] # faster: Uncomment and specify chromosomes
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -188,9 +179,6 @@ Save the following as ``atacDemo.yaml``:
       - ENCFF767FGV.bam
       - ENCFF919PWF.bam
       - ENCFF949CVL.bam
-
-  countingParams.intervalSizeBP: 50
-  samParams.minMappingQuality: 30
 
 
 Run Consenrich
@@ -221,17 +209,10 @@ Results
 Broad Mark ChIP-seq Demo
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-This demo estimates a consensus H3K4me1 signal from ten ENCODE heart left
-ventricle ChIP-seq experiments with matched input controls. The current demo
-uses 100 bp intervals and a larger background length-scale multiplier, which is
-a useful starting point for broad histone marks.
-
 Download Alignments
 """""""""""""""""""
 
-The H3K4me1 YAML uses descriptive filenames that include both the file
-accession and experiment accession, so the download loop uses ``wget -O`` to
-write each BAM to the expected name.
+(This will take a while!)
 
 .. code-block:: bash
 
@@ -367,6 +348,9 @@ Save the following as ``bigH3K4me1Demo.yaml``:
   countingParams:
     intervalSizeBP: 100
 
+  matchingParams:
+    peakMode: broad
+
 
 Run Consenrich
 """"""""""""""
@@ -382,4 +366,4 @@ Principal output files:
 
   bigH3K4me1Demo_consenrich_state.VERSION.bw
   bigH3K4me1Demo_consenrich_uncertainty.VERSION.bw
-  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.narrowPeak
+  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.gappedPeak

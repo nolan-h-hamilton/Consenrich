@@ -472,6 +472,181 @@ def _caseRunROCCOLowerConfidenceRecordsMetadata(tmp_path):
     assert chromDetails["budget_details"]["uncertainty_used"] is True
 
 
+def _caseBroadMergePolicyContracts():
+    intervals = np.arange(0, 700, 100, dtype=np.int64)
+    ends = intervals + 100
+    runs = [(0, 1), (4, 5)]
+    blacklistByChrom: dict[str, np.ndarray] = {}
+
+    merged, details = peaks._mergeBroadRunsByObjective(
+        runs,
+        np.asarray([5.0, 5.0, -0.5, -0.5, 5.0, 5.0, 0.0]),
+        intervals,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=1.0,
+        maxGapBP=300,
+        blacklistByChrom=blacklistByChrom,
+    )
+    assert merged == [(0, 5)]
+    assert details["num_gaps_merged"] == 1
+
+    merged, details = peaks._mergeBroadRunsByObjective(
+        runs,
+        np.asarray([5.0, 5.0, -2.0, -2.0, 5.0, 5.0, 0.0]),
+        intervals,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=1.0,
+        maxGapBP=300,
+        blacklistByChrom=blacklistByChrom,
+    )
+    assert merged == runs
+    assert details["num_gaps_merged"] == 0
+
+    merged, _details = peaks._mergeBroadRunsByObjective(
+        runs,
+        np.asarray([5.0, 5.0, -1.0, -1.0, 5.0, 5.0, 0.0]),
+        intervals,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=1.0,
+        maxGapBP=300,
+        blacklistByChrom=blacklistByChrom,
+    )
+    assert merged == runs
+
+    merged, details = peaks._mergeBroadRunsByObjective(
+        runs,
+        np.asarray([5.0, 5.0, -0.5, -0.5, 5.0, 5.0, 0.0]),
+        intervals,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=1.0,
+        maxGapBP=300,
+        blacklistByChrom={"chr1": np.asarray([(200, 400)], dtype=np.int64)},
+    )
+    assert merged == runs
+    assert details["num_gaps_blocked_by_blacklist"] == 1
+
+
+def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
+    n = 620
+    state = np.zeros(n, dtype=np.float64)
+    for start, end, value in (
+        (2, 3, 6.0),
+        (10, 13, 5.8),
+        (24, 30, 5.6),
+        (45, 55, 5.4),
+        (80, 100, 5.2),
+        (140, 190, 5.0),
+        (260, 360, 7.0),
+    ):
+        state[start:end] = value
+    uncertainty = np.full(n, 0.25, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        step=1000,
+        stem="broad_mode",
+    )
+    outPath = tmp_path / "broad_rocco.broadPeak"
+    metaPath = tmp_path / "broad_rocco.broadPeak.json"
+    gappedPath = tmp_path / "broad_rocco.gappedPeak"
+
+    resultPath, summary = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        peakMode="broad",
+        numBootstrap=16,
+        thresholdZ=2.0,
+        broadWeakThresholdZ=1.2816,
+        broadMaxGapBP=5000,
+        dependenceSpan=4,
+        gamma=0.25,
+        nestedRoccoIters=3,
+        minPeakScore=None,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+        metadataDetail="full",
+        returnSummary=True,
+    )
+
+    broadRows = [
+        line.split("\t")
+        for line in outPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    gappedRows = [
+        line.split("\t")
+        for line in gappedPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+
+    assert resultPath == str(outPath)
+    assert summary["broadPeak_path"] == str(outPath)
+    assert summary["gappedPeak_path"] == str(gappedPath)
+    assert summary["narrowPeak_path"] is None
+    assert summary["peak_paths"] == [str(outPath), str(gappedPath)]
+    assert {entry["kind"] for entry in summary["files"]} >= {
+        "broadPeak",
+        "gappedPeak",
+        "metadata_json",
+    }
+    assert broadRows
+    assert len(broadRows) == len(gappedRows)
+    assert all(len(row) == 9 for row in broadRows)
+    assert all(len(row) == 15 for row in gappedRows)
+    assert all(row[0].startswith("chr") for row in broadRows)
+    assert all(float(row[7]) >= 0.0 and float(row[8]) >= 0.0 for row in broadRows)
+    widths = [int(row[2]) - int(row[1]) for row in broadRows]
+    assert max(widths) >= 100000
+
+    for row in gappedRows:
+        parentStart = int(row[1])
+        parentEnd = int(row[2])
+        blockCount = int(row[9])
+        blockSizes = [int(value) for value in row[10].split(",")]
+        blockStarts = [int(value) for value in row[11].split(",")]
+        assert blockCount == len(blockSizes) == len(blockStarts)
+        assert blockStarts[0] == 0
+        assert blockStarts[-1] + blockSizes[-1] == parentEnd - parentStart
+        assert all(size > 0 for size in blockSizes)
+        assert all(
+            blockStarts[idx] + blockSizes[idx] <= blockStarts[idx + 1]
+            for idx in range(blockCount - 1)
+        )
+        assert row[6:9] == ["0", "0", "0"]
+        assert float(row[13]) >= 0.0 and float(row[14]) >= 0.0
+
+    chromMeta = meta["chromosomes"]["chr1"]
+    assert meta["settings"]["peak_mode"] == "broad"
+    assert meta["settings"]["peak_output_format"] == "broadPeak"
+    assert meta["settings"]["nested_rocco_iters"] == 1
+    assert meta["settings"]["massive_subpeak_cleanup"] is False
+    assert meta["settings"]["broad_parent_gamma_multiplier"] == pytest.approx(2.0)
+    assert meta["settings"]["broad_bridge_dip_penalty_fraction"] == pytest.approx(
+        constants.MATCHING_DEFAULT_BROAD_BRIDGE_DIP_PENALTY_FRACTION
+    )
+    assert chromMeta["broad_parent_details"]["max_gap_bp"] == 5000
+    assert chromMeta["broad_parent_details"][
+        "broad_bridge_dip_penalty_fraction"
+    ] == pytest.approx(constants.MATCHING_DEFAULT_BROAD_BRIDGE_DIP_PENALTY_FRACTION)
+    assert chromMeta["broad_parent_details"]["weak_gamma"] == pytest.approx(
+        2.0 * chromMeta["gamma_details"]["gamma"]
+    )
+    assert chromMeta["broad_parent_details"]["weak_gamma_details"][
+        "parent_gamma_multiplier"
+    ] == pytest.approx(2.0)
+    assert chromMeta["export_details"]["num_broad_parent_segments"] == len(broadRows)
+
+
 def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
     outPath = tmp_path / "summary_rocco.narrowPeak"
@@ -2519,6 +2694,11 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
         tmp_path,
     )
     contract_case(
+        "ROCCO broad output",
+        _caseRunROCCOBroadModeWritesBroadAndGapped,
+        tmp_path,
+    )
+    contract_case(
         "short flat enrichment retained",
         _caseRunROCCOAlgorithmKeepsShortFlatEnrichment,
         tmp_path,
@@ -2572,6 +2752,7 @@ def test_rocco_subpeak_policy_contracts(contract_case):
             _caseSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP,
             (),
         ),
+        ("broad merge policy", _caseBroadMergePolicyContracts, ()),
     ):
         contract_case(label, func, *args)
 

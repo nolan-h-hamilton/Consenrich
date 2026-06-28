@@ -3003,6 +3003,28 @@ def _buildArgParser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--match-peak-mode",
+        type=str,
+        choices=constants.MATCHING_PEAK_MODES,
+        default=constants.MATCHING_DEFAULT_PEAK_MODE,
+        dest="matchPeakMode",
+        help="ROCCO peak export mode.",
+    )
+    parser.add_argument(
+        "--match-broad-weak-threshold-z",
+        type=float,
+        default=constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
+        dest="matchBroadWeakThresholdZ",
+        help="Weak one-sided Gaussian z-threshold used by broad ROCCO mode.",
+    )
+    parser.add_argument(
+        "--match-broad-max-gap-bp",
+        type=int,
+        default=constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
+        dest="matchBroadMaxGapBP",
+        help="Maximum gap in bp considered for broad ROCCO parent merging.",
+    )
+    parser.add_argument(
         "--match-uncertainty-score-mode",
         type=str,
         choices=constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
@@ -3139,6 +3161,9 @@ def main():
                 args.matchExportFilterUncertaintyMultiplier
             ),
             minPeakScore=args.matchMinPeakScore,
+            peakMode=args.matchPeakMode,
+            broadWeakThresholdZ=args.matchBroadWeakThresholdZ,
+            broadMaxGapBP=args.matchBroadMaxGapBP,
             uncertaintyScoreMode=args.matchUncertaintyScoreMode,
             uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
@@ -4090,6 +4115,8 @@ def main():
             if file_.startswith(f"consenrichOutput_{experimentName}") and (
                 file_.endswith(".bedGraph")
                 or file_.endswith(".narrowPeak")
+                or file_.endswith(".broadPeak")
+                or file_.endswith(".gappedPeak")
             ):
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
@@ -7999,6 +8026,9 @@ def main():
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
                 minPeakScore=matchingArgs.minPeakScore,
+                peakMode=matchingArgs.peakMode,
+                broadWeakThresholdZ=float(matchingArgs.broadWeakThresholdZ),
+                broadMaxGapBP=matchingArgs.broadMaxGapBP,
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,
