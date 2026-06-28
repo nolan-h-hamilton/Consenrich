@@ -1,4 +1,4 @@
-"""Runtime reader for Consenrich genome covariate caches."""
+"""(Experimental) Runtime reader for Consenrich genome covariate caches."""
 
 from __future__ import annotations
 
@@ -303,9 +303,7 @@ def _validate_cache_request(
 
     if requested_chromosomes is not None:
         requested = tuple(
-            str(chrom).strip()
-            for chrom in requested_chromosomes
-            if str(chrom).strip()
+            str(chrom).strip() for chrom in requested_chromosomes if str(chrom).strip()
         )
         missing_chromosomes = [
             chrom
@@ -445,9 +443,8 @@ class ConsenrichGenomeCovariateCache:
             interval_end = min(interval_start + interval_size, end, row.length)
             lo = idx * group
             hi = min((idx + 1) * group, base.shape[0])
-            weights = (
-                np.minimum(bin_ends[lo:hi], interval_end)
-                - np.maximum(bin_starts[lo:hi], interval_start)
+            weights = np.minimum(bin_ends[lo:hi], interval_end) - np.maximum(
+                bin_starts[lo:hi], interval_start
             )
             keep = weights > 0
             weighted = base[lo:hi, :][keep, :].astype(np.float64, copy=False)

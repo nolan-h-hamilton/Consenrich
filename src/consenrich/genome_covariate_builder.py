@@ -1,4 +1,4 @@
-"""Local builders for Consenrich genome covariate caches."""
+"""(Experimental) Local builders for Consenrich genome covariate caches."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from typing import Any, Iterator
 import numpy as np
 
 from .genome_covariates import SCHEMA_VERSION
-
 
 __all__ = [
     "GenomeCovariateBuildResult",
@@ -72,9 +71,7 @@ def build_genome_covariate_cache(
         raise ValueError("genome covariate builder v1 only supports repeat_frac")
 
     if output_dir.exists() and not spec.force:
-        raise FileExistsError(
-            f"genome covariate output already exists: {output_dir}"
-        )
+        raise FileExistsError(f"genome covariate output already exists: {output_dir}")
 
     chrom_sizes = _load_chrom_sizes(spec.chrom_sizes)
     chromosomes = _select_chromosomes(chrom_sizes, spec.chromosomes)
@@ -259,9 +256,7 @@ def _iter_bed3_intervals(path: Path) -> Iterator[tuple[str, int, int]]:
             continue
         fields = line.split()
         if len(fields) < 3:
-            raise ValueError(
-                f"{path}:{line_number}: BED row has fewer than 3 fields"
-            )
+            raise ValueError(f"{path}:{line_number}: BED row has fewer than 3 fields")
         if fields[0].lower() in {"chrom", "chromosome"} and fields[1].lower() in {
             "start",
             "chromstart",
@@ -279,17 +274,15 @@ def _load_chrom_sizes(chrom_sizes: ChromSizesInput) -> dict[str, int]:
     if isinstance(chrom_sizes, (str, os.PathLike)):
         return _load_chrom_sizes_file(Path(chrom_sizes))
 
-    rows = (
-        chrom_sizes.items()
-        if isinstance(chrom_sizes, Mapping)
-        else chrom_sizes
-    )
+    rows = chrom_sizes.items() if isinstance(chrom_sizes, Mapping) else chrom_sizes
     parsed: dict[str, int] = {}
     for row in rows:
         try:
             chrom, length = row[0], row[1]  # type: ignore[index]
         except (IndexError, TypeError) as exc:
-            raise ValueError("chrom_sizes rows must contain chromosome and length") from exc
+            raise ValueError(
+                "chrom_sizes rows must contain chromosome and length"
+            ) from exc
         _add_chrom_size(parsed, chrom, length, source="chrom_sizes")
     return parsed
 

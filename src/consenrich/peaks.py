@@ -5800,15 +5800,10 @@ def _negativeLog10OrMissing(value: Any) -> float | int:
 
 
 def _fillBroadRowsDWBValues(
-    broadRows: List[List[str | int | float]],
     gappedRows: List[List[str | int | float]],
     peakMeta: Sequence[Mapping[str, Any]],
 ) -> None:
     metaByName = {str(meta["name"]): meta for meta in peakMeta}
-    for row in broadRows:
-        meta = metaByName[str(row[3])]
-        row[7] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_p"))
-        row[8] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_q"))
     for row in gappedRows:
         meta = metaByName[str(row[3])]
         row[13] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_p"))
@@ -5849,6 +5844,111 @@ def _summarizePeakWidthsFromRows(
         "median_width_bp": float(np.median(widthsArr)),
         "max_width_bp": int(np.max(widthsArr)),
     }
+
+
+def _resolveRoccoBothOutputPaths(
+    stateBedGraphFile: str,
+    outPath: str | None,
+    metaPath: str | None,
+    writeMetadata: bool,
+) -> Dict[str, str | None]:
+    stateBase = Path(stateBedGraphFile)
+    if outPath is None:
+        narrowPath = stateBase.with_name(f"{stateBase.stem}_rocco.narrowPeak")
+        gappedPath = stateBase.with_name(f"{stateBase.stem}_rocco.gappedPeak")
+    else:
+        outputPath = Path(outPath)
+        if outputPath.suffix != ".narrowPeak":
+            raise ValueError("Both peakMode requires a .narrowPeak outPath.")
+        narrowPath = outputPath
+        gappedPath = outputPath.with_suffix(".gappedPeak")
+
+    narrowMetaPath: str | None = None
+    gappedMetaPath: str | None = None
+    if writeMetadata:
+        if metaPath is None:
+            narrowMetaPath = f"{narrowPath}.json"
+            gappedMetaPath = f"{gappedPath}.json"
+        else:
+            metaPathText = str(metaPath)
+            if metaPathText.endswith(".narrowPeak.json"):
+                prefix = metaPathText[: -len(".narrowPeak.json")]
+                narrowMetaPath = metaPathText
+                gappedMetaPath = f"{prefix}.gappedPeak.json"
+            else:
+                raise ValueError(
+                    "Both peakMode requires a .narrowPeak.json metaPath."
+                )
+
+    return {
+        "narrowPeak": str(narrowPath),
+        "gappedPeak": str(gappedPath),
+        "narrowPeak_metadata": narrowMetaPath,
+        "gappedPeak_metadata": gappedMetaPath,
+    }
+
+
+def _buildRoccoBothSummary(
+    narrowSummary: Mapping[str, Any],
+    gappedSummary: Mapping[str, Any],
+) -> Dict[str, Any]:
+    narrowPath = str(narrowSummary["narrowPeak_path"])
+    gappedPath = str(gappedSummary["gappedPeak_path"])
+    metadataPaths = {
+        "narrowPeak": narrowSummary.get("metadata_json_path"),
+        "gappedPeak": gappedSummary.get("metadata_json_path"),
+    }
+    nestedPaths = {
+        "narrowPeak": narrowSummary.get("nested_jsonl_path"),
+        "gappedPeak": gappedSummary.get("nested_jsonl_path"),
+    }
+    files: List[Mapping[str, Any]] = []
+    for summaryAny in (narrowSummary, gappedSummary):
+        for entryAny in summaryAny.get("files", []):
+            if isinstance(entryAny, Mapping):
+                files.append(dict(entryAny))
+
+    summary = dict(narrowSummary)
+    settings = dict(narrowSummary.get("settings", {}))
+    settings["peak_mode"] = "both"
+    settings["peak_output_format"] = "narrowPeak"
+    settings["peak_output_formats"] = ["narrowPeak", "gappedPeak"]
+    settings["primary_peak_output_format"] = "narrowPeak"
+    summary.update(
+        {
+            "peak_path": narrowPath,
+            "primary_peak_path": narrowPath,
+            "peak_output_format": "narrowPeak",
+            "peak_output_formats": ["narrowPeak", "gappedPeak"],
+            "primary_peak_output_format": "narrowPeak",
+            "narrowPeak_path": narrowPath,
+            "gappedPeak_path": gappedPath,
+            "peak_paths": [narrowPath, gappedPath],
+            "peak_paths_by_format": {
+                "narrowPeak": narrowPath,
+                "gappedPeak": gappedPath,
+            },
+            "metadata_json_path": metadataPaths["narrowPeak"],
+            "metadata_json_paths": metadataPaths,
+            "nested_jsonl_path": nestedPaths["narrowPeak"],
+            "nested_jsonl_paths": nestedPaths,
+            "exported_peak_count_by_format": {
+                "narrowPeak": int(narrowSummary.get("exported_peak_count", 0)),
+                "gappedPeak": int(gappedSummary.get("exported_peak_count", 0)),
+            },
+            "total_peak_bp_by_format": {
+                "narrowPeak": int(narrowSummary.get("total_peak_bp", 0)),
+                "gappedPeak": int(gappedSummary.get("total_peak_bp", 0)),
+            },
+            "per_format": {
+                "narrowPeak": dict(narrowSummary),
+                "gappedPeak": dict(gappedSummary),
+            },
+            "settings": settings,
+            "files": files,
+        }
+    )
+    return summary
 
 
 def _buildRoccoSummary(
@@ -5939,11 +6039,12 @@ def _buildRoccoSummary(
     if not isinstance(settings, Mapping):
         settings = {}
     outputFormat = str(settings.get("peak_output_format", "narrowPeak"))
+    gappedPeakPath = str(outPath) if outputFormat == "gappedPeak" else gappedPath
     inventory = [
         _fileInventoryEntry(outPath, outputFormat),
         _fileInventoryEntry(metaPath, "metadata_json"),
     ]
-    if gappedPath is not None:
+    if gappedPath is not None and str(gappedPath) != str(outPath):
         inventory.append(_fileInventoryEntry(gappedPath, "gappedPeak"))
     if nestedRoccoSubproblemDetailsPath is not None:
         inventory.append(
@@ -5956,8 +6057,7 @@ def _buildRoccoSummary(
         "peak_path": str(outPath),
         "peak_output_format": outputFormat,
         "narrowPeak_path": str(outPath) if outputFormat == "narrowPeak" else None,
-        "broadPeak_path": str(outPath) if outputFormat == "broadPeak" else None,
-        "gappedPeak_path": gappedPath,
+        "gappedPeak_path": gappedPeakPath,
         "peak_paths": (
             [str(outPath)]
             if gappedPath is None
@@ -5990,6 +6090,7 @@ def _buildRoccoSummary(
             "threshold_z": float(settings.get("threshold_z", 0.0)),
             "rand_seed": int(settings.get("rand_seed", 0)),
             "min_peak_score": settings.get("min_peak_score"),
+            "peak_mode": settings.get("peak_mode"),
             "peak_output_format": outputFormat,
         },
         "files": inventory,
@@ -6300,9 +6401,84 @@ def solveRocco(
     broadWeakThresholdZ_ = _validateBroadWeakThresholdZ(broadWeakThresholdZ)
     broadMaxGapBP_ = _validateBroadMaxGapBP(broadMaxGapBP)
     thresholdZ_ = float(thresholdZ)
-    if peakMode_ == "broad" and broadWeakThresholdZ_ > thresholdZ_:
+    if peakMode_ in {"broad", "both"} and broadWeakThresholdZ_ > thresholdZ_:
         raise ValueError("`broadWeakThresholdZ` cannot exceed `thresholdZ`")
-    outputFormat = "broadPeak" if peakMode_ == "broad" else "narrowPeak"
+    if peakMode_ == "both":
+        bothPaths = _resolveRoccoBothOutputPaths(
+            stateBedGraphFile,
+            outPath,
+            metaPath,
+            bool(writeMetadata),
+        )
+        narrowPath, narrowSummary = solveRocco(
+            stateBedGraphFile,
+            uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+            chromosomes=chromosomes,
+            numBootstrap=numBootstrap,
+            thresholdZ=thresholdZ,
+            dependenceSpan=dependenceSpan,
+            gamma=gamma,
+            selectionPenalty=selectionPenalty,
+            gammaScale=gammaScale,
+            nestedRoccoIters=nestedRoccoIters,
+            nestedRoccoBudgetScale=nestedRoccoBudgetScale,
+            massiveSubpeakCleanup=massiveSubpeakCleanup,
+            exportFilterUncertaintyMultiplier=exportFilterUncertaintyMultiplier,
+            minPeakScore=minPeakScore,
+            peakMode="narrow",
+            broadWeakThresholdZ=broadWeakThresholdZ,
+            broadMaxGapBP=broadMaxGapBP,
+            uncertaintyScoreMode=uncertaintyScoreMode,
+            uncertaintyScoreZ=uncertaintyScoreZ,
+            randSeed=randSeed,
+            outPath=str(bothPaths["narrowPeak"]),
+            metaPath=bothPaths["narrowPeak_metadata"],
+            verbose=verbose,
+            metadataDetail=metadataDetail,
+            maxNonTrackFileBytes=maxNonTrackFileBytes,
+            stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
+            blacklistBedFile=blacklistBedFile,
+            writeMetadata=writeMetadata,
+            returnSummary=True,
+        )
+        _gappedPathResult, gappedSummary = solveRocco(
+            stateBedGraphFile,
+            uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+            chromosomes=chromosomes,
+            numBootstrap=numBootstrap,
+            thresholdZ=thresholdZ,
+            dependenceSpan=dependenceSpan,
+            gamma=gamma,
+            selectionPenalty=selectionPenalty,
+            gammaScale=gammaScale,
+            nestedRoccoIters=nestedRoccoIters,
+            nestedRoccoBudgetScale=nestedRoccoBudgetScale,
+            massiveSubpeakCleanup=massiveSubpeakCleanup,
+            exportFilterUncertaintyMultiplier=exportFilterUncertaintyMultiplier,
+            minPeakScore=minPeakScore,
+            peakMode="broad",
+            broadWeakThresholdZ=broadWeakThresholdZ,
+            broadMaxGapBP=broadMaxGapBP,
+            uncertaintyScoreMode=uncertaintyScoreMode,
+            uncertaintyScoreZ=uncertaintyScoreZ,
+            randSeed=randSeed,
+            outPath=str(bothPaths["gappedPeak"]),
+            metaPath=bothPaths["gappedPeak_metadata"],
+            verbose=verbose,
+            metadataDetail=metadataDetail,
+            maxNonTrackFileBytes=maxNonTrackFileBytes,
+            stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
+            blacklistBedFile=blacklistBedFile,
+            writeMetadata=writeMetadata,
+            returnSummary=True,
+        )
+        summary = _buildRoccoBothSummary(narrowSummary, gappedSummary)
+        _logRoccoSummary(summary)
+        _logOutputInventory(summary)
+        if returnSummary:
+            return str(narrowPath), summary
+        return str(narrowPath)
+    outputFormat = "gappedPeak" if peakMode_ == "broad" else "narrowPeak"
     requestedNestedRoccoIters = int(max(int(nestedRoccoIters), 0))
     effectiveNestedRoccoIters = (
         min(requestedNestedRoccoIters, 1)
@@ -6324,11 +6500,18 @@ def solveRocco(
         chromosomes=chromosomes,
     )
     stateBase = Path(stateBedGraphFile)
+    explicitOutPath = outPath is not None
     if outPath is None:
         outPath = str(stateBase.with_name(f"{stateBase.stem}_rocco.{outputFormat}"))
+    if (
+        explicitOutPath
+        and peakMode_ == "broad"
+        and Path(outPath).suffix != ".gappedPeak"
+    ):
+        raise ValueError(
+            "Broad peakMode writes gappedPeak output. Use a .gappedPeak path."
+        )
     gappedPath: str | None = None
-    if peakMode_ == "broad":
-        gappedPath = str(Path(outPath).with_suffix(".gappedPeak"))
     if writeMetadata and metaPath is None:
         metaPath = f"{outPath}.json"
     if not writeMetadata:
@@ -6347,7 +6530,6 @@ def solveRocco(
         )
 
     allRows: List[List[str | int | float]] = []
-    allGappedRows: List[List[str | int | float]] = []
     meta: Dict[str, Any] = {
         "settings": {
             "state_bedgraph": str(stateBedGraphFile),
@@ -6413,7 +6595,11 @@ def solveRocco(
             ),
             "min_peak_score": None if minPeakScore_ is None else float(minPeakScore_),
             "min_peak_score_field": "signalValue",
+            "min_peak_score_output_column": (
+                13 if outputFormat == "gappedPeak" else 7
+            ),
             "min_peak_score_narrowpeak_column": 7,
+            "min_peak_score_gappedpeak_column": 13,
             "export_filter_uses_uncertainty_bedgraph": True,
             "uncertainty_score_mode": str(uncertaintyScoreMode_),
             "uncertainty_score_z": float(uncertaintyScoreZ_),
@@ -6695,7 +6881,12 @@ def solveRocco(
                 "max_gap_bp": int(broadMaxGapResolved),
                 "merge_details": mergeDetails,
             }
-            rows, gappedRows, peakMeta, exportDetails = _solutionToChromBroadPeakRows(
+            (
+                _broadRows,
+                gappedRows,
+                peakMeta,
+                exportDetails,
+            ) = _solutionToChromBroadPeakRows(
                 str(chromosome),
                 intervals,
                 ends,
@@ -6711,6 +6902,7 @@ def solveRocco(
                 minPeakBP=int(_MATCHING_DEFAULT_BROAD_MIN_PEAK_BP),
                 returnExportDetails=True,
             )
+            rows = gappedRows
             initialPeakWidthsBP.extend(
                 [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
             )
@@ -6843,7 +7035,7 @@ def solveRocco(
             blacklistByChrom,
         )
         if peakMode_ == "broad":
-            gappedRows = _pairedGappedRowsForPeakMeta(gappedRows, peakMeta)
+            rows = _pairedGappedRowsForPeakMeta(rows, peakMeta)
         blacklistDroppedTotal += int(blacklistDropped)
         scoringTrack = scoreTrack
         scoringPrepared = work.get("prepared", {})
@@ -6863,11 +7055,12 @@ def solveRocco(
             None if minPeakScore_ is None else float(minPeakScore_)
         )
         exportDetails["min_peak_score_field"] = "signalValue"
-        minPeakScoreColumnIndex = 6
+        minPeakScoreColumnIndex = 12 if peakMode_ == "broad" else 6
         exportDetails["min_peak_score_output_column"] = int(
             minPeakScoreColumnIndex + 1
         )
         exportDetails["min_peak_score_narrowpeak_column"] = 7
+        exportDetails["min_peak_score_gappedpeak_column"] = 13
         exportDetails["min_peak_score_filter_active"] = minPeakScore_ is not None
         exportDetails["num_segments_min_peak_score_evaluated"] = int(len(rows))
         exportDetails["num_segments_dropped_min_peak_score"] = 0
@@ -6884,9 +7077,9 @@ def solveRocco(
             rows = retainedRows
             peakMeta = retainedPeakMeta
             if peakMode_ == "broad":
-                gappedRows = _pairedGappedRowsForPeakMeta(gappedRows, peakMeta)
+                rows = _pairedGappedRowsForPeakMeta(rows, peakMeta)
         if peakMode_ == "broad":
-            _fillBroadRowsDWBValues(rows, gappedRows, peakMeta)
+            _fillBroadRowsDWBValues(rows, peakMeta)
         nullReplayDiagnostics = dict(
             exportDetails.get("null_replay_false_segment_diagnostics", {})
         )
@@ -6936,8 +7129,6 @@ def solveRocco(
         if hierarchySummary:
             exportDetails["nested_hierarchy_summary"] = hierarchySummary
         allRows.extend(rows)
-        if peakMode_ == "broad":
-            allGappedRows.extend(gappedRows)
 
         firstPassSolution = np.asarray(result["first_pass_solution"], dtype=np.uint8)
         meta["chromosomes"][str(chromosome)] = {
@@ -6994,7 +7185,6 @@ def solveRocco(
         }
 
     allRows.sort(key=lambda row: (str(row[0]), int(row[1]), int(row[2])))
-    allGappedRows.sort(key=lambda row: (str(row[0]), int(row[1]), int(row[2])))
     meta["blacklist_filter"] = {
         "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
         "policy": "drop_any_overlap",
@@ -7004,11 +7194,6 @@ def solveRocco(
     with open(outPath, "w", encoding="utf-8") as handle:
         for row in allRows:
             handle.write("\t".join(map(str, row)) + "\n")
-    if gappedPath is not None:
-        with open(gappedPath, "w", encoding="utf-8") as handle:
-            for row in allGappedRows:
-                handle.write("\t".join(map(str, row)) + "\n")
-
     if metaPath is not None:
         _writeRoccoMetadata(
             metaPath,
@@ -7342,6 +7527,7 @@ def solveRoccoCutoffReport(
                     settings["exportFilterUncertaintyMultiplier"]
                 ),
                 minPeakScore=settings["minPeakScore"],
+                peakMode="narrow",
                 uncertaintyScoreMode=str(settings["uncertaintyScoreMode"]),
                 uncertaintyScoreZ=float(settings["uncertaintyScoreZ"]),
                 randSeed=int(settings["randSeed"]),

@@ -4378,7 +4378,7 @@ cpdef tuple cestimateSpectralDependenceSpanForBlock(
     int minContextBP,
     int maxContextBP,
     double acfPointThreshold=0.1,
-    int acfRequiredCrossings=5,
+    int acfRequiredCrossings=10,
     double acfEvidenceThresholdNats=2.0,
 ):
     cdef int intervalSizeBP_ = max(int(intervalSizeBP), 1)
@@ -4425,7 +4425,7 @@ cpdef tuple cchooseDependenceSpan(
     double priorMedianSpan=250.0,
     double priorLogSd=1.0,
     double acfPointThreshold=0.1,
-    int acfRequiredCrossings=5,
+    int acfRequiredCrossings=10,
     double acfMinEvidenceNats=2.0,
     int acfEvidenceMinAcceptedBlocks=2,
 ):

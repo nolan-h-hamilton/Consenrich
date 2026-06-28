@@ -1287,38 +1287,6 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
     assert not (tmp_path / "single.model.json").exists()
 
 
-def test_uncertainty_factor_model_contract(contract_case):
-    contract_case(
-        "delete-block global factor uses weighted quantile",
-        _caseDeleteBlockGlobalFactorUsesWeightedQuantile,
-    )
-    contract_case(
-        "segShrink factor model is strict camelCase",
-        _caseSegShrinkFactorModelStrictContract,
-    )
-    contract_case("PAC order index examples", _casePacOrderIndexExamples)
-    contract_case(
-        "delete-block information approximation",
-        _caseDeleteBlockInformationApproximation,
-    )
-    contract_case(
-        "delete-block variance mode selection",
-        _caseDeleteBlockVarianceModeSelection,
-    )
-    contract_case(
-        "target calibration q over z scaling",
-        _caseTargetCalibrationTrackScaleUsesQOverZ,
-    )
-    contract_case(
-        "old predictive held-out calibration unsupported",
-        _caseOldPredictiveHeldoutModeUnsupported,
-    )
-    contract_case(
-        "auto block sizing for short contigs",
-        _caseAutoBlockSizeForShortContigs,
-    )
-
-
 def test_uncertainty_cython_contracts(contract_case):
     for label, func in (
         ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),

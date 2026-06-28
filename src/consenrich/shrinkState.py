@@ -1,4 +1,4 @@
-"""Post-fit empirical-Bayes shrinkage for Consenrich state estimates."""
+"""(Experimental) Post-fit empirical-Bayes shrinkage for Consenrich state estimates."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from .cconsenrich import (
     cstateShrinkMixturePosterior as _cstateShrinkMixturePosterior,
     cstateShrinkMixturePosteriorPrepared as _cstateShrinkMixturePosteriorPrepared,
 )
-
 
 STATE_SHRINKAGE_MODEL_ADAPTIVE_NORMAL_MIXTURE = "adaptiveNormalMixture"
 STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL = "spikeAndNormal"
@@ -172,7 +171,9 @@ def _sortedPositiveWeights(
     variance = np.asarray(slabVariance, dtype=np.float64).reshape(-1)
     weight = np.asarray(slabWeight, dtype=np.float64).reshape(-1)
     if variance.ndim != 1 or weight.ndim != 1 or variance.size == 0:
-        raise ValueError("state shrinkage slabs must be non-empty one-dimensional arrays")
+        raise ValueError(
+            "state shrinkage slabs must be non-empty one-dimensional arrays"
+        )
     if variance.shape != weight.shape:
         raise ValueError("state shrinkage slab variance and weight shapes differ")
     if np.any(~np.isfinite(variance)) or np.any(variance <= 0.0):
@@ -334,9 +335,7 @@ def _slabMultipliersForModel(model: str) -> tuple[float, ...]:
 def _logSlabPrior(priorSpikeProp: float, slabWeight: np.ndarray) -> np.ndarray:
     pi0 = float(priorSpikeProp)
     if not np.isfinite(pi0) or pi0 <= 0.0 or pi0 >= 1.0:
-        raise ValueError(
-            "`priorSpikeProp` must be finite and strictly between 0 and 1"
-        )
+        raise ValueError("`priorSpikeProp` must be finite and strictly between 0 and 1")
     weight = np.asarray(slabWeight, dtype=np.float64).reshape(-1)
     weightTotal = float(np.sum(weight))
     if weight.size == 0 or weightTotal <= 0.0 or not np.isfinite(weightTotal):
@@ -434,8 +433,10 @@ def _logObjectivePenalty(
             _STATE_SHRINKAGE_POSITIVE_FLOOR,
         )
         anchor = max(float(scaleVarianceAnchor), _STATE_SHRINKAGE_POSITIVE_FLOOR)
-        penalty += -0.5 * float(scalePriorWeight) * (
-            math.log(scaleVariance) + anchor / scaleVariance
+        penalty += (
+            -0.5
+            * float(scalePriorWeight)
+            * (math.log(scaleVariance) + anchor / scaleVariance)
         )
     return penalty
 
@@ -697,10 +698,7 @@ def fitStateShrinkagePrior(
                     if slabMultiplier is None:
                         raise ValueError("Student-t slab multipliers are missing")
                     massTotal = float(np.sum(slabMass))
-                    if (
-                        massTotal + scalePriorWeight
-                        > _STATE_SHRINKAGE_POSITIVE_FLOOR
-                    ):
+                    if massTotal + scalePriorWeight > _STATE_SHRINKAGE_POSITIVE_FLOOR:
                         scaleMomentSum = float(np.sum(slabSecond / slabMultiplier))
                         nextPriorVariance = float(
                             (scaleMomentSum + scalePriorWeight * scaleVarianceAnchor)
@@ -729,7 +727,7 @@ def fitStateShrinkagePrior(
                 nextSlabVariance, nextSlabWeight = _sortedPositiveWeights(
                     nextSlabVariance,
                     nextSlabWeight,
-            )
+                )
             if studentTModel:
                 objective = logLikelihood + _logObjectivePenalty(
                     priorSpikeProp=pi0,
@@ -889,9 +887,7 @@ def fitStateShrinkagePrior(
     metadata = {
         "model": model_,
         "slab_family": (
-            "studentTNormalScaleMixture"
-            if studentTModel
-            else "normalMixture"
+            "studentTNormalScaleMixture" if studentTModel else "normalMixture"
         ),
         "has_point_mass": True,
         "scope": "genome",

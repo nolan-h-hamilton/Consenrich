@@ -102,6 +102,7 @@ consenrich = "consenrich.consenrich:main"
 consenrich-cache = "consenrich.cache_cli:main"
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "correctness: basic tests for correctness",
     "peaks: tests for the built-in ROCCO peak caller",

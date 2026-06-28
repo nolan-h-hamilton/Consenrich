@@ -398,6 +398,7 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     resultPath = peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         numBootstrap=24,
         dependenceSpan=8,
         randSeed=11,
@@ -451,6 +452,7 @@ def _caseRunROCCOLowerConfidenceRecordsMetadata(tmp_path):
     resultPath = peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         uncertaintyScoreMode="lower_confidence",
         uncertaintyScoreZ=1.0,
         numBootstrap=24,
@@ -534,7 +536,7 @@ def _caseBroadMergePolicyContracts():
     assert details["num_gaps_blocked_by_blacklist"] == 1
 
 
-def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
+def _caseRunROCCOBroadModeWritesGappedPeak(tmp_path):
     n = 620
     state = np.zeros(n, dtype=np.float64)
     for start, end, value in (
@@ -555,10 +557,6 @@ def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
         step=1000,
         stem="broad_mode",
     )
-    outPath = tmp_path / "broad_rocco.broadPeak"
-    metaPath = tmp_path / "broad_rocco.broadPeak.json"
-    gappedPath = tmp_path / "broad_rocco.gappedPeak"
-
     resultPath, summary = peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
@@ -571,41 +569,36 @@ def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
         gamma=0.25,
         nestedRoccoIters=3,
         minPeakScore=None,
-        outPath=str(outPath),
-        metaPath=str(metaPath),
         metadataDetail="full",
         returnSummary=True,
     )
+    outPath = Path(resultPath)
+    metaPath = Path(f"{outPath}.json")
+    broadPath = outPath.with_suffix(".broadPeak")
 
-    broadRows = [
-        line.split("\t")
-        for line in outPath.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
     gappedRows = [
         line.split("\t")
-        for line in gappedPath.read_text(encoding="utf-8").splitlines()
+        for line in outPath.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     meta = json.loads(metaPath.read_text(encoding="utf-8"))
 
     assert resultPath == str(outPath)
-    assert summary["broadPeak_path"] == str(outPath)
-    assert summary["gappedPeak_path"] == str(gappedPath)
+    assert outPath.name.endswith("_rocco.gappedPeak")
+    assert "broadPeak_path" not in summary
+    assert summary["gappedPeak_path"] == str(outPath)
     assert summary["narrowPeak_path"] is None
-    assert summary["peak_paths"] == [str(outPath), str(gappedPath)]
+    assert summary["peak_paths"] == [str(outPath)]
     assert {entry["kind"] for entry in summary["files"]} >= {
-        "broadPeak",
         "gappedPeak",
         "metadata_json",
     }
-    assert broadRows
-    assert len(broadRows) == len(gappedRows)
-    assert all(len(row) == 9 for row in broadRows)
+    assert "broadPeak" not in {entry["kind"] for entry in summary["files"]}
+    assert not broadPath.exists()
+    assert gappedRows
     assert all(len(row) == 15 for row in gappedRows)
-    assert all(row[0].startswith("chr") for row in broadRows)
-    assert all(float(row[7]) >= 0.0 and float(row[8]) >= 0.0 for row in broadRows)
-    widths = [int(row[2]) - int(row[1]) for row in broadRows]
+    assert all(row[0].startswith("chr") for row in gappedRows)
+    widths = [int(row[2]) - int(row[1]) for row in gappedRows]
     assert max(widths) >= 100000
 
     for row in gappedRows:
@@ -624,10 +617,12 @@ def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
         )
         assert row[6:9] == ["0", "0", "0"]
         assert float(row[13]) >= 0.0 and float(row[14]) >= 0.0
+        assert float(row[13]) >= float(row[14])
 
     chromMeta = meta["chromosomes"]["chr1"]
     assert meta["settings"]["peak_mode"] == "broad"
-    assert meta["settings"]["peak_output_format"] == "broadPeak"
+    assert summary["settings"]["peak_mode"] == "broad"
+    assert meta["settings"]["peak_output_format"] == "gappedPeak"
     assert meta["settings"]["nested_rocco_iters"] == 1
     assert meta["settings"]["massive_subpeak_cleanup"] is False
     assert meta["settings"]["broad_parent_gamma_multiplier"] == pytest.approx(2.0)
@@ -644,7 +639,88 @@ def _caseRunROCCOBroadModeWritesBroadAndGapped(tmp_path):
     assert chromMeta["broad_parent_details"]["weak_gamma_details"][
         "parent_gamma_multiplier"
     ] == pytest.approx(2.0)
-    assert chromMeta["export_details"]["num_broad_parent_segments"] == len(broadRows)
+    assert chromMeta["export_details"]["num_broad_parent_segments"] == len(gappedRows)
+
+
+def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path):
+    n = 180
+    state = np.zeros(n, dtype=np.float64)
+    state[20:70] = 6.0
+    state[35:40] = 15.0
+    state[105:145] = 5.0
+    state[118:123] = 12.0
+    uncertainty = np.full(n, 0.25, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        step=1000,
+        stem="both_mode",
+    )
+
+    resultPath, summary = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        numBootstrap=16,
+        thresholdZ=2.0,
+        broadWeakThresholdZ=1.2816,
+        broadMaxGapBP=5000,
+        dependenceSpan=4,
+        gamma=0.25,
+        nestedRoccoIters=1,
+        minPeakScore=None,
+        metadataDetail="full",
+        returnSummary=True,
+    )
+
+    narrowPath = Path(resultPath)
+    gappedPath = Path(summary["gappedPeak_path"])
+    assert narrowPath.name.endswith("_rocco.narrowPeak")
+    assert gappedPath.name.endswith("_rocco.gappedPeak")
+    assert narrowPath.is_file()
+    assert gappedPath.is_file()
+    assert Path(f"{narrowPath}.json").is_file()
+    assert Path(f"{gappedPath}.json").is_file()
+
+    narrowRows = [
+        line.split("\t")
+        for line in narrowPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    gappedRows = [
+        line.split("\t")
+        for line in gappedPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert narrowRows
+    assert gappedRows
+    assert all(len(row) == 10 for row in narrowRows)
+    assert all(len(row) == 15 for row in gappedRows)
+
+    assert summary["settings"]["peak_mode"] == "both"
+    assert summary["peak_output_format"] == "narrowPeak"
+    assert summary["peak_output_formats"] == ["narrowPeak", "gappedPeak"]
+    assert summary["primary_peak_output_format"] == "narrowPeak"
+    assert summary["peak_path"] == str(narrowPath)
+    assert summary["narrowPeak_path"] == str(narrowPath)
+    assert summary["gappedPeak_path"] == str(gappedPath)
+    assert summary["peak_paths"] == [str(narrowPath), str(gappedPath)]
+    assert summary["peak_paths_by_format"] == {
+        "narrowPeak": str(narrowPath),
+        "gappedPeak": str(gappedPath),
+    }
+    assert summary["metadata_json_paths"] == {
+        "narrowPeak": str(Path(f"{narrowPath}.json")),
+        "gappedPeak": str(Path(f"{gappedPath}.json")),
+    }
+    assert summary["exported_peak_count_by_format"]["narrowPeak"] == len(narrowRows)
+    assert summary["exported_peak_count_by_format"]["gappedPeak"] == len(gappedRows)
+    assert set(summary["per_format"]) == {"narrowPeak", "gappedPeak"}
+    assert {entry["kind"] for entry in summary["files"]} >= {
+        "narrowPeak",
+        "gappedPeak",
+        "metadata_json",
+    }
 
 
 def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
@@ -657,6 +733,7 @@ def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
         resultPath, summary = peaks.solveRocco(
             str(statePath),
             uncertaintyBedGraphFile=str(uncPath),
+            peakMode="narrow",
             numBootstrap=24,
             dependenceSpan=8,
             randSeed=11,
@@ -700,6 +777,7 @@ def _caseSolveRoccoMetadataCapFallsBackToBounded(tmp_path, caplog):
         peaks.solveRocco(
             str(statePath),
             uncertaintyBedGraphFile=str(uncPath),
+            peakMode="narrow",
             numBootstrap=24,
             dependenceSpan=8,
             randSeed=11,
@@ -856,6 +934,7 @@ def _caseRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
     peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         numBootstrap=24,
         dependenceSpan=8,
         outPath=str(outPath),
@@ -914,6 +993,7 @@ def _caseRunROCCODropsBlacklistOverlapsAndRecordsMetadata(tmp_path):
     peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         blacklistBedFile=str(blacklistPath),
         numBootstrap=24,
         dependenceSpan=8,
@@ -951,6 +1031,7 @@ def _caseSolveRoccoAppliesMinPeakSignalFilter(tmp_path):
     resultPath, summary = peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         numBootstrap=16,
         dependenceSpan=6,
         randSeed=19,
@@ -1138,6 +1219,7 @@ def _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ(tmp_path):
     peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
+        peakMode="narrow",
         numBootstrap=16,
         dependenceSpan=6,
         randSeed=19,
@@ -2294,6 +2376,7 @@ def _caseSolveRoccoVerboseWritesNullReplayFalseSegmentDiagnostics(tmp_path, capl
         peaks.solveRocco(
             str(statePath),
             uncertaintyBedGraphFile=str(uncPath),
+            peakMode="narrow",
             numBootstrap=16,
             dependenceSpan=6,
             randSeed=23,
@@ -2365,6 +2448,7 @@ def _caseSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
         peaks.solveRocco(
             str(statePath),
             uncertaintyBedGraphFile=str(uncPath),
+            peakMode="narrow",
             outPath=str(outPath),
             metaPath=str(metaPath),
             verbose=True,
@@ -2695,7 +2779,12 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
     )
     contract_case(
         "ROCCO broad output",
-        _caseRunROCCOBroadModeWritesBroadAndGapped,
+        _caseRunROCCOBroadModeWritesGappedPeak,
+        tmp_path,
+    )
+    contract_case(
+        "ROCCO paired output",
+        _caseRunROCCOBothModeWritesNarrowAndGapped,
         tmp_path,
     )
     contract_case(

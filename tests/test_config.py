@@ -1269,6 +1269,28 @@ def _case_runtime_defaults_are_centralized(
         tmp_path, "config_centralized_defaults.yaml", configYaml
     )
     parsed = readConfig(str(configPath))
+    narrowConfigPath = writeConfigFile(
+        tmp_path,
+        "config_narrow_peak_mode.yaml",
+        """
+        experimentName: narrowPeakMode
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        matchingParams.peakMode: narrow
+        """,
+    )
+    broadConfigPath = writeConfigFile(
+        tmp_path,
+        "config_broad_peak_mode.yaml",
+        """
+        experimentName: broadPeakMode
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        matchingParams.peakMode: broad
+        """,
+    )
+    narrowParsed = readConfig(str(narrowConfigPath))
+    broadParsed = readConfig(str(broadConfigPath))
     profile = constants.DEFAULT_CONFIGURATION_VALUES[
         constants.GENERIC_DEFAULT_CONFIGURATION
     ]
@@ -1375,6 +1397,18 @@ def _case_runtime_defaults_are_centralized(
         parsed["observationArgs"].dependenceAcfMinEvidenceNats
         == profile["observationParams.dependenceAcfMinEvidenceNats"]
         == pytest.approx(2.0)
+    )
+    assert (
+        parsed["observationArgs"].dependenceAcfPointThreshold
+        == profile["observationParams.dependenceAcfPointThreshold"]
+        == pytest.approx(
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
+        )
+    )
+    assert (
+        parsed["observationArgs"].dependenceAcfRequiredCrossings
+        == profile["observationParams.dependenceAcfRequiredCrossings"]
+        == constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS
     )
     assert (
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
@@ -1551,6 +1585,9 @@ def _case_runtime_defaults_are_centralized(
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
     )
     assert parsed["matchingArgs"].peakMode == constants.MATCHING_DEFAULT_PEAK_MODE
+    assert parsed["matchingArgs"].peakMode == "both"
+    assert narrowParsed["matchingArgs"].peakMode == "narrow"
+    assert broadParsed["matchingArgs"].peakMode == "broad"
     assert parsed["matchingArgs"].broadWeakThresholdZ == pytest.approx(
         constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
     )
@@ -1603,6 +1640,19 @@ def _case_runtime_defaults_are_centralized(
         == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
     )
     assert cliDefaults.matchPeakMode == constants.MATCHING_DEFAULT_PEAK_MODE
+    assert cliDefaults.matchPeakMode == "both"
+    cliNarrow = consenrich_cli._buildArgParser().parse_args(
+        ["--match-peak-mode", "narrow"]
+    )
+    cliBroad = consenrich_cli._buildArgParser().parse_args(
+        ["--match-peak-mode", "broad"]
+    )
+    cliBoth = consenrich_cli._buildArgParser().parse_args(
+        ["--match-peak-mode", "both"]
+    )
+    assert cliNarrow.matchPeakMode == "narrow"
+    assert cliBroad.matchPeakMode == "broad"
+    assert cliBoth.matchPeakMode == "both"
     assert cliDefaults.matchBroadWeakThresholdZ == pytest.approx(
         constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
     )

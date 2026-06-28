@@ -4117,6 +4117,10 @@ def main():
                 or file_.endswith(".narrowPeak")
                 or file_.endswith(".broadPeak")
                 or file_.endswith(".gappedPeak")
+                or file_.endswith(".narrowPeak.json")
+                or file_.endswith(".gappedPeak.json")
+                or file_.endswith(".narrowPeak.nested_rocco_subproblems.jsonl")
+                or file_.endswith(".gappedPeak.nested_rocco_subproblems.jsonl")
             ):
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
@@ -5206,6 +5210,7 @@ def main():
                 acfMinEvidenceNats=float(dependenceAcfMinEvidenceNats_),
             )
         )
+        depDiagnostics = dict(depDiagnostics)
         dependenceSpanIntervals_ = int(depPoint)
         dependenceContextBP_ = int(
             2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
@@ -8043,6 +8048,17 @@ def main():
             logger.info("Finished ROCCO peak calling. Written to %s", outName)
             if bool(outputArgs.cutoffReport):
                 try:
+                    roccoFormatSummaries = roccoSummary.get("per_format", {})
+                    if not isinstance(roccoFormatSummaries, Mapping):
+                        roccoFormatSummaries = {}
+                    roccoNarrowSummary = (
+                        roccoFormatSummaries.get("narrowPeak")
+                        if matchingArgs.peakMode == "both"
+                        else roccoSummary
+                        if matchingArgs.peakMode == "narrow"
+                        else None
+                    )
+                    roccoNarrowPeakPath = roccoSummary.get("narrowPeak_path")
                     cutoffReportDir = peaks.solveRoccoCutoffReport(
                         stateBedGraphPath,
                         uncertaintyBedGraphFile=uncertaintyBedGraphPath,
@@ -8064,8 +8080,12 @@ def main():
                         uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                         blacklistBedFile=genomeArgs.blacklistFile,
                         randSeed=matchingArgs.randSeed,
-                        baselineNarrowPeakFile=outName,
-                        baselineSummary=roccoSummary,
+                        baselineNarrowPeakFile=(
+                            None
+                            if roccoNarrowPeakPath is None
+                            else str(roccoNarrowPeakPath)
+                        ),
+                        baselineSummary=roccoNarrowSummary,
                     )
                     logger.info(
                         "Finished ROCCO cutoff report. Written to %s",

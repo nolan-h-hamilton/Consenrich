@@ -122,14 +122,15 @@ Run Consenrich
   % consenrich --config demoHistoneChIPSeq.yaml --verbose
 
 The run writes a state bedGraph, uncertainty bedGraph, state bigWig,
-uncertainty bigWig, and ROCCO narrowPeak file. With the current package
-version, the principal output files are:
+uncertainty bigWig, ROCCO narrowPeak file, and ROCCO gappedPeak file. With the
+current package version, the principal output files are:
 
 .. code-block:: text
 
   demoHistoneChIPSeq_consenrich_state.VERSION.bw
   demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
+  consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.gappedPeak
 
 .. _atac-demo:
 
@@ -195,6 +196,7 @@ Principal output files:
   atacDemo_consenrich_state.VERSION..bw
   atacDemo_consenrich_uncertainty.VERSION.bw
   consenrichOutput_atacDemo_state.VERSION_rocco.narrowPeak
+  consenrichOutput_atacDemo_state.VERSION_rocco.gappedPeak
 
 Results
 """""""
@@ -365,6 +367,7 @@ Principal output files:
 
   bigH3K4me1Demo_consenrich_state.VERSION.bw
   bigH3K4me1Demo_consenrich_uncertainty.VERSION.bw
+  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.narrowPeak
   consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.gappedPeak
 
 Results

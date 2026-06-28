@@ -1,4 +1,4 @@
-"""State-uncertainty calibration helpers."""
+"""(Experimental) State-uncertainty calibration helpers."""
 
 from __future__ import annotations
 
