@@ -105,6 +105,8 @@ def _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier():
     assert 2 * (fragmentMinSpan - 1) * 100 + 1 < 3_601
     assert 2 * fragmentMinSpan * 100 + 1 >= 3_601
     assert fragmentMaxSpan >= fragmentMinSpan
+    assert consenrich_cli._dependenceFallbackSpanIntervals(25, None) == 200
+    assert consenrich_cli._dependenceFallbackSpanIntervals(100, 1_800) == 180
     coarseLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceSpanIntervals=coarseMaxSpan,
         backgroundBlockSizeBP=-1,
@@ -601,6 +603,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     countingParams.centerMBMethod: savgol
     samParams.defaultCountMode: ffp-center
     outputParams.plotOptimizationPath: false
+    outputParams.plotCorrelationLength: false
     outputParams.cutoffReport: true
     outputParams.writeRunSummary: false
     outputParams.precisionDiagnosticDetail: sampled
@@ -612,6 +615,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     observationParams.dependenceAcfPointThreshold: 0.03
     observationParams.dependenceAcfRequiredCrossings: 4
     observationParams.dependenceAcfMinEvidenceNats: 3.5
+    observationParams.dependencePriorMedianSpan: 42
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
@@ -641,6 +645,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       defaultCountMode: ffp-center
     outputParams:
       plotOptimizationPath: false
+      plotCorrelationLength: false
       cutoffReport: true
       writeRunSummary: false
       precisionDiagnosticDetail: sampled
@@ -653,6 +658,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       dependenceAcfPointThreshold: 0.03
       dependenceAcfRequiredCrossings: 4
       dependenceAcfMinEvidenceNats: 3.5
+      dependencePriorMedianSpan: 42
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
@@ -725,11 +731,14 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
     assert observationDotted.dependenceAcfRequiredCrossings == 4
     assert observationDotted.dependenceAcfMinEvidenceNats == pytest.approx(3.5)
+    assert observationDotted.dependencePriorMedianSpan == pytest.approx(42.0)
 
     outputDotted = configDotted["outputArgs"]
     outputNested = configNested["outputArgs"]
     assert outputDotted.plotOptimizationPath is False
     assert outputNested.plotOptimizationPath is False
+    assert outputDotted.plotCorrelationLength is False
+    assert outputNested.plotCorrelationLength is False
     assert outputDotted.cutoffReport is True
     assert outputNested.cutoffReport is True
     assert outputDotted.writeRunSummary is False
@@ -1396,8 +1405,11 @@ def _case_runtime_defaults_are_centralized(
     assert (
         parsed["observationArgs"].dependenceAcfMinEvidenceNats
         == profile["observationParams.dependenceAcfMinEvidenceNats"]
-        == pytest.approx(2.0)
+        == pytest.approx(
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS
+        )
     )
+    assert parsed["observationArgs"].dependencePriorMedianSpan is None
     assert (
         parsed["observationArgs"].dependenceAcfPointThreshold
         == profile["observationParams.dependenceAcfPointThreshold"]
@@ -1486,6 +1498,14 @@ def _case_runtime_defaults_are_centralized(
         ).stateShrinkageModel
         == constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
     )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).plotCorrelationLength
+        is constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
+    )
     assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
         parsed["outputArgs"].cutoffReport
@@ -1500,6 +1520,11 @@ def _case_runtime_defaults_are_centralized(
         parsed["outputArgs"].plotOptimizationPath
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     )
+    assert (
+        parsed["outputArgs"].plotCorrelationLength
+        is constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
+    )
+    assert parsed["outputArgs"].plotCorrelationLength is True
     assert (
         parsed["outputArgs"].precisionDiagnosticDetail
         == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
@@ -3958,7 +3983,6 @@ def test_correlation_length_summary_writes_tsv_and_artifact_log(tmp_path, monkey
         "tau2": 0.3,
         "density_reliability_weighting_used": True,
         "density_reliability_effective_blocks": 75.0,
-        "block_density_reliability_summary": {"median": 0.8},
         "spectral_shrink_median": 0.4,
         "spectral_log_variance_median": 0.6,
         "spectral_acf_first": 0.9,
@@ -4000,6 +4024,151 @@ def test_correlation_length_summary_writes_tsv_and_artifact_log(tmp_path, monkey
     assert logCalls == [
         ("artifact.correlation_length", str(path), (("rows", 1),))
     ]
+
+
+def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matplotlib(
+    tmp_path,
+    monkeypatch,
+):
+    details = {
+        "blocks_requested": 6,
+        "blocks_valid": 2,
+        "chromosomes_used": ["chr1"],
+        "sampled_width_median_bp": 4500,
+        "posterior_log_span_mean": np.log(8.0),
+        "posterior_log_span_sd": 0.0,
+        "sampled_point_span": [4, 8, 12, 16],
+        "sampled_acf_evidence_nats": [0.5, 2.0, 3.0, 5.0],
+        "acf_evidence_threshold_nats": 2.0,
+        "acf_span_0p05": 12,
+        "acf_span_0p10": 8,
+        "acf_span_0p20": 5,
+        "max_span": 20,
+        "max_span_hit_blocks": 1,
+        "pooled_right_censored_fraction": 0.25,
+        "fallback": True,
+    }
+    row = consenrich_cli._correlationLengthRow(
+        intervalSizeBP=50,
+        pointIntervals=8,
+        contextBP=801,
+        details=details,
+    )
+    plotPath = tmp_path / "correlation_length.png"
+
+    with monkeypatch.context() as mp:
+        mp.setitem(sys.modules, "matplotlib", None)
+        assert (
+            consenrich_cli._plotCorrelationLengthInference(
+                row,
+                details,
+                plotPath,
+            )
+            is False
+        )
+
+    logCalls = []
+    saveCalls = []
+
+    def fakeLogFileWritten(loggerArg, *, event, path, fields):
+        logCalls.append((event, path, tuple(fields)))
+
+    class FakeColorbar:
+        def set_label(self, *args, **kwargs):
+            return None
+
+    class FakeFigure:
+        def savefig(self, path, dpi=None):
+            saveCalls.append((path, dpi))
+            Path(path).write_bytes(b"png")
+
+        def colorbar(self, *args, **kwargs):
+            return FakeColorbar()
+
+    class FakeAxis:
+        transAxes = object()
+
+        def axvline(self, *args, **kwargs):
+            return None
+
+        def fill_between(self, *args, **kwargs):
+            return None
+
+        def plot(self, *args, **kwargs):
+            return None
+
+        def scatter(self, *args, **kwargs):
+            return object()
+
+        def text(self, *args, **kwargs):
+            return None
+
+        def set_ylabel(self, *args, **kwargs):
+            return None
+
+        def set_title(self, *args, **kwargs):
+            return None
+
+        def grid(self, *args, **kwargs):
+            return None
+
+        def legend(self, *args, **kwargs):
+            return None
+
+        def set_ylim(self, *args, **kwargs):
+            return None
+
+        def set_yticks(self, *args, **kwargs):
+            return None
+
+        def set_xscale(self, *args, **kwargs):
+            return None
+
+        def set_xlim(self, *args, **kwargs):
+            return None
+
+        def set_xlabel(self, *args, **kwargs):
+            return None
+
+    fakeMatplotlib = types.ModuleType("matplotlib")
+    fakePyplot = types.ModuleType("matplotlib.pyplot")
+    fakeMatplotlib.use = lambda *args, **kwargs: None
+    fakePyplot.rcParams = {}
+    fakePyplot.subplots = lambda *args, **kwargs: (
+        FakeFigure(),
+        [FakeAxis(), FakeAxis()],
+    )
+    fakePyplot.close = lambda *args, **kwargs: None
+    fakeMatplotlib.pyplot = fakePyplot
+
+    monkeypatch.setattr(
+        consenrich_cli.logging_utils,
+        "log_file_written",
+        fakeLogFileWritten,
+    )
+    with monkeypatch.context() as mp:
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotCorrelationLengthInference(
+                row,
+                details,
+                plotPath,
+            )
+            is True
+        )
+
+    assert saveCalls == [(str(plotPath), 400)]
+    assert logCalls == [
+        (
+            "artifact.correlation_length_plot",
+            str(plotPath),
+            (("format", "png"), ("dpi", 400)),
+        )
+    ]
+    assert consenrich_cli._correlationLengthPlotPath("exp name").name == (
+        f"consenrichOutput_exp_name_correlationLength.v{consenrich_cli.__version__}.png"
+    )
 
 
 def test_munc_estimation_log_uses_correlation_length_label(monkeypatch):

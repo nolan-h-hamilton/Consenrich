@@ -744,6 +744,13 @@ def _correlationLengthPath(experimentName: str) -> Path:
     )
 
 
+def _correlationLengthPlotPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(
+        f"consenrichOutput_{experimentToken}_correlationLength.v{__version__}.png"
+    )
+
+
 def _chromSizesOrderForPlannedChromosomes(
     chromSizes: Mapping[str, Any],
     plannedChromosomes: Sequence[str],
@@ -1047,6 +1054,301 @@ def _plotOptimizationPathLog(
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("optimizationPath.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _plotCorrelationLengthInference(
+    row: Mapping[str, Any],
+    diagnostics: Mapping[str, Any],
+    path: str | Path,
+    *,
+    dpi: int = 400,
+) -> bool:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "outputParams.plotCorrelationLength=True but matplotlib is not installed; "
+            "wrote the correlation-length TSV only."
+        )
+        return False
+
+    def numberValue(*keys: str) -> float | None:
+        for key in keys:
+            value = row.get(key)
+            if value is None:
+                value = diagnostics.get(key)
+            out = _summaryNumber(value)
+            if out is not None:
+                return float(out)
+        return None
+
+    intervalSizeBP = numberValue("interval_size_bp")
+    pointBP = numberValue("correlation_length_bp")
+    contextBP = numberValue("context_bp")
+    postMean = numberValue(
+        "posterior_log_correlation_length_mean",
+        "posterior_log_span_mean",
+    )
+    postSd = numberValue(
+        "posterior_log_correlation_length_sd",
+        "posterior_log_span_sd",
+    )
+    if (
+        intervalSizeBP is None
+        or intervalSizeBP <= 0.0
+        or pointBP is None
+        or pointBP <= 0.0
+        or postMean is None
+        or postSd is None
+        or not np.isfinite(postMean)
+        or not np.isfinite(postSd)
+        or postSd < 0.0
+    ):
+        logger.warning(
+            "correlationLength.plot skipped because posterior diagnostics were incomplete."
+        )
+        return False
+
+    sampledSpans = np.asarray(
+        diagnostics.get("sampled_point_span", []),
+        dtype=np.float64,
+    )
+    sampledRawBP = sampledSpans * float(intervalSizeBP)
+    sampledMask = np.isfinite(sampledRawBP) & (sampledRawBP > 0.0)
+    sampledBP = sampledRawBP[sampledMask]
+    evidence = np.asarray(
+        diagnostics.get("sampled_acf_evidence_nats", []),
+        dtype=np.float64,
+    )
+    if evidence.size == sampledRawBP.size:
+        evidence = evidence[sampledMask]
+    if evidence.size > sampledBP.size:
+        evidence = evidence[: sampledBP.size]
+    if evidence.size < sampledBP.size:
+        evidence = np.pad(
+            evidence,
+            (0, sampledBP.size - evidence.size),
+            constant_values=np.nan,
+        )
+    evidenceMask = np.isfinite(evidence)
+
+    intervalMarks: list[tuple[str, float]] = []
+    for label, key in (
+        ("ACF 0.05", "acf_span_0p05"),
+        ("ACF 0.10", "acf_span_0p10"),
+        ("ACF 0.20", "acf_span_0p20"),
+        ("Geyer cap", "positive_acf_cap_lag"),
+    ):
+        value = numberValue(key)
+        if value is not None and value > 0.0 and np.isfinite(value):
+            intervalMarks.append((label, value * float(intervalSizeBP)))
+
+    sd = float(postSd)
+    logBPMean = float(postMean) + math.log(float(intervalSizeBP))
+    intervalDefs = (
+        ("95%", 1.959963984540054, 4.8),
+        ("80%", 1.2815515655446004, 6.4),
+        ("50%", 0.6744897501960817, 8.0),
+    )
+    supportValues = [float(pointBP), math.exp(logBPMean)]
+    if sd > 0.0:
+        for _label, zValue, _width in intervalDefs:
+            supportValues.append(math.exp(logBPMean - zValue * sd))
+            supportValues.append(math.exp(logBPMean + zValue * sd))
+    if sampledBP.size:
+        supportValues.extend(np.quantile(sampledBP, [0.01, 0.99]).tolist())
+    supportValues.extend(value for _label, value in intervalMarks)
+    finiteSupport = np.asarray(supportValues, dtype=np.float64)
+    finiteSupport = finiteSupport[np.isfinite(finiteSupport) & (finiteSupport > 0.0)]
+    if finiteSupport.size == 0:
+        logger.warning(
+            "correlationLength.plot skipped because no positive span values were available."
+        )
+        return False
+    xMin = max(1.0, float(np.min(finiteSupport)) * 0.65)
+    xMax = max(xMin * 1.4, float(np.max(finiteSupport)) * 1.35)
+
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    fig, axes = plt.subplots(
+        2,
+        1,
+        figsize=(9.2, 5.6),
+        sharex=True,
+        constrained_layout=True,
+        gridspec_kw={"height_ratios": [2.0, 1.0]},
+    )
+    posteriorAx, stripAx = list(np.ravel(axes))
+    navyBlue = "#003B73"
+    burntOrange = "#C65A1E"
+    darkBlack = "#050505"
+    softGray = "#A9A9A9"
+
+    if sd <= 1.0e-12:
+        posteriorAx.axvline(
+            math.exp(logBPMean),
+            color=navyBlue,
+            linewidth=2.2,
+            label="posterior point mass",
+        )
+        densityMax = 1.0
+    else:
+        xGrid = np.geomspace(xMin, xMax, 512)
+        density = np.exp(
+            -0.5 * np.square((np.log(xGrid) - logBPMean) / sd)
+        ) / (xGrid * sd * math.sqrt(2.0 * math.pi))
+        posteriorAx.fill_between(
+            xGrid,
+            density,
+            color="#D6EAF8",
+            alpha=0.85,
+            label="posterior density",
+        )
+        posteriorAx.plot(xGrid, density, color=navyBlue, linewidth=1.5)
+        densityMax = float(np.max(density)) if density.size else 1.0
+        for label, zValue, width in intervalDefs:
+            lo = math.exp(logBPMean - zValue * sd)
+            hi = math.exp(logBPMean + zValue * sd)
+            y = densityMax * (0.06 + 0.045 * (width / 4.8))
+            posteriorAx.plot(
+                [lo, hi],
+                [y, y],
+                color=darkBlack,
+                linewidth=width,
+                solid_capstyle="round",
+                alpha=0.75,
+                label=f"{label} interval" if label == "95%" else None,
+            )
+    posteriorAx.axvline(
+        float(pointBP),
+        color=burntOrange,
+        linewidth=1.8,
+        linestyle="--",
+        label="chosen length",
+    )
+    posteriorAx.set_ylabel("posterior density", color=darkBlack)
+    posteriorAx.set_title("Correlation-Length Inference", color=darkBlack)
+    posteriorAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
+    posteriorAx.legend(loc="best", fontsize=8, frameon=False)
+
+    if sampledBP.size:
+        jitter = 0.5 + 0.18 * np.sin(np.arange(sampledBP.size) * 1.61803398875)
+        if np.any(evidenceMask):
+            scatter = stripAx.scatter(
+                sampledBP[evidenceMask],
+                jitter[evidenceMask],
+                c=evidence[evidenceMask],
+                cmap="viridis",
+                s=16,
+                alpha=0.55,
+                linewidths=0,
+                label="sampled block",
+            )
+            colorbar = fig.colorbar(scatter, ax=stripAx, pad=0.02)
+            colorbar.set_label("ACF evidence nats")
+            threshold = numberValue("acf_evidence_threshold_nats")
+            if threshold is not None and np.isfinite(threshold):
+                passMask = evidenceMask & (evidence >= float(threshold))
+                if np.any(passMask):
+                    stripAx.scatter(
+                        sampledBP[passMask],
+                        jitter[passMask] + 0.18,
+                        facecolors="none",
+                        edgecolors=darkBlack,
+                        s=28,
+                        linewidths=0.8,
+                        label="evidence gate pass",
+                    )
+        else:
+            stripAx.scatter(
+                sampledBP,
+                jitter,
+                color=softGray,
+                s=16,
+                alpha=0.55,
+                linewidths=0,
+                label="sampled block",
+            )
+    maxSpan = numberValue("max_span")
+    maxSpanHitBlocks = numberValue("max_span_hit_blocks")
+    if (
+        maxSpan is not None
+        and maxSpan > 0.0
+        and maxSpanHitBlocks is not None
+        and maxSpanHitBlocks > 0.0
+    ):
+        stripAx.scatter(
+            [maxSpan * float(intervalSizeBP)],
+            [0.92],
+            marker=">",
+            color=burntOrange,
+            s=60,
+            label="max span hit",
+        )
+    for label, value in intervalMarks:
+        stripAx.axvline(value, color=softGray, linewidth=0.9, alpha=0.85)
+        stripAx.text(
+            value,
+            0.98,
+            label,
+            rotation=90,
+            va="top",
+            ha="right",
+            fontsize=7,
+            color=softGray,
+        )
+    blocksValid = _summaryInt(diagnostics.get("blocks_valid"))
+    blocksRequested = _summaryInt(diagnostics.get("blocks_requested"))
+    threshold = numberValue("acf_evidence_threshold_nats")
+    censorFraction = numberValue("pooled_right_censored_fraction")
+    captionParts = [
+        f"accepted={blocksValid if blocksValid is not None else 'NA'}/"
+        f"{blocksRequested if blocksRequested is not None else 'NA'}",
+        f"fallback={'yes' if bool(diagnostics.get('fallback', False)) else 'no'}",
+    ]
+    if threshold is not None:
+        captionParts.append(f"gate={threshold:.3g} nats")
+    if censorFraction is not None:
+        captionParts.append(f"right-censored={censorFraction:.3g}")
+    if contextBP is not None:
+        captionParts.append(f"context={int(round(float(contextBP)))} bp")
+    caption = "   ".join(captionParts)
+    stripAx.text(
+        0.01,
+        0.03,
+        caption,
+        transform=stripAx.transAxes,
+        fontsize=8,
+        va="bottom",
+        ha="left",
+        color=darkBlack,
+    )
+    stripAx.set_ylim(0.0, 1.12)
+    stripAx.set_yticks([])
+    stripAx.set_xscale("log")
+    stripAx.set_xlim(xMin, xMax)
+    stripAx.set_xlabel("correlation length (bp)", color=darkBlack)
+    stripAx.set_ylabel("sampled blocks", color=darkBlack)
+    stripAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
+    stripAx.legend(loc="upper right", fontsize=8, frameon=False)
+
+    fig.savefig(str(path), dpi=int(dpi))
+    plt.close(fig)
+    logging_utils.log_file_written(
+        logger,
+        event="artifact.correlation_length_plot",
+        path=str(path),
+        fields=(("format", "png"), ("dpi", int(dpi))),
+    )
     return True
 
 
@@ -2520,6 +2822,16 @@ def _dependenceSpanBoundsFromContextBP(
     return int(minSpan), int(maxSpan)
 
 
+def _dependenceFallbackSpanIntervals(
+    intervalSizeBP: int,
+    largestFragmentLengthBP: Optional[int],
+) -> int:
+    intervalSizeBP_ = max(1, int(intervalSizeBP))
+    fragmentLengthBP = max(0.0, float(largestFragmentLengthBP or 0))
+    fallbackBP = max(10.0 * fragmentLengthBP, 5000.0)
+    return max(1, int(math.ceil(fallbackBP / float(intervalSizeBP_))))
+
+
 def _resolveRuntimeBackgroundBlockLen(
     dependenceSpanIntervals: Optional[int],
     backgroundBlockSizeBP: int,
@@ -3226,6 +3538,7 @@ def main():
     experimentName = config["experimentName"]
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
     correlationLengthPath = _correlationLengthPath(str(experimentName))
+    correlationLengthPlotPath = _correlationLengthPlotPath(str(experimentName))
     _initializeDiagnosticLogs(diagnosticLogPaths)
     genomeArgs = config["genomeArgs"]
     inputArgs = config["inputArgs"]
@@ -3376,12 +3689,15 @@ def main():
         or dependenceBlockMaxBP_ < dependenceBlockMinBP_
     ):
         raise ValueError("observationParams dependence block settings are invalid")
-    dependencePriorMedianSpan_ = float(
-        getattr(
-            observationArgs,
-            "dependencePriorMedianSpan",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN,
-        )
+    dependencePriorMedianSpanRaw = getattr(
+        observationArgs,
+        "dependencePriorMedianSpan",
+        constants.OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN,
+    )
+    dependencePriorMedianSpan_ = (
+        None
+        if dependencePriorMedianSpanRaw is None
+        else float(dependencePriorMedianSpanRaw)
     )
     dependencePriorLogSd_ = float(
         getattr(
@@ -3391,9 +3707,13 @@ def main():
         )
     )
     if (
-        not np.isfinite(dependencePriorMedianSpan_)
-        or dependencePriorMedianSpan_ <= 0.0
-        or not np.isfinite(dependencePriorLogSd_)
+        dependencePriorMedianSpan_ is not None
+        and (
+            not np.isfinite(dependencePriorMedianSpan_)
+            or dependencePriorMedianSpan_ <= 0.0
+        )
+    ) or (
+        not np.isfinite(dependencePriorLogSd_)
         or dependencePriorLogSd_ <= 0.0
     ):
         raise ValueError("observationParams dependence prior settings are invalid")
@@ -3465,6 +3785,7 @@ def main():
     dependenceContextBP_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
     correlationLengthRow_: dict[str, Any] | None = None
+    correlationLengthDiagnostics_: dict[str, Any] | None = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -3475,6 +3796,14 @@ def main():
         diagnosticLogPaths.delete_block_calibration,
     )
     _logCliSubphase("Correlation length TSV: %s", correlationLengthPath)
+    if bool(
+        getattr(
+            outputArgs,
+            "plotCorrelationLength",
+            constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
+        )
+    ):
+        _logCliSubphase("Correlation length plot: %s", correlationLengthPlotPath)
     _logCliSubphase(
         "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d roccoMetadata=%s",
         int(outputArgs.maxNonTrackFileBytes),
@@ -3753,6 +4082,9 @@ def main():
         float(np.median(np.asarray(positiveFragmentLengths, dtype=np.float64)))
         if positiveFragmentLengths
         else None
+    )
+    largestFragmentLengthBP_: Optional[int] = (
+        int(max(positiveFragmentLengths)) if positiveFragmentLengths else None
     )
 
     def _resolveCountExtendFrom5pBP(
@@ -5159,6 +5491,7 @@ def main():
     def _ensureSampledDependenceSpan(
         cachedMatrixPaths: Mapping[str, str],
     ) -> None:
+        nonlocal correlationLengthDiagnostics_
         nonlocal correlationLengthRow_, dependenceContextBP_, dependenceSpanIntervals_
 
         if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
@@ -5172,6 +5505,16 @@ def main():
         )
         dependenceMinContextBP = int(2 * dependenceMinSpan * int(intervalSizeBP))
         dependenceMaxContextBP = int(2 * dependenceMaxSpan * int(intervalSizeBP) + 1)
+        dependenceFallbackSpan_ = (
+            float(
+                _dependenceFallbackSpanIntervals(
+                    intervalSizeBP,
+                    largestFragmentLengthBP_,
+                )
+            )
+            if dependencePriorMedianSpan_ is None
+            else float(dependencePriorMedianSpan_)
+        )
 
         chromNames: list[str] = []
         chromMatrices: list[np.ndarray] = []
@@ -5203,7 +5546,7 @@ def main():
                 blockMaxBP=int(dependenceBlockMaxBP_),
                 minContextBP=dependenceMinContextBP,
                 maxContextBP=dependenceMaxContextBP,
-                priorMedianSpan=float(dependencePriorMedianSpan_),
+                priorMedianSpan=float(dependenceFallbackSpan_),
                 priorLogSd=float(dependencePriorLogSd_),
                 acfPointThreshold=float(dependenceAcfPointThreshold_),
                 acfRequiredCrossings=int(dependenceAcfRequiredCrossings_),
@@ -5215,6 +5558,7 @@ def main():
         dependenceContextBP_ = int(
             2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
         )
+        correlationLengthDiagnostics_ = depDiagnostics
         correlationLengthRow_ = _correlationLengthRow(
             intervalSizeBP=intervalSizeBP,
             pointIntervals=int(depPoint),
@@ -5234,19 +5578,16 @@ def main():
             if not np.isfinite(sampledWidthMedian)
             else str(int(round(sampledWidthMedian)))
         )
-        crossingLag = depDiagnostics.get(
-            "crossingLag",
-            depDiagnostics.get("crossing_lag", None),
-        )
+        crossingLag = depDiagnostics.get("crossing_lag", None)
         crossingLagLabel = "NA" if crossingLag is None else str(int(crossingLag))
         logger.info(
             "chooseCorrelationLength.sampledBlocks chromosomes_used=%d "
             "chromosomes_excluded=%s blocks_requested=%d blocks_valid=%d "
             "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
             "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
-            "acfPointThreshold=%.6g acfRequiredCrossings=%d "
-            "minCorrelationLength=%d maxCorrelationLength=%d "
-            "crossingLag=%s correlationLength=%d context_bp=%d "
+            "point_threshold=%.6g acf_required_crossings=%d "
+            "min_correlation_length=%d max_correlation_length=%d "
+            "crossing_lag=%s correlation_length=%d context_bp=%d "
             "right_censored_blocks=%d pooled_right_censored_fraction=%.6g "
             "acfSpan0p05=%s acfSpan0p10=%s acfSpan0p20=%s "
             "positiveAcfTau=%.6g positiveAcfEffectiveFraction=%.6g "
@@ -5269,18 +5610,18 @@ def main():
             sampledWidthLabel,
             float(
                 depDiagnostics.get(
-                    "acfPointThreshold",
+                    "point_threshold",
                     dependenceAcfPointThreshold_,
                 )
             ),
             int(
                 depDiagnostics.get(
-                    "acfRequiredCrossings",
+                    "acf_required_crossings",
                     dependenceAcfRequiredCrossings_,
                 )
             ),
-            int(depDiagnostics.get("minSpan", dependenceMinSpan)),
-            int(depDiagnostics.get("maxSpan", dependenceMaxSpan)),
+            int(depDiagnostics.get("min_span", dependenceMinSpan)),
+            int(depDiagnostics.get("max_span", dependenceMaxSpan)),
             crossingLagLabel,
             int(depPoint),
             int(dependenceContextBP_),
@@ -5308,16 +5649,10 @@ def main():
             "true" if bool(depDiagnostics.get("fallback", False)) else "false",
         )
         densityReliabilityWeighted = bool(
-            depDiagnostics.get(
-                "density_reliability_weighting_used",
-                depDiagnostics.get("abundance_weighting_used", False),
-            )
+            depDiagnostics.get("density_reliability_weighting_used", False)
         )
         densityReliabilityEffectiveBlocks = float(
-            depDiagnostics.get(
-                "density_reliability_effective_blocks",
-                depDiagnostics.get("pooled_effective_blocks", float("nan")),
-            )
+            depDiagnostics.get("density_reliability_effective_blocks", float("nan"))
         )
         logger.info(
             "chooseCorrelationLength.densityReliability weighted=%s "
@@ -5325,12 +5660,7 @@ def main():
             "spectralLogVarianceMedian=%.6g spectralAcfFirst=%.6g",
             "true" if densityReliabilityWeighted else "false",
             densityReliabilityEffectiveBlocks,
-            float(
-                depDiagnostics.get("block_density_reliability_summary", {}).get(
-                    "median",
-                    float("nan"),
-                )
-            ),
+            float(depDiagnostics.get("spectral_density_reliability_median", float("nan"))),
             float(depDiagnostics.get("spectral_shrink_median", float("nan"))),
             float(depDiagnostics.get("spectral_log_variance_median", float("nan"))),
             float(depDiagnostics.get("spectral_acf_first", float("nan"))),
@@ -7924,6 +8254,22 @@ def main():
             correlationLengthRow_,
             correlationLengthPath,
         )
+        if (
+            bool(
+                getattr(
+                    outputArgs,
+                    "plotCorrelationLength",
+                    constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
+                )
+            )
+            and correlationLengthDiagnostics_ is not None
+        ):
+            _plotCorrelationLengthInference(
+                correlationLengthRow_,
+                correlationLengthDiagnostics_,
+                correlationLengthPlotPath,
+                dpi=400,
+            )
 
     if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:
         genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(

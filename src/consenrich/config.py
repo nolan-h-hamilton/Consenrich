@@ -792,6 +792,11 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.plotOptimizationPath",
         constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     )
+    plotCorrelationLength_ = _cfgGet(
+        configData,
+        "outputParams.plotCorrelationLength",
+        _cfgDefault(configData, "outputParams.plotCorrelationLength"),
+    )
     cutoffReport_ = _cfgGet(
         configData,
         "outputParams.cutoffReport",
@@ -853,6 +858,7 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         saveBackgroundTracks=saveBackgroundTracks_,
         saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
+        plotCorrelationLength=bool(plotCorrelationLength_),
         diagnosticTracks=diagnosticTracks_,
         cutoffReport=bool(cutoffReport_),
         writeRunSummary=bool(writeRunSummary_),
@@ -2200,9 +2206,31 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "`observationParams.dependenceBlockMaxBP` must be at least "
             "`observationParams.dependenceBlockMinBP`."
         )
-    dependencePriorMedianSpan = dependencePositiveFloat(
-        "observationParams.dependencePriorMedianSpan"
+    dependencePriorMedianSpanRaw = _cfgGet(
+        configData,
+        "observationParams.dependencePriorMedianSpan",
+        _cfgDefault(configData, "observationParams.dependencePriorMedianSpan"),
     )
+    if dependencePriorMedianSpanRaw is None:
+        dependencePriorMedianSpan = None
+    else:
+        if isinstance(dependencePriorMedianSpanRaw, (bool, np.bool_)):
+            raise ValueError(
+                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
+            )
+        try:
+            dependencePriorMedianSpan = float(dependencePriorMedianSpanRaw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
+            ) from exc
+        if not (
+            np.isfinite(dependencePriorMedianSpan)
+            and dependencePriorMedianSpan > 0.0
+        ):
+            raise ValueError(
+                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
+            )
     dependencePriorLogSd = dependencePositiveFloat(
         "observationParams.dependencePriorLogSd"
     )
