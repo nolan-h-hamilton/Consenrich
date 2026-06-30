@@ -1482,6 +1482,37 @@ def getUncertaintyCalibrationArgs(
             "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction "
             "must be in [0, 1]"
         )
+    deleteBlockReplicateDependenceRhoRaw = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho",
+        _cfgDefault(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho",
+        ),
+    )
+    if (
+        isinstance(deleteBlockReplicateDependenceRhoRaw, str)
+        and deleteBlockReplicateDependenceRhoRaw
+        == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO
+    ):
+        deleteBlockReplicateDependenceRho = (
+            constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO
+        )
+    else:
+        if isinstance(deleteBlockReplicateDependenceRhoRaw, (bool, np.bool_)):
+            raise ValueError(
+                "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho "
+                "must be 'auto' or in [0, 1)"
+            )
+        deleteBlockReplicateDependenceRho = float(deleteBlockReplicateDependenceRhoRaw)
+        if not (
+            np.isfinite(deleteBlockReplicateDependenceRho)
+            and 0.0 <= deleteBlockReplicateDependenceRho < 1.0
+        ):
+            raise ValueError(
+                "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho "
+                "must be 'auto' or in [0, 1)"
+            )
     applyTargetRaw = _cfgGet(
         configData,
         "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
@@ -1691,6 +1722,7 @@ def getUncertaintyCalibrationArgs(
                 "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
             )
         ),
+        deleteBlockReplicateDependenceRho=deleteBlockReplicateDependenceRho,
         deleteBlockTargetSignal=deleteBlockTargetSignal,
         deleteBlockFactorModel=deleteBlockFactorModel,
         deleteBlockMinInformationFraction=minInformationFraction,
@@ -2266,6 +2298,28 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
         )
+    dependencePosteriorQuantileRaw = _cfgGet(
+        configData,
+        "observationParams.dependencePosteriorQuantile",
+        _cfgDefault(configData, "observationParams.dependencePosteriorQuantile"),
+    )
+    if isinstance(dependencePosteriorQuantileRaw, (bool, np.bool_)):
+        raise ValueError(
+            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
+        )
+    try:
+        dependencePosteriorQuantile = float(dependencePosteriorQuantileRaw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
+        ) from exc
+    if not (
+        np.isfinite(dependencePosteriorQuantile)
+        and 0.0 < dependencePosteriorQuantile < 1.0
+    ):
+        raise ValueError(
+            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
+        )
     muncTrendBlockDependenceMultiplierRaw = _cfgGet(
         configData,
         "observationParams.muncTrendBlockDependenceMultiplier",
@@ -2737,6 +2791,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
         "dependenceAcfRequiredCrossings": dependenceAcfRequiredCrossings,
         "dependenceAcfMinEvidenceNats": dependenceAcfMinEvidenceNats,
+        "dependencePosteriorQuantile": dependencePosteriorQuantile,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,

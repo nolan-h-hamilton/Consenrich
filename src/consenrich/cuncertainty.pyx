@@ -35,6 +35,30 @@ cdef inline double _max_floor(double value, double floorValue) noexcept nogil:
     return value
 
 
+cdef inline double _exchangeable_information(
+    double sumWeight,
+    double sumSqrtWeight,
+    Py_ssize_t count,
+    double rho,
+) noexcept nogil:
+    cdef double oneMinusRho
+    cdef double denom
+    cdef double adjusted
+    if count <= 0 or sumWeight <= 0.0:
+        return 0.0
+    if rho <= 0.0:
+        return sumWeight
+    oneMinusRho = 1.0 - rho
+    denom = oneMinusRho + rho * <double>count
+    adjusted = (
+        sumWeight / oneMinusRho
+        - rho * sumSqrtWeight * sumSqrtWeight / (oneMinusRho * denom)
+    )
+    if adjusted > sumWeight:
+        return sumWeight
+    return adjusted
+
+
 cpdef tuple cmakeFoldSpec(
     Py_ssize_t m,
     Py_ssize_t n,
@@ -80,6 +104,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] cobservationTotalInformation(
     double[::1] lambdaExp,
     bint useLambda,
     double pad,
+    double replicateDependenceRho=0.0,
 ):
     cdef Py_ssize_t m = matrixMunc.shape[0]
     cdef Py_ssize_t n = matrixMunc.shape[1]
@@ -89,23 +114,46 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] cobservationTotalInformation(
         raise ValueError("fullObservationPrecision must match interval count")
     if not isfinite(pad):
         raise ValueError("observation information pad must be finite")
+    if (
+        not isfinite(replicateDependenceRho)
+        or replicateDependenceRho < 0.0
+        or replicateDependenceRho >= 1.0
+    ):
+        raise ValueError("replicate dependence rho must be in [0, 1)")
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] totalInfo = np.zeros(
         n, dtype=np.float64
     )
     cdef double[::1] totalView = totalInfo
     cdef Py_ssize_t i, j
-    cdef double total
+    cdef Py_ssize_t count
+    cdef double total, sumSqrt, value, lamValue
 
     with nogil:
         for i in range(n):
             total = 0.0
+            sumSqrt = 0.0
+            count = 0
+            if useLambda:
+                lamValue = lambdaExp[i]
+            else:
+                lamValue = 1.0
             for j in range(m):
                 if activeMask[j, i] != 0:
-                    total += 1.0 / (<double>matrixMunc[j, i] + pad)
-            if useLambda:
-                total *= lambdaExp[i]
-            totalView[i] = total
+                    value = lamValue / (<double>matrixMunc[j, i] + pad)
+                    total += value
+                    if replicateDependenceRho > 0.0:
+                        sumSqrt += sqrt(value)
+                        count += 1
+            if replicateDependenceRho > 0.0:
+                totalView[i] = _exchangeable_information(
+                    total,
+                    sumSqrt,
+                    count,
+                    replicateDependenceRho,
+                )
+            else:
+                totalView[i] = total
     return totalInfo
 
 
@@ -123,6 +171,8 @@ cpdef tuple cmakeFoldMaskAndInformation(
     double[::1] lambdaExp,
     bint useLambda,
     double pad,
+    double replicateDependenceRho=0.0,
+    bint returnNominalHeldout=False,
 ):
     if m < 1 or n < 1 or blockLen < 1:
         raise ValueError("invalid uncertainty calibration mask dimensions")
@@ -138,6 +188,12 @@ cpdef tuple cmakeFoldMaskAndInformation(
         raise ValueError("fullObservationPrecision must match interval count")
     if not isfinite(pad):
         raise ValueError("observation information pad must be finite")
+    if (
+        not isfinite(replicateDependenceRho)
+        or replicateDependenceRho < 0.0
+        or replicateDependenceRho >= 1.0
+    ):
+        raise ValueError("replicate dependence rho must be in [0, 1)")
 
     cdef Py_ssize_t blockCount = (n + blockLen - 1) // blockLen
     if (
@@ -177,13 +233,19 @@ cpdef tuple cmakeFoldMaskAndInformation(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] hFraction = np.empty(
         n, dtype=np.float64
     )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nominalHeldoutInfo
+    if returnNominalHeldout:
+        nominalHeldoutInfo = np.zeros(n, dtype=np.float64)
+    else:
+        nominalHeldoutInfo = np.empty(0, dtype=np.float64)
     cdef cnp.uint8_t[:, ::1] maskView = mask
     cdef double[::1] totalView = totalInfo
     cdef double[::1] keptView = keptInfo
     cdef double[::1] heldoutView = heldoutInfo
     cdef double[::1] hView = hFraction
-    cdef Py_ssize_t start, end, i
-    cdef double value, total
+    cdef double[::1] nominalHeldoutView = nominalHeldoutInfo
+    cdef Py_ssize_t start, end, i, j, count
+    cdef double value, total, kept, sumSqrt, lamValue
 
     with nogil:
         for block in range(blockCount):
@@ -202,16 +264,194 @@ cpdef tuple cmakeFoldMaskAndInformation(
                         value = 1.0 / (<double>matrixMunc[rep, i] + pad)
                         if useLambda:
                             value *= lambdaExp[i]
-                        heldoutView[i] += value
+                        if replicateDependenceRho <= 0.0:
+                            heldoutView[i] += value
+                        if returnNominalHeldout:
+                            nominalHeldoutView[i] += value
         for i in range(n):
             total = totalView[i]
-            keptView[i] = total - heldoutView[i]
+            if replicateDependenceRho > 0.0:
+                kept = 0.0
+                sumSqrt = 0.0
+                count = 0
+                if useLambda:
+                    lamValue = lambdaExp[i]
+                else:
+                    lamValue = 1.0
+                for j in range(m):
+                    if activeMask[j, i] != 0 and maskView[j, i] != 0:
+                        value = lamValue / (<double>matrixMunc[j, i] + pad)
+                        kept += value
+                        sumSqrt += sqrt(value)
+                        count += 1
+                kept = _exchangeable_information(
+                    kept,
+                    sumSqrt,
+                    count,
+                    replicateDependenceRho,
+                )
+                keptView[i] = kept
+                heldoutView[i] = total - kept
+            else:
+                keptView[i] = total - heldoutView[i]
             if total > 0.0:
                 hView[i] = heldoutView[i] / total
             else:
                 hView[i] = NAN
 
+    if returnNominalHeldout:
+        return mask, keptInfo, heldoutInfo, hFraction, nominalHeldoutInfo
     return mask, keptInfo, heldoutInfo, hFraction
+
+
+cpdef dict cdeleteBlockReplicateDependenceRhoEvidence(
+    real_t[:, ::1] matrixData,
+    real_t[:, ::1] matrixMunc,
+    cnp.uint8_t[:, ::1] activeMask,
+    cnp.int32_t[::1] blockFold,
+    Py_ssize_t[::1] repsByBlockCount,
+    Py_ssize_t[:, ::1] repsByBlock,
+    double[::1] signal,
+    double[::1] lambdaExp,
+    bint useLambda,
+    double pad,
+    Py_ssize_t blockLen,
+    Py_ssize_t fold,
+):
+    cdef Py_ssize_t m = matrixData.shape[0]
+    cdef Py_ssize_t n = matrixData.shape[1]
+    if matrixMunc.shape[0] != m or matrixMunc.shape[1] != n:
+        raise ValueError("matrixMunc must match matrixData shape")
+    if activeMask.shape[0] != m or activeMask.shape[1] != n:
+        raise ValueError("activeMask must match matrixData shape")
+    if signal.shape[0] != n:
+        raise ValueError("signal must match interval count")
+    if useLambda and lambdaExp.shape[0] != n:
+        raise ValueError("fullObservationPrecision must match interval count")
+    if blockLen < 1:
+        raise ValueError("replicate-dependence block length must be positive")
+    if fold < 0:
+        raise ValueError("fold must be nonnegative")
+    if not isfinite(pad):
+        raise ValueError("observation information pad must be finite")
+    if m < 2 or n < 1:
+        return {
+            "fisher_z_weighted_sum": 0.0,
+            "weight_sum": 0.0,
+            "block_count": 0,
+            "pair_count": 0,
+            "rho_upper_bound": 0.25,
+        }
+
+    cdef Py_ssize_t blockCount = (n + blockLen - 1) // blockLen
+    if (
+        blockFold.shape[0] != blockCount
+        or repsByBlockCount.shape[0] != blockCount
+        or repsByBlock.shape[0] != blockCount
+    ):
+        raise ValueError("fold spec has inconsistent block count")
+    cdef Py_ssize_t deleteSlotCount = repsByBlock.shape[1]
+    if deleteSlotCount < m:
+        raise ValueError("fold spec replicate matrix must allow every sample")
+
+    cdef Py_ssize_t block, start, end, i, j, k, h, h2
+    cdef Py_ssize_t pairCountTotal = 0
+    cdef Py_ssize_t validBlockCount = 0
+    cdef Py_ssize_t count, deleteCount
+    cdef bint blockHasPair
+    cdef double denomJ, denomK, lamValue, residualJ, residualK
+    cdef double sumJ, sumK, sumJJ, sumKK, sumJK
+    cdef double cov, varJ, varK, corr, zValue, weight
+    cdef double zSum = 0.0
+    cdef double weightSum = 0.0
+    cdef double corrBound = 0.25
+
+    cdef Py_ssize_t rep
+    for block in range(blockCount):
+        if blockFold[block] < 0:
+            raise ValueError("fold spec contains negative fold id")
+        deleteCount = repsByBlockCount[block]
+        if deleteCount < 1 or deleteCount > m or deleteCount > deleteSlotCount:
+            raise ValueError("fold spec deleted-replicate count is out of bounds")
+        for h in range(deleteCount):
+            rep = repsByBlock[block, h]
+            if rep < 0 or rep >= m:
+                raise ValueError("fold spec replicate is out of bounds")
+            for h2 in range(h):
+                if repsByBlock[block, h2] == rep:
+                    raise ValueError("fold spec contains a duplicate replicate")
+
+    with nogil:
+        for block in range(blockCount):
+            if blockFold[block] != fold:
+                continue
+            deleteCount = repsByBlockCount[block]
+            if deleteCount < 2:
+                continue
+            start = block * blockLen
+            end = start + blockLen
+            if end > n:
+                end = n
+            blockHasPair = False
+            for h in range(deleteCount - 1):
+                j = repsByBlock[block, h]
+                for h2 in range(h + 1, deleteCount):
+                    k = repsByBlock[block, h2]
+                    count = 0
+                    sumJ = 0.0
+                    sumK = 0.0
+                    sumJJ = 0.0
+                    sumKK = 0.0
+                    sumJK = 0.0
+                    for i in range(start, end):
+                        if activeMask[j, i] != 0 and activeMask[k, i] != 0:
+                            if useLambda:
+                                lamValue = lambdaExp[i]
+                            else:
+                                lamValue = 1.0
+                            denomJ = <double>matrixMunc[j, i] + pad
+                            denomK = <double>matrixMunc[k, i] + pad
+                            if denomJ > 0.0 and denomK > 0.0 and lamValue > 0.0:
+                                residualJ = (
+                                    (<double>matrixData[j, i] - signal[i])
+                                    * sqrt(lamValue / denomJ)
+                                )
+                                residualK = (
+                                    (<double>matrixData[k, i] - signal[i])
+                                    * sqrt(lamValue / denomK)
+                                )
+                                if isfinite(residualJ) and isfinite(residualK):
+                                    sumJ += residualJ
+                                    sumK += residualK
+                                    sumJJ += residualJ * residualJ
+                                    sumKK += residualK * residualK
+                                    sumJK += residualJ * residualK
+                                    count += 1
+                    if count >= 4:
+                        cov = sumJK - sumJ * sumK / <double>count
+                        varJ = sumJJ - sumJ * sumJ / <double>count
+                        varK = sumKK - sumK * sumK / <double>count
+                        if varJ > 0.0 and varK > 0.0:
+                            corr = cov / sqrt(varJ * varK)
+                            corr = _clip_double(corr, -corrBound, corrBound)
+                            zValue = 0.5 * log((1.0 + corr) / (1.0 - corr))
+                            weight = <double>count - 3.0
+                            if weight < 1.0:
+                                weight = 1.0
+                            zSum += weight * zValue
+                            weightSum += weight
+                            pairCountTotal += 1
+                            blockHasPair = True
+            if blockHasPair:
+                validBlockCount += 1
+
+    return {
+        "fisher_z_weighted_sum": float(zSum),
+        "weight_sum": float(weightSum),
+        "block_count": int(validBlockCount),
+        "pair_count": int(pairCountTotal),
+        "rho_upper_bound": float(corrBound),
+    }
 
 
 cpdef cnp.ndarray[cnp.uint8_t, ndim=3, mode="c"] cmakeFoldMasks(

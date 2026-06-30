@@ -15,16 +15,6 @@ class CliError(Exception):
     """User-facing CLI validation error."""
 
 
-BUILDER_CANDIDATES: tuple[tuple[str, str], ...] = (
-    ("consenrich.genome_covariate_builder", "build_genome_covariate_cache"),
-    ("consenrich.genome_covariate_builder", "build_cache"),
-    ("consenrich.genome_covariates_builder", "build_genome_covariate_cache"),
-    ("consenrich.genome_covariates_builder", "build_cache"),
-    ("consenrich.genome_covariates", "build_genome_covariate_cache"),
-    ("consenrich.genome_covariates", "build_cache"),
-)
-
-
 def _comma_list(value: str | None) -> tuple[str, ...] | None:
     if value is None:
         return None
@@ -107,24 +97,14 @@ def _existing_file(path: str, label: str) -> Path:
 
 
 def _load_builder() -> Callable[..., Any]:
-    missed: list[str] = []
-    for module_name, attr_name in BUILDER_CANDIDATES:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as exc:
-            if exc.name == module_name:
-                missed.append(f"{module_name}.{attr_name}")
-                continue
-            raise
-        builder = getattr(module, attr_name, None)
-        if callable(builder):
-            return builder
-        missed.append(f"{module_name}.{attr_name}")
-    expected = ", ".join(missed)
-    raise CliError(
-        "genome covariate builder API is not available yet; expected one of: "
-        f"{expected}"
-    )
+    module = importlib.import_module("consenrich.genome_covariate_builder")
+    builder = getattr(module, "build_genome_covariate_cache", None)
+    if not callable(builder):
+        raise CliError(
+            "consenrich.genome_covariate_builder.build_genome_covariate_cache "
+            "is not available"
+        )
+    return builder
 
 
 def _filter_kwargs(

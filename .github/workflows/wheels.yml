@@ -103,7 +103,7 @@ jobs:
             "structlog==25.5.*" \
             "itrigamma==0.2.0a1"
           python -m pip install --no-index --find-links dist consenrich
-          python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty"
+          python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true'

@@ -972,6 +972,46 @@ def _deleteBlockRowWeights(h: np.ndarray, params: core.uncertaintyCalibrationPar
     raise AssertionError(f"unhandled delete-block weight mode: {mode}")
 
 
+def _replicateDependenceEstimateFromEvidence(
+    *,
+    zWeightedSum: float,
+    weightSum: float,
+    blockCount: int,
+    pairCount: int,
+    rhoUpperBound: float,
+) -> dict[str, Any]:
+    zWeightedSum = float(zWeightedSum)
+    weightSum = float(weightSum)
+    rhoUpperBound = float(rhoUpperBound)
+    zMean = 0.0
+    zShrunk = 0.0
+    zSE = None
+    rawRho = 0.0
+    rho = 0.0
+    if weightSum > 0.0:
+        zMean = zWeightedSum / weightSum
+        zSEValue = float(np.sqrt(1.0 / weightSum))
+        zSE = zSEValue
+        if zMean > zSEValue:
+            zShrunk = zMean - zSEValue
+        elif zMean < -zSEValue:
+            zShrunk = zMean + zSEValue
+        rawRho = float(np.tanh(zMean))
+        rho = float(np.tanh(zShrunk))
+        rho = min(max(rho, 0.0), rhoUpperBound)
+    return {
+        "rho": float(rho),
+        "raw_rho": float(rawRho),
+        "fisher_z_mean": float(zMean),
+        "fisher_z_shrunk": float(zShrunk),
+        "fisher_z_se": zSE,
+        "block_count": int(blockCount),
+        "pair_count": int(pairCount),
+        "weight_sum": float(weightSum),
+        "rho_upper_bound": float(rhoUpperBound),
+    }
+
+
 def _deleteBlockScoreSamplingCodes(
     *,
     foldIndex: np.ndarray,
@@ -1073,6 +1113,61 @@ def calibrateChromosomeStateUncertainty(
     m, n = matrixData.shape
     if m < 1:
         raise ValueError("uncertainty calibration requires at least one replicate")
+    replicateDependenceRhoSetting = getattr(
+        params,
+        "deleteBlockReplicateDependenceRho",
+        core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO,
+    )
+    replicateDependenceAuto = (
+        isinstance(replicateDependenceRhoSetting, str)
+        and replicateDependenceRhoSetting
+        == core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO
+    )
+    if replicateDependenceAuto:
+        replicateDependenceRho = 0.0
+    else:
+        if isinstance(replicateDependenceRhoSetting, str):
+            raise ValueError(
+                "deleteBlockReplicateDependenceRho must be 'auto' or in [0, 1)"
+            )
+        if isinstance(replicateDependenceRhoSetting, (bool, np.bool_)):
+            raise ValueError(
+                "deleteBlockReplicateDependenceRho must be 'auto' or in [0, 1)"
+            )
+        replicateDependenceRho = float(replicateDependenceRhoSetting)
+        if not (
+            np.isfinite(replicateDependenceRho)
+            and 0.0 <= replicateDependenceRho < 1.0
+        ):
+            raise ValueError(
+                "deleteBlockReplicateDependenceRho must be 'auto' or in [0, 1)"
+            )
+        if replicateDependenceRho > 0.0 and m < 2:
+            raise ValueError(
+                "deleteBlockReplicateDependenceRho > 0 requires at least two samples"
+            )
+    replicateDependenceEstimate: dict[str, Any] = {
+        "source": "auto" if replicateDependenceAuto else "fixed",
+        "estimator": (
+            "delete_block_sampled_leave_pair_out_fisher_z"
+            if replicateDependenceAuto
+            else None
+        ),
+        "raw_rho": None if replicateDependenceAuto else float(replicateDependenceRho),
+        "fisher_z_mean": None,
+        "fisher_z_shrunk": None,
+        "fisher_z_se": None,
+        "block_count": None,
+        "pair_count": None,
+        "weight_sum": None,
+        "rho_upper_bound": None,
+    }
+    if replicateDependenceAuto and m < 2:
+        logger.info(
+            "uncertaintyCalibration.replicateDependence.auto skipped samples=%s "
+            "resolvedRho=0",
+            m,
+        )
     intervalsArr = (
         np.arange(n, dtype=np.int64) * int(intervalSizeBP)
         if intervals is None
@@ -1146,6 +1241,12 @@ def calibrateChromosomeStateUncertainty(
     if fullPArr.shape[0] != n:
         raise ValueError("fullP/fullCovar must match the number of matrixData columns")
     fullPArr = np.maximum(fullPArr, core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR)
+    if fullBackground is None:
+        fullBackgroundForRhoArr = np.zeros(n, dtype=np.float64)
+    else:
+        fullBackgroundForRhoArr = np.asarray(fullBackground, dtype=np.float64).reshape(-1)
+        if fullBackgroundForRhoArr.shape[0] != n:
+            raise ValueError("fullBackground must match the interval count")
     if targetSignal == "state_plus_background":
         if fullBackground is None:
             if bool(runKwargs.get("fitBackground", False)):
@@ -1154,9 +1255,7 @@ def calibrateChromosomeStateUncertainty(
                 )
             fullBackgroundArr = np.zeros(n, dtype=np.float64)
         else:
-            fullBackgroundArr = np.asarray(fullBackground, dtype=np.float64).reshape(-1)
-            if fullBackgroundArr.shape[0] != n:
-                raise ValueError("fullBackground must match the interval count")
+            fullBackgroundArr = fullBackgroundForRhoArr
     else:
         fullBackgroundArr = np.zeros(n, dtype=np.float64)
     padValue = float(runKwargs.get("pad", _calibrationPad()))
@@ -1174,13 +1273,24 @@ def calibrateChromosomeStateUncertainty(
         lambdaMax=float(runKwargs.get("observationPrecisionMultiplierMax", 1.0)),
     )
     stageStart = time.perf_counter()
-    totalInfoBase = _cuncertainty.cobservationTotalInformation(
+    totalInfoNominal = _cuncertainty.cobservationTotalInformation(
         matrixMunc,
         activeMask,
         lambdaValues,
         bool(params.deleteBlockUseLambdaInInformation),
         padValue,
     )
+    if (not replicateDependenceAuto) and replicateDependenceRho > 0.0:
+        totalInfoBase = _cuncertainty.cobservationTotalInformation(
+            matrixMunc,
+            activeMask,
+            lambdaValues,
+            bool(params.deleteBlockUseLambdaInInformation),
+            padValue,
+            replicateDependenceRho,
+        )
+    else:
+        totalInfoBase = totalInfoNominal
     timings["total_information_seconds"] = time.perf_counter() - stageStart
     stageStart = time.perf_counter()
     featureMatrix, featureNames, featureCenter, featureScale = _featureMatrix(
@@ -1202,6 +1312,8 @@ def calibrateChromosomeStateUncertainty(
     totalInfoChunks: list[np.ndarray] = []
     keptInfoChunks: list[np.ndarray] = []
     heldInfoChunks: list[np.ndarray] = []
+    totalDeffChunks: list[np.ndarray] = []
+    heldoutDeffChunks: list[np.ndarray] = []
     deletedReplicateChunks: list[np.ndarray] = []
     deletedObservationChunks: list[np.ndarray] = []
     invalidReasonCountByCode = np.zeros(
@@ -1213,6 +1325,12 @@ def calibrateChromosomeStateUncertainty(
     deletedReplicateIntervalTotal = 0
     deletedObservationIntervalTotal = 0
     foldDiagnosticRows: list[dict[str, Any]] = []
+    foldRecords: list[dict[str, Any]] = []
+    rhoZByFold = np.zeros(int(folds), dtype=np.float64)
+    rhoWeightByFold = np.zeros(int(folds), dtype=np.float64)
+    rhoBlockCountByFold = np.zeros(int(folds), dtype=np.int64)
+    rhoPairCountByFold = np.zeros(int(folds), dtype=np.int64)
+    rhoUpperBound = 0.25
 
     fitKwargs = dict(runKwargs)
     fitKwargs.setdefault("logRunRole", "delete-block state calibration fold")
@@ -1262,7 +1380,7 @@ def calibrateChromosomeStateUncertainty(
             warmupDetail,
         )
         stageStart = time.perf_counter()
-        mask, keptInfo, heldoutInfo, h = _cuncertainty.cmakeFoldMaskAndInformation(
+        foldInfo = _cuncertainty.cmakeFoldMaskAndInformation(
             int(m),
             int(n),
             int(blockLen),
@@ -1276,7 +1394,15 @@ def calibrateChromosomeStateUncertainty(
             lambdaValues,
             bool(params.deleteBlockUseLambdaInInformation),
             padValue,
+            replicateDependenceRho,
+            replicateDependenceRho > 0.0,
         )
+        if replicateDependenceRho > 0.0:
+            mask, keptInfo, heldoutInfo, h, nominalHeldoutInfo = foldInfo
+            nominalHeldoutInfo = np.asarray(nominalHeldoutInfo, dtype=np.float64)
+        else:
+            mask, keptInfo, heldoutInfo, h = foldInfo
+            nominalHeldoutInfo = heldoutInfo
         foldMaskInformationSeconds = time.perf_counter() - stageStart
         maskInformationSeconds += foldMaskInformationSeconds
         deletedReplicates = np.sum(mask == 0, axis=0).astype(np.int64, copy=False)
@@ -1337,14 +1463,169 @@ def calibrateChromosomeStateUncertainty(
         )
         if xMasked.shape[0] != n or pMasked.shape[0] != n:
             raise ValueError("masked fold output does not match interval count")
-        if targetSignal == "state_plus_background":
-            if len(out) <= 5:
-                raise ValueError(
-                    "deleteBlockTargetSignal='state_plus_background' requires masked background output"
-                )
+        if len(out) <= 5:
+            if targetSignal == "state_plus_background" or replicateDependenceAuto:
+                raise ValueError("delete-block calibration refit requires masked background output")
+            backgroundMasked = np.zeros(n, dtype=np.float64)
+        else:
             backgroundMasked = np.asarray(out[5], dtype=np.float64).reshape(-1)
             if backgroundMasked.shape[0] != n:
                 raise ValueError("masked background output must match interval count")
+        if replicateDependenceAuto and m >= 2:
+            evidence = _cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
+                matrixData,
+                matrixMunc,
+                activeMask,
+                blockFold,
+                repsByBlockCount,
+                repsByBlock,
+                np.ascontiguousarray(xMasked + backgroundMasked, dtype=np.float64),
+                lambdaValues,
+                bool(params.deleteBlockUseLambdaInInformation),
+                padValue,
+                int(blockLen),
+                int(fold),
+            )
+            rhoZByFold[int(fold)] += float(evidence.get("fisher_z_weighted_sum", 0.0))
+            rhoWeightByFold[int(fold)] += float(evidence.get("weight_sum", 0.0))
+            rhoBlockCountByFold[int(fold)] += int(evidence.get("block_count", 0))
+            rhoPairCountByFold[int(fold)] += int(evidence.get("pair_count", 0))
+            rhoUpperBound = float(evidence.get("rho_upper_bound", rhoUpperBound))
+        foldExtractSeconds = time.perf_counter() - stageStart
+        extractSeconds += foldExtractSeconds
+        logger.info(
+            "uncertaintyCalibration.fold.refit.done fold=%s/%s "
+            "deletedReplicates=%s deletedObservations=%s refitSeconds=%.3f "
+            "extractSeconds=%.3f",
+            int(fold + 1),
+            int(folds),
+            int(np.sum(deletedReplicates)),
+            int(np.sum(deletedObservations)),
+            float(foldRefitSeconds),
+            float(foldExtractSeconds),
+        )
+        foldRecords.append(
+            {
+                "fold": int(fold),
+                "mask": mask,
+                "xMasked": np.ascontiguousarray(xMasked, dtype=np.float64),
+                "pMasked": np.ascontiguousarray(pMasked, dtype=np.float64),
+                "backgroundMasked": np.ascontiguousarray(backgroundMasked, dtype=np.float64),
+                "deletedReplicates": deletedReplicates,
+                "deletedObservations": deletedObservations,
+                "refitSeconds": float(foldRefitSeconds),
+                "extractSeconds": float(foldExtractSeconds),
+            }
+        )
+    replicateDependenceRhoByFold = np.full(int(folds), float(replicateDependenceRho), dtype=np.float64)
+    if replicateDependenceAuto and m >= 2:
+        pooledEstimate = _replicateDependenceEstimateFromEvidence(
+            zWeightedSum=float(np.sum(rhoZByFold)),
+            weightSum=float(np.sum(rhoWeightByFold)),
+            blockCount=int(np.sum(rhoBlockCountByFold)),
+            pairCount=int(np.sum(rhoPairCountByFold)),
+            rhoUpperBound=float(rhoUpperBound),
+        )
+        replicateDependenceRho = float(pooledEstimate["rho"])
+        foldEstimates = []
+        for fold in range(int(folds)):
+            foldEstimate = _replicateDependenceEstimateFromEvidence(
+                zWeightedSum=float(np.sum(rhoZByFold) - rhoZByFold[fold]),
+                weightSum=float(np.sum(rhoWeightByFold) - rhoWeightByFold[fold]),
+                blockCount=int(np.sum(rhoBlockCountByFold) - rhoBlockCountByFold[fold]),
+                pairCount=int(np.sum(rhoPairCountByFold) - rhoPairCountByFold[fold]),
+                rhoUpperBound=float(rhoUpperBound),
+            )
+            foldEstimates.append(foldEstimate)
+            replicateDependenceRhoByFold[fold] = float(foldEstimate["rho"])
+        replicateDependenceEstimate.update(
+            {
+                key: pooledEstimate.get(key)
+                for key in (
+                    "raw_rho",
+                    "fisher_z_mean",
+                    "fisher_z_shrunk",
+                    "fisher_z_se",
+                    "block_count",
+                    "pair_count",
+                    "weight_sum",
+                    "rho_upper_bound",
+                )
+            }
+        )
+        replicateDependenceEstimate["rho_by_fold"] = [
+            float(foldEstimate["rho"]) for foldEstimate in foldEstimates
+        ]
+        replicateDependenceEstimate["raw_rho_by_fold"] = [
+            float(foldEstimate["raw_rho"]) for foldEstimate in foldEstimates
+        ]
+        replicateDependenceEstimate["fisher_z_mean_by_fold"] = [
+            float(foldEstimate["fisher_z_mean"]) for foldEstimate in foldEstimates
+        ]
+        replicateDependenceEstimate["fisher_z_se_by_fold"] = [
+            foldEstimate["fisher_z_se"] for foldEstimate in foldEstimates
+        ]
+        replicateDependenceEstimate["information_scope"] = "leave_fold_out"
+        replicateDependenceEstimate["same_fold_evidence_excluded"] = True
+        replicateDependenceEstimate["support_passed"] = bool(
+            pooledEstimate["weight_sum"] > 0.0
+            and pooledEstimate["block_count"] > 0
+            and pooledEstimate["pair_count"] > 0
+        )
+        logger.info(
+            "uncertaintyCalibration.replicateDependence.auto rawRho=%.6g "
+            "resolvedRho=%.6g blocks=%s pairs=%s",
+            float(pooledEstimate.get("raw_rho", 0.0) or 0.0),
+            replicateDependenceRho,
+            pooledEstimate.get("block_count"),
+            pooledEstimate.get("pair_count"),
+        )
+
+    for record in foldRecords:
+        fold = int(record["fold"])
+        rhoForFold = float(replicateDependenceRhoByFold[fold])
+        stageStart = time.perf_counter()
+        if rhoForFold > 0.0:
+            totalInfoFold = _cuncertainty.cobservationTotalInformation(
+                matrixMunc,
+                activeMask,
+                lambdaValues,
+                bool(params.deleteBlockUseLambdaInInformation),
+                padValue,
+                rhoForFold,
+            )
+        else:
+            totalInfoFold = totalInfoNominal
+        foldInfo = _cuncertainty.cmakeFoldMaskAndInformation(
+            int(m),
+            int(n),
+            int(blockLen),
+            int(fold),
+            blockFold,
+            repsByBlockCount,
+            repsByBlock,
+            matrixMunc,
+            activeMask,
+            totalInfoFold,
+            lambdaValues,
+            bool(params.deleteBlockUseLambdaInInformation),
+            padValue,
+            rhoForFold,
+            rhoForFold > 0.0,
+        )
+        if rhoForFold > 0.0:
+            _mask, keptInfo, heldoutInfo, h, nominalHeldoutInfo = foldInfo
+            nominalHeldoutInfo = np.asarray(nominalHeldoutInfo, dtype=np.float64)
+        else:
+            _mask, keptInfo, heldoutInfo, h = foldInfo
+            nominalHeldoutInfo = heldoutInfo
+        maskInformationSeconds += time.perf_counter() - stageStart
+
+        stageStart = time.perf_counter()
+        xMasked = np.asarray(record["xMasked"], dtype=np.float64)
+        pMasked = np.asarray(record["pMasked"], dtype=np.float64)
+        backgroundMasked = np.asarray(record["backgroundMasked"], dtype=np.float64)
+        if targetSignal == "state_plus_background":
             signalMasked = xMasked + backgroundMasked
             signalFull = fullState0 + fullBackgroundArr
         else:
@@ -1363,8 +1644,8 @@ def calibrateChromosomeStateUncertainty(
         )
         invalidReasonCode = np.asarray(invalidReasonCode, dtype=np.uint8)
         meaningfulDeletion = (
-            np.isfinite(totalInfoBase)
-            & (totalInfoBase > 0.0)
+            np.isfinite(totalInfoFold)
+            & (totalInfoFold > 0.0)
             & np.isfinite(heldoutInfo)
             & (heldoutInfo > 0.0)
         )
@@ -1381,6 +1662,8 @@ def calibrateChromosomeStateUncertainty(
         )[: DELETE_BLOCK_INVALID_REASON_LABELS.shape[0]]
         foldExtractSeconds = time.perf_counter() - stageStart
         extractSeconds += foldExtractSeconds
+        deletedReplicates = np.asarray(record["deletedReplicates"], dtype=np.int64)
+        deletedObservations = np.asarray(record["deletedObservations"], dtype=np.int64)
         if not np.any(valid):
             logger.info(
                 "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=0 "
@@ -1390,7 +1673,7 @@ def calibrateChromosomeStateUncertainty(
                 int(folds),
                 int(np.sum(deletedReplicates)),
                 int(np.sum(deletedObservations)),
-                float(foldRefitSeconds),
+                float(record["refitSeconds"]),
                 float(foldExtractSeconds),
             )
             foldDiagnosticRows.extend(
@@ -1404,20 +1687,18 @@ def calibrateChromosomeStateUncertainty(
                         "delete_block_rows": 0,
                         "deleted_replicates": int(np.sum(deletedReplicates)),
                         "deleted_observations": int(np.sum(deletedObservations)),
-                        "refit_seconds": float(foldRefitSeconds),
+                        "replicate_dependence_rho": float(rhoForFold),
+                        "refit_seconds": float(record["refitSeconds"]),
                         "extract_seconds": float(foldExtractSeconds),
                     },
                 )
             )
             continue
         idx = np.flatnonzero(valid).astype(np.int64, copy=False)
-        foldExtractSeconds = time.perf_counter() - stageStart
         residualChunks.append(np.ascontiguousarray(stateDelta[idx], dtype=np.float64))
         pDeltaChunks.append(np.ascontiguousarray(deltaVariance[idx], dtype=np.float64))
         iChunks.append(idx.astype(np.int64, copy=False))
-        foldChunks.append(
-            np.full(idx.shape[0], int(fold), dtype=np.int32)
-        )
+        foldChunks.append(np.full(idx.shape[0], int(fold), dtype=np.int32))
         hChunks.append(np.ascontiguousarray(h[idx], dtype=np.float64))
         sourceCodeChunks.append(np.ascontiguousarray(sourceCode[idx], dtype=np.uint8))
         rowWeightChunks.append(_deleteBlockRowWeights(h[idx], params))
@@ -1426,9 +1707,22 @@ def calibrateChromosomeStateUncertainty(
         covDeltaChunks.append(
             np.ascontiguousarray(pMasked[idx] - fullPArr[idx], dtype=np.float64)
         )
-        totalInfoChunks.append(np.ascontiguousarray(totalInfoBase[idx], dtype=np.float64))
+        totalInfoChunks.append(np.ascontiguousarray(totalInfoFold[idx], dtype=np.float64))
         keptInfoChunks.append(np.ascontiguousarray(keptInfo[idx], dtype=np.float64))
         heldInfoChunks.append(np.ascontiguousarray(heldoutInfo[idx], dtype=np.float64))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            totalDeffChunks.append(
+                np.ascontiguousarray(
+                    totalInfoNominal[idx] / totalInfoFold[idx],
+                    dtype=np.float64,
+                )
+            )
+            heldoutDeffChunks.append(
+                np.ascontiguousarray(
+                    nominalHeldoutInfo[idx] / heldoutInfo[idx],
+                    dtype=np.float64,
+                )
+            )
         deletedReplicateChunks.append(
             np.ascontiguousarray(deletedReplicates[idx], dtype=np.int64)
         )
@@ -1446,8 +1740,8 @@ def calibrateChromosomeStateUncertainty(
         logger.info(
             "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=%s "
             "deletedReplicates=%s deletedObservations=%s varianceMode=%s "
-            "covarianceDifferenceFraction=%.3f refitSeconds=%.3f "
-            "extractSeconds=%.3f",
+            "covarianceDifferenceFraction=%.3f replicateDependenceRho=%.6g "
+            "refitSeconds=%.3f extractSeconds=%.3f",
             int(fold + 1),
             int(folds),
             int(idx.size),
@@ -1455,7 +1749,8 @@ def calibrateChromosomeStateUncertainty(
             int(np.sum(deletedObservations)),
             varianceMode,
             covValidFractionFold,
-            float(foldRefitSeconds),
+            float(rhoForFold),
+            float(record["refitSeconds"]),
             float(foldExtractSeconds),
         )
         foldDiagnosticRows.extend(
@@ -1471,11 +1766,13 @@ def calibrateChromosomeStateUncertainty(
                     "deleted_observations": int(np.sum(deletedObservations)),
                     "variance_mode": varianceMode,
                     "covariance_difference_fraction": covValidFractionFold,
-                    "refit_seconds": float(foldRefitSeconds),
+                    "replicate_dependence_rho": float(rhoForFold),
+                    "refit_seconds": float(record["refitSeconds"]),
                     "extract_seconds": float(foldExtractSeconds),
                 },
             )
         )
+
     timings["masked_refits_seconds"] = refitSeconds
     timings["extract_scores_seconds"] = extractSeconds
     timings["mask_information_seconds"] = maskInformationSeconds
@@ -1495,6 +1792,8 @@ def calibrateChromosomeStateUncertainty(
     totalInfoAll = np.concatenate(totalInfoChunks)
     keptInfoAll = np.concatenate(keptInfoChunks)
     heldInfoAll = np.concatenate(heldInfoChunks)
+    totalDeffAll = np.concatenate(totalDeffChunks)
+    heldoutDeffAll = np.concatenate(heldoutDeffChunks)
     deletedReplicateAll = np.concatenate(deletedReplicateChunks)
     deletedObservationAll = np.concatenate(deletedObservationChunks)
     blockIndex = (intervalIndex // int(blockLen)).astype(np.int64, copy=False)
@@ -1931,6 +2230,12 @@ def calibrateChromosomeStateUncertainty(
     finiteH = hAll[np.isfinite(hAll)]
     finiteTotalInfo = totalInfoAll[np.isfinite(totalInfoAll) & (totalInfoAll > 0.0)]
     finiteHeldInfo = heldInfoAll[np.isfinite(heldInfoAll) & (heldInfoAll > 0.0)]
+    finiteTotalDeff = totalDeffAll[
+        np.isfinite(totalDeffAll) & (totalDeffAll > 0.0)
+    ]
+    finiteHeldoutDeff = heldoutDeffAll[
+        np.isfinite(heldoutDeffAll) & (heldoutDeffAll > 0.0)
+    ]
     factorMin, factorMax = _factorBounds(params)
     factorOut = factor.astype(np.float32)
     factorDistributionValues = np.asarray(factorOut, dtype=np.float64).reshape(-1)
@@ -2012,6 +2317,44 @@ def calibrateChromosomeStateUncertainty(
             ),
             "heldout_information_median": (
                 None if finiteHeldInfo.size == 0 else float(np.median(finiteHeldInfo))
+            ),
+        },
+        "replicate_dependence": {
+            "method": "exchangeable",
+            "source": replicateDependenceEstimate["source"],
+            "estimator": replicateDependenceEstimate["estimator"],
+            "rho": float(replicateDependenceRho),
+            "applied": bool(np.any(replicateDependenceRhoByFold > 0.0)),
+            "raw_rho": replicateDependenceEstimate["raw_rho"],
+            "fisher_z_mean": replicateDependenceEstimate["fisher_z_mean"],
+            "fisher_z_shrunk": replicateDependenceEstimate["fisher_z_shrunk"],
+            "fisher_z_se": replicateDependenceEstimate["fisher_z_se"],
+            "block_count": replicateDependenceEstimate["block_count"],
+            "pair_count": replicateDependenceEstimate["pair_count"],
+            "weight_sum": replicateDependenceEstimate["weight_sum"],
+            "rho_upper_bound": replicateDependenceEstimate["rho_upper_bound"],
+            "rho_by_fold": replicateDependenceEstimate.get("rho_by_fold"),
+            "raw_rho_by_fold": replicateDependenceEstimate.get("raw_rho_by_fold"),
+            "fisher_z_mean_by_fold": replicateDependenceEstimate.get(
+                "fisher_z_mean_by_fold"
+            ),
+            "fisher_z_se_by_fold": replicateDependenceEstimate.get(
+                "fisher_z_se_by_fold"
+            ),
+            "information_scope": replicateDependenceEstimate.get("information_scope"),
+            "same_fold_evidence_excluded": replicateDependenceEstimate.get(
+                "same_fold_evidence_excluded"
+            ),
+            "support_passed": replicateDependenceEstimate.get("support_passed"),
+            "total_deff_median": (
+                None
+                if finiteTotalDeff.size == 0
+                else float(np.median(finiteTotalDeff))
+            ),
+            "heldout_deff_median": (
+                None
+                if finiteHeldoutDeff.size == 0
+                else float(np.median(finiteHeldoutDeff))
             ),
         },
         "fold_refits": {

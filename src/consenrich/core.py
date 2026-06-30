@@ -82,6 +82,7 @@ from .constants import (
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS,
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS,
+    OBSERVATION_DEFAULT_DEPENDENCE_POSTERIOR_QUANTILE,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q,
@@ -213,6 +214,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_MAX_INFORMATION_FRACTION,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_MIN_INFORMATION_FRACTION,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_MIN_DELTA_VARIANCE,
+    UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_USE_LAMBDA_IN_INFORMATION,
@@ -238,6 +240,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
     UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET,
     UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS,
+    UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO,
     UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES,
     UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS,
     UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_MODES,
@@ -545,6 +548,9 @@ class observationParams(NamedTuple):
     dependenceAcfMinEvidenceNats: float | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS
     )
+    dependencePosteriorQuantile: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_POSTERIOR_QUANTILE
+    )
     muncTrendBlockDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
     )
@@ -646,6 +652,9 @@ class uncertaintyCalibrationParams(NamedTuple):
     )
     deleteBlockUseLambdaInInformation: bool = (
         UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_USE_LAMBDA_IN_INFORMATION
+    )
+    deleteBlockReplicateDependenceRho: float | str = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO
     )
     deleteBlockTargetSignal: str = (
         UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL
@@ -1776,74 +1785,6 @@ def transformCountVarianceFloor(
         outputScale=transformOutputScale,
         shape=transformShape,
     )
-
-
-def transformCountDifferenceVarianceFloor(
-    treatmentCounts: np.ndarray,
-    controlCounts: np.ndarray,
-    *,
-    treatmentScaleFactor: float,
-    controlScaleFactor: float,
-    treatmentRawNoiseMass: np.ndarray | None = None,
-    controlRawNoiseMass: np.ndarray | None = None,
-    countNoisePseudoMeanMass: float = 0.5,
-    countNoisePseudoVarianceMass: float = 0.5,
-    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
-    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
-    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
-    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
-    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
-    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
-) -> np.ndarray:
-    r"""Approximate variance floor for independent treatment-control differences."""
-
-    treatmentFloor = transformCountVarianceFloor(
-        treatmentCounts,
-        [float(treatmentScaleFactor)],
-        rawNoiseMass=treatmentRawNoiseMass,
-        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
-        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
-        transformMethod=transformMethod,
-        logOffset=logOffset,
-        logMult=logMult,
-        transformInputOffset=transformInputOffset,
-        transformInputScale=transformInputScale,
-        transformOutputScale=transformOutputScale,
-        transformShape=transformShape,
-    )
-    controlFloor = transformCountVarianceFloor(
-        controlCounts,
-        [float(controlScaleFactor)],
-        rawNoiseMass=controlRawNoiseMass,
-        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
-        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
-        transformMethod=transformMethod,
-        logOffset=logOffset,
-        logMult=logMult,
-        transformInputOffset=transformInputOffset,
-        transformInputScale=transformInputScale,
-        transformOutputScale=transformOutputScale,
-        transformShape=transformShape,
-    )
-    treat = np.asarray(treatmentFloor, dtype=np.float64)
-    control = np.asarray(controlFloor, dtype=np.float64)
-    finiteTreat = np.isfinite(treat)
-    finiteControl = np.isfinite(control)
-    out = np.full(
-        np.broadcast_shapes(treat.shape, control.shape), np.nan, dtype=np.float64
-    )
-    treatB = np.broadcast_to(treat, out.shape)
-    controlB = np.broadcast_to(control, out.shape)
-    finiteTreatB = np.broadcast_to(finiteTreat, out.shape)
-    finiteControlB = np.broadcast_to(finiteControl, out.shape)
-    out[finiteTreatB] = treatB[finiteTreatB]
-    out[finiteControlB] = np.where(
-        np.isfinite(out[finiteControlB]),
-        out[finiteControlB] + controlB[finiteControlB],
-        controlB[finiteControlB],
-    )
-    return np.asarray(out, dtype=np.float32)
 
 
 def readSegments(
@@ -3167,21 +3108,6 @@ def _processNoiseCalibrationSupport(
         "processNoiseCalibrationCanRun": bool(skipReason is None),
         "processNoiseCalibrationSkipReason": skipReason,
     }
-
-
-def _hasFiniteTransitionVariation(matrixData: np.ndarray) -> bool:
-    data = np.asarray(matrixData, dtype=np.float64)
-    if data.ndim != 2 or data.shape[1] <= 1:
-        return False
-    finite = data[np.isfinite(data)]
-    if finite.size == 0:
-        return False
-    diffs = np.diff(data, axis=1)
-    finiteDiffs = diffs[np.isfinite(diffs)]
-    if finiteDiffs.size == 0:
-        return False
-    tolerance = 1.0e-8 * max(1.0, float(np.max(np.abs(finite))))
-    return bool(np.max(np.abs(finiteDiffs)) > tolerance)
 
 
 def _processNoiseQBoundaryDiagnostics(
@@ -4594,23 +4520,6 @@ def _activeObservationMaskForProcessNoise(
         float(pad),
     )
     return active
-
-
-def _countActiveAdjacentProcessNoiseTransitions(
-    *,
-    matrixData: np.ndarray,
-    matrixMunc: np.ndarray,
-    pad: float,
-) -> int:
-    active = _activeObservationMaskForProcessNoise(
-        matrixData=matrixData,
-        matrixMunc=matrixMunc,
-        pad=float(pad),
-    )
-    if active.ndim != 2 or active.shape[1] < 2:
-        return 0
-    intervalActive = np.any(active, axis=0)
-    return int(np.count_nonzero(intervalActive[1:] & intervalActive[:-1]))
 
 
 def _qSeedPosteriorFromTransitions(
@@ -8385,17 +8294,6 @@ def evalMuncAdditiveCovariateModel(
     return out.astype(np.float32, copy=False)
 
 
-def _winsorizedMedian(values: np.ndarray, lo: float = 0.01, hi: float = 0.99) -> float:
-    arr = np.asarray(values, dtype=np.float64).ravel()
-    arr = arr[np.isfinite(arr)]
-    if arr.size == 0:
-        return 0.0
-    if arr.size >= 20:
-        qLo, qHi = np.quantile(arr, [lo, hi])
-        arr = np.clip(arr, qLo, qHi)
-    return float(np.median(arr))
-
-
 def fitPooledMuncVarianceTrend(
     blockMeans: np.ndarray,
     blockVariances: np.ndarray,
@@ -8820,60 +8718,6 @@ def _backgroundPenaltyFromSpan(
     )[1]
 
 
-def _buildBackgroundSparseSystem(
-    weightTrack: np.ndarray,
-    lamFirst: float,
-    lamSecond: float,
-) -> sparse.csr_matrix:
-    n = int(weightTrack.shape[0])
-    systemMat = sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (float(lamFirst) * _buildFirstDiffPenalty(n))
-    systemMat = systemMat + (float(lamSecond) * _buildSecondDiffPenalty(n))
-    return systemMat.tocsr()
-
-
-def _buildBackgroundBandedSystem(
-    weightTrack: np.ndarray,
-    lamFirst: float,
-    lamSecond: float,
-) -> np.ndarray:
-    weightArr = np.asarray(weightTrack, dtype=np.float64).reshape(-1)
-    n = int(weightArr.shape[0])
-    banded = np.zeros((3, n), dtype=np.float64)
-    if n <= 0:
-        return banded
-
-    diag = weightArr.copy()
-    if n >= 2 and lamFirst > 0.0:
-        diag[0] += lamFirst
-        diag[-1] += lamFirst
-        if n > 2:
-            diag[1:-1] += 2.0 * lamFirst
-        banded[1, : n - 1] -= lamFirst
-
-    if n >= 3 and lamSecond > 0.0:
-        if n == 3:
-            diag[0] += lamSecond
-            diag[1] += 4.0 * lamSecond
-            diag[2] += lamSecond
-            banded[1, :2] += -2.0 * lamSecond
-        else:
-            diag[0] += lamSecond
-            diag[-1] += lamSecond
-            diag[1] += 5.0 * lamSecond
-            diag[-2] += 5.0 * lamSecond
-            if n > 4:
-                diag[2:-2] += 6.0 * lamSecond
-            banded[1, 0] += -2.0 * lamSecond
-            banded[1, n - 2] += -2.0 * lamSecond
-            if n > 3:
-                banded[1, 1 : n - 2] += -4.0 * lamSecond
-        banded[2, : n - 2] = lamSecond
-
-    banded[0, :] = diag
-    return banded
-
-
 def _backgroundPenaltyDiagonal(
     intervalCount: int,
     lamFirst: float,
@@ -8897,68 +8741,6 @@ def _backgroundPenaltyDiagonal(
             if n > 4:
                 diag[2:-2] += 6.0 * lamSecond
     return diag
-
-
-def _diagonalBackgroundUncertainty(
-    matrixMunc: np.ndarray,
-    *,
-    blockLenIntervals: int,
-    pad: float,
-    lambdaExp: np.ndarray | None,
-    backgroundSmoothness: float,
-    fitBackground: bool,
-    backgroundTrack: np.ndarray | None = None,
-    useNonnegativeBackground: bool = False,
-    backgroundNegativePenaltyMultiplier: float | None = None,
-) -> np.ndarray:
-    munc = np.asarray(matrixMunc)
-    if munc.ndim != 2:
-        raise ValueError("matrixMunc must be two-dimensional")
-    intervalCount = int(munc.shape[1])
-    if not bool(fitBackground):
-        return np.zeros(intervalCount, dtype=np.float32)
-    weightTrack = np.zeros(intervalCount, dtype=np.float64)
-    if lambdaExp is not None:
-        lam = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
-        if lam.shape[0] != intervalCount:
-            raise ValueError("lambdaExp length must match matrixMunc interval count")
-        lam = np.maximum(lam, 1.0e-12)
-    else:
-        lam = None
-    for rowIndex in range(int(munc.shape[0])):
-        denom = np.maximum(
-            np.asarray(munc[rowIndex, :], dtype=np.float64) + float(pad),
-            1.0e-12,
-        )
-        invVar = 1.0 / denom
-        if lam is not None:
-            invVar *= lam
-        weightTrack += invVar
-    lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(
-        blockLenIntervals=int(blockLenIntervals),
-        backgroundSmoothness=float(backgroundSmoothness),
-    )
-    diagonal = weightTrack + _backgroundPenaltyDiagonal(
-        intervalCount,
-        float(lamFirst),
-        float(lamSecond),
-    )
-    if (
-        bool(useNonnegativeBackground)
-        and backgroundTrack is not None
-        and backgroundNegativePenaltyMultiplier is not None
-    ):
-        negativePenaltyMultiplier = float(backgroundNegativePenaltyMultiplier)
-        if negativePenaltyMultiplier > 0.0:
-            bg = np.asarray(backgroundTrack, dtype=np.float64).reshape(-1)
-            if bg.shape[0] != intervalCount:
-                raise ValueError("backgroundTrack length must match matrixMunc")
-            positiveWeights = weightTrack[weightTrack > 0.0]
-            weightScale = (
-                float(np.median(positiveWeights)) if positiveWeights.size else 1.0
-            )
-            diagonal[bg < 0.0] += negativePenaltyMultiplier * max(weightScale, 1.0e-12)
-    return (1.0 / np.maximum(diagonal, 1.0e-12)).astype(np.float32)
 
 
 def _solveBackgroundLinearSystem(
@@ -9022,117 +8804,11 @@ def solveZeroCenteredBackgroundLinearSystem(
     )
 
 
-def _backgroundBandedMatvec(
-    systemBanded: np.ndarray,
-    values: np.ndarray,
-) -> np.ndarray:
-    x = np.asarray(values, dtype=np.float64).reshape(-1)
-    n = int(x.size)
-    product = systemBanded[0, :n] * x
-    if n >= 2:
-        off1 = systemBanded[1, : n - 1]
-        product[:-1] += off1 * x[1:]
-        product[1:] += off1 * x[:-1]
-    if n >= 3:
-        off2 = systemBanded[2, : n - 2]
-        product[:-2] += off2 * x[2:]
-        product[2:] += off2 * x[:-2]
-    return product
-
-
-def _nonnegativeBackgroundKKTDiagnostics(
-    *,
-    systemBanded: np.ndarray,
-    rhsTrack: np.ndarray,
-    candidate: np.ndarray,
-    primalTol: float,
-) -> dict[str, float | int | bool]:
-    x = np.asarray(candidate, dtype=np.float64).reshape(-1)
-    rhs = np.asarray(rhsTrack, dtype=np.float64).reshape(-1)
-    matX = _backgroundBandedMatvec(systemBanded, x)
-    gradient = matX - rhs
-
-    finiteX = x[np.isfinite(x)]
-    finiteRhs = rhs[np.isfinite(rhs)]
-    finiteMatX = matX[np.isfinite(matX)]
-    signalScale = float(max(np.max(np.abs(finiteX)) if finiteX.size else 0.0, 1.0))
-    gradientScale = float(
-        max(
-            np.max(np.abs(finiteRhs)) if finiteRhs.size else 0.0,
-            np.max(np.abs(finiteMatX)) if finiteMatX.size else 0.0,
-            1.0,
-        )
-    )
-    freeThreshold = float(max(primalTol, 1.0e-8 * signalScale, 1.0e-12))
-    freeMask = x > freeThreshold
-    activeMask = ~freeMask
-
-    primalViolation = float(max(0.0, -float(np.min(x)) if x.size else 0.0))
-    freeStationarityAbs = (
-        float(np.max(np.abs(gradient[freeMask]))) if np.any(freeMask) else 0.0
-    )
-    activeDualViolationAbs = (
-        float(np.max(np.maximum(-gradient[activeMask], 0.0)))
-        if np.any(activeMask)
-        else 0.0
-    )
-    complementarityAbs = (
-        float(np.max(np.abs(x * gradient))) if x.size and gradient.size else 0.0
-    )
-    freeStationarityRel = freeStationarityAbs / gradientScale
-    activeDualViolationRel = activeDualViolationAbs / gradientScale
-    complementarityRel = complementarityAbs / (signalScale * gradientScale)
-    kktRelMax = float(
-        max(
-            freeStationarityRel,
-            activeDualViolationRel,
-            complementarityRel,
-        )
-    )
-    return {
-        "kkt_ok": bool(primalViolation <= freeThreshold and kktRelMax <= 0.25),
-        "primal_min": float(np.min(x)) if x.size else 0.0,
-        "primal_violation": primalViolation,
-        "free_count": int(np.sum(freeMask)),
-        "active_count": int(np.sum(activeMask)),
-        "free_stationarity_abs": freeStationarityAbs,
-        "free_stationarity_rel": float(freeStationarityRel),
-        "active_dual_violation_abs": activeDualViolationAbs,
-        "active_dual_violation_rel": float(activeDualViolationRel),
-        "complementarity_abs": complementarityAbs,
-        "complementarity_rel": float(complementarityRel),
-        "kkt_rel_max": kktRelMax,
-        "gradient_scale": gradientScale,
-        "free_threshold": freeThreshold,
-    }
-
-
-def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
-    r"""Resolve an odd filter window bounded by a one-dimensional track."""
-
-    if length < 3:
-        return 0
-    try:
-        window = int(np.ceil(float(windowIntervals)))
-    except (TypeError, ValueError, OverflowError):
-        return 0
-    if window < 3:
-        return 0
-    if window % 2 == 0:
-        window += 1
-    maxWindow = int(length)
-    if maxWindow % 2 == 0:
-        maxWindow -= 1
-    if maxWindow < 3:
-        return 0
-    return int(min(window, maxWindow))
-
-
 def centerMBInPlace(
     values: npt.NDArray[np.floating],
     *,
     intervalSizeBP: int,
-    filterWindowBP: int = 5_000_000,
+    filterWindowBP: int = 2_500_000,
     centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD,
 ) -> dict[str, Any]:
     arr = np.asarray(values)
@@ -9727,44 +9403,6 @@ def solveZeroCenteredBackground(
         ),
         dtype=np.float32,
     )
-
-
-def _solveClippedBackgroundHeuristic(
-    residualMatrix: np.ndarray,
-    invVarMatrix: np.ndarray,
-    blockLenIntervals: int,
-    backgroundSmoothness: float = 1.0,
-) -> npt.NDArray[np.float32]:
-    residualArr = np.asarray(residualMatrix, dtype=np.float32)
-    invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
-    if residualArr.ndim != 2 or invVarArr.shape != residualArr.shape:
-        raise ValueError(
-            "residualMatrix and invVarMatrix must have identical 2D shapes"
-        )
-    intervalCount = int(residualArr.shape[1])
-    if intervalCount < 1:
-        return np.zeros(0, dtype=np.float32)
-
-    weightTrack, rhsTrack, positiveSupportCount = (
-        cconsenrich.cbackgroundWeightedStatsWithSupport(
-            residualArr,
-            invVarArr,
-        )
-    )
-    if int(positiveSupportCount) <= 0:
-        return np.zeros(intervalCount, dtype=np.float32)
-
-    lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(
-        blockLenIntervals=blockLenIntervals,
-        backgroundSmoothness=backgroundSmoothness,
-    )
-    background = _solveBackgroundLinearSystem(
-        np.ascontiguousarray(weightTrack, dtype=np.float64),
-        np.ascontiguousarray(rhsTrack, dtype=np.float64),
-        float(lamFirst),
-        float(lamSecond),
-    )
-    return np.maximum(background, 0.0).astype(np.float32)
 
 
 def _solveNonnegativeBackground(

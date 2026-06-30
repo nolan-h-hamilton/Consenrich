@@ -171,6 +171,78 @@ def _caseDeleteBlockInformationApproximation():
     assert np.allclose(deletedInfo, [0.0, 4.0, 4.0])
     assert np.allclose(h, [0.0, 1.0, 0.5])
 
+    rho = 0.5
+    totalInfoRho = cuncertainty.cobservationTotalInformation(
+        matrixMunc,
+        activeMask,
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+        rho,
+    )
+
+    def _exchangeableInfo(weights, rhoValue):
+        weights = np.asarray(weights, dtype=np.float64)
+        adjusted = (
+            float(np.sum(weights)) / (1.0 - rhoValue)
+            - rhoValue
+            * float(np.sum(np.sqrt(weights))) ** 2
+            / ((1.0 - rhoValue) * (1.0 - rhoValue + rhoValue * weights.size))
+        )
+        return min(float(np.sum(weights)), adjusted)
+
+    assert totalInfoRho[0] == pytest.approx(_exchangeableInfo([1.0, 3.0], rho))
+    assert totalInfoRho[1] == pytest.approx(4.0 / (1.0 + rho))
+    assert totalInfoRho[2] == pytest.approx(8.0 / (1.0 + rho))
+
+    foldResultRho = cuncertainty.cmakeFoldMaskAndInformation(
+        2,
+        3,
+        1,
+        0,
+        blockFold,
+        repsByBlockCount,
+        repsByBlock,
+        matrixMunc,
+        activeMask,
+        totalInfoRho,
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+        rho,
+        True,
+    )
+    _maskRho, keptRho, deletedRho, hRho, nominalDeletedRho = foldResultRho
+    assert np.array_equal(_maskRho, _foldMask)
+    assert np.allclose(keptRho, [totalInfoRho[0], 0.0, 4.0])
+    assert np.allclose(deletedRho, [0.0, totalInfoRho[1], totalInfoRho[2] - 4.0])
+    assert np.allclose(hRho, [0.0, 1.0, (totalInfoRho[2] - 4.0) / totalInfoRho[2]])
+    assert np.allclose(nominalDeletedRho, [0.0, 4.0, 4.0])
+    assert hRho[2] < h[2]
+
+    equalMunc = np.full((4, 2), 2.0, dtype=np.float64)
+    equalActive = np.ones_like(equalMunc, dtype=np.uint8)
+    equalInfo = cuncertainty.cobservationTotalInformation(
+        equalMunc,
+        equalActive,
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+        rho,
+    )
+    assert np.allclose(equalInfo, [2.0 / (1.0 + 3.0 * rho)] * 2)
+
+    cappedMunc = np.array([[1.0], [0.01]], dtype=np.float64)
+    cappedInfo = cuncertainty.cobservationTotalInformation(
+        cappedMunc,
+        np.ones_like(cappedMunc, dtype=np.uint8),
+        np.empty(0, dtype=np.float64),
+        False,
+        0.0,
+        0.25,
+    )
+    assert cappedInfo[0] == pytest.approx(101.0)
+
     delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
         np.array([1.0, 1.0, 2.0], dtype=np.float64),
         np.array([1.1, 1.1, 2.1], dtype=np.float64),
@@ -195,6 +267,102 @@ def _caseDeleteBlockInformationApproximation():
         "h_out_of_bounds",
         "valid",
     ]
+
+
+def _caseReplicateDependenceGaussianCoverage():
+    rng = np.random.default_rng(13)
+    draws = 40_000
+    m = 4
+    target = 0.95
+    z = uncertainty._normalZ(target)
+
+    for rho in (0.0, 0.5, 1.0):
+        shared = rng.normal(size=(draws, 1))
+        independent = rng.normal(size=(draws, m))
+        samples = np.sqrt(rho) * shared + np.sqrt(1.0 - rho) * independent
+        estimate = np.mean(samples, axis=1)
+        if rho == 1.0:
+            correctedVariance = 1.0
+        else:
+            correctedVariance = (1.0 + (m - 1.0) * rho) / m
+        naiveVariance = 1.0 / m
+        correctedCoverage = np.mean(np.abs(estimate) <= z * np.sqrt(correctedVariance))
+        naiveCoverage = np.mean(np.abs(estimate) <= z * np.sqrt(naiveVariance))
+        assert correctedCoverage == pytest.approx(target, abs=0.015)
+        if rho == 0.0:
+            assert naiveCoverage == pytest.approx(target, abs=0.015)
+        elif rho == 0.5:
+            assert naiveCoverage < 0.90
+        else:
+            assert naiveCoverage < 0.80
+
+
+def _caseReplicateDependenceDeleteBlockEvidence():
+    n = 40
+    blockLen = 10
+    t = np.linspace(0.0, 4.0 * np.pi, n, dtype=np.float64)
+    shared = np.sin(t)
+    matrixData = np.vstack(
+        [
+            shared + 0.05 * np.cos(t),
+            shared - 0.03 * np.sin(2.0 * t),
+            shared + 0.04 * np.cos(2.0 * t),
+            shared - 0.02 * np.sin(3.0 * t),
+        ]
+    ).astype(np.float64)
+    matrixMunc = np.ones((4, n), dtype=np.float64)
+    activeMask = np.ones((4, n), dtype=np.uint8)
+    blockFold = np.zeros(4, dtype=np.int32)
+    repsByBlockCount = np.full(4, 2, dtype=np.intp)
+    repsByBlock = np.array(
+        [[0, 1, -1, -1], [2, 3, -1, -1], [0, 2, -1, -1], [1, 3, -1, -1]],
+        dtype=np.intp,
+    )
+    signal = np.zeros(n, dtype=np.float64)
+    lambdaExp = np.empty(0, dtype=np.float64)
+
+    evidence = cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
+        matrixData,
+        matrixMunc,
+        activeMask,
+        blockFold,
+        repsByBlockCount,
+        repsByBlock,
+        signal,
+        lambdaExp,
+        False,
+        0.0,
+        blockLen,
+        0,
+    )
+    estimate = uncertainty._replicateDependenceEstimateFromEvidence(
+        zWeightedSum=evidence["fisher_z_weighted_sum"],
+        weightSum=evidence["weight_sum"],
+        blockCount=evidence["block_count"],
+        pairCount=evidence["pair_count"],
+        rhoUpperBound=evidence["rho_upper_bound"],
+    )
+    assert evidence["block_count"] == 4
+    assert evidence["pair_count"] == 4
+    assert estimate["rho"] > 0.0
+    assert estimate["rho"] <= evidence["rho_upper_bound"]
+
+    noPairEvidence = cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
+        matrixData,
+        matrixMunc,
+        activeMask,
+        blockFold,
+        np.ones(4, dtype=np.intp),
+        np.array([[0, -1, -1, -1], [1, -1, -1, -1], [2, -1, -1, -1], [3, -1, -1, -1]], dtype=np.intp),
+        signal,
+        lambdaExp,
+        False,
+        0.0,
+        blockLen,
+        0,
+    )
+    assert noPairEvidence["pair_count"] == 0
+    assert noPairEvidence["weight_sum"] == pytest.approx(0.0)
 
 
 def _caseDeleteBlockVarianceModeSelection():
@@ -584,6 +752,7 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         matrixMunc=matrixMunc,
         fullState=fullState,
         fullCovar=fullCovar,
+        fullBackground=np.zeros(n, dtype=np.float32),
         intervals=np.arange(n, dtype=np.int64) * 25,
         intervalSizeBP=25,
         params=params,
@@ -691,6 +860,9 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert model["factor_model"] == "segShrink"
     assert model["model_se_floor_applied"] is True
     assert model["model_se_floor_hits"] >= 0
+    assert model["replicate_dependence"]["source"] == "auto"
+    assert 0.0 <= model["replicate_dependence"]["rho"] < 1.0
+    assert model["replicate_dependence"]["total_deff_median"] >= 1.0
     assert model["factorModel"] == "segShrink"
     assert (
         model["segmentCount"]
@@ -842,6 +1014,7 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch, caplog):
         matrixMunc=matrixMunc,
         fullState=fullState,
         fullCovar=fullCovar,
+        fullBackground=np.zeros(n, dtype=np.float32),
         intervals=np.arange(n, dtype=np.int64) * 25,
         intervalSizeBP=25,
         params=params,
@@ -964,6 +1137,7 @@ def _caseSegShrinkCalibrationContract(monkeypatch):
         maxHeldoutCells=40,
         targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
         deleteBlockVarianceMode="covariance_difference",
+        deleteBlockReplicateDependenceRho=0.25,
         deleteBlockFactorModel="segShrink",
         deleteBlockFactorSegmentCount=4,
         deleteBlockFactorBootstrapReplicates=8,
@@ -986,6 +1160,11 @@ def _caseSegShrinkCalibrationContract(monkeypatch):
     assert np.all(np.isfinite(result.factor))
     assert np.all(result.factor > 0.0)
     assert model["factor_model"] == "segShrink"
+    assert model["replicate_dependence"]["source"] == "fixed"
+    assert model["replicate_dependence"]["rho"] == pytest.approx(0.25)
+    assert model["replicate_dependence"]["applied"] is True
+    assert model["replicate_dependence"]["total_deff_median"] >= 1.0
+    assert model["replicate_dependence"]["heldout_deff_median"] >= 1.0
     assert model["factorModel"] == "segShrink"
     assert model["hierarchyScope"] == "singleProcessedContig"
     assert model["processedContigCount"] == 1
@@ -1013,6 +1192,156 @@ def _caseSegShrinkCalibrationContract(monkeypatch):
         if row["stratum"] == "overall"
     ]
     assert overall and all("coverage_after" in row for row in overall)
+
+
+def _runSampledLPOAutoRhoCase(
+    monkeypatch,
+    *,
+    m=4,
+    deletePairs=True,
+    useBg=False,
+    varianceMode="covariance_difference",
+):
+    n = 64
+    blockLen = 8
+    blockCount = n // blockLen
+    pattern = np.tile(
+        np.array([-1.0, -0.4, 0.2, 0.8, 1.0, 0.5, -0.2, -0.7], dtype=np.float32),
+        blockCount,
+    )
+    bg = (0.4 * pattern).astype(np.float32) if useBg else np.zeros(n, dtype=np.float32)
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    if useBg:
+        matrixData[:] = bg[None, :]
+    matrixMunc = np.full((m, n), 0.1, dtype=np.float32)
+    fullState = np.zeros((n, 2), dtype=np.float32)
+    fullCovar = np.zeros((n, 2, 2), dtype=np.float32)
+    fullCovar[:, 0, 0] = 0.25
+    fullCovar[:, 1, 1] = 0.01
+
+    def _fakeMakeFoldSpec(**_kwargs):
+        blockFold = (np.arange(blockCount, dtype=np.int32) % 2).astype(np.int32)
+        if deletePairs:
+            pairTemplates = np.array(
+                [[0, 1, -1, -1], [2, 3, -1, -1], [0, 2, -1, -1], [1, 3, -1, -1]],
+                dtype=np.intp,
+            )
+            repsByBlock = pairTemplates[
+                np.arange(blockCount, dtype=np.int64) % pairTemplates.shape[0]
+            ].copy()
+            repsByBlockCount = np.full(blockCount, 2, dtype=np.intp)
+        else:
+            repsByBlock = np.full((blockCount, m), -1, dtype=np.intp)
+            repsByBlock[:, 0] = np.arange(blockCount, dtype=np.intp) % m
+            repsByBlockCount = np.ones(blockCount, dtype=np.intp)
+        return blockFold, repsByBlockCount, repsByBlock
+
+    def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **_kwargs):
+        deleted = np.mean(np.asarray(observationMask, dtype=np.float32) == 0, axis=0)
+        maskedState = fullState.copy()
+        if not useBg:
+            maskedState[:, 0] = 0.5 * deleted * pattern
+        maskedCovar = fullCovar.copy()
+        maskedCovar[:, 0, 0] = fullCovar[:, 0, 0] + 0.05 + 0.02 * deleted
+        signal = maskedState[:, 0] + bg
+        residual = np.asarray(matrixDataArg, dtype=np.float32) - signal[None, :]
+        return (
+            maskedState,
+            maskedCovar,
+            residual.T,
+            np.zeros(n, dtype=np.float32),
+            np.zeros(n, dtype=np.int32),
+            bg.copy(),
+        )
+
+    params = core.uncertaintyCalibrationParams(
+        enabled=True,
+        folds=2,
+        blockSizeBP=200,
+        calibrationECMIters=1,
+        minHeldoutCells=1,
+        maxHeldoutCells=64,
+        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        targetCalibrationDelta=None,
+        deleteBlockVarianceMode=varianceMode,
+        deleteBlockReplicateDependenceRho="auto",
+        deleteBlockTargetSignal="state_plus_background" if useBg else "state",
+        deleteBlockFactorModel="global",
+        seed=71,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = bool(useBg)
+
+    with monkeypatch.context() as scopedPatch:
+        scopedPatch.setattr(uncertainty, "_makeFoldSpec", _fakeMakeFoldSpec)
+        scopedPatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
+        return uncertainty.calibrateChromosomeStateUncertainty(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            fullState=fullState,
+            fullCovar=fullCovar,
+            fullBackground=bg if useBg else None,
+            intervals=np.arange(n, dtype=np.int64) * 25,
+            intervalSizeBP=25,
+            params=params,
+            runKwargs=runKwargs,
+        )
+
+
+def _caseSampledLPOAutoRhoUsesDeleteBlockRefits(monkeypatch):
+    result = _runSampledLPOAutoRhoCase(monkeypatch)
+    dep = result.model["replicate_dependence"]
+
+    assert dep["source"] == "auto"
+    assert dep["estimator"] == "delete_block_sampled_leave_pair_out_fisher_z"
+    assert dep["rho"] > 0.0
+    assert dep["applied"] is True
+    assert dep["block_count"] > 0
+    assert dep["pair_count"] > 0
+    assert dep["support_passed"] is True
+    assert dep["same_fold_evidence_excluded"] is True
+
+
+def _caseSampledLPOAutoRhoNoDeletedPairs(monkeypatch):
+    result = _runSampledLPOAutoRhoCase(monkeypatch, m=2, deletePairs=False)
+    dep = result.model["replicate_dependence"]
+
+    assert dep["source"] == "auto"
+    assert dep["rho"] == pytest.approx(0.0)
+    assert dep["applied"] is False
+    assert dep["pair_count"] == 0
+    assert result.model["rows_valid"] > 0
+
+
+def _caseSampledLPOAutoRhoSubtractsMaskedBg(monkeypatch):
+    result = _runSampledLPOAutoRhoCase(monkeypatch, useBg=True)
+    dep = result.model["replicate_dependence"]
+
+    assert result.model["target_signal"] == "state_plus_background"
+    assert result.model["fold_refits"]["deleted_replicate_count_min"] == 2
+    assert dep["rho"] == pytest.approx(0.0)
+
+
+def _caseSampledLPOAutoRhoRecomputesEffectiveInformation(monkeypatch):
+    result = _runSampledLPOAutoRhoCase(
+        monkeypatch,
+        varianceMode="heldout_information",
+    )
+    row = result.scores.iloc[0]
+    rho = result.model["replicate_dependence"]["rho_by_fold"][int(row["fold"])]
+    sampleInfo = 1.0 / (0.1 + _smallRunKwargs()["pad"])
+    total = 4.0 * sampleInfo / (1.0 + 3.0 * rho)
+    kept = 2.0 * sampleInfo / (1.0 + rho)
+    held = total - kept
+    h = held / total
+
+    assert rho > 0.0
+    assert row["total_information"] == pytest.approx(total)
+    assert row["kept_information"] == pytest.approx(kept)
+    assert row["heldout_information"] == pytest.approx(held)
+    assert row["heldout_information_fraction"] == pytest.approx(h)
+    assert row["delta_variance"] == pytest.approx(0.25 * h / (1.0 - h))
+    assert row["delta_variance_source"] == "heldout_information"
 
 
 def _caseCalibrationFloorAppliesToGlobalAndSegShrink(monkeypatch):
@@ -1291,6 +1620,12 @@ def test_uncertainty_cython_contracts(contract_case):
     for label, func in (
         ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),
         ("factor evaluation", _caseCythonFactorEvaluation),
+        ("factor model strict contract", _caseSegShrinkFactorModelStrictContract),
+        ("pac order examples", _casePacOrderIndexExamples),
+        ("delete-block information", _caseDeleteBlockInformationApproximation),
+        ("delete-block variance mode", _caseDeleteBlockVarianceModeSelection),
+        ("replicate dependence Gaussian coverage", _caseReplicateDependenceGaussianCoverage),
+        ("replicate dependence delete-block evidence", _caseReplicateDependenceDeleteBlockEvidence),
         ("delete-state block scores", _caseCythonDeletedStateScoresAndDeleteBlockScores),
         ("summary contracts", _caseCythonSummaryContracts),
         ("segShrink Cython parity", _caseSegShrinkCythonParityContract),
@@ -1314,6 +1649,26 @@ def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, caplog, c
     contract_case(
         "segShrink calibration",
         _caseSegShrinkCalibrationContract,
+        monkeypatch,
+    )
+    contract_case(
+        "sampled LPO auto rho refit source",
+        _caseSampledLPOAutoRhoUsesDeleteBlockRefits,
+        monkeypatch,
+    )
+    contract_case(
+        "sampled LPO auto rho no deleted pairs",
+        _caseSampledLPOAutoRhoNoDeletedPairs,
+        monkeypatch,
+    )
+    contract_case(
+        "sampled LPO auto rho bg subtraction",
+        _caseSampledLPOAutoRhoSubtractsMaskedBg,
+        monkeypatch,
+    )
+    contract_case(
+        "sampled LPO auto rho information recompute",
+        _caseSampledLPOAutoRhoRecomputesEffectiveInformation,
         monkeypatch,
     )
     contract_case(

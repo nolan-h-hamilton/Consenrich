@@ -102,8 +102,12 @@ def _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier():
             medianFragmentLengthBP=1_800,
         )
     )
-    assert 2 * (fragmentMinSpan - 1) * 100 + 1 < 3_601
-    assert 2 * fragmentMinSpan * 100 + 1 >= 3_601
+    fragmentContextBP = max(
+        consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP,
+        int(np.ceil(2.0 * 1_800 + 1.0)),
+    )
+    assert 2 * (fragmentMinSpan - 1) * 100 + 1 < fragmentContextBP
+    assert 2 * fragmentMinSpan * 100 + 1 >= fragmentContextBP
     assert fragmentMaxSpan >= fragmentMinSpan
     assert consenrich_cli._dependenceFallbackSpanIntervals(25, None) == 200
     assert consenrich_cli._dependenceFallbackSpanIntervals(100, 1_800) == 180
@@ -609,7 +613,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.precisionDiagnosticDetail: sampled
     outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
     outputParams.maxNonTrackFileBytes: 1024
-    observationParams.muncDependenceMinContextSizeBP: 2600
+    observationParams.muncDependenceMinContextSizeBP: 5000
     observationParams.muncTrendBlockDependenceMultiplier: 1.75
     observationParams.muncLocalWindowDependenceMultiplier: 2.25
     observationParams.dependenceAcfPointThreshold: 0.03
@@ -652,7 +656,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       maxPrecisionDiagnosticRowsPerChromosome: 7
       maxNonTrackFileBytes: 1024
     observationParams:
-      muncDependenceMinContextSizeBP: 2600
+      muncDependenceMinContextSizeBP: 5000
       muncTrendBlockDependenceMultiplier: 1.75
       muncLocalWindowDependenceMultiplier: 2.25
       dependenceAcfPointThreshold: 0.03
@@ -725,7 +729,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert type(processDotted) is type(processNested)
     assert observationDotted == observationNested
     assert processDotted == processNested
-    assert observationDotted.muncDependenceMinContextSizeBP == 2600
+    assert observationDotted.muncDependenceMinContextSizeBP == 5000
     assert observationDotted.muncTrendBlockDependenceMultiplier == pytest.approx(1.75)
     assert observationDotted.muncLocalWindowDependenceMultiplier == pytest.approx(2.25)
     assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
@@ -1167,6 +1171,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "outputParams.stateShrinkageStudentTQuadratureOrder",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+        "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho",
         "uncertaintyCalibrationParams.deleteBlockTargetSignal",
         "uncertaintyCalibrationParams.deleteBlockFactorModel",
         "uncertaintyCalibrationParams.deleteBlockFactorSegmentCount",
@@ -2304,6 +2309,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
         == 100
     )
     assert defaultArgs.deleteBlockDeletionProbability == pytest.approx(0.25)
+    assert (
+        defaultArgs.deleteBlockReplicateDependenceRho
+        == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO
+    )
     assert not hasattr(defaultArgs, "holdoutCount")
     assert defaultArgs.deleteBlockApplyTargetCalibration is None
 
@@ -2322,6 +2331,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
     uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance-difference
     uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation: true
+    uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: 0.35
     uncertaintyCalibrationParams.deleteBlockTargetSignal: state-plus-background
     uncertaintyCalibrationParams.deleteBlockFactorModel: segShrink
     uncertaintyCalibrationParams.deleteBlockFactorSegmentCount: 7
@@ -2355,6 +2365,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.scaleUncertaintyByTargetCalibration is False
     assert explicitArgs.deleteBlockVarianceMode == "covariance_difference"
     assert explicitArgs.deleteBlockUseLambdaInInformation is True
+    assert explicitArgs.deleteBlockReplicateDependenceRho == pytest.approx(0.35)
     assert explicitArgs.deleteBlockTargetSignal == "state_plus_background"
     assert explicitArgs.deleteBlockFactorModel == "segShrink"
     assert explicitArgs.deleteBlockFactorSegmentCount == 7
@@ -2366,6 +2377,26 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.deleteBlockFallbackMinValidFraction == pytest.approx(0.5)
     assert explicitArgs.deleteBlockScoreWeightMode == "sqrt_information_fraction"
     assert explicitArgs.deleteBlockApplyTargetCalibration is True
+
+    configAutoRhoYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: auto
+    """
+    parsedAutoRho = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path,
+                "config_uncertainty_calibration_auto_rho.yaml",
+                configAutoRhoYaml,
+            )
+        )
+    )
+    assert (
+        parsedAutoRho["uncertaintyCalibrationArgs"].deleteBlockReplicateDependenceRho
+        == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_REPLICATE_DEPENDENCE_RHO_AUTO
+    )
 
     configPredictiveYaml = """
     experimentName: testExperiment
@@ -2434,6 +2465,21 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
                 "uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrtInformationFraction",
             ),
             "deleteBlockScoreWeightMode",
+        ),
+        (
+            "replicate_dependence_rho_negative",
+            ("uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: -0.1",),
+            "deleteBlockReplicateDependenceRho",
+        ),
+        (
+            "replicate_dependence_rho_one",
+            ("uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: 1",),
+            "deleteBlockReplicateDependenceRho",
+        ),
+        (
+            "replicate_dependence_rho_bool",
+            ("uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: false",),
+            "deleteBlockReplicateDependenceRho",
         ),
         (
             "delete_probability",
@@ -3786,6 +3832,11 @@ def test_run_summary_output_helpers(tmp_path):
             "delete_block_deleted_blocks": 4,
             "delete_block_deleted_replicate_block_total": 7,
             "delete_block_deleted_observation_interval_total": 70,
+            "replicate_dependence": {
+                "rho": 0.35,
+                "source": "fixed",
+                "total_deff_median": 1.4,
+            },
             "rows_valid": 10,
             "rows_fit": 5,
             "target_calibration": {
@@ -3864,6 +3915,11 @@ def test_run_summary_output_helpers(tmp_path):
     assert frame.loc[0, "delete_block_deleted_blocks"] == 4
     assert frame.loc[0, "delete_block_deleted_replicate_block_total"] == 7
     assert frame.loc[0, "delete_block_deleted_observation_interval_total"] == 70
+    assert frame.loc[0, "delete_block_replicate_dependence_rho"] == pytest.approx(
+        0.35
+    )
+    assert frame.loc[0, "delete_block_replicate_dependence_rho_source"] == "fixed"
+    assert frame.loc[0, "delete_block_information_deff_median"] == pytest.approx(1.4)
     assert frame.loc[0, "delete_block_scale"] == pytest.approx(1.1)
     assert frame.loc[0, "delete_block_scale_reason"] == "target"
     assert frame.loc[1, "chromosome"] == "genome"
@@ -3986,7 +4042,6 @@ def test_correlation_length_summary_writes_tsv_and_artifact_log(tmp_path, monkey
         "spectral_shrink_median": 0.4,
         "spectral_log_variance_median": 0.6,
         "spectral_acf_first": 0.9,
-        "acf_evidence_passed_blocks": 70,
         "low_acf_evidence_blocks": 10,
         "acf_evidence_summary": {"count": 80, "median": 3.0},
         "fallback": False,

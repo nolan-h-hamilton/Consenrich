@@ -146,9 +146,12 @@ CORRELATION_LENGTH_COLUMNS = [
     "context_bp",
     "chromosomes_used",
     "blocks_valid",
+    "aggregate_mean_filter_rejected_blocks",
+    "aggregate_mean_filter_rejected_fraction",
     "sampled_width_median_bp",
     "posterior_log_correlation_length_mean",
     "posterior_log_correlation_length_sd",
+    "posterior_span_quantile",
     "sampler_used_fallback",
 ]
 
@@ -341,6 +344,9 @@ RUN_SUMMARY_COLUMNS = [
     "delete_block_deleted_blocks",
     "delete_block_deleted_replicate_block_total",
     "delete_block_deleted_observation_interval_total",
+    "delete_block_replicate_dependence_rho",
+    "delete_block_replicate_dependence_rho_source",
+    "delete_block_information_deff_median",
     "delete_block_scale",
     "delete_block_scale_reason",
     "precision_log",
@@ -1097,6 +1103,7 @@ def _plotCorrelationLengthInference(
         "posterior_log_correlation_length_sd",
         "posterior_log_span_sd",
     )
+    postQuantile = numberValue("posterior_span_quantile")
     if (
         intervalSizeBP is None
         or intervalSizeBP <= 0.0
@@ -1233,7 +1240,11 @@ def _plotCorrelationLengthInference(
         color=burntOrange,
         linewidth=1.8,
         linestyle="--",
-        label="chosen length",
+        label=(
+            f"chosen q={postQuantile:.2g}"
+            if postQuantile is not None
+            else "chosen length"
+        ),
     )
     posteriorAx.set_ylabel("posterior density", color=darkBlack)
     posteriorAx.set_title("Correlation-Length Inference", color=darkBlack)
@@ -2107,6 +2118,7 @@ def _deleteBlockFactorSummaryFields(
 ) -> dict[str, Any]:
     calibration = _summaryMapping(calibrationModel)
     targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    replicateDependence = _summaryMapping(calibration.get("replicate_dependence"))
     factorDistribution = _summaryMapping(
         calibration.get("delete_block_factor_distribution")
     )
@@ -2157,6 +2169,15 @@ def _deleteBlockFactorSummaryFields(
         ),
         "delete_block_deleted_observation_interval_total": _summaryInt(
             calibration.get("delete_block_deleted_observation_interval_total")
+        ),
+        "delete_block_replicate_dependence_rho": _summaryNumber(
+            replicateDependence.get("rho")
+        ),
+        "delete_block_replicate_dependence_rho_source": replicateDependence.get(
+            "source"
+        ),
+        "delete_block_information_deff_median": _summaryNumber(
+            replicateDependence.get("total_deff_median")
         ),
         "delete_block_scale": _summaryNumber(
             targetCalibration.get("uncertainty_track_scale")
@@ -2363,6 +2384,12 @@ def _correlationLengthRow(
         "context_bp": int(contextBP),
         "chromosomes_used": int(len(usedChromosomes)),
         "blocks_valid": intValue("blocks_valid"),
+        "aggregate_mean_filter_rejected_blocks": intValue(
+            "aggregate_mean_filter_rejected_blocks"
+        ),
+        "aggregate_mean_filter_rejected_fraction": numberValue(
+            "aggregate_mean_filter_rejected_fraction"
+        ),
         "sampled_width_median_bp": numberValue("sampled_width_median_bp"),
         "posterior_log_correlation_length_mean": numberValue(
             "posterior_log_span_mean"
@@ -2370,6 +2397,7 @@ def _correlationLengthRow(
         "posterior_log_correlation_length_sd": numberValue(
             "posterior_log_span_sd"
         ),
+        "posterior_span_quantile": numberValue("posterior_span_quantile"),
         "sampler_used_fallback": bool(details.get("fallback")),
     }
 
@@ -3759,6 +3787,24 @@ def main():
     ):
         raise ValueError(
             "observationParams.dependenceAcfMinEvidenceNats must be finite and nonnegative"
+        )
+    dependencePosteriorQuantileRaw = getattr(
+        observationArgs,
+        "dependencePosteriorQuantile",
+        constants.OBSERVATION_DEFAULT_DEPENDENCE_POSTERIOR_QUANTILE,
+    )
+    if isinstance(dependencePosteriorQuantileRaw, (bool, np.bool_)):
+        raise ValueError(
+            "observationParams.dependencePosteriorQuantile must satisfy 0 < q < 1"
+        )
+    dependencePosteriorQuantile_ = float(dependencePosteriorQuantileRaw)
+    if (
+        not np.isfinite(dependencePosteriorQuantile_)
+        or dependencePosteriorQuantile_ <= 0.0
+        or dependencePosteriorQuantile_ >= 1.0
+    ):
+        raise ValueError(
+            "observationParams.dependencePosteriorQuantile must satisfy 0 < q < 1"
         )
     muncTrendBlockDependenceMultiplier_ = float(
         getattr(
@@ -5551,6 +5597,11 @@ def main():
                 acfPointThreshold=float(dependenceAcfPointThreshold_),
                 acfRequiredCrossings=int(dependenceAcfRequiredCrossings_),
                 acfMinEvidenceNats=float(dependenceAcfMinEvidenceNats_),
+                posteriorQuantile=float(dependencePosteriorQuantile_),
+                rowFragmentLengthsBP=np.asarray(
+                    characteristicFragmentLengthsTreatment,
+                    dtype=np.float64,
+                ),
             )
         )
         depDiagnostics = dict(depDiagnostics)
@@ -5586,8 +5637,10 @@ def main():
             "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
             "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
             "point_threshold=%.6g acf_required_crossings=%d "
+            "posterior_quantile=%.6g "
             "min_correlation_length=%d max_correlation_length=%d "
             "crossing_lag=%s correlation_length=%d context_bp=%d "
+            "aggregate_mean_rejected_blocks=%d "
             "right_censored_blocks=%d pooled_right_censored_fraction=%.6g "
             "acfSpan0p05=%s acfSpan0p10=%s acfSpan0p20=%s "
             "positiveAcfTau=%.6g positiveAcfEffectiveFraction=%.6g "
@@ -5620,11 +5673,18 @@ def main():
                     dependenceAcfRequiredCrossings_,
                 )
             ),
+            float(
+                depDiagnostics.get(
+                    "posterior_span_quantile",
+                    dependencePosteriorQuantile_,
+                )
+            ),
             int(depDiagnostics.get("min_span", dependenceMinSpan)),
             int(depDiagnostics.get("max_span", dependenceMaxSpan)),
             crossingLagLabel,
             int(depPoint),
             int(dependenceContextBP_),
+            int(depDiagnostics.get("aggregate_mean_filter_rejected_blocks", 0)),
             int(depDiagnostics.get("right_censored_blocks", 0)),
             float(depDiagnostics.get("pooled_right_censored_fraction", 0.0)),
             str(depDiagnostics.get("acf_span_0p05", "NA")),

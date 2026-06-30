@@ -45,6 +45,16 @@ dependencies = [
     "itrigamma>=0.2.0a1",
 ]
 
+[project.optional-dependencies]
+bigwig = ["pyBigWig>=0.3.24"]
+plots = ["matplotlib>=3.8"]
+memory = ["psutil>=5.9"]
+all = [
+    "pyBigWig>=0.3.24",
+    "matplotlib>=3.8",
+    "psutil>=5.9",
+]
+
 [project.urls]
 Documentation = "https://nolan-h-hamilton.github.io/Consenrich/"
 Source = "https://github.com/nolan-h-hamilton/Consenrich"
