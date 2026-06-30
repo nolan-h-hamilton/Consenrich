@@ -1,11 +1,13 @@
 import sys
 import os
 import glob
+import shutil
 import subprocess
 import sysconfig
 import textwrap
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.command.build_py import build_py
 from Cython.Build import cythonize
 import numpy
 
@@ -14,8 +16,6 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDORED_HTSLIB_DIR = os.path.join(ROOT_DIR, "vendor", "htslib")
 PREFIX_INCLUDE_DIR = os.path.join(sys.prefix, "include")
 PREFIX_LIB_DIR = os.path.join(sys.prefix, "lib")
-HTSLIB_CONFIG_MK_PATH = os.path.join(VENDORED_HTSLIB_DIR, "config.mk")
-HTSLIB_CONFIG_H_PATH = os.path.join(VENDORED_HTSLIB_DIR, "config.h")
 
 
 def get_includes():
@@ -25,29 +25,17 @@ def get_includes():
     ] + getHtslibIncludeDirs()
 
 
-def cythonSourceOrGeneratedC(path):
-    r"""Accept either .pyx or .c extensions"""
-    if os.path.exists(path):
-        return path
-    root, ext = os.path.splitext(path)
-    if ext == ".pyx":
-        generatedC = root + ".c"
-        if os.path.exists(generatedC):
-            return generatedC
-    return path
+def hasVendoredHtslib(htslibDir=VENDORED_HTSLIB_DIR):
+    return os.path.exists(os.path.join(htslibDir, "Makefile"))
 
 
-def hasVendoredHtslib():
-    return os.path.exists(os.path.join(VENDORED_HTSLIB_DIR, "Makefile"))
-
-
-def getHtslibIncludeDirs():
+def getHtslibIncludeDirs(htslibDir=VENDORED_HTSLIB_DIR):
     includeDirs = []
-    if hasVendoredHtslib():
+    if hasVendoredHtslib(htslibDir):
         includeDirs.extend(
             [
-                VENDORED_HTSLIB_DIR,
-                os.path.join(VENDORED_HTSLIB_DIR, "htslib"),
+                htslibDir,
+                os.path.join(htslibDir, "htslib"),
             ]
         )
     includeDirs.extend([PREFIX_INCLUDE_DIR, os.path.join(PREFIX_INCLUDE_DIR, "htslib")])
@@ -58,8 +46,8 @@ def get_library_dirs():
     return [PREFIX_LIB_DIR]
 
 
-def getBundledHtslibArchive():
-    return os.path.join(VENDORED_HTSLIB_DIR, "libhts.a")
+def getBundledHtslibArchive(htslibDir=VENDORED_HTSLIB_DIR):
+    return os.path.join(htslibDir, "libhts.a")
 
 
 def findStaticLibrary(libraryName):
@@ -124,6 +112,62 @@ def writeTextIfChanged(path, contents):
 
 def joinCompilerFlags(*flagGroups):
     return " ".join(flag for flagGroup in flagGroups for flag in flagGroup if flag)
+
+
+def parseBoolEnv(name, defaultValue=False):
+    rawValue = os.environ.get(name)
+    if rawValue is None:
+        return defaultValue
+    normalized = rawValue.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+    raise ValueError(f"{name} must be one of 1, true, yes, on, 0, false, no, off")
+
+
+def parsePositiveIntEnv(name, defaultValue):
+    rawValue = os.environ.get(name)
+    if rawValue is None or rawValue.strip() == "":
+        return defaultValue
+    parsedValue = int(rawValue)
+    if parsedValue < 1:
+        raise ValueError(f"{name} must be positive")
+    return parsedValue
+
+
+def findDarwinLibompPrefix():
+    envPrefix = os.environ.get("CONSENRICH_LIBOMP_PREFIX")
+    candidatePrefixes = [envPrefix] if envPrefix else [
+        "/opt/homebrew/opt/libomp",
+        "/usr/local/opt/libomp",
+    ]
+    for candidatePrefix in candidatePrefixes:
+        includePath = os.path.join(candidatePrefix, "include", "omp.h")
+        libraryPath = os.path.join(candidatePrefix, "lib", "libomp.dylib")
+        if os.path.exists(includePath) and os.path.exists(libraryPath):
+            return candidatePrefix
+    raise RuntimeError(
+        "CONSENRICH_USE_OPENMP=1 on macOS requires libomp. "
+        "Install libomp or set CONSENRICH_LIBOMP_PREFIX."
+    )
+
+
+def getOpenMPConfig(useOpenMP):
+    if not useOpenMP:
+        return [], [], [], []
+    if sys.platform == "darwin":
+        libompPrefix = findDarwinLibompPrefix()
+        libompLibDir = os.path.join(libompPrefix, "lib")
+        return (
+            ["-Xpreprocessor", "-fopenmp"],
+            ["-lomp", f"-Wl,-rpath,{libompLibDir}"],
+            [os.path.join(libompPrefix, "include")],
+            [libompLibDir],
+        )
+    if sys.platform.startswith("linux"):
+        return ["-fopenmp"], ["-fopenmp"], [], []
+    raise RuntimeError(f"CONSENRICH_USE_OPENMP=1 is not configured for {sys.platform}")
 
 
 def getVendoredHtslibCPPFlags():
@@ -205,25 +249,25 @@ def getVendoredHtslibConfigH():
     )
 
 
-def prepareVendoredHtslibBuild():
-    writeTextIfChanged(HTSLIB_CONFIG_MK_PATH, getVendoredHtslibConfigMk())
-    writeTextIfChanged(HTSLIB_CONFIG_H_PATH, getVendoredHtslibConfigH())
+def prepareVendoredHtslibBuild(htslibDir):
+    writeTextIfChanged(os.path.join(htslibDir, "config.mk"), getVendoredHtslibConfigMk())
+    writeTextIfChanged(os.path.join(htslibDir, "config.h"), getVendoredHtslibConfigH())
 
 
-def buildVendoredHtslib():
-    if not hasVendoredHtslib():
+def buildVendoredHtslib(htslibDir):
+    if not hasVendoredHtslib(htslibDir):
         raise FileNotFoundError("Vendored htslib source tree is missing")
-    prepareVendoredHtslibBuild()
+    prepareVendoredHtslibBuild(htslibDir)
     subprocess.check_call(
-        ["make", "-C", VENDORED_HTSLIB_DIR, "clean"],
+        ["make", "-C", htslibDir, "clean"],
         cwd=ROOT_DIR,
     )
-    prepareVendoredHtslibBuild()
+    prepareVendoredHtslibBuild(htslibDir)
     subprocess.check_call(
-        ["make", "-C", VENDORED_HTSLIB_DIR, "lib-static"],
+        ["make", "-C", htslibDir, "lib-static"],
         cwd=ROOT_DIR,
     )
-    if not os.path.exists(getBundledHtslibArchive()):
+    if not os.path.exists(getBundledHtslibArchive(htslibDir)):
         raise FileNotFoundError("Failed to build vendored libhts.a")
 
 
@@ -234,28 +278,78 @@ base_compile = [
     "-mtune=generic",
 ]
 
+useOpenMP = parseBoolEnv("CONSENRICH_USE_OPENMP", False)
+openMPFactorMinRows = parsePositiveIntEnv(
+    "CONSENRICH_OPENMP_FACTOR_MIN_ROWS", 262_144
+)
+openMPApplyMinRows = parsePositiveIntEnv(
+    "CONSENRICH_OPENMP_APPLY_MIN_ROWS", 1_048_576
+)
+openMPCompileArgs, openMPLinkArgs, openMPIncludeDirs, openMPLibraryDirs = (
+    getOpenMPConfig(useOpenMP)
+)
+
 
 class buildConsenrichExt(build_ext):
-    def run(self):
+    def build_extensions(self):
         if hasVendoredHtslib():
-            buildVendoredHtslib()
+            htslibBuildDir = self.copyVendoredHtslib()
+            buildVendoredHtslib(htslibBuildDir)
+            for extension in self.extensions:
+                extension.include_dirs = self.replaceVendoredHtslibPaths(
+                    extension.include_dirs,
+                    htslibBuildDir,
+                )
+                extension.extra_objects = self.replaceVendoredHtslibPaths(
+                    extension.extra_objects,
+                    htslibBuildDir,
+                )
+        super().build_extensions()
+
+    def copyVendoredHtslib(self):
+        htslibBuildDir = os.path.join(self.build_temp, "vendor", "htslib")
+        if os.path.isdir(htslibBuildDir):
+            shutil.rmtree(htslibBuildDir)
+        os.makedirs(os.path.dirname(htslibBuildDir), exist_ok=True)
+        shutil.copytree(
+            VENDORED_HTSLIB_DIR,
+            htslibBuildDir,
+            ignore=shutil.ignore_patterns(".git", "*.o", "*.a"),
+        )
+        return htslibBuildDir
+
+    def replaceVendoredHtslibPaths(self, paths, htslibBuildDir):
+        return [
+            path.replace(VENDORED_HTSLIB_DIR, htslibBuildDir, 1)
+            if isinstance(path, str) and path.startswith(VENDORED_HTSLIB_DIR)
+            else path
+            for path in paths
+        ]
+
+
+class buildConsenrichPy(build_py):
+    def run(self):
+        packageBuildDir = os.path.join(self.build_lib, "consenrich")
+        if os.path.isdir(packageBuildDir):
+            shutil.rmtree(packageBuildDir)
         super().run()
 
 
 extensions = [
     Extension(
         "consenrich.cconsenrich",
-        sources=[cythonSourceOrGeneratedC("src/consenrich/cconsenrich.pyx")],
-        include_dirs=get_includes(),
+        sources=["src/consenrich/cconsenrich.pyx"],
+        include_dirs=get_includes() + openMPIncludeDirs,
         libraries=getBundledHtslibLibraries(),
-        library_dirs=get_library_dirs(),
+        library_dirs=get_library_dirs() + openMPLibraryDirs,
         extra_objects=getBundledHtslibExtraObjects(),
-        extra_compile_args=base_compile,
+        extra_compile_args=base_compile + openMPCompileArgs,
+        extra_link_args=openMPLinkArgs,
     ),
     Extension(
         "consenrich.ccounts",
         sources=[
-            cythonSourceOrGeneratedC("src/consenrich/ccounts.pyx"),
+            "src/consenrich/ccounts.pyx",
             "src/consenrich/native/ccounts_backend.c",
         ],
         include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")]
@@ -267,19 +361,45 @@ extensions = [
     ),
     Extension(
         "consenrich.cuncertainty",
-        sources=[cythonSourceOrGeneratedC("src/consenrich/cuncertainty.pyx")],
-        include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")],
-        extra_compile_args=base_compile,
+        sources=["src/consenrich/cuncertainty.pyx"],
+        include_dirs=[
+            numpy.get_include(),
+            os.path.join("src", "consenrich"),
+        ] + openMPIncludeDirs,
+        library_dirs=openMPLibraryDirs,
+        extra_compile_args=base_compile + openMPCompileArgs,
+        extra_link_args=openMPLinkArgs,
     ),
 ]
 
+extModules = cythonize(
+    extensions,
+    build_dir=os.path.join("build", "cython"),
+    language_level="3",
+    compile_time_env={
+        "USE_OPENMP": useOpenMP,
+        "OPENMP_FACTOR_MIN_ROWS": openMPFactorMinRows,
+        "OPENMP_APPLY_MIN_ROWS": openMPApplyMinRows,
+    },
+)
+for extension in extModules:
+    extension.depends = [
+        dependency for dependency in extension.depends if not os.path.isabs(dependency)
+    ]
+for generatedPath in [
+    "src/consenrich/cconsenrich.c",
+    "src/consenrich/ccounts.c",
+    "src/consenrich/cuncertainty.c",
+]:
+    if os.path.exists(generatedPath):
+        os.remove(generatedPath)
+
 
 setup(
-    ext_modules=cythonize(
-        extensions,
-        language_level="3",
-        compile_time_env={"USE_OPENMP": False},
-    ),
-    cmdclass={"build_ext": buildConsenrichExt},
+    ext_modules=extModules,
+    cmdclass={
+        "build_ext": buildConsenrichExt,
+        "build_py": buildConsenrichPy,
+    },
     zip_safe=False,
 )

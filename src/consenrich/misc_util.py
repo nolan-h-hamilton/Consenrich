@@ -15,15 +15,8 @@ import pandas as pd
 
 from scipy import signal, ndimage
 from . import ccounts
+from . import constants
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +67,18 @@ def alignmentFilesArePairedEnd(
         )
     return results
 
+def isStandardAutosomalChromosome(chromosome: str) -> bool:
+    chrom = str(chromosome).strip()
+    if chrom in constants.NONSTANDARD_CHROMOSOME_NAMES:
+        return False
+    if chrom.lower().startswith("chr"):
+        chrom = chrom[3:]
+    if not chrom.isdigit():
+        return False
+    chromNumber = int(chrom)
+    return 1 <= chromNumber <= 22
+
+
 def getChromSizesDict(
     sizes_file: str,
     excludeRegex: str = r"^chr[A-Za-z0-9]+$",
@@ -81,12 +86,13 @@ def getChromSizesDict(
 ) -> dict:
     r"""The function getChromSizesDict is a helper to get chromosome sizes file as a dictionary.
     :param sizes_file: Path to a genome assembly's chromosome sizes file
-    :param exclude_regex: Regular expression to exclude chromosomes. Default: all non-standard chromosomes.
+    :param exclude_regex: Regular expression selecting chromosome names to keep.
     :param exclude_chroms: List of chromosomes to exclude.
     :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`
     """
     if excludeChroms is None:
         excludeChroms = []
+    excludeChromSet = set(excludeChroms)
     return {
         k: v
         for k, v in pd.read_csv(
@@ -98,5 +104,5 @@ def getChromSizesDict(
         )["size"]
         .to_dict()
         .items()
-        if re.search(excludeRegex, k) is not None and k not in excludeChroms
+        if re.search(excludeRegex, k) is not None and k not in excludeChromSet
     }

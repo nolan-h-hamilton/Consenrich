@@ -12,6 +12,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER,
     UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
     UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS,
+    UNCERTAINTY_CALIBRATION_MIN_FOLDS,
 )
 
 
@@ -26,23 +27,39 @@ def resolveUncertaintyBlockSizeIntervals(
     blockSizeBP: int | str | None,
     intervalSizeBP: int,
     n: int,
+    folds: int | None = None,
 ) -> int:
     r"""Resolve the interval block length used by block-holdout calibration."""
 
-    if blockSizeBP is None or str(blockSizeBP).lower() == "auto":
-        targetBP = max(
-            UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
-            UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER
-            * int(intervalSizeBP),
-        )
-    else:
-        targetBP = int(blockSizeBP)
+    intervalCount = int(n)
+    intervalBP = max(int(intervalSizeBP), 1)
     minBlockIntervals = UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS
+    if blockSizeBP is None or str(blockSizeBP).lower() == "auto":
+        targetIntervals = round(
+            max(
+                UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
+                UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER
+                * intervalBP,
+            )
+            / intervalBP
+        )
+        foldCount = max(
+            int(folds) if folds is not None else UNCERTAINTY_CALIBRATION_MIN_FOLDS,
+            UNCERTAINTY_CALIBRATION_MIN_FOLDS,
+        )
+        if intervalCount > 0:
+            maxAutoIntervals = max(
+                (intervalCount + foldCount - 1) // foldCount,
+                minBlockIntervals,
+            )
+            targetIntervals = min(targetIntervals, maxAutoIntervals)
+    else:
+        targetIntervals = round(int(blockSizeBP) / intervalBP)
     return int(
         np.clip(
-            round(targetBP / max(int(intervalSizeBP), 1)),
+            targetIntervals,
             minBlockIntervals,
-            max(int(n), minBlockIntervals),
+            max(intervalCount, minBlockIntervals),
         )
     )
 

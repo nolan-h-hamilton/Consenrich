@@ -3,10 +3,13 @@
 import numpy as np
 cimport numpy as cnp
 
+from collections import namedtuple
 from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int64_t
 from libc.stdlib cimport malloc, free
 
 cnp.import_array()
+
+readSegmentsResult = namedtuple("readSegmentsResult", ("counts", "rawNoiseMass"))
 
 
 # see ccounts_backend for reference
@@ -21,6 +24,8 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_countModeCutSite  # strand-aware cut indices, e.g. true cleavage/insertion sites
         ccounts_countModeFivePrime # count only the strand-aware 5' end of each read or fragment
         ccounts_countModeCenter # count only the midpoint of the read or inferred/observed fragment span
+        ccounts_countModeFFP # BAM-only: count the strand-aware first-read 5' end once
+        ccounts_countModeConservedFractionalOverlap # distribute one event across touched bins by fractional overlap
 
     ctypedef struct ccounts_sourceConfig:
         const char* path
@@ -101,10 +106,10 @@ cdef extern from "native/ccounts_backend.h":
         int threadCount,
         const char* const* excludeChromosomes,
         int excludeChromosomeCount,
-        uint8_t countMode,
-        uint8_t oneReadPerBin,
+        const ccounts_countOptions* countOptions,
         uint64_t* mappedReadCountOut,
-        uint64_t* unmappedReadCountOut
+        uint64_t* unmappedReadCountOut,
+        uint64_t* mappedSpanBPOut
     ) nogil
 
     ccounts_result ccounts_getCellCount(
@@ -124,6 +129,15 @@ cdef extern from "native/ccounts_backend.h":
         const ccounts_region* region,
         const ccounts_countOptions* countOptions,
         float* countBuffer,
+        size_t countBufferLength
+    ) nogil
+
+    ccounts_result ccounts_countRegionWithMass(
+        ccounts_sourceHandle* sourceHandle,
+        const ccounts_region* region,
+        const ccounts_countOptions* countOptions,
+        float* countBuffer,
+        float* noiseMassBuffer,
         size_t countBufferLength
     ) nogil
 
@@ -163,15 +177,21 @@ cdef ccounts_sourceConfig _makeSourceConfig(
 
 
 cdef uint8_t _getCountModeCode(str countMode):
-    cdef str normalizedMode = str(countMode).strip().lower()
+    cdef str rawMode = str(countMode).strip()
+    cdef str normalizedMode
+    if rawMode == "conservedFractionalOverlap":
+        return <uint8_t>ccounts_countModeConservedFractionalOverlap
+    normalizedMode = rawMode.lower()
     if normalizedMode in ["coverage", "0"]:
         return <uint8_t>ccounts_countModeCoverage
     if normalizedMode in ["cutsite", "1"]:
         return <uint8_t>ccounts_countModeCutSite
     if normalizedMode in ["fiveprime", "2"]:
         return <uint8_t>ccounts_countModeFivePrime
-    if normalizedMode in ["center", "3"]:
+    if normalizedMode in ["center", "midpoint", "3"]:
         return <uint8_t>ccounts_countModeCenter
+    if normalizedMode in ["ffp", "4"]:
+        return <uint8_t>ccounts_countModeFFP
     raise ValueError(f"Unsupported countMode `{countMode}`")
 
 
@@ -324,6 +344,14 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     str barcodeAllowListFile="",
     str countMode="coverage",
     int oneReadPerBin=0,
+    int flagExclude=0,
+    int minMappingQuality=0,
+    int minTemplateLength=-1,
+    int maxInsertSize=1000,
+    int pairedEndMode=0,
+    int readLength=0,
+    int extendBP=0,
+    int returnSpanBP=0,
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
@@ -333,13 +361,31 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
         barcodeAllowListBytes,
     )
     cdef ccounts_result result
+    cdef ccounts_countOptions countOptions
     cdef uint64_t mappedReadCount = 0
     cdef uint64_t unmappedReadCount = 0
+    cdef uint64_t mappedSpanBP = 0
+    cdef uint64_t* mappedSpanBPPointer = NULL
     cdef const char** excludePointers = NULL
     cdef int excludeCount = 0
     cdef int index
-    cdef uint8_t countModeCode = _getCountModeCode(countMode)
     cdef list excludeBytes = []
+
+    countOptions.threadCount = threadCount
+    countOptions.flagExclude = flagExclude
+    countOptions.countMode = _getCountModeCode(countMode)
+    countOptions.oneReadPerBin = oneReadPerBin
+    countOptions.shiftForwardStrand53 = 0
+    countOptions.shiftReverseStrand53 = 0
+    countOptions.readLength = readLength
+    countOptions.extendBP = extendBP
+    countOptions.minMappingQuality = minMappingQuality
+    countOptions.minTemplateLength = minTemplateLength
+    countOptions.maxInsertSize = maxInsertSize
+    countOptions.pairedEndMode = pairedEndMode
+    countOptions.inferFragmentLength = 0
+    if returnSpanBP:
+        mappedSpanBPPointer = &mappedSpanBP
 
     if excludeChromosomes is not None:
         excludeCount = len(excludeChromosomes)
@@ -359,16 +405,18 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
                 threadCount,
                 excludePointers,
                 excludeCount,
-                countModeCode,
-                oneReadPerBin,
+                &countOptions,
                 &mappedReadCount,
                 &unmappedReadCount,
+                mappedSpanBPPointer,
             )
         _raiseIfError(result)
     finally:
         if excludePointers != NULL:
             free(<void*>excludePointers)
 
+    if returnSpanBP:
+        return int(mappedReadCount), int(unmappedReadCount), int(mappedSpanBP)
     return int(mappedReadCount), int(unmappedReadCount)
 
 
@@ -477,3 +525,91 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
                 ccounts_closeSource(sourceHandle)
 
     return counts
+
+
+cpdef object ccounts_countAlignmentRegionMass(
+    str alignmentPath,
+    str chromosome,
+    int start,
+    int end,
+    int intervalSizeBP,
+    int readLength,
+    int oneReadPerBin,
+    int threadCount,
+    int flagExclude,
+    int shiftForwardStrand53=0,
+    int shiftReverseStrand53=0,
+    int extendBP=0,
+    int maxInsertSize=1000,
+    int pairedEndMode=0,
+    int inferFragmentLength=0,
+    int minMappingQuality=0,
+    int minTemplateLength=-1,
+    str sourceKind="BAM",
+    str barcodeAllowListFile="",
+    str barcodeGroupMapFile="",
+    str countMode="coverage",
+):
+    cdef int numIntervals
+    cdef bytes pathBytes = alignmentPath.encode("utf-8")
+    cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
+    cdef bytes chromosomeBytes = chromosome.encode("utf-8")
+    cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
+        pathBytes,
+        sourceKind,
+        barcodeAllowListBytes,
+        barcodeGroupMapBytes,
+    )
+    cdef ccounts_sourceHandle* sourceHandle = NULL
+    cdef ccounts_region region
+    cdef ccounts_countOptions countOptions
+    cdef ccounts_result result
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] counts
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] rawNoiseMass
+
+    if intervalSizeBP <= 0 or end <= start:
+        raise ValueError("invalid interval size or genomic segment")
+
+    numIntervals = ((end - start - 1) // intervalSizeBP) + 1
+    counts = np.zeros(numIntervals, dtype=np.float32)
+    rawNoiseMass = np.zeros(numIntervals, dtype=np.float32)
+
+    region.chromosome = chromosomeBytes
+    region.start = <uint32_t>start
+    region.end = <uint32_t>end
+    region.intervalSizeBP = <uint32_t>intervalSizeBP
+    countOptions.threadCount = threadCount
+    countOptions.flagExclude = flagExclude
+    countOptions.countMode = _getCountModeCode(countMode)
+    countOptions.oneReadPerBin = oneReadPerBin
+    countOptions.shiftForwardStrand53 = shiftForwardStrand53
+    countOptions.shiftReverseStrand53 = shiftReverseStrand53
+    countOptions.readLength = readLength
+    countOptions.extendBP = extendBP
+    countOptions.minMappingQuality = minMappingQuality
+    countOptions.minTemplateLength = minTemplateLength
+    countOptions.maxInsertSize = maxInsertSize
+    countOptions.pairedEndMode = pairedEndMode
+    countOptions.inferFragmentLength = inferFragmentLength
+
+    with nogil:
+        result = ccounts_openSource(&sourceConfig, &sourceHandle)
+    _raiseIfError(result)
+    try:
+        with nogil:
+            result = ccounts_countRegionWithMass(
+                sourceHandle,
+                &region,
+                &countOptions,
+                &counts[0],
+                &rawNoiseMass[0],
+                numIntervals,
+            )
+        _raiseIfError(result)
+    finally:
+        if sourceHandle != NULL:
+            with nogil:
+                ccounts_closeSource(sourceHandle)
+
+    return readSegmentsResult(counts, rawNoiseMass)

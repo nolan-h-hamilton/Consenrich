@@ -1,53 +1,48 @@
 # -*- coding: utf-8 -*-
-
-__version__ = "0.10.5a0"
+"""Public package API for Consenrich."""
 
 from importlib import import_module
+from typing import Any
 
-cconsenrich = import_module(__name__ + ".cconsenrich")
-ccounts = import_module(__name__ + ".ccounts")
+from ._version import __version__
 
-from .cconsenrich import *
-from .ccounts import *
-from . import (
-    config,
-    constants,
-    core,
-    detrorm,
-    misc_util,
-    munc,
-    peaks,
-    regions,
-    state_space,
-)
-from .core import *
-from .misc_util import *
-from .constants import *
-from .detrorm import *
-from .peaks import *
-from .state_space import *
-from .config import *
-from .munc import *
-from .regions import *
+_LAZY_EXPORTS = {
+    "calibrateChromosomeStateUncertainty": (
+        ".uncertainty",
+        "calibrateChromosomeStateUncertainty",
+    ),
+    "convertBedGraphToBigWig": (".io", "convertBedGraphToBigWig"),
+    "readConfig": (".config", "readConfig"),
+    "runConsenrich": (".core", "runConsenrich"),
+    "solveRocco": (".peaks", "solveRocco"),
+}
 
-_optional_import_errors = {}
-try:
-    cuncertainty = import_module(__name__ + ".cuncertainty")
-except ImportError as exc:
-    if exc.name != __name__ + ".cuncertainty":
-        raise
-    _optional_import_errors["cuncertainty"] = exc
-else:
+_PRIVATE_MODULES = frozenset({"_logging", "_normalization", "_runtime"})
+
+__all__ = [
+    "__version__",
+    "calibrateChromosomeStateUncertainty",
+    "convertBedGraphToBigWig",
+    "readConfig",
+    "runConsenrich",
+    "solveRocco",
+]
+
+
+def __getattr__(name: str) -> Any:
+    if name in _PRIVATE_MODULES:
+        module = import_module(f".{name}", __name__)
+        globals()[name] = module
+        return module
     try:
-        from . import uncertainty
-        from .uncertainty import *
-    except ImportError as exc:
-        if exc.name != __name__ + ".cuncertainty":
-            raise
-        _optional_import_errors["uncertainty"] = exc
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    module = import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
-__all__ = sorted(
-    name
-    for name, value in globals().items()
-    if not name.startswith("_") and name not in {"import_module"} and value is not None
-)
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *__all__, *_PRIVATE_MODULES})

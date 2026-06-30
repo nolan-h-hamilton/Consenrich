@@ -1,55 +1,103 @@
 [build-system]
 requires = [
-    "setuptools>=74.1",
-    "wheel",
-    "cython>=3.0",
+    "setuptools>=77",
+    "Cython>=3.0,<3.3; python_version < '3.14'",
+    "Cython>=3.1.8,<3.3; python_version >= '3.14'",
     "numpy>=2.1.0",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "consenrich"
-version = "0.10.5a0"
+dynamic = ["version"]
 description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
-license = { text = "MIT" }
-requires-python = ">=3.11"
-
-dependencies = [
-    "cython>=3.0",
-    "numpy>=2.1",
-    "scipy>=1.15",
-    "pandas>=2.3.0",
-    "pybedtools>=0.11.2",
-    "pyBigWig>=0.3.24",
-    "PyYAML>=6.0.2",
-    "PyWavelets>=1.9.0",
-    "tqdm",
-    "itrigamma>=0.1.0a",
-]
-
-[project.optional-dependencies]
-dev = ["pytest", "mypy", "ruff", "build", "twine"]
-docs = [
-    "sphinx>=7.3",
-    "sphinx-press-theme",
-    "furo",
-    "myst-parser>=2.0",
-    "sphinx-autodoc-typehints>=2.1",
-    "sphinx-autobuild>=2025.2",
-    "sphinx-copybutton>=0.5.0",
-    "sphinxcontrib-bibtex>=2.4.0",
-]
-[tool.setuptools]
-package-dir = {"" = "src"}
-include-package-data = true
+license = "MIT"
 license-files = [
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "HTSLIB_LICENSE.txt",
     "HTSCODECS_LICENSE.md",
 ]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "numpy>=2.1",
+    "scipy>=1.15",
+    "pandas>=2.3.0",
+    "PyYAML>=6.0.2",
+    "PyWavelets>=1.9.0",
+    "structlog>=25.5.0",
+    "itrigamma>=0.2.0a1",
+]
+
+[project.optional-dependencies]
+bigwig = ["pyBigWig>=0.3.24"]
+plots = ["matplotlib>=3.8"]
+memory = ["psutil>=5.9"]
+all = [
+    "pyBigWig>=0.3.24",
+    "matplotlib>=3.8",
+    "psutil>=5.9",
+]
+
+[project.urls]
+Documentation = "https://nolan-h-hamilton.github.io/Consenrich/"
+Source = "https://github.com/nolan-h-hamilton/Consenrich"
+Issues = "https://github.com/nolan-h-hamilton/Consenrich/issues"
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pysam>=0.23.3",
+    "pyBigWig>=0.3.24",
+]
+docs = [
+    "sphinx>=7.3",
+    "sphinx-press-theme",
+    "furo",
+    "myst-parser>=2.0",
+    "sphinx_design>=0.6.1",
+    "sphinx-autodoc-typehints>=2.1",
+    "sphinx-autobuild>=2025.2",
+    "sphinx-copybutton>=0.5.0",
+    "sphinxcontrib-bibtex>=2.4.0",
+]
+lint = ["ruff"]
+type = ["mypy"]
+release = [
+    "build",
+    "twine",
+    "cibuildwheel",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "docs" },
+    { include-group = "lint" },
+    { include-group = "type" },
+    { include-group = "release" },
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
+
+[tool.setuptools.dynamic]
+version = {attr = "consenrich._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -57,13 +105,38 @@ namespaces = false
 include = ["consenrich", "consenrich.*"]
 
 [tool.setuptools.package-data]
-consenrich = ["native/*"]
 "consenrich.data" = ["*.bed", "*.sizes"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
+consenrich-cache = "consenrich.cache_cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "correctness: basic tests for correctness",
+    "peaks: tests for the built-in ROCCO peak caller",
+    "chelpers: tests for the Cython-implemented functions",
+]
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
-test-requires = ["pytest"]
-test-command = 'sh -c "cd {project}/tests && HOME=/tmp pytest -q test_config.py test_core.py"'
+test-groups = ["test"]
+test-command = 'python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"'
+
+[tool.cibuildwheel.linux]
+before-all = """
+set -eu
+if command -v apk >/dev/null 2>&1; then
+  apk add --no-cache zlib-dev bzip2-dev xz-dev
+elif command -v yum >/dev/null 2>&1; then
+  yum -y install zlib-devel bzip2-devel xz-devel
+elif command -v dnf >/dev/null 2>&1; then
+  dnf -y install zlib-devel bzip2-devel xz-devel
+elif command -v microdnf >/dev/null 2>&1; then
+  microdnf -y install zlib-devel bzip2-devel xz-devel
+else
+  echo "No supported package manager found" >&2
+  exit 1
+fi
+"""
