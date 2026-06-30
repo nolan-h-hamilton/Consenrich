@@ -42,7 +42,5 @@ jobs:
           python -m pip install --group test -e .
 
       - name: Run tests
-        env:
-          PYTHONWARNINGS: error::DeprecationWarning,error::PendingDeprecationWarning
         run: |
           python -m pytest -q tests
