@@ -9,6 +9,7 @@ Consenrich
 
    installation
    examples
+   params
 
 Consenrich estimates regulatory signals from multi-sample functional genomics datasets.
 

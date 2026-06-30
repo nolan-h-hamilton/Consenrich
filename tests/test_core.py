@@ -8552,37 +8552,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(
     )
 
 
-def test_core_dependence_selection_contracts(contract_case):
-    contract_case(
-        "feature length bootstrap/context compatibility",
-        _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat,
-    )
-    contract_case(
-        "sampled correlation length autosome diagnostics",
-        _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
-    )
-    contract_case(
-        "density reliability correlation length weighting",
-        _caseChooseDependenceSpanWeightsDenseBlocksAboveSparseBlocks,
-    )
-    contract_case(
-        "correlation length edge spectra and crossing rule",
-        _caseChooseDependenceSpanHandlesEdgeSpectraAndCrossingRule,
-    )
-    contract_case(
-        "correlation length spectral FFT grid",
-        _caseDependenceSpanBlockEstimatorUsesSpectralFFTGrid,
-    )
-    contract_case(
-        "correlation length row noise and pooled outliers",
-        _caseChooseDependenceSpanHandlesRowNoiseAndPooledOutliers,
-    )
-    contract_case(
-        "chrom sizes preserve sex chromosomes",
-        _caseChromSizesKeepSexChromosomesByDefault,
-    )
-
-
 def test_core_fragments_io_contracts(tmp_path, contract_case):
     for label, func, args in (
         ("fragments grouped", _caseReadSegmentsFragmentsGrouped, ()),

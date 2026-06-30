@@ -2946,6 +2946,20 @@ def _logMuncEstimationParameters(
             ("MUNC pooled trend pairs", int(pooledPairCount)),
             ("MUNC seed passes", int(seedPassCount)),
             (
+                "fragment smoothing",
+                (
+                    "enabled"
+                    if bool(
+                        getattr(
+                            observationArgs,
+                            "smoothToFraglen",
+                            constants.OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
+                        )
+                    )
+                    else "disabled"
+                ),
+            ),
+            (
                 "MUNC seed process Q bounds",
                 (
                     f"[{float(observationArgs.muncSeedProcessMinQ):.6g}, "
@@ -3820,6 +3834,14 @@ def main():
             constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
         )
     )
+    smoothToFraglenRaw = getattr(
+        observationArgs,
+        "smoothToFraglen",
+        constants.OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
+    )
+    if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
+        raise ValueError("observationParams.smoothToFraglen must be boolean")
+    smoothToFraglen_ = bool(smoothToFraglenRaw)
     muncVarianceModel_ = core._normalizeMuncVarianceModel(
         getattr(
             observationArgs,
@@ -3963,6 +3985,27 @@ def main():
         )
         for source in controlSources
     ]
+    singleBinCountModes = {"cutsite", "fiveprime", "ffp", "ffp-center", "center"}
+    singleBinActiveCountModes = sorted(
+        {
+            str(countMode)
+            for countMode in treatmentCountModes + controlCountModes
+            if str(countMode) in singleBinCountModes
+        }
+    )
+    if bool(smoothToFraglen_) and singleBinActiveCountModes:
+        singleBinDisplayModes = [
+            "center/midpoint" if mode == "center" else mode
+            for mode in singleBinActiveCountModes
+        ]
+        logger.warning(
+            "observationParams.smoothToFraglen is enabled, but "
+            "single-bin count mode(s) are active (%s). Disabling fragment "
+            "smoothing because these modes intentionally collapse each event to "
+            "one interval.",
+            ",".join(singleBinDisplayModes),
+        )
+        smoothToFraglen_ = False
     treatmentBamInputModes = [
         (
             core._resolveSourceBamInputModeForCountMode(
@@ -4602,6 +4645,94 @@ def main():
         "sourceKinds": countNoiseFloorSourceKinds,
         "bedgraphSkippedTracks": int(countNoiseFloorBedgraphSkippedTracks),
     }
+
+    def _smoothRowsByFragmentLength(
+        chromosome: str,
+        matrix: np.ndarray,
+        *,
+        varianceLike: bool = False,
+        logSmoothing: bool = True,
+    ) -> np.ndarray:
+        inputArr = np.ascontiguousarray(matrix, dtype=np.float32)
+        if not bool(smoothToFraglen_):
+            return inputArr
+        if len(characteristicFragmentLengthsTreatment) != int(inputArr.shape[0]):
+            raise RuntimeError(
+                "fragment-length smoothing requires one characteristic fragment "
+                "length per treatment track"
+            )
+        intervalCount = int(inputArr.shape[1])
+        smoothedArr = np.empty_like(inputArr)
+        centerIndex = np.arange(intervalCount, dtype=np.int64)
+        smoothWindowCache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        smoothingWindows: list[int] = []
+        for sampleIndex, fragmentLengthBP in enumerate(
+            characteristicFragmentLengthsTreatment
+        ):
+            windowIntervals = max(
+                1,
+                int(math.ceil(float(fragmentLengthBP) / float(intervalSizeBP))),
+            )
+            smoothingWindows.append(windowIntervals)
+            rowArr = inputArr[sampleIndex, :]
+            if bool(varianceLike):
+                rowNaN = np.isnan(rowArr)
+                if np.all(rowNaN):
+                    smoothedArr[sampleIndex, :] = rowArr
+                    continue
+                if np.any(rowNaN):
+                    raise RuntimeError(
+                        "fragment smoothing for variance floors requires finite "
+                        "or all-NaN rows"
+                    )
+            if windowIntervals <= 1:
+                smoothedArr[sampleIndex, :] = rowArr
+                continue
+            cachedWindow = smoothWindowCache.get(windowIntervals)
+            if cachedWindow is None:
+                halfWindow = windowIntervals // 2
+                startsArrSmooth = np.maximum(0, centerIndex - halfWindow)
+                endsArrSmooth = np.minimum(
+                    intervalCount,
+                    startsArrSmooth + windowIntervals,
+                )
+                startsArrSmooth = np.maximum(
+                    0,
+                    endsArrSmooth - windowIntervals,
+                )
+                cachedWindow = (
+                    startsArrSmooth.astype(np.int64, copy=False),
+                    endsArrSmooth.astype(np.int64, copy=False),
+                )
+                smoothWindowCache[windowIntervals] = cachedWindow
+            startsArrSmooth, endsArrSmooth = cachedWindow
+            prefixArr = np.empty(intervalCount + 1, dtype=np.float64)
+            prefixArr[0] = 0.0
+            prefixArr[1:] = np.cumsum(
+                rowArr,
+                dtype=np.float64,
+            )
+            denomArr = np.maximum(1, endsArrSmooth - startsArrSmooth)
+            divisorArr = (
+                denomArr * denomArr
+                if bool(varianceLike)
+                else denomArr
+            )
+            smoothedArr[sampleIndex, :] = (
+                (prefixArr[endsArrSmooth] - prefixArr[startsArrSmooth]) / divisorArr
+            ).astype(np.float32)
+        positiveWindows = [int(value) for value in smoothingWindows if int(value) > 1]
+        if bool(logSmoothing) and positiveWindows:
+            logger.info(
+                "fragment smoothing %s windowIntervals[min,median,max]="
+                "[%d,%.6g,%d]",
+                chromosome,
+                int(min(positiveWindows)),
+                float(np.median(np.asarray(positiveWindows, dtype=np.float64))),
+                int(max(positiveWindows)),
+            )
+        return np.ascontiguousarray(smoothedArr, dtype=np.float32)
+
     muncEBPriorWarmupECMIters = int(
         getattr(
             observationArgs,
@@ -6605,6 +6736,14 @@ def main():
         intervals, chromMat, countModelVarianceFloorMat = (
             _countAndTransformChromosomeMatrix(c_, chromPlan)
         )
+        chromMat = _smoothRowsByFragmentLength(chromosome, chromMat)
+        if countModelVarianceFloorMat is not None:
+            countModelVarianceFloorMat = _smoothRowsByFragmentLength(
+                chromosome,
+                countModelVarianceFloorMat,
+                varianceLike=True,
+                logSmoothing=False,
+            )
         cachePath = os.path.join(pooledMuncCache.name, f"chrom_{c_:05d}.npy")
         np.save(cachePath, chromMat, allow_pickle=False)
         transformedMatrixCachePaths[chromosome] = cachePath
@@ -6637,7 +6776,6 @@ def main():
         chromosome = str(chromPlan["chromosome"])
         cachePath = transformedMatrixCachePaths[chromosome]
         chromMat = np.ascontiguousarray(np.load(cachePath), dtype=np.float32)
-        np.save(cachePath, chromMat, allow_pickle=False)
         intervals = cachedIntervalsByChromosome[chromosome]
         countModelVarianceFloorMat = (
             _loadCountModelVarianceFloor(

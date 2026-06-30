@@ -23,7 +23,6 @@ from consenrich.genome_covariates import (
 )
 from . import io as io_helpers
 from ._normalization import (
-    enum_token_key as _sharedEnumTokenKey,
     normalize_config_enum as _sharedNormalizeConfigEnum,
     normalize_count_transform_method as _sharedNormalizeCountingTransformMethod,
     normalize_matching_uncertainty_score_mode as _sharedNormalizeMatchingUncertaintyScoreMode,
@@ -404,10 +403,6 @@ def _validateMatchingBroadMaxGapBP(value: Any) -> int | None:
 
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
     return _sharedValidateMatchingUncertaintyScoreZ(value)
-
-
-def _enumTokenKey(value: Any) -> str:
-    return _sharedEnumTokenKey(value)
 
 
 def _normalizeConfigEnum(
@@ -2171,6 +2166,17 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         and muncLocalWindowSizeBP is None
     ):
         muncLocalWindowSizeBP = -1
+    smoothToFraglenRaw = _cfgGet(
+        configData,
+        "observationParams.smoothToFraglen",
+        _cfgDefault(
+            configData,
+            "observationParams.smoothToFraglen",
+        ),
+    )
+    if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
+        raise ValueError("`observationParams.smoothToFraglen` must be boolean.")
+    smoothToFraglen = bool(smoothToFraglenRaw)
     muncDependenceMinContextSizeBP = _cfgGet(
         configData,
         "observationParams.muncDependenceMinContextSizeBP",
@@ -2779,6 +2785,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncVarianceModel": muncVarianceModel,
         "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
+        "smoothToFraglen": smoothToFraglen,
         "muncDependenceMinContextSizeBP": muncDependenceMinContextSizeBP,
         "dependenceMaxContextSizeBP": dependenceMaxContextSizeBP,
         "dependenceNumBlocks": dependenceNumBlocks,

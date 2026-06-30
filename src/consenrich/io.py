@@ -36,10 +36,6 @@ def _getSmallWorkerCount(taskCount: int, maxWorkers: int = 4) -> int:
     return _sharedGetSmallWorkerCount(taskCount, max_workers=maxWorkers)
 
 
-def _getAvailableMemoryBytes() -> int | None:
-    return _sharedGetAvailableMemoryBytes()
-
-
 _MEMORY_UNSET = object()
 
 
