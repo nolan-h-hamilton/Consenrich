@@ -15,7 +15,7 @@ from . import constants
 
 
 def enum_token_key(value: Any) -> str:
-    """Return a stable, punctuation-insensitive enum lookup key."""
+    """Return a stable separator-insensitive enum lookup key."""
 
     text = str(value).strip().replace("-", "_").replace(" ", "_").lower()
     return "_".join(part for part in text.split("_") if part)
@@ -193,26 +193,17 @@ def validate_uncertainty_score_z(
 
 
 def normalize_process_noise_calibration(value: Any) -> str:
-    """Normalize process-noise calibration mode and historical aliases."""
+    """Normalize process-noise calibration mode."""
 
     raw = constants.PROCESS_DEFAULT_NOISE_CALIBRATION if value is None else value
-    key = str(raw).strip().replace("-", "_").lower()
-    aliases = {
-        "punc": constants.PROCESS_NOISE_CALIBRATION_PUNC,
-        "seed": constants.PROCESS_NOISE_CALIBRATION_SEED,
-        "fixeddiagonal": constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-        "fixed_diagonal": constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-        "fixed": constants.PROCESS_NOISE_CALIBRATION_FIXED,
-        "none": constants.PROCESS_NOISE_CALIBRATION_SEED,
-        "warm_start": constants.PROCESS_NOISE_CALIBRATION_FIXED,
-    }
-    normalized = aliases.get(key, key)
-    if normalized not in constants.PROCESS_NOISE_CALIBRATION_MODES:
+    canonical_by_key = {enum_token_key(item): item for item in constants.PROCESS_NOISE_CALIBRATION_MODES}
+    key = enum_token_key(raw)
+    if key not in canonical_by_key:
         supported = ", ".join(constants.PROCESS_NOISE_CALIBRATION_MODES)
         raise ValueError(
             f"Unsupported processNoiseCalibration {raw!r}. Supported modes: {supported}."
         )
-    return str(normalized)
+    return str(canonical_by_key[key])
 
 
 def weighted_quantile(

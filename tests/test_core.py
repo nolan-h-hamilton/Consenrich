@@ -557,7 +557,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
             (
                 int(round(float(data[0, 0]))),
                 int(data.shape[1]),
-                kwargs["processNoiseCalibration"],
                 float(kwargs["minQ"]),
                 float(kwargs["maxQ"]),
             )
@@ -744,7 +743,7 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
             consenrichRuntime.main()
 
     for activeFlag, _ebUse, _seedWeightEnabled, _seedWeightStudentT in runtimeCases:
-        assert seedQCallsByFlag[activeFlag] == [(0, 20, "seed", 2.0e-5, 7.0e-4)]
+        assert seedQCallsByFlag[activeFlag] == [(0, 20, 2.0e-5, 7.0e-4)]
         assert [call["updateWeights"] for call in seedMomentCallsByFlag[activeFlag]] == [
             True,
             True,
@@ -795,19 +794,15 @@ def test_munc_eb_prior_g_uncertainty_modes_are_limited():
 @pytest.mark.parametrize(
     "qKwargs, expectedMessage",
     (
-        ({"qPriorTrend": 5.0e-4}, "qPriorTrend"),
-        ({"qPriorLevel": 2.0e-3}, "qPriorLevel"),
+        ({"minQ": 2.0e-4, "maxQ": 1.0}, "minQ"),
+        ({"minQ": 1.0e-6, "maxQ": 5.0e-5}, "maxQ"),
     ),
 )
-def test_core_process_prior_q_respects_q_bounds(qKwargs, expectedMessage):
+def test_core_fixed_process_q_respects_q_bounds(qKwargs, expectedMessage):
     matrixData = np.zeros((2, 4), dtype=np.float32)
     matrixMunc = np.ones((2, 4), dtype=np.float32)
     kwargs = {
         "deltaF": 0.1,
-        "minQ": 1.0e-3,
-        "maxQ": 1.0e-3,
-        "qPriorLevel": 1.0e-3,
-        "qPriorTrend": 1.0e-3,
         "stateInit": 0.0,
         "stateCovarInit": 1.0,
         "boundState": False,
@@ -894,144 +889,6 @@ def _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
         np.testing.assert_allclose(out, expected, rtol=1.0e-6, atol=1.0e-7)
     else:
         np.testing.assert_allclose(out, expected, rtol=1.0e-14, atol=1.0e-14)
-
-
-@pytest.mark.correctness
-def _casePuncBridgeSymbolsAreRenamed():
-    for symbol in (
-        "cPuncObservationInformation",
-        "cpuncObservationInformation",
-        "crebasePuncIntervalScales",
-    ):
-        assert hasattr(cconsenrich, symbol)
-    for symbol in (
-        "c" + "T" + "uncObservationInformation",
-        "c" + "t" + "uncObservationInformation",
-        "crebase" + "T" + "uncIntervalScales",
-    ):
-        assert not hasattr(cconsenrich, symbol)
-
-
-@pytest.mark.correctness
-def _casePuncObservationInformationKernelUsesLambdaClampForFloat32AndFloat64():
-    matrix = np.asarray(
-        [[0.10, 0.20, 0.40], [0.30, 0.50, 0.70]],
-        dtype=np.float64,
-    )
-    lambdaExp = np.asarray([0.01, 2.0, 20.0], dtype=np.float64)
-    lambdaClipped = np.asarray([0.5, 2.0, 4.0], dtype=np.float64)
-    expected = np.sum(lambdaClipped[None, :] / (matrix + 0.05), axis=0)
-
-    for dtype in (np.float32, np.float64):
-        out = cconsenrich.cPuncObservationInformation(
-            matrix.astype(dtype),
-            0.05,
-            lambdaExp,
-            0.5,
-            4.0,
-        )
-        np.testing.assert_allclose(out, expected, rtol=2.0e-7, atol=2.0e-7)
-
-    unitOut = cconsenrich.cPuncObservationInformation(
-        matrix.astype(np.float32),
-        0.05,
-        None,
-        0.5,
-        4.0,
-    )
-    np.testing.assert_allclose(
-        unitOut,
-        np.sum(1.0 / (matrix + 0.05), axis=0),
-        rtol=2.0e-7,
-        atol=2.0e-7,
-    )
-    with pytest.raises(ValueError, match="lambdaExp length"):
-        cconsenrich.cPuncObservationInformation(
-            matrix.astype(np.float32),
-            0.05,
-            np.ones(2, dtype=np.float64),
-            0.5,
-            4.0,
-        )
-
-
-@pytest.mark.correctness
-def _casePuncEvidenceKernelAcceptsFullSeedQ():
-    levelState = np.asarray([[0.0], [1.0], [3.0], [6.0]], dtype=np.float32)
-    levelCov = np.zeros((4, 1, 1), dtype=np.float32)
-    levelLag = np.zeros((3, 1, 1), dtype=np.float32)
-    levelSeedQ = np.diag([2.0, 99.0]).astype(np.float64)
-
-    levelEvidence, levelDiagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
-        levelState,
-        levelCov,
-        levelLag,
-        levelSeedQ,
-    )
-    np.testing.assert_allclose(
-        levelEvidence,
-        np.asarray([0.5, 2.0, 4.5], dtype=np.float64),
-        rtol=1.0e-7,
-        atol=1.0e-7,
-    )
-    assert levelDiagnostics["state_dim"] == 1
-
-    matrixF = np.asarray([[1.0, 1.0], [0.0, 1.0]], dtype=np.float64)
-    fullState = np.asarray(
-        [[0.0, 1.0], [1.0, 1.5], [2.5, 1.0], [3.5, 0.5]],
-        dtype=np.float64,
-    )
-    fullCov = np.zeros((4, 2, 2), dtype=np.float64)
-    fullLag = np.zeros((3, 2, 2), dtype=np.float64)
-    fullSeedQ = np.diag([4.0, 2.0, 77.0]).astype(np.float64)
-
-    fullEvidence, fullDiagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
-        fullState,
-        fullCov,
-        fullLag,
-        fullSeedQ,
-        matrixF=matrixF,
-    )
-    np.testing.assert_allclose(
-        fullEvidence,
-        np.full(3, 0.0625, dtype=np.float64),
-        rtol=1.0e-12,
-        atol=1.0e-12,
-    )
-    assert fullDiagnostics["state_dim"] == 2
-
-
-@pytest.mark.correctness
-def _casePuncScaleRebaseKernelUsesCanonicalStateModel():
-    seedQ = np.diag([1.0, 4.0, 9.0]).astype(np.float64)
-    baseQ = np.diag([2.0, 1.0, 99.0]).astype(np.float64)
-    rawScale = np.asarray([3.0, 12.0], dtype=np.float64)
-
-    levelScale, levelMaxErr, levelMedErr = cconsenrich.crebasePuncIntervalScales(
-        seedQ,
-        baseQ,
-        rawScale,
-        core.STATE_MODEL_LEVEL,
-    )
-    np.testing.assert_allclose(levelScale, rawScale / 2.0, rtol=1.0e-7, atol=1.0e-7)
-    assert levelMaxErr == pytest.approx(0.0)
-    assert levelMedErr == pytest.approx(0.0)
-
-    fullScale, fullMaxErr, fullMedErr = cconsenrich.crebasePuncIntervalScales(
-        seedQ,
-        baseQ,
-        rawScale,
-        core.STATE_MODEL_LEVEL_TREND,
-    )
-    expected = np.sqrt((seedQ[0, 0] * rawScale / baseQ[0, 0]) * (seedQ[1, 1] * rawScale / baseQ[1, 1]))
-    np.testing.assert_allclose(fullScale, expected, rtol=1.0e-6, atol=1.0e-6)
-    assert fullMaxErr > 0.0
-    assert fullMedErr > 0.0
-
-    with pytest.raises(ValueError, match="stateModel"):
-        cconsenrich.crebasePuncIntervalScales(seedQ, baseQ, rawScale, "other")
-
-
 @pytest.mark.correctness
 def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
     matrixData = np.asarray(
@@ -2334,7 +2191,7 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
     np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.1, 0.15])
     np.testing.assert_allclose(tracks["effectiveQLevel"], [0.2, 0.2, 0.15])
     np.testing.assert_allclose(tracks["effectiveQTrend"], [0.05, 0.05, 0.0375])
-    np.testing.assert_allclose(tracks["puncQScale"], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(tracks["processQScale"], [1.0, 2.0, 3.0])
     qMeta = core._processQDiagnosticsMetadata(
         matrixQ0=matrixQ0,
         intervalCount=3,
@@ -3125,209 +2982,6 @@ def _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers():
         (fullSmooth[3], levelSmooth[3]),
     ):
         np.testing.assert_allclose(observed, expected, rtol=2.0e-6, atol=2.0e-6)
-
-
-@pytest.mark.correctness
-def _casePuncProcessNoiseCalibrationRebasesClampedBaseQ():
-    intervalCount = 16
-    seedQLevel = 1.0e-2
-    desiredEvidence = 100.0
-    stateStep = float(np.sqrt(seedQLevel * desiredEvidence))
-    state = (np.arange(intervalCount, dtype=np.float64) * stateStep).reshape(-1, 1)
-    warmupFit = {
-        "stateSmoothed": state.astype(np.float32),
-        "stateCovarSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
-        "lagCovSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
-        "matrixMunc": np.vstack(
-            [
-                np.linspace(0.05, 0.25, intervalCount),
-                np.linspace(0.25, 0.05, intervalCount),
-            ]
-        ).astype(np.float32),
-        "lambdaExp": np.linspace(0.5, 2.0, intervalCount, dtype=np.float32),
-    }
-
-    matrixQ, processQScale, info = core._fitPuncProcessNoise(
-        warmupFit=warmupFit,
-        matrixMunc=warmupFit["matrixMunc"],
-        matrixF=np.asarray([[1.0]], dtype=np.float32),
-        seedQ=np.diag([seedQLevel, seedQLevel]).astype(np.float32),
-        stateModel=core.STATE_MODEL_LEVEL,
-        pad=1.0e-4,
-        minQ=1.0e-4,
-        maxQ=2.0e-2,
-        blockLenIntervals=3,
-        processCovariates=None,
-        puncLocalWindowMultiplier=1.0,
-        puncDependenceMultiplier=1.0,
-        puncMinScale=0.1,
-        puncMaxScale=10.0,
-        puncMinWindowWeight=0.0,
-        puncPriorRidge=1.0e-3,
-        puncLevelBufferZ=0.0,
-        puncUseReliabilityWeightedWindows=True,
-        observationPrecisionMultiplierMin=0.25,
-        observationPrecisionMultiplierMax=4.0,
-    )
-
-    assert info["processNoisePolicy"] == "punc"
-    assert info["priorDesignColumnCount"] == 2
-    assert info["priorDesignColumns"] == ("intercept", "stateLevelMidpoint")
-    assert info["processCovariateCount"] == 0
-    assert info["puncPriorDfSource"] == "method_of_moments"
-    assert info["puncLevelBufferZ"] == pytest.approx(0.0)
-    assert info["puncUseReliabilityWeightedWindows"] is True
-    assert info["puncLevelBufferEnabled"] is False
-    assert np.isfinite(info["puncPriorDf"])
-    assert info["puncPriorDf"] >= 4.0
-    assert info["puncPriorDfMomentWindowCount"] > 0
-    assert "processQScale" not in info
-    assert matrixQ[0, 0] == pytest.approx(2.0e-2)
-    assert processQScale[0] == pytest.approx(1.0)
-    np.testing.assert_allclose(processQScale[1:], np.full(intervalCount - 1, 5.0), rtol=5.0e-5)
-    assert info["baseQClampChanged"] is True
-    assert info["baseQClampMaxRelativeChange"] > 0.0
-    assert info["qScaleDecompositionMaxLogError"] == pytest.approx(0.0, abs=1.0e-6)
-    assert info["preKappaQLevel"] == pytest.approx(float(matrixQ[0, 0]))
-    assert info["preKappaQTrend"] == pytest.approx(0.0)
-
-
-@pytest.mark.correctness
-def _casePuncReliabilityWeightedWindowsSwitchesLocalEvidence(monkeypatch):
-    intervalCount = 8
-    evidenceTarget = np.asarray([1.0, 16.0, 4.0, 25.0, 9.0, 36.0, 16.0])
-    increments = np.sqrt(evidenceTarget)
-    state = np.concatenate(([0.0], np.cumsum(increments))).reshape(-1, 1)
-    warmupFit = {
-        "stateSmoothed": state.astype(np.float32),
-        "stateCovarSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
-        "lagCovSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
-        "matrixMunc": np.ones((1, intervalCount), dtype=np.float32),
-        "lambdaExp": np.asarray(
-            [100.0, 100.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-            dtype=np.float32,
-        ),
-    }
-    captured: list[dict[str, np.ndarray]] = []
-
-    def capturePriorDf(localEvidence, localPrior, nuLocal, weights, **kwargs):
-        captured.append(
-            {
-                "localEvidence": np.asarray(localEvidence, dtype=np.float64).copy(),
-                "nuLocal": np.asarray(nuLocal, dtype=np.float64).copy(),
-                "weights": np.asarray(weights, dtype=np.float64).copy(),
-            }
-        )
-        return (
-            4.0,
-            1.0,
-            {
-                "puncPriorDfMomentWindowCount": int(np.size(localEvidence)),
-                "puncPriorDfMomentEffectiveWindowCount": float(np.size(localEvidence)),
-                "puncPriorDfMomentLogRatioVariance": 0.0,
-                "puncPriorDfMomentSamplingVariance": 0.0,
-                "puncPriorDfMomentExcessVariance": 0.0,
-                "puncPriorDfMomentScale": 1.0,
-                "puncPriorDfMomentWinsorLower": float("nan"),
-                "puncPriorDfMomentWinsorUpper": float("nan"),
-                "puncPriorDfMomentReason": "ok",
-            },
-        )
-
-    monkeypatch.setattr(core, "_estimatePuncPriorDfMethodOfMoments", capturePriorDf)
-
-    def run(useWeighted):
-        _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
-            warmupFit=warmupFit,
-            matrixMunc=warmupFit["matrixMunc"],
-            matrixF=np.asarray([[1.0]], dtype=np.float32),
-            seedQ=np.diag([1.0, 1.0]).astype(np.float32),
-            stateModel=core.STATE_MODEL_LEVEL,
-            pad=1.0e-4,
-            minQ=1.0e-4,
-            maxQ=100.0,
-            blockLenIntervals=3,
-            processCovariates=None,
-            puncLocalWindowMultiplier=1.0,
-            puncDependenceMultiplier=1.0,
-            puncMinScale=0.01,
-            puncMaxScale=100.0,
-            puncMinWindowWeight=0.0,
-            puncPriorRidge=1.0e-3,
-            puncLevelBufferZ=0.0,
-            puncUseReliabilityWeightedWindows=useWeighted,
-            observationPrecisionMultiplierMin=0.01,
-            observationPrecisionMultiplierMax=200.0,
-        )
-        return info
-
-    weightedInfo = run(True)
-    unitInfo = run(False)
-
-    assert weightedInfo["puncUseReliabilityWeightedWindows"] is True
-    assert unitInfo["puncUseReliabilityWeightedWindows"] is False
-    assert len(captured) == 2
-    weightedWindows, unitWindows = captured
-    assert weightedInfo["validTransitionCount"] == unitInfo["validTransitionCount"]
-    assert weightedInfo["windowCount"] == unitInfo["windowCount"]
-    np.testing.assert_allclose(
-        unitWindows["weights"],
-        np.asarray([2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0]),
-    )
-    assert not np.allclose(
-        weightedWindows["localEvidence"],
-        unitWindows["localEvidence"],
-    )
-    assert weightedWindows["nuLocal"][0] < unitWindows["nuLocal"][0]
-
-
-@pytest.mark.correctness
-def _casePuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
-    n = 1000
-    nuLocal = 20.0
-    priorDfTrue = 12.0
-    priorScaleTrue = 1.5
-    probs = (np.arange(n, dtype=np.float64) + 0.5) / n
-    localEvidence = priorScaleTrue * stats.f.ppf(probs, nuLocal, priorDfTrue)
-    localPrior = np.ones(n, dtype=np.float64)
-    nu = np.full(n, nuLocal, dtype=np.float64)
-    weights = np.ones(n, dtype=np.float64)
-
-    priorDf, priorScale, diagnostics = core._estimatePuncPriorDfMethodOfMoments(
-        localEvidence,
-        localPrior,
-        nu,
-        weights,
-        winsorTail=0.0,
-        minScale=0.1,
-        maxScale=10.0,
-    )
-
-    assert diagnostics["puncPriorDfMomentReason"] == "ok"
-    assert priorDf == pytest.approx(priorDfTrue, rel=0.02)
-    assert priorScale == pytest.approx(priorScaleTrue, rel=0.02)
-
-
-@pytest.mark.correctness
-def _casePuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
-    localEvidence = np.asarray([np.nan, 1.0, 1.0, np.inf, 0.0, 1.0], dtype=np.float64)
-    localPrior = np.ones_like(localEvidence)
-    nu = np.full_like(localEvidence, 8.0)
-    weights = np.ones_like(localEvidence)
-
-    priorDf, priorScale, diagnostics = core._estimatePuncPriorDfMethodOfMoments(
-        localEvidence,
-        localPrior,
-        nu,
-        weights,
-        minWindows=2,
-    )
-
-    assert priorDf == pytest.approx(1.0e6)
-    assert np.isfinite(priorScale)
-    assert diagnostics["puncPriorDfMomentReason"] == "no_excess_dispersion"
-
-
 @pytest.mark.correctness
 def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
     rng = np.random.default_rng(122)
@@ -3349,17 +3003,13 @@ def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
         minQ=1.0e-5,
         maxQ=1.0,
         deltaF=1.0,
-        puncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
     assert diagnostics["qSeedSource"] == "sameTrackEB"
     assert 0.3 * qTrue <= diagnostics["qSeedLevelFinal"] <= 3.0 * qTrue
     assert matrixQ[0, 0] == pytest.approx(diagnostics["qSeedLevelFinal"])
-    assert matrixQ[1, 1] == pytest.approx(
-        diagnostics["qSeedLevelFinal"] * core.PROCESS_DEFAULT_PUNC_TREND_SEED_RATIO
-    )
+    assert matrixQ[1, 1] == pytest.approx(diagnostics["qSeedLevelFinal"])
 
 
 @pytest.mark.correctness
@@ -3379,8 +3029,6 @@ def _caseInitialProcessNoiseSeedCapsDominantLowMuncArtifact():
         minQ=1.0e-5,
         maxQ=10.0,
         deltaF=1.0,
-        puncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
@@ -3406,8 +3054,6 @@ def _caseInitialProcessNoiseSeedFallsBackToPooledEbForSparseOverlap():
         minQ=1.0e-4,
         maxQ=1.0,
         deltaF=1.0,
-        puncMaxScale=4.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_PUNC,
         robustTNu=8.0,
     )
 
@@ -3865,114 +3511,6 @@ def _caseMuncSeedQKernelsMatchReference():
             core._QINIT_DEFAULT_T_NU,
             core._QINIT_GRID_SIZE,
         )
-
-
-@pytest.mark.correctness
-def _casePuncDeadbandPriorShrinksNearNullPriorScale():
-    intervalCount = 24
-    state = np.zeros((intervalCount, 1), dtype=np.float64)
-    state[intervalCount // 2 :, 0] = 5.0
-    stateCov = np.ones((intervalCount, 1, 1), dtype=np.float64) * 0.04
-    lagCov = np.zeros((intervalCount, 1, 1), dtype=np.float64)
-    lagCov[:-1, 0, 0] = 0.02
-    warmupFit = {
-        "stateSmoothed": state.astype(np.float32),
-        "stateCovarSmoothed": stateCov.astype(np.float32),
-        "lagCovSmoothed": lagCov.astype(np.float32),
-        "matrixMunc": np.full((3, intervalCount), 0.1, dtype=np.float32),
-        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
-    }
-
-    _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
-        warmupFit=warmupFit,
-        matrixMunc=warmupFit["matrixMunc"],
-        matrixF=np.asarray([[1.0]], dtype=np.float32),
-        seedQ=np.diag([1.0e-2, 1.0e-2]).astype(np.float32),
-        stateModel=core.STATE_MODEL_LEVEL,
-        pad=1.0e-4,
-        minQ=1.0e-5,
-        maxQ=1.0,
-        blockLenIntervals=3,
-        processCovariates=None,
-        puncLocalWindowMultiplier=1.0,
-        puncDependenceMultiplier=1.0,
-        puncMinScale=0.25,
-        puncMaxScale=4.0,
-        puncMinWindowWeight=0.0,
-        puncPriorRidge=1.0e-3,
-        puncLevelBufferZ=1.64,
-        puncUseReliabilityWeightedWindows=True,
-        observationPrecisionMultiplierMin=0.25,
-        observationPrecisionMultiplierMax=4.0,
-    )
-
-    before = info["puncPriorScaleBeforeDeadbandSummary"]
-    after = info["puncPriorScaleAfterDeadbandSummary"]
-    assert info["puncDeadbandPriorEnabled"] is True
-    assert info["puncDeadbandMeanProbability"] > 0.0
-    assert info["puncDeadbandHighProbabilityFraction"] > 0.0
-    assert info["puncDeadbandNullScale"] == pytest.approx(0.25)
-    assert after["min"] < before["min"]
-    assert info["puncDeadbandHighProbabilityThreshold"] == pytest.approx(0.8)
-    assert info["puncDeadbandHighTransitionCount"] > 0
-    assert info["puncDeadbandHighTransitionFraction"] > 0.0
-    assert info["puncDeadbandHighRawScaleSummary"]["median"] is not None
-    assert info["puncDeadbandHighTransitionScaleSummary"]["median"] is not None
-    assert info["puncDeadbandHighRebasedProcessQScaleSummary"]["median"] is not None
-    assert info["puncDeadbandHighQLevelSummary"]["median"] is not None
-    assert info["puncDeadbandHighQTrendSummary"]["median"] == pytest.approx(0.0)
-
-
-@pytest.mark.correctness
-def _casePuncDeadbandPriorNegligibleOutsideDeadband():
-    intervalCount = 20
-    state = np.full((intervalCount, 1), 10.0, dtype=np.float64)
-    stateCov = np.ones((intervalCount, 1, 1), dtype=np.float64) * 0.01
-    lagCov = np.zeros((intervalCount, 1, 1), dtype=np.float64)
-    lagCov[:-1, 0, 0] = 0.005
-    warmupFit = {
-        "stateSmoothed": state.astype(np.float32),
-        "stateCovarSmoothed": stateCov.astype(np.float32),
-        "lagCovSmoothed": lagCov.astype(np.float32),
-        "matrixMunc": np.full((2, intervalCount), 0.1, dtype=np.float32),
-        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
-    }
-
-    _matrixQ, _processQScale, info = core._fitPuncProcessNoise(
-        warmupFit=warmupFit,
-        matrixMunc=warmupFit["matrixMunc"],
-        matrixF=np.asarray([[1.0]], dtype=np.float32),
-        seedQ=np.diag([1.0e-2, 1.0e-2]).astype(np.float32),
-        stateModel=core.STATE_MODEL_LEVEL,
-        pad=1.0e-4,
-        minQ=1.0e-5,
-        maxQ=1.0,
-        blockLenIntervals=3,
-        processCovariates=None,
-        puncLocalWindowMultiplier=1.0,
-        puncDependenceMultiplier=1.0,
-        puncMinScale=0.25,
-        puncMaxScale=4.0,
-        puncMinWindowWeight=0.0,
-        puncPriorRidge=1.0e-3,
-        puncLevelBufferZ=1.64,
-        puncUseReliabilityWeightedWindows=True,
-        observationPrecisionMultiplierMin=0.25,
-        observationPrecisionMultiplierMax=4.0,
-    )
-
-    before = info["puncPriorScaleBeforeDeadbandSummary"]
-    after = info["puncPriorScaleAfterDeadbandSummary"]
-    assert info["puncDeadbandPriorEnabled"] is True
-    assert info["puncDeadbandMeanProbability"] < 1.0e-6
-    assert after["median"] == pytest.approx(before["median"])
-    assert info["puncDeadbandHighTransitionCount"] == 0
-    assert info["puncDeadbandHighRawScaleSummary"]["median"] is None
-    assert info["puncDeadbandHighTransitionScaleSummary"]["median"] is None
-    assert info["puncDeadbandHighRebasedProcessQScaleSummary"]["median"] is None
-    assert info["puncDeadbandHighQLevelSummary"]["median"] is None
-
-
 @pytest.mark.correctness
 def _caseRunConsenrichOuterPassSmoke():
     rng = np.random.default_rng(0)
@@ -4022,10 +3560,8 @@ def _caseRunConsenrichOuterPassSmoke():
         matrixData,
         matrixMunc,
         deltaF=0.1,
-        minQ=1.0e-3,
+        minQ=1.0e-6,
         maxQ=1.0,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -4065,7 +3601,7 @@ def _caseRunConsenrichOuterPassSmoke():
         "muncTrace",
         "preKappaQLevel",
         "preKappaQTrend",
-        "puncQScale",
+        "processQScale",
         "sumGain0",
         "sumGain1",
     )
@@ -4094,8 +3630,7 @@ def _caseRunConsenrichOuterPassSmoke():
         atol=2.0e-6,
     )
     warmupDiagnostics = diagnostics["process_noise_warmup_fit"]
-    assert warmupDiagnostics is not None
-    assert warmupDiagnostics["fixed_background_ecm"]
+    assert warmupDiagnostics["actual_outer_passes"] == 2
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
     assert len(gainSummary["median"]) == m
@@ -4155,10 +3690,8 @@ def _caseRunConsenrichOuterPassSmoke():
         matrixData,
         matrixMunc,
         deltaF=0.1,
-        minQ=1.0e-3,
+        minQ=1.0e-6,
         maxQ=1.0,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -4177,55 +3710,20 @@ def _caseRunConsenrichOuterPassSmoke():
     assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
     assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "punc"
+    assert qInfo["processNoisePolicy"] == "fixedDiagonal"
+    assert qInfo["processNoiseCalibrationStatus"] == "estimated"
     assert "".join(("block", "Mode")) not in qInfo
     assert "_".join(("process", "q", "calibration")) not in diagnostics
-    assert qInfo["preKappaQLevel"] > 0.0
-    assert qInfo["preKappaQTrend"] > 0.0
+    expectedWarmupQ = qInfo["warmupEffectiveQLevelMedian"]
+    assert qInfo["preKappaQLevel"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
+    assert qInfo["preKappaQTrend"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
+    np.testing.assert_allclose(
+        qInfo["matrixQ0Final"],
+        np.diag([expectedWarmupQ, expectedWarmupQ]),
+        rtol=5.0e-6,
+    )
     assert "processQScaleSummary" in qInfo
     assert "processQScale" not in qInfo
-    assert "_puncDeadbandHighIntervalMask" not in qInfo
-    assert "puncDeadbandHighKappaSummary" in qInfo
-    assert "puncDeadbandHighEffectiveQLevelSummary" in qInfo
-    assert "puncDeadbandHighEffectiveQTrendSummary" in qInfo
-
-
-@pytest.mark.correctness
-def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
-    n = 24
-    m = 3
-    matrixData = np.full((m, n), 0.25, dtype=np.float32)
-    matrixMunc = np.full((m, n), 0.20, dtype=np.float32)
-
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=5.0e-2,
-        maxQ=1.0,
-        qPriorLevel=5.0e-2,
-        qPriorTrend=5.0e-2,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=6,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_minOuterIters=1,
-        ECM_useProcessPrecisionReweighting=False,
-        processNoiseWarmupECMIters=1,
-        returnDiagnostics=True,
-    )
-
-    qInfo = out[-1]["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "punc"
-    assert qInfo["preKappaQLevel"] >= 5.0e-2
-    assert qInfo["qFloor"] == pytest.approx(5.0e-2)
-    assert qInfo["qSeedSource"] == "sameTrackEB"
-    assert qInfo["qSeedLevelFinal"] < 1.25 * qInfo["qFloor"]
-    assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["preKappaQLevel"])
 
 
 @pytest.mark.correctness
@@ -4297,105 +3795,17 @@ def _caseRunConsenrichLevelStateModelSmoke():
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["processNoisePolicy"] == "punc"
-    assert qInfo["preKappaQLevel"] > 0.0
+    assert qInfo["processNoisePolicy"] == "fixedDiagonal"
+    assert runDiagnostics["process_noise_warmup_fit"]["actual_outer_passes"] == 2
+    expectedWarmupQ = qInfo["warmupEffectiveQLevelMedian"]
+    assert qInfo["preKappaQLevel"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
     assert qInfo["preKappaQTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    assert qInfo["priorDesignColumnCount"] == 2
-
-
-@pytest.mark.correctness
-def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
-    rng = np.random.default_rng(7)
-    n = 36
-    m = 3
-    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
-    signalTrack = (2.0 * grid + 0.2 * np.sin(2.0 * np.pi * grid)).astype(np.float32)
-    matrixData = np.vstack(
-        [
-            signalTrack + 0.03 * rng.normal(size=n) - 0.02,
-            signalTrack + 0.03 * rng.normal(size=n),
-            signalTrack + 0.03 * rng.normal(size=n) + 0.01,
-        ]
-    ).astype(np.float32)
-    matrixMunc = np.full((m, n), 0.12, dtype=np.float32)
-
-    originalECM = cconsenrich.cfixedBackgroundECM
-    ecmModes = []
-    ecmLogIterations = []
-
-    def _spyECM(*args, **kwargs):
-        result = originalECM(*args, **kwargs)
-        ecmLogIterations.append(bool(kwargs.get("logIterations", True)))
-        ecmModes.append(
-            (
-                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
-                bool(kwargs.get("ECM_useAPN")),
-            )
-        )
-        return result
-
-    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
-
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=1.0,
-        minQ=1.0e-3,
-        maxQ=0.5,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=8,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
-        processNoiseWarmupECMIters=1,
-        returnDiagnostics=True,
+    np.testing.assert_allclose(
+        qInfo["matrixQ0Final"],
+        [[expectedWarmupQ]],
+        rtol=5.0e-6,
     )
-
-    firstPostQIndex = next(
-        idx for idx, mode in enumerate(ecmModes) if mode == (True, False)
-    )
-    assert firstPostQIndex >= 1
-    assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
-    assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
-    assert all(flag is False for flag in ecmLogIterations)
-    stateSmoothed, stateCovarSmoothed, *_ = out
-    diagnostics = out[-1]
-    assert stateSmoothed.shape == (n, 2)
-    assert stateCovarSmoothed.shape == (n, 2, 2)
-    assert np.all(np.isfinite(stateSmoothed))
-    assert np.all(np.isfinite(stateCovarSmoothed))
-    assert diagnostics["process_noise_warmup_fit"]["actual_outer_passes"] >= 1
-    assert diagnostics["post_process_noise_fit"]["actual_outer_passes"] >= 1
-    assert diagnostics["post_process_noise_fit"]["outer_stop_reason"] in {
-        "background_shift_and_nll",
-        "background_objective_inner_stable",
-        "max_outer_passes",
-        "max_outer_passes_inner_ecm_unconverged",
-        "max_outer_passes_objective",
-        "max_outer_passes_patience",
-    }
-    assert "outer_nll_change" in diagnostics["post_process_noise_fit"]
-    assert "outer_objective_change_per_cell" in diagnostics["post_process_noise_fit"]
-    assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
-    assert (
-        diagnostics["process_noise_calibration"]["processNoisePolicy"]
-        == "punc"
-    )
-    assert diagnostics["process_noise_calibration"]["warmupECMIters"] == pytest.approx(
-        1.0
-    )
-    assert diagnostics["process_noise_calibration"][
-        "warmupOuterPasses"
-    ] == pytest.approx(float(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES))
-    assert diagnostics["process_noise_calibration"]["preKappaQLevel"] >= (1.0e-3)
 
 
 @pytest.mark.correctness
@@ -4462,7 +3872,7 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
+def _caseRunConsenrichFixedDiagonalUsesFixedQ(monkeypatch):
     rng = np.random.default_rng(3)
     n = 36
     m = 3
@@ -4478,11 +3888,7 @@ def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
     def failSeedEstimator(*_args, **_kwargs):
         raise AssertionError("seed estimator should not run")
 
-    def failPuncEstimator(*_args, **_kwargs):
-        raise AssertionError("PUNC estimator should not run")
-
     monkeypatch.setattr(core, "_estimateInitialProcessNoiseFromData", failSeedEstimator)
-    monkeypatch.setattr(core, "_fitPuncProcessNoise", failPuncEstimator)
 
     initialKappa = np.linspace(0.5, 1.8, n, dtype=np.float32)
     out = core.runConsenrich(
@@ -4491,8 +3897,6 @@ def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
         deltaF=0.2,
         minQ=1.0e-6,
         maxQ=1.0,
-        qPriorLevel=2.0e-3,
-        qPriorTrend=5.0e-4,
         processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
         stateInit=0.0,
         stateCovarInit=1.0,
@@ -4513,19 +3917,20 @@ def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
     precisionDiagnostics = out[-2]
     runDiagnostics = out[-1]
     qInfo = runDiagnostics["process_noise_calibration"]
-    assert runDiagnostics["process_noise_warmup_fit"] is None
+    warmupDiagnostics = runDiagnostics["process_noise_warmup_fit"]
+    assert warmupDiagnostics["actual_outer_passes"] == 1
     assert qInfo["processNoisePolicy"] == "fixedDiagonal"
-    assert qInfo["processNoiseCalibrationReason"] == "fixed_diagonal"
-    assert qInfo["puncStagesActive"] is False
-    assert all(qInfo[key] is False for key in core._PUNC_STAGE_TOGGLE_KEYS)
+    assert qInfo["processNoiseCalibrationReason"] == (
+        "fixed_diagonal_kappa_warmup_median"
+    )
+    expectedLevelQ = qInfo["warmupEffectiveQLevelMedian"]
     np.testing.assert_allclose(
         qInfo["matrixQ0Final"],
-        np.diag([2.0e-3, 5.0e-4]),
-        rtol=0.0,
-        atol=1.0e-10,
+        np.diag([expectedLevelQ, expectedLevelQ]),
+        rtol=5.0e-6,
     )
     outputTracks = precisionDiagnostics["outputTracks"]
-    np.testing.assert_allclose(outputTracks["puncQScale"], np.ones(n))
+    np.testing.assert_allclose(outputTracks["processQScale"], np.ones(n))
     assert np.any(
         np.abs(outputTracks["effectiveQLevel"] - outputTracks["preKappaQLevel"])
         > 1.0e-9
@@ -4538,8 +3943,6 @@ def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
         deltaF=-10.0,
         minQ=1.0e-6,
         maxQ=1.0,
-        qPriorLevel=3.0e-3,
-        qPriorTrend=7.0e-4,
         processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
         stateInit=0.0,
         stateCovarInit=1.0,
@@ -4559,12 +3962,116 @@ def _caseRunConsenrichFixedDiagonalSkipsPunc(monkeypatch):
     levelPrecisionDiagnostics = levelOut[-2]
     levelRunDiagnostics = levelOut[-1]
     levelQInfo = levelRunDiagnostics["process_noise_calibration"]
-    np.testing.assert_allclose(levelQInfo["matrixQ0Final"], [[3.0e-3]])
+    levelExpectedQ = levelQInfo["warmupEffectiveQLevelMedian"]
+    np.testing.assert_allclose(
+        levelQInfo["matrixQ0Final"],
+        [[levelExpectedQ]],
+        rtol=5.0e-6,
+    )
     assert levelQInfo["preKappaQTrend"] == pytest.approx(0.0)
     assert levelQInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
     np.testing.assert_allclose(
-        levelPrecisionDiagnostics["outputTracks"]["puncQScale"],
+        levelPrecisionDiagnostics["outputTracks"]["processQScale"],
         np.ones(n),
+    )
+
+
+@pytest.mark.correctness
+def test_core_run_consenrich_fixed_diagonal_kappa_median_warmup(monkeypatch):
+    n = 6
+    m = 2
+    grid = np.linspace(-0.5, 0.5, n, dtype=np.float32)
+    matrixData = np.vstack([grid, grid + 0.05]).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.08, dtype=np.float32)
+    warmupProcessPrec = np.asarray(
+        [1.0, 0.25, 0.25, 0.5, 0.5, 0.5],
+        dtype=np.float32,
+    )
+    ecmCalls = []
+
+    def fakeECM(**kwargs):
+        trackCount, intervalCount = kwargs["matrixDataLocal"].shape
+        stateDim = 1 if kwargs["stateModelMode"] == core.STATE_MODEL_LEVEL else 2
+        assert intervalCount == n
+        ecmCalls.append(
+            {
+                "iters": int(kwargs["ecmItersLocal"]),
+                "matrixQ0": np.asarray(
+                    kwargs["matrixQ0Local"],
+                    dtype=np.float64,
+                ).copy(),
+                "useAPN": bool(kwargs["useAPNLocal"]),
+                "useProcPrec": bool(kwargs["useProcPrecLocal"]),
+                "processPrecInit": kwargs["processPrecExpLocal"],
+            }
+        )
+        state = np.zeros((intervalCount, stateDim), dtype=np.float32)
+        covar = np.zeros((intervalCount, stateDim, stateDim), dtype=np.float32)
+        residuals = np.zeros((trackCount, intervalCount), dtype=np.float32)
+        processPrec = (
+            warmupProcessPrec.copy() if kwargs["useProcPrecLocal"] else None
+        )
+        return core._FixedBackgroundECMResult(
+            iters_done=1,
+            nll=1.0,
+            state_smoothed=state,
+            state_covar_smoothed=covar,
+            lag_covar_smoothed=covar,
+            post_fit_residuals=residuals,
+            lambda_exp=None,
+            process_prec_exp=processPrec,
+            diagnostics={"converged": True, "nll_increase_count": 0},
+        )
+
+    monkeypatch.setattr(core, "_runFixedBackgroundECMPhase", fakeECM)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.2,
+        minQ=1.0e-6,
+        maxQ=1.0,
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=3,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        fitBackground=False,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
+        processNoiseWarmupECMIters=2,
+        processNoiseWarmupOuterPasses=2,
+        returnDiagnostics=True,
+    )
+
+    baseQ = 1.0e-4
+    expectedQ = float(np.median(baseQ / warmupProcessPrec[1:].astype(np.float64)))
+    assert [call["iters"] for call in ecmCalls] == [2, 1]
+    assert [call["useProcPrec"] for call in ecmCalls] == [True, True]
+    assert [call["useAPN"] for call in ecmCalls] == [False, False]
+    assert [call["processPrecInit"] for call in ecmCalls] == [None, None]
+    np.testing.assert_allclose(
+        ecmCalls[0]["matrixQ0"],
+        np.diag([baseQ, baseQ]),
+        rtol=0.0,
+        atol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        ecmCalls[1]["matrixQ0"],
+        np.diag([expectedQ, expectedQ]),
+        rtol=0.0,
+        atol=1.0e-10,
+    )
+    np.testing.assert_allclose(
+        out[-1]["process_noise_calibration"]["matrixQ0Final"],
+        np.diag([expectedQ, expectedQ]),
+        rtol=0.0,
+        atol=1.0e-10,
     )
 
 
@@ -4592,7 +4099,7 @@ def test_core_estimate_provisional_background_helper():
 
 
 @pytest.mark.correctness
-def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
+def test_core_run_consenrich_initial_background_reaches_final_fit():
     rng = np.random.default_rng(41)
     n = 24
     m = 2
@@ -4625,10 +4132,10 @@ def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
     )
 
     diagnostics = out[-1]
-    warmStart = diagnostics["process_noise_warmup_fit"]["warm_start"]
+    assert diagnostics["process_noise_warmup_fit"]["actual_outer_passes"] == 2
+    warmStart = diagnostics["post_process_noise_fit"]["warm_start"]
     assert warmStart["background"] is True
     assert warmStart["background_prepass"] is False
-    assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is True
 
 
 @pytest.mark.correctness
@@ -4743,8 +4250,6 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         deltaF=0.2,
         minQ=1.0e-3,
         maxQ=0.5,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -6137,10 +5642,8 @@ def _caseRunConsenrichAPNSmoke():
         matrixData,
         matrixMunc,
         deltaF=0.1,
-        minQ=1.0e-3,
+        minQ=1.0e-6,
         maxQ=0.5,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -6151,7 +5654,7 @@ def _caseRunConsenrichAPNSmoke():
         ECM_outerIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=True,
-        processNoiseCalibration="seed",
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
     )
 
     stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
@@ -6198,10 +5701,8 @@ def _caseRunConsenrichAlwaysRunsECMWithAPN(
         matrixData,
         matrixMunc,
         deltaF=0.1,
-        minQ=1.0e-3,
+        minQ=1.0e-6,
         maxQ=0.5,
-        qPriorLevel=1.0e-3,
-        qPriorTrend=1.0e-3,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -6210,7 +5711,7 @@ def _caseRunConsenrichAlwaysRunsECMWithAPN(
         blockLenIntervals=8,
         ECM_useAPN=True,
         ECM_useProcessPrecisionReweighting=True,
-        processNoiseCalibration="seed",
+        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
     )
 
     assert calls
@@ -6321,6 +5822,22 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert set(diagnostics["chromosomes_used"]) <= {"chr1", "chr2"}
     excluded = set(diagnostics["chromosomes_excluded"])
     assert {"chrX", "chrY", "chrM", "chr1_alt"} <= excluded
+
+
+def test_core_choose_dependence_span_reports_fragment_smoothing_window_rule():
+    _, _, _, diagnostics = cconsenrich.cchooseDependenceSpan(
+        ["chr1"],
+        [np.ones((3, 16), dtype=np.float32)],
+        intervalSizeBP=10,
+        numBlocks=0,
+        rowFragmentLengthsBP=np.asarray([9.0, 20.0, 35.0], dtype=np.float64),
+    )
+
+    assert diagnostics["summit_smoothing_window"] == (
+        "floor_fragment_intervals_plus_1"
+    )
+    assert diagnostics["summit_smoothing_window_intervals"] == [1, 3, 4]
+    assert diagnostics["summit_smoothing_row_fragment_lengths"] is True
 
 
 @pytest.mark.correctness
@@ -8364,96 +7881,19 @@ def _casePairScaleFactorsCpmUsesPerMillionForFragments(monkeypatch):
 def _run_with_monkeypatch(monkeypatch, func, *args):
     with monkeypatch.context() as mp:
         return func(*args, mp)
-
-
-def test_core_punc_window_weight_contracts(monkeypatch, contract_case):
-    contract_case(
-        "PUNC reliability window switch",
-        _run_with_monkeypatch,
-        monkeypatch,
-        _casePuncReliabilityWeightedWindowsSwitchesLocalEvidence,
-    )
-
-
-@pytest.mark.parametrize("toggleName", core._PUNC_STAGE_TOGGLE_KEYS)
-def test_core_punc_stage_toggles_report_diagnostics(toggleName):
-    intervalCount = 14
-    level = np.linspace(-0.5, 0.6, intervalCount, dtype=np.float64)
-    trend = np.gradient(level)
-    state = np.column_stack([level, trend]).astype(np.float32)
-    stateCov = np.zeros((intervalCount, 2, 2), dtype=np.float32)
-    stateCov[:, 0, 0] = 0.05
-    stateCov[:, 1, 1] = 0.02
-    lagCov = np.zeros((intervalCount, 2, 2), dtype=np.float32)
-    lagCov[:-1, 0, 0] = 0.01
-    lagCov[:-1, 1, 1] = 0.005
-    warmupFit = {
-        "stateSmoothed": state,
-        "stateCovarSmoothed": stateCov,
-        "lagCovSmoothed": lagCov,
-        "matrixMunc": np.full((2, intervalCount), 0.1, dtype=np.float32),
-        "lambdaExp": np.ones(intervalCount, dtype=np.float32),
-    }
-    toggles = {key: True for key in core._PUNC_STAGE_TOGGLE_KEYS}
-    toggles[toggleName] = False
-
-    _matrixQ, processQScale, info = core._fitPuncProcessNoise(
-        warmupFit=warmupFit,
-        matrixMunc=warmupFit["matrixMunc"],
-        matrixF=core.constructMatrixF(0.2),
-        seedQ=np.diag([2.0e-3, 5.0e-4]).astype(np.float32),
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        pad=1.0e-4,
-        minQ=1.0e-6,
-        maxQ=1.0,
-        blockLenIntervals=4,
-        processCovariates=None,
-        puncLocalWindowMultiplier=1.0,
-        puncDependenceMultiplier=1.0,
-        puncMinScale=0.25,
-        puncMaxScale=4.0,
-        puncMinWindowWeight=0.0,
-        puncPriorDf=6.0,
-        puncPriorRidge=1.0e-3,
-        puncLevelBufferZ=0.0,
-        puncUseReliabilityWeightedWindows=True,
-        observationPrecisionMultiplierMin=0.25,
-        observationPrecisionMultiplierMax=4.0,
-        **toggles,
-    )
-
-    assert info["puncStagesActive"] is True
-    assert info[toggleName] is False
-    if toggleName == "puncUsePriorDfMoments":
-        assert info["puncPriorDf"] == pytest.approx(6.0)
-        assert info["puncPriorDfSource"] == "configured"
-        assert info["puncPriorDfMomentReason"] == "disabled"
-    if toggleName == "puncUseGlobalScale":
-        assert info["globalScale"] == pytest.approx(1.0)
-    assert processQScale.shape == (intervalCount,)
-
-
 def test_core_em_loop_contracts(monkeypatch, contract_case):
     contract_case(
         "outer pass smoke",
         _caseRunConsenrichOuterPassSmoke,
     )
-    contract_case(
-        "flat process-noise initializer",
-        _caseRunConsenrichFlatWarmupInitializerUsesMinQ,
-    )
     for label, func in (
-        (
-            "process noise warmup",
-            _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting,
-        ),
         (
             "initial process noise skips warmup",
             _caseRunConsenrichInitialProcessQSkipsWarmup,
         ),
         (
-            "fixed diagonal process noise skips PUNC",
-            _caseRunConsenrichFixedDiagonalSkipsPunc,
+            "fixed diagonal process noise",
+            _caseRunConsenrichFixedDiagonalUsesFixedQ,
         ),
         (
             "outer-pass minimum iterations",

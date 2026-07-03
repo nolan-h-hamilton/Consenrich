@@ -56,6 +56,9 @@ _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_FRACTION = (
 _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_MIN = (
     constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_MIN
 )
+_STATE_SHRINKAGE_DEFAULT_SPIKE_ODDS_MULTIPLIER = (
+    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER
+)
 _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0)
 _STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF = 1.0
 _STATE_SHRINKAGE_MIN_STUDENT_T_DF = 1.0
@@ -105,6 +108,24 @@ class stateShrinkResult(NamedTuple):
 def _metadataFloat(value: float) -> float | None:
     value_ = float(value)
     return value_ if np.isfinite(value_) else None
+
+
+def _stateShrinkageSpikeOddsMultiplierValue(value: Any) -> float:
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(
+            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
+        )
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
+        ) from exc
+    if not np.isfinite(out) or out <= 0.0:
+        raise ValueError(
+            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
+        )
+    return out
 
 
 def _normalizeModel(model: str | None) -> str:
@@ -972,6 +993,10 @@ def applyStateShrinkagePrior(
     state: npt.ArrayLike,
     stateVariance: npt.ArrayLike,
     prior: stateShrinkPrior,
+    *,
+    stateShrinkageSpikeOddsMultiplier: float = (
+        _STATE_SHRINKAGE_DEFAULT_SPIKE_ODDS_MULTIPLIER
+    ),
 ) -> stateShrinkResult:
     r"""Apply a fitted spike-and-normal prior to one state vector."""
 
@@ -979,6 +1004,35 @@ def applyStateShrinkagePrior(
     varianceArr = _asFloatVector("stateVariance", stateVariance)
     if stateArr.shape != varianceArr.shape:
         raise ValueError("`state` and `stateVariance` must have the same length")
+    spikeOddsMultiplier = _stateShrinkageSpikeOddsMultiplierValue(
+        stateShrinkageSpikeOddsMultiplier
+    )
+    priorSpikeProp = float(prior.priorSpikeProp)
+    if (
+        not np.isfinite(priorSpikeProp)
+        or priorSpikeProp <= 0.0
+        or priorSpikeProp >= 1.0
+    ):
+        raise ValueError("`priorSpikeProp` must be finite and strictly between 0 and 1")
+    if spikeOddsMultiplier == 1.0:
+        effectivePriorSpikeProp = priorSpikeProp
+    else:
+        effectivePriorSpikeProp = float(
+            special.expit(
+                math.log(priorSpikeProp)
+                - math.log1p(-priorSpikeProp)
+                + math.log(spikeOddsMultiplier)
+            )
+        )
+        if (
+            not np.isfinite(effectivePriorSpikeProp)
+            or effectivePriorSpikeProp <= 0.0
+            or effectivePriorSpikeProp >= 1.0
+        ):
+            raise ValueError(
+                "`stateShrinkageSpikeOddsMultiplier` makes effective prior spike "
+                "probability invalid"
+            )
     priorSlabVariance, priorSlabWeight = _priorSlabArrays(prior)
     (
         shrunk,
@@ -989,7 +1043,7 @@ def applyStateShrinkagePrior(
     ) = _posterior(
         stateArr,
         varianceArr,
-        priorSpikeProp=float(prior.priorSpikeProp),
+        priorSpikeProp=effectivePriorSpikeProp,
         slabVariance=priorSlabVariance,
         slabWeight=priorSlabWeight,
     )
@@ -1000,6 +1054,8 @@ def applyStateShrinkagePrior(
         "has_point_mass": True,
         "interval_count": int(stateArr.size),
         "finite_count": int(np.count_nonzero(valid)),
+        "spike_odds_multiplier": float(spikeOddsMultiplier),
+        "effective_prior_spike_prop": float(effectivePriorSpikeProp),
         "slab_count": int(priorSlabVariance.size),
         "slab_variance": [float(value) for value in priorSlabVariance],
         "slab_weight": [float(value) for value in priorSlabWeight],
@@ -1007,7 +1063,7 @@ def applyStateShrinkagePrior(
             float(value)
             for value in _modelComponentWeights(
                 prior.model,
-                prior.priorSpikeProp,
+                effectivePriorSpikeProp,
                 priorSlabWeight,
             )
         ],
@@ -1049,6 +1105,9 @@ def shrinkStateEB(
     stateShrinkageScaleAnchorWeight: float | None = (
         _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT
     ),
+    stateShrinkageSpikeOddsMultiplier: float = (
+        _STATE_SHRINKAGE_DEFAULT_SPIKE_ODDS_MULTIPLIER
+    ),
     studentTDF: float = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF,
     studentTQuadratureOrder: int = _STATE_SHRINKAGE_DEFAULT_STUDENT_T_QUADRATURE_ORDER,
     maxIter: int = _STATE_SHRINKAGE_DEFAULT_MAX_ITER,
@@ -1069,6 +1128,9 @@ def shrinkStateEB(
     varianceArr = _asFloatVector("stateVariance", stateVariance)
     if stateArr.shape != varianceArr.shape:
         raise ValueError("`state` and `stateVariance` must have the same length")
+    spikeOddsMultiplier = _stateShrinkageSpikeOddsMultiplierValue(
+        stateShrinkageSpikeOddsMultiplier
+    )
     prior = fitStateShrinkagePrior(
         [(stateArr, varianceArr)],
         model=model,
@@ -1085,4 +1147,9 @@ def shrinkStateEB(
         maxNull=maxNull,
         blockSize=blockSize,
     )
-    return applyStateShrinkagePrior(stateArr, varianceArr, prior)
+    return applyStateShrinkagePrior(
+        stateArr,
+        varianceArr,
+        prior,
+        stateShrinkageSpikeOddsMultiplier=spikeOddsMultiplier,
+    )

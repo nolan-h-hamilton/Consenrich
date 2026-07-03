@@ -175,7 +175,7 @@ MUNC_LAMBDA_LOG_COLUMNS = [
     "value",
 ]
 
-PUNC_KAPPA_LOG_COLUMNS = [
+PROCESS_KAPPA_LOG_COLUMNS = [
     "record_type",
     "event",
     "chromosome",
@@ -196,7 +196,7 @@ PUNC_KAPPA_LOG_COLUMNS = [
     "preKappaQTrend",
     "effectiveQLevel",
     "effectiveQTrend",
-    "puncQScale",
+    "processQScale",
     "key",
     "value",
 ]
@@ -304,6 +304,8 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_effective_block_count",
     "state_shrinkage_block_size_intervals",
     "state_shrinkage_prior_spike_prop",
+    "state_shrinkage_spike_odds_multiplier",
+    "state_shrinkage_effective_prior_spike_prop",
     "state_shrinkage_prior_scale",
     "state_shrinkage_prior_variance",
     "state_shrinkage_prior_variance_defined",
@@ -897,6 +899,27 @@ def _genomeOptimizationPathPrefix(experimentName: str) -> str:
     return f"consenrichOutput_{experimentToken}_genome_optimizationPath.v{__version__}"
 
 
+def _precisionReweightingHistogramPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(
+        f"consenrichOutput_{experimentToken}_precisionReweightingHistograms.v{__version__}.png"
+    )
+
+
+def _replicateCalibrationPlotPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(
+        f"consenrichOutput_{experimentToken}_replicateCalibration.v{__version__}.png"
+    )
+
+
+def _deleteBlockCalibrationPlotPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(
+        f"consenrichOutput_{experimentToken}_deleteBlockCalibration.v{__version__}.png"
+    )
+
+
 def _coerceOptimizationPathFrame(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
     if frame.empty:
@@ -1060,6 +1083,713 @@ def _plotOptimizationPathLog(
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("optimizationPath.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _mergePrecisionReweightingHistogramSamples(
+    samples: dict[str, Any],
+    frame: pd.DataFrame,
+    *,
+    sampleSize: int,
+    columns: Sequence[str] = ("lambda", "kappa"),
+) -> None:
+    if isinstance(sampleSize, (bool, np.bool_)):
+        raise ValueError(
+            "precision reweighting histogram sample size must be positive"
+        )
+    sampleSize_ = int(sampleSize)
+    if sampleSize_ <= 0:
+        raise ValueError(
+            "precision reweighting histogram sample size must be positive"
+        )
+    for column in columns:
+        if column not in frame:
+            continue
+        nextValues = pd.to_numeric(frame[column]).to_numpy(dtype=np.float64)
+        if nextValues.size == 0:
+            continue
+        priorityKey = f"_{column}_priority"
+        seenKey = f"_{column}_seen"
+        rngKey = f"_{column}_rng"
+        rng = samples.get(rngKey)
+        if rng is None:
+            rng = np.random.default_rng(1)
+            samples[rngKey] = rng
+        priorValues = np.asarray(samples.get(column, []), dtype=np.float64).reshape(
+            -1
+        )
+        priorPriority = np.asarray(
+            samples.get(priorityKey, []),
+            dtype=np.float64,
+        ).reshape(-1)
+        if priorValues.size != priorPriority.size:
+            priorPriority = rng.random(priorValues.size, dtype=np.float64)
+        nextPriority = rng.random(nextValues.size, dtype=np.float64)
+        mergedValues = np.concatenate((priorValues, nextValues))
+        mergedPriority = np.concatenate((priorPriority, nextPriority))
+        if mergedValues.size > sampleSize_:
+            keep = np.argpartition(mergedPriority, sampleSize_ - 1)[:sampleSize_]
+            mergedValues = mergedValues[keep]
+            mergedPriority = mergedPriority[keep]
+        samples[column] = mergedValues
+        samples[priorityKey] = mergedPriority
+        samples[seenKey] = int(samples.get(seenKey, 0)) + int(nextValues.size)
+
+
+def _histogramBins(values: np.ndarray) -> np.ndarray | int:
+    if values.size <= 1:
+        return 10
+    low = float(np.min(values))
+    high = float(np.max(values))
+    if low <= 0.0:
+        return 40
+    if high <= low:
+        return np.geomspace(low / 1.25, high * 1.25, 21)
+    return np.geomspace(low, high, 41)
+
+
+def _plotPrecisionReweightingHistograms(
+    samples: Mapping[str, Any],
+    path: str | Path,
+    *,
+    dpi: int = 400,
+) -> bool:
+    lambdaValues = np.asarray(samples.get("lambda", []), dtype=np.float64).reshape(
+        -1
+    )
+    kappaValues = np.asarray(samples.get("kappa", []), dtype=np.float64).reshape(-1)
+    lambdaValues = lambdaValues[lambdaValues > 0.0]
+    kappaValues = kappaValues[kappaValues > 0.0]
+    plotItems = []
+    if lambdaValues.size:
+        plotItems.append(
+            (
+                lambdaValues,
+                "Observation precision weights",
+                r"$\lambda_i$",
+                "#003B73",
+            )
+        )
+    if kappaValues.size:
+        plotItems.append(
+            (
+                kappaValues,
+                "Process precision weights",
+                r"$\kappa_i$",
+                "#C65A1E",
+            )
+        )
+    if not plotItems:
+        logger.info(
+            "precisionReweightingHistograms.plot skipped because no enabled "
+            "precision reweighting values were sampled."
+        )
+        return False
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "outputParams.plotPrecisionReweightingHistograms=True but matplotlib "
+            "is not installed. Skipped precision reweighting histogram plot."
+        )
+        return False
+
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    darkBlack = "#050505"
+    gridColor = "#D8D8D8"
+    fig, axes = plt.subplots(
+        1,
+        len(plotItems),
+        figsize=(5.8 * len(plotItems), 4.8),
+        constrained_layout=True,
+    )
+    axesSeq = list(np.ravel(axes))
+    for axis, (values, title, label, color) in zip(axesSeq, plotItems):
+        axis.set_title(title, color=darkBlack)
+        axis.set_xlabel(label, color=darkBlack)
+        axis.set_ylabel("Sampled intervals", color=darkBlack)
+        axis.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+        axis.hist(
+            values,
+            bins=_histogramBins(values),
+            color=color,
+            alpha=0.84,
+            edgecolor=darkBlack,
+            linewidth=0.35,
+        )
+        axis.axvline(
+            float(np.median(values)),
+            color=darkBlack,
+            linewidth=1.2,
+            alpha=0.9,
+            label="median",
+        )
+        if float(np.min(values)) > 0.0 and float(np.max(values)) > float(
+            np.min(values)
+        ):
+            axis.set_xscale("log")
+        axis.legend(loc="best", fontsize=8, frameon=False)
+
+    fig.suptitle("Precision Reweighting Histograms", color=darkBlack)
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info(
+        "precisionReweightingHistograms.output wrote %s dpi=%d",
+        path,
+        int(dpi),
+    )
+    return True
+
+
+def _plotReplicateCalibration(
+    rows: Sequence[Mapping[str, Any]],
+    path: str | Path,
+    *,
+    dpi: int = 400,
+) -> bool:
+    frame = pd.DataFrame(list(rows), columns=GAIN_SUMMARY_COLUMNS)
+    if frame.empty:
+        logger.info("replicateCalibration.plot skipped because no gain rows exist.")
+        return False
+    gain = pd.to_numeric(frame["gain_avg"], errors="coerce").to_numpy(
+        dtype=np.float64
+    )
+    gainSD = pd.to_numeric(frame["gain_std"], errors="coerce").to_numpy(
+        dtype=np.float64
+    )
+    finiteCounts = pd.to_numeric(
+        frame["finite_interval_count"],
+        errors="coerce",
+    ).to_numpy(dtype=np.float64)
+    valid = (finiteCounts > 0.0) & np.isfinite(gain)
+    if not np.any(valid):
+        logger.info(
+            "replicateCalibration.plot skipped because no finite gains were recorded."
+        )
+        return False
+
+    plotFrame = frame.loc[valid].copy()
+    plotGain = gain[valid]
+    plotGainSD = np.nan_to_num(gainSD[valid], nan=0.0, posinf=0.0, neginf=0.0)
+    plotGainSD = np.maximum(plotGainSD, 0.0)
+    replicateIndex = pd.to_numeric(
+        plotFrame["replicate_index"],
+        errors="coerce",
+    ).to_numpy(dtype=np.float64)
+    missingIndex = ~np.isfinite(replicateIndex)
+    if np.any(missingIndex):
+        replicateIndex[missingIndex] = np.arange(
+            1,
+            plotGain.size + 1,
+            dtype=np.float64,
+        )[missingIndex]
+    labels = []
+    for idx, (_rowIndex, row) in enumerate(plotFrame.iterrows()):
+        label = str(row.get("sample_name") or f"replicate_{idx + 1}")
+        if len(label) > 18:
+            label = f"{label[:15]}..."
+        labels.append(label)
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "replicateCalibration.plot skipped because matplotlib is not installed."
+        )
+        return False
+
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    darkBlack = "#050505"
+    navyBlue = "#003B73"
+    burntOrange = "#C65A1E"
+    gridColor = "#D8D8D8"
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(11.6, 4.8),
+        constrained_layout=True,
+    )
+    histAx, gainAx = list(np.ravel(axes))
+
+    histAx.set_title("Replicate Calibration Factors", color=darkBlack)
+    histAx.set_xlabel("Gain", color=darkBlack)
+    histAx.set_ylabel("Replicates", color=darkBlack)
+    histAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    histAx.hist(
+        plotGain,
+        bins=_histogramBins(plotGain),
+        color=navyBlue,
+        alpha=0.84,
+        edgecolor=darkBlack,
+        linewidth=0.35,
+    )
+    histAx.axvline(
+        float(np.median(plotGain)),
+        color=darkBlack,
+        linewidth=1.2,
+        alpha=0.9,
+        label="median",
+    )
+    if float(np.min(plotGain)) > 0.0 and float(np.max(plotGain)) > float(
+        np.min(plotGain)
+    ):
+        histAx.set_xscale("log")
+    histAx.legend(loc="best", fontsize=8, frameon=False)
+
+    x = np.arange(plotGain.size, dtype=np.float64)
+    gainAx.set_title("Replicate Gain by Sample", color=darkBlack)
+    gainAx.set_xlabel("Replicate", color=darkBlack)
+    gainAx.set_ylabel("Gain", color=darkBlack)
+    gainAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    gainAx.errorbar(
+        x,
+        plotGain,
+        yerr=plotGainSD,
+        fmt="o",
+        color=burntOrange,
+        ecolor=navyBlue,
+        elinewidth=1.0,
+        capsize=3.0,
+        markersize=5.0,
+        label="replicate",
+    )
+    gainAx.axhline(
+        1.0,
+        color=darkBlack,
+        linewidth=1.0,
+        alpha=0.75,
+        linestyle="--",
+        label="unit",
+    )
+    if plotGain.size <= 24:
+        gainAx.set_xticks(x)
+        gainAx.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    else:
+        gainAx.set_xticks(x)
+        gainAx.set_xticklabels(
+            [str(int(value)) for value in replicateIndex],
+            rotation=90,
+            fontsize=6,
+        )
+    gainAx.legend(loc="best", fontsize=8, frameon=False)
+
+    fig.suptitle("Replicate Calibration", color=darkBlack)
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info("replicateCalibration.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _deleteBlockBlockFactorValues(
+    factor: Any,
+    calibrationModel: Mapping[str, Any] | None,
+) -> np.ndarray:
+    factorArr = np.asarray(factor, dtype=np.float64).reshape(-1)
+    if factorArr.size == 0:
+        return np.empty(0, dtype=np.float64)
+    if not np.all(np.isfinite(factorArr)) or np.any(factorArr <= 0.0):
+        raise RuntimeError("delete-block calibration factors must be positive finite")
+    calibration = _summaryMapping(calibrationModel)
+    foldRefits = _summaryMapping(calibration.get("fold_refits"))
+    blockLen = _summaryInt(foldRefits.get("block_len_intervals"))
+    if blockLen is None:
+        blockLen = _summaryInt(calibration.get("block_len_intervals"))
+    blockLen = max(1, int(blockLen or 1))
+    starts = np.arange(0, factorArr.size, blockLen, dtype=np.int64)
+    counts = np.minimum(blockLen, factorArr.size - starts).astype(np.float64)
+    return np.add.reduceat(factorArr, starts) / counts
+
+
+def _deleteBlockCoverageRowsForPlot(
+    *,
+    chromosome: str,
+    calibrationModel: Mapping[str, Any] | None,
+    summary: pd.DataFrame | None = None,
+) -> list[dict[str, Any]]:
+    calibration = _summaryMapping(calibrationModel)
+    rawRows = calibration.get("state_uncertainty_coverage")
+    rows: list[Mapping[str, Any]]
+    if isinstance(rawRows, Sequence) and not isinstance(rawRows, (str, bytes)):
+        rows = [row for row in rawRows if isinstance(row, Mapping)]
+    elif summary is not None and not summary.empty:
+        rows = [
+            row
+            for row in summary.to_dict(orient="records")
+            if isinstance(row, Mapping)
+        ]
+    else:
+        rows = []
+    return [{"chromosome": str(chromosome), **dict(row)} for row in rows]
+
+
+def _plotDeleteBlockCalibration(
+    samples: Mapping[str, Any],
+    coverageRows: Sequence[Mapping[str, Any]],
+    path: str | Path,
+    *,
+    dpi: int = 400,
+) -> bool:
+    factorValues = np.asarray(samples.get("factor", []), dtype=np.float64).reshape(-1)
+    factorValues = factorValues[np.isfinite(factorValues) & (factorValues > 0.0)]
+    sdFactorValues = np.sqrt(factorValues)
+    coverageFrame = pd.DataFrame(list(coverageRows))
+    if factorValues.size == 0 and coverageFrame.empty:
+        logger.info(
+            "deleteBlockCalibration.plot skipped because no calibration values exist."
+        )
+        return False
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "deleteBlockCalibration.plot skipped because matplotlib is not installed."
+        )
+        return False
+
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    darkBlack = "#050505"
+    burntOrange = "#C65A1E"
+    green = "#207A4A"
+    violet = "#6A4C93"
+    gridColor = "#D8D8D8"
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(11.6, 8.6),
+        constrained_layout=True,
+    )
+    sdFactorAx, sdCDFax, coverageAx, detailAx = list(np.ravel(axes))
+
+    sdFactorAx.set_title("Block-Level SD Multipliers", color=darkBlack)
+    sdFactorAx.set_xlabel("Block mean SD multiplier", color=darkBlack)
+    sdFactorAx.set_ylabel("Blocks", color=darkBlack)
+    sdFactorAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    if sdFactorValues.size:
+        sdFactorAx.hist(
+            sdFactorValues,
+            bins=_histogramBins(sdFactorValues),
+            color=violet,
+            alpha=0.84,
+            edgecolor=darkBlack,
+            linewidth=0.35,
+        )
+        sdFactorAx.axvline(
+            float(np.median(sdFactorValues)),
+            color=darkBlack,
+            linewidth=1.2,
+            alpha=0.9,
+            label="median",
+        )
+        if float(np.min(sdFactorValues)) > 0.0 and float(
+            np.max(sdFactorValues)
+        ) > float(np.min(sdFactorValues)):
+            sdFactorAx.set_xscale("log")
+        sdFactorAx.legend(loc="best", fontsize=8, frameon=False)
+    else:
+        sdFactorAx.text(
+            0.5,
+            0.5,
+            "No factor values",
+            transform=sdFactorAx.transAxes,
+            ha="center",
+            va="center",
+            color=darkBlack,
+        )
+
+    sdCDFax.set_title("SD Multiplier ECDF", color=darkBlack)
+    sdCDFax.set_xlabel("Block mean SD multiplier", color=darkBlack)
+    sdCDFax.set_ylabel("Cumulative fraction", color=darkBlack)
+    sdCDFax.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    if sdFactorValues.size:
+        sortedSD = np.sort(sdFactorValues)
+        cumulative = (np.arange(sortedSD.size, dtype=np.float64) + 1.0) / float(
+            sortedSD.size
+        )
+        sdCDFax.plot(
+            sortedSD,
+            cumulative,
+            color=violet,
+            linewidth=1.4,
+            label="ECDF",
+        )
+        sdCDFax.axvline(
+            float(np.median(sdFactorValues)),
+            color=darkBlack,
+            linewidth=1.2,
+            alpha=0.9,
+            label="median",
+        )
+        if float(np.min(sdFactorValues)) > 0.0 and float(
+            np.max(sdFactorValues)
+        ) > float(np.min(sdFactorValues)):
+            sdCDFax.set_xscale("log")
+        sdCDFax.legend(loc="best", fontsize=8, frameon=False)
+    else:
+        sdCDFax.text(
+            0.5,
+            0.5,
+            "No factor values",
+            transform=sdCDFax.transAxes,
+            ha="center",
+            va="center",
+            color=darkBlack,
+        )
+
+    def weightedRows(
+        frame: pd.DataFrame,
+        groupColumn: str,
+        valueColumns: Sequence[str],
+    ) -> pd.DataFrame:
+        rows = []
+        for groupValue, group in frame.groupby(groupColumn, sort=True):
+            weight = group["n"].to_numpy(dtype=np.float64)
+            weightTotal = float(np.sum(weight))
+            if weightTotal <= 0.0:
+                continue
+            row: dict[str, Any] = {groupColumn: groupValue}
+            for column in valueColumns:
+                values = group[column].to_numpy(dtype=np.float64)
+                row[column] = float(np.sum(values * weight) / weightTotal)
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    requiredCoverageColumns = {
+        "stratum",
+        "target",
+        "n",
+        "coverage_before",
+        "coverage_after",
+    }
+    if requiredCoverageColumns <= set(coverageFrame.columns):
+        coveragePlotFrame = coverageFrame.copy()
+        for column in (
+            "target",
+            "n",
+            "coverage_before",
+            "coverage_after",
+            "median_width_before",
+            "median_width_after",
+        ):
+            if column in coveragePlotFrame:
+                coveragePlotFrame[column] = pd.to_numeric(
+                    coveragePlotFrame[column],
+                    errors="coerce",
+                )
+        coveragePlotFrame = coveragePlotFrame.dropna(
+            subset=["target", "n", "coverage_before", "coverage_after"]
+        )
+        coveragePlotFrame = coveragePlotFrame[coveragePlotFrame["n"] > 0.0]
+        overallFrame = coveragePlotFrame[
+            coveragePlotFrame["stratum"].astype(str) == "overall"
+        ].copy()
+    else:
+        coveragePlotFrame = pd.DataFrame()
+        overallFrame = pd.DataFrame()
+
+    coverageAx.set_title("Coverage Calibration", color=darkBlack)
+    coverageAx.set_xlabel("Nominal coverage", color=darkBlack)
+    coverageAx.set_ylabel("Observed coverage", color=darkBlack)
+    coverageAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    if overallFrame.empty:
+        coverageAx.text(
+            0.5,
+            0.5,
+            "No coverage rows",
+            transform=coverageAx.transAxes,
+            ha="center",
+            va="center",
+            color=darkBlack,
+        )
+    else:
+        groupedFrame = weightedRows(
+            overallFrame,
+            "target",
+            ("coverage_before", "coverage_after"),
+        ).sort_values(
+            "target",
+            kind="mergesort",
+        )
+        targetValues = groupedFrame["target"].to_numpy(dtype=np.float64)
+        rawValues = groupedFrame["coverage_before"].to_numpy(dtype=np.float64)
+        calibratedValues = groupedFrame["coverage_after"].to_numpy(dtype=np.float64)
+        plotValues = np.concatenate((targetValues, rawValues, calibratedValues))
+        axisMin = max(0.0, float(np.min(plotValues)) - 0.02)
+        axisMax = min(1.0, float(np.max(plotValues)) + 0.02)
+        coverageAx.plot(
+            [axisMin, axisMax],
+            [axisMin, axisMax],
+            color=darkBlack,
+            linewidth=1.0,
+            linestyle="--",
+            alpha=0.65,
+            label="target",
+        )
+        coverageAx.plot(
+            targetValues,
+            rawValues,
+            marker="o",
+            color=burntOrange,
+            linewidth=1.2,
+            label="raw",
+        )
+        coverageAx.plot(
+            targetValues,
+            calibratedValues,
+            marker="o",
+            color=green,
+            linewidth=1.2,
+            label="calibrated",
+        )
+        coverageAx.set_xlim(axisMin, axisMax)
+        coverageAx.set_ylim(axisMin, axisMax)
+        coverageAx.legend(loc="best", fontsize=8, frameon=False)
+
+    detailAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    strataFrame = pd.DataFrame()
+    if not coveragePlotFrame.empty:
+        strataFrame = coveragePlotFrame[
+            coveragePlotFrame["stratum"].astype(str) != "overall"
+        ].copy()
+    if not strataFrame.empty:
+        targetValue = float(np.max(strataFrame["target"].to_numpy(dtype=np.float64)))
+        targetFrame = strataFrame[
+            np.isclose(strataFrame["target"].to_numpy(dtype=np.float64), targetValue)
+        ].copy()
+        strataPlotFrame = weightedRows(
+            targetFrame,
+            "stratum",
+            ("coverage_before", "coverage_after"),
+        )
+        if not strataPlotFrame.empty:
+            x = np.arange(len(strataPlotFrame), dtype=np.float64)
+            width = 0.38
+            detailAx.set_title(
+                f"Strata Coverage at Target {targetValue:.2f}",
+                color=darkBlack,
+            )
+            detailAx.set_ylabel("Observed coverage", color=darkBlack)
+            detailAx.bar(
+                x - width / 2.0,
+                strataPlotFrame["coverage_before"].to_numpy(dtype=np.float64),
+                width=width,
+                color=burntOrange,
+                alpha=0.84,
+                label="raw",
+            )
+            detailAx.bar(
+                x + width / 2.0,
+                strataPlotFrame["coverage_after"].to_numpy(dtype=np.float64),
+                width=width,
+                color=green,
+                alpha=0.84,
+                label="calibrated",
+            )
+            detailAx.axhline(
+                targetValue,
+                color=darkBlack,
+                linewidth=1.0,
+                linestyle="--",
+                alpha=0.65,
+                label="target",
+            )
+            detailAx.set_ylim(0.0, 1.0)
+            detailAx.set_xticks(x)
+            detailAx.set_xticklabels(
+                strataPlotFrame["stratum"].astype(str),
+                rotation=45,
+                ha="right",
+                fontsize=8,
+            )
+            detailAx.legend(loc="best", fontsize=8, frameon=False)
+        else:
+            strataFrame = pd.DataFrame()
+    if strataFrame.empty:
+        widthColumns = {
+            "target",
+            "median_width_before",
+            "median_width_after",
+        }
+        widthFrame = (
+            overallFrame.dropna(
+                subset=["target", "median_width_before", "median_width_after"]
+            ).copy()
+            if widthColumns <= set(overallFrame.columns)
+            else pd.DataFrame()
+        )
+        if widthFrame.empty:
+            detailAx.set_title("Coverage Detail", color=darkBlack)
+            detailAx.text(
+                0.5,
+                0.5,
+                "No strata rows",
+                transform=detailAx.transAxes,
+                ha="center",
+                va="center",
+                color=darkBlack,
+            )
+        else:
+            widthPlotFrame = weightedRows(
+                widthFrame,
+                "target",
+                ("median_width_before", "median_width_after"),
+            ).sort_values(
+                "target",
+                kind="mergesort",
+            )
+            detailAx.set_title("Median Width by Coverage Target", color=darkBlack)
+            detailAx.set_xlabel("Nominal coverage", color=darkBlack)
+            detailAx.set_ylabel("Median interval width", color=darkBlack)
+            detailAx.plot(
+                widthPlotFrame["target"].to_numpy(dtype=np.float64),
+                widthPlotFrame["median_width_before"].to_numpy(dtype=np.float64),
+                marker="o",
+                color=burntOrange,
+                linewidth=1.2,
+                label="raw",
+            )
+            detailAx.plot(
+                widthPlotFrame["target"].to_numpy(dtype=np.float64),
+                widthPlotFrame["median_width_after"].to_numpy(dtype=np.float64),
+                marker="o",
+                color=green,
+                linewidth=1.2,
+                label="calibrated",
+            )
+            detailAx.legend(loc="best", fontsize=8, frameon=False)
+
+    fig.suptitle("Delete-Block Calibration", color=darkBlack)
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info("deleteBlockCalibration.output wrote %s dpi=%d", path, int(dpi))
     return True
 
 
@@ -1816,7 +2546,7 @@ def _appendMuncLambdaDiagnostics(
     return rowsWritten
 
 
-def _appendPuncKappaDiagnostics(
+def _appendProcessKappaDiagnostics(
     frame: pd.DataFrame,
     path: Path,
     *,
@@ -1851,7 +2581,7 @@ def _appendPuncKappaDiagnostics(
     out = pd.DataFrame(
         {
             "record_type": "interval",
-            "event": "punc_kappa.interval",
+            "event": "process_kappa.interval",
             "chromosome": outFrame["Chromosome"],
             "start": outFrame["Start"],
             "end": outFrame["End"],
@@ -1879,26 +2609,26 @@ def _appendPuncKappaDiagnostics(
         }
     )
     outputTracks = precisionDiagnostics.get("outputTracks", {})
-    if isinstance(outputTracks, Mapping) and "puncQScale" in outputTracks:
-        track = np.asarray(outputTracks["puncQScale"], dtype=np.float64).reshape(-1)
+    if isinstance(outputTracks, Mapping) and "processQScale" in outputTracks:
+        track = np.asarray(outputTracks["processQScale"], dtype=np.float64).reshape(-1)
         if track.shape[0] == len(frame):
-            out["puncQScale"] = track[rowPositions]
+            out["processQScale"] = track[rowPositions]
         elif track.shape[0] == len(outFrame):
-            out["puncQScale"] = track
+            out["processQScale"] = track
     rowsWritten = _appendJsonlRecords(path, out)
     processNoise = runDiagnostics.get("process_noise_calibration")
     if isinstance(processNoise, Mapping):
         _appendMappingDiagnostics(
             path,
             recordType="summary",
-            event="punc_kappa.process_noise_calibration",
+            event="process_kappa.process_noise_calibration",
             chromosome=chromosome,
             values=processNoise,
         )
     _appendMappingDiagnostics(
         path,
         recordType="summary",
-        event="punc_kappa.summary",
+        event="process_kappa.summary",
         chromosome=chromosome,
         values={
             **sampling,
@@ -1999,6 +2729,12 @@ def _stateShrinkageSummaryFields(
         ),
         "state_shrinkage_prior_spike_prop": _summaryNumber(
             stateShrinkage.get("prior_spike_prop")
+        ),
+        "state_shrinkage_spike_odds_multiplier": _summaryNumber(
+            stateShrinkage.get("spike_odds_multiplier")
+        ),
+        "state_shrinkage_effective_prior_spike_prop": _summaryNumber(
+            stateShrinkage.get("effective_prior_spike_prop")
         ),
         "state_shrinkage_prior_scale": _summaryNumber(
             stateShrinkage.get("prior_scale")
@@ -2599,28 +3335,6 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
     for parameterName in (
         "processNoiseCalibration",
-        "qPriorLevel",
-        "qPriorTrend",
-        "qSeedPriorLevel",
-        "puncLocalWindowMultiplier",
-        "puncDependenceMultiplier",
-        "puncMinScale",
-        "puncMaxScale",
-        "puncMinWindowWeight",
-        "puncPriorDf",
-        "puncPriorRidge",
-        "puncLevelBufferZ",
-        "puncUseReliabilityWeightedWindows",
-        "puncUseWarmupFit",
-        "puncUseTransitionEvidence",
-        "puncUseScaleRebase",
-        "puncUseGlobalScale",
-        "puncUseBoundaryClamps",
-        "puncUsePriorDfMoments",
-        "puncUsePriorShrinkage",
-        "puncProcessCovariatesEnabled",
-        "puncProcessCovariatesMode",
-        "puncProcessCovariatesFeatures",
     ):
         if hasattr(processArgs, parameterName) and _coreRunConsenrichSupports(
             parameterName
@@ -2707,58 +3421,11 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             ),
         ),
         (
-            "q prior level",
-            float(
-                getattr(
-                    processArgs,
-                    "qPriorLevel",
-                    constants.PROCESS_DEFAULT_Q_PRIOR_LEVEL,
-                )
-            ),
-        ),
-        (
-            "q prior trend",
-            float(
-                getattr(
-                    processArgs,
-                    "qPriorTrend",
-                    constants.PROCESS_DEFAULT_Q_PRIOR_TREND,
-                )
-            ),
-        ),
-        (
             "process noise calibration",
             getattr(
                 processArgs,
                 "processNoiseCalibration",
                 constants.PROCESS_DEFAULT_NOISE_CALIBRATION,
-            ),
-        ),
-        (
-            "PUNC scale bounds",
-            (
-                f"[{float(getattr(processArgs, 'puncMinScale', constants.PROCESS_DEFAULT_PUNC_MIN_SCALE)):.6g}, "
-                f"{float(getattr(processArgs, 'puncMaxScale', constants.PROCESS_DEFAULT_PUNC_MAX_SCALE)):.6g}]"
-            ),
-        ),
-        (
-            "PUNC level buffer z",
-            float(
-                getattr(
-                    processArgs,
-                    "puncLevelBufferZ",
-                    constants.PROCESS_DEFAULT_PUNC_LEVEL_BUFFER_Z,
-                )
-            ),
-        ),
-        (
-            "PUNC reliability weighted windows",
-            yn(
-                getattr(
-                    processArgs,
-                    "puncUseReliabilityWeightedWindows",
-                    constants.PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS,
-                )
             ),
         ),
         (
@@ -4669,10 +5336,8 @@ def main():
         for sampleIndex, fragmentLengthBP in enumerate(
             characteristicFragmentLengthsTreatment
         ):
-            windowIntervals = max(
-                1,
-                int(math.ceil(float(fragmentLengthBP) / float(intervalSizeBP))),
-            )
+            fragmentIntervals = int(float(fragmentLengthBP) // float(intervalSizeBP))
+            windowIntervals = max(1, fragmentIntervals + 1)
             smoothingWindows.append(windowIntervals)
             rowArr = inputArr[sampleIndex, :]
             if bool(varianceLike):
@@ -5959,8 +6624,6 @@ def main():
             minQ=float(seedMinQ),
             maxQ=float(seedMaxQ),
             deltaF=float(seedDeltaF),
-            puncMaxScale=float(processArgs.puncMaxScale),
-            processNoiseCalibration=constants.PROCESS_NOISE_CALIBRATION_SEED,
             robustTNu=float(
                 getattr(
                     observationArgs,
@@ -7148,9 +7811,19 @@ def main():
     )
 
     stateDiagnosticsByChromosome: Dict[str, Any] = {}
-    writeStateShrinkageTracks = bool(getattr(outputArgs, "writeStateShrinkage", False))
+    stateShrinkageEnabled = bool(
+        getattr(
+            outputArgs,
+            "stateShrinkageEnabled",
+            constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_ENABLED,
+        )
+    )
+    writeStateShrinkageTracks = bool(
+        stateShrinkageEnabled and getattr(outputArgs, "writeStateShrinkage", False)
+    )
     useShrunkStateScores = bool(
-        peakCallingEnabled
+        stateShrinkageEnabled
+        and peakCallingEnabled
         and getattr(
             matchingArgs,
             "useShrunkStateScores",
@@ -7169,7 +7842,7 @@ def main():
     )
     if any(trackName != "slope" for trackName in diagnosticTrackNames):
         logger.info(
-            "MUNC/omega and PUNC/kappa diagnostic tracks are written to category logs; "
+            "MUNC/omega and process/kappa diagnostic tracks are written to category logs. "
             "only slope remains a bedGraph diagnostic track."
         )
     for trackName in stateDiagnosticTrackNames:
@@ -7199,6 +7872,14 @@ def main():
             "order differs."
         )
     genomeOptimizationPathRows: List[Mapping[str, Any]] = []
+    precisionReweightingHistogramSamples: dict[str, Any] = {
+        "lambda": np.empty(0, dtype=np.float64),
+        "kappa": np.empty(0, dtype=np.float64),
+    }
+    deleteBlockCalibrationPlotSamples: dict[str, Any] = {
+        "factor": np.empty(0, dtype=np.float64),
+    }
+    deleteBlockCalibrationCoverageRows: List[Mapping[str, Any]] = []
     runSummaryRows: List[Dict[str, Any]] = []
     segShrinkGenomeRequested = bool(
         outputArgs.writeUncertainty
@@ -7728,6 +8409,37 @@ def main():
                 pad=pad_,
                 precisionDiagnostics=precisionDiagnostics,
             )
+            if bool(
+                getattr(
+                    outputArgs,
+                    "plotPrecisionReweightingHistograms",
+                    constants.OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS,
+                )
+            ):
+                histogramColumns = []
+                if precisionDiagnostics.get("lambdaExp") is not None:
+                    histogramColumns.append("lambda")
+                if (
+                    precisionDiagnostics.get("processPrecExp") is not None
+                    and bool(
+                        precisionDiagnostics.get(
+                            "process_precision_reweighting_effective",
+                            True,
+                        )
+                    )
+                ):
+                    histogramColumns.append("kappa")
+                if histogramColumns:
+                    _mergePrecisionReweightingHistogramSamples(
+                        precisionReweightingHistogramSamples,
+                        precisionFrame,
+                        sampleSize=getattr(
+                            outputArgs,
+                            "precisionReweightingHistogramSampleSize",
+                            constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
+                        ),
+                        columns=histogramColumns,
+                    )
             _appendMuncLambdaDiagnostics(
                 precisionFrame,
                 diagnosticLogPaths.precision,
@@ -7736,7 +8448,7 @@ def main():
                 detail=outputArgs.precisionDiagnosticDetail,
                 maxRowsPerChromosome=outputArgs.maxPrecisionDiagnosticRowsPerChromosome,
             )
-            _appendPuncKappaDiagnostics(
+            _appendProcessKappaDiagnostics(
                 precisionFrame,
                 diagnosticLogPaths.precision,
                 chromosome=chromosome,
@@ -8007,8 +8719,32 @@ def main():
                             calibrationResult.calibratedUncertainty,
                             dtype=np.float32,
                         ),
+                        "summary": calibrationResult.summary.copy(),
                         "summaryRowIndex": len(runSummaryRows),
                     }
+                )
+            else:
+                blockFactors = _deleteBlockBlockFactorValues(
+                    deleteBlockFactor,
+                    calibrationModel,
+                )
+                if blockFactors.size:
+                    _mergePrecisionReweightingHistogramSamples(
+                        deleteBlockCalibrationPlotSamples,
+                        pd.DataFrame({"factor": blockFactors}),
+                        sampleSize=getattr(
+                            outputArgs,
+                            "precisionReweightingHistogramSampleSize",
+                            constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
+                        ),
+                        columns=("factor",),
+                    )
+                deleteBlockCalibrationCoverageRows.extend(
+                    _deleteBlockCoverageRowsForPlot(
+                        chromosome=chromosome,
+                        calibrationModel=calibrationModel,
+                        summary=calibrationResult.summary,
+                    )
                 )
 
         if writeStateShrunkTrack:
@@ -8324,6 +9060,30 @@ def main():
                     chromosome=chromosome,
                     values=itemModel,
                 )
+            blockFactors = _deleteBlockBlockFactorValues(item["factor"], itemModel)
+            if blockFactors.size:
+                _mergePrecisionReweightingHistogramSamples(
+                    deleteBlockCalibrationPlotSamples,
+                    pd.DataFrame({"factor": blockFactors}),
+                    sampleSize=getattr(
+                        outputArgs,
+                        "precisionReweightingHistogramSampleSize",
+                        constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
+                    ),
+                    columns=("factor",),
+                )
+            itemSummary = item.get("summary")
+            deleteBlockCalibrationCoverageRows.extend(
+                _deleteBlockCoverageRowsForPlot(
+                    chromosome=chromosome,
+                    calibrationModel=itemModel,
+                    summary=(
+                        itemSummary
+                        if isinstance(itemSummary, pd.DataFrame)
+                        else None
+                    ),
+                )
+            )
         logger.info(
             "segShrink processed-genome finalization wrote uncertainty bedGraph for %d contigs: %s",
             int(len(finalizedSegShrink)),
@@ -8391,6 +9151,11 @@ def main():
                 item["state"],
                 item["variance"],
                 stateShrinkPrior,
+                stateShrinkageSpikeOddsMultiplier=getattr(
+                    outputArgs,
+                    "stateShrinkageSpikeOddsMultiplier",
+                    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER,
+                ),
             )
             stateDiagnosticsByChromosome.setdefault(chromosome, {})[
                 "state_shrinkage"
@@ -8446,6 +9211,11 @@ def main():
             gainRows,
             _replicateGainSummaryPath(str(experimentName)),
         )
+        _plotReplicateCalibration(
+            gainRows,
+            _replicateCalibrationPlotPath(str(experimentName)),
+            dpi=400,
+        )
 
     if correlationLengthRow_ is not None:
         _writeCorrelationLengthSummary(
@@ -8480,6 +9250,39 @@ def main():
         _plotGenomeOptimizationPathLog(
             genomeOptimizationPathRows,
             f"{genomeOptimizationPathPrefix}.png",
+            dpi=400,
+        )
+
+    if (
+        bool(
+            getattr(
+                outputArgs,
+                "plotPrecisionReweightingHistograms",
+                constants.OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS,
+            )
+        )
+        and (
+            precisionReweightingHistogramSamples["lambda"].size
+            or precisionReweightingHistogramSamples["kappa"].size
+        )
+    ):
+        _plotPrecisionReweightingHistograms(
+            precisionReweightingHistogramSamples,
+            _precisionReweightingHistogramPath(str(experimentName)),
+            dpi=400,
+        )
+
+    if (
+        bool(outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled)
+        and (
+            deleteBlockCalibrationPlotSamples["factor"].size
+            or deleteBlockCalibrationCoverageRows
+        )
+    ):
+        _plotDeleteBlockCalibration(
+            deleteBlockCalibrationPlotSamples,
+            deleteBlockCalibrationCoverageRows,
+            _deleteBlockCalibrationPlotPath(str(experimentName)),
             dpi=400,
         )
 

@@ -612,6 +612,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.writeRunSummary: false
     outputParams.precisionDiagnosticDetail: sampled
     outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
+    outputParams.plotPrecisionReweightingHistograms: false
+    outputParams.precisionReweightingHistogramSampleSize: 123
     outputParams.maxNonTrackFileBytes: 1024
     observationParams.muncDependenceMinContextSizeBP: 5000
     observationParams.muncTrendBlockDependenceMultiplier: 1.75
@@ -654,6 +656,8 @@ def _case_readConfigDottedAndNestedEquivalent(
       writeRunSummary: false
       precisionDiagnosticDetail: sampled
       maxPrecisionDiagnosticRowsPerChromosome: 7
+      plotPrecisionReweightingHistograms: false
+      precisionReweightingHistogramSampleSize: 123
       maxNonTrackFileBytes: 1024
     observationParams:
       muncDependenceMinContextSizeBP: 5000
@@ -751,6 +755,10 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputNested.precisionDiagnosticDetail == "sampled"
     assert outputDotted.maxPrecisionDiagnosticRowsPerChromosome == 7
     assert outputNested.maxPrecisionDiagnosticRowsPerChromosome == 7
+    assert outputDotted.plotPrecisionReweightingHistograms is False
+    assert outputNested.plotPrecisionReweightingHistograms is False
+    assert outputDotted.precisionReweightingHistogramSampleSize == 123
+    assert outputNested.precisionReweightingHistogramSampleSize == 123
     assert outputDotted.maxNonTrackFileBytes == 1024
     assert outputNested.maxNonTrackFileBytes == 1024
     assert outputDotted == outputNested
@@ -862,25 +870,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     genomeParams.name: testGenome
     processParams:
       stateModel: level
-      processNoiseCalibration: punc
-      puncLocalWindowMultiplier: 3.0
-      puncDependenceMultiplier: 1.5
-      puncMinScale: 0.5
-      puncMaxScale: 3.0
-      puncMinWindowWeight: 2.0
-      puncPriorDf: 6.0
-      puncPriorRidge: 0.002
-      puncLevelBufferZ: 1.25
-      puncUseReliabilityWeightedWindows: false
-      puncUseWarmupFit: false
-      puncUseTransitionEvidence: false
-      puncUseScaleRebase: false
-      puncUseGlobalScale: false
-      puncUseBoundaryClamps: false
-      puncUsePriorDfMoments: false
-      puncUsePriorShrinkage: false
-      qPriorLevel: 2.0e-3
-      qPriorTrend: 4.0e-4
+      processNoiseCalibration: fixedDiagonal
       qSeedPriorLevel: 3.0e-8
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
@@ -900,26 +890,9 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
 
     assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
     assert (
-        processArgs.processNoiseCalibration == constants.PROCESS_NOISE_CALIBRATION_PUNC
+        processArgs.processNoiseCalibration
+        == constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
     )
-    assert processArgs.puncPriorDf == pytest.approx(6.0)
-    assert processArgs.puncLocalWindowMultiplier == pytest.approx(3.0)
-    assert processArgs.puncDependenceMultiplier == pytest.approx(1.5)
-    assert processArgs.puncMinScale == pytest.approx(0.5)
-    assert processArgs.puncMaxScale == pytest.approx(3.0)
-    assert processArgs.puncMinWindowWeight == pytest.approx(2.0)
-    assert processArgs.puncPriorRidge == pytest.approx(0.002)
-    assert processArgs.puncLevelBufferZ == pytest.approx(1.25)
-    assert processArgs.puncUseReliabilityWeightedWindows is False
-    assert processArgs.puncUseWarmupFit is False
-    assert processArgs.puncUseTransitionEvidence is False
-    assert processArgs.puncUseScaleRebase is False
-    assert processArgs.puncUseGlobalScale is False
-    assert processArgs.puncUseBoundaryClamps is False
-    assert processArgs.puncUsePriorDfMoments is False
-    assert processArgs.puncUsePriorShrinkage is False
-    assert processArgs.qPriorLevel == pytest.approx(2.0e-3)
-    assert processArgs.qPriorTrend == pytest.approx(4.0e-4)
     assert processArgs.qSeedPriorLevel == pytest.approx(3.0e-8)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
@@ -980,8 +953,6 @@ def _case_readConfigMuncCovariates(tmp_path, monkeypatch: pytest.MonkeyPatch):
         == constants.MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
     )
     assert parsed["observationArgs"].muncCovariatesFeatures == ("gc", "repeat_frac")
-    assert parsed["processArgs"].puncProcessCovariatesEnabled is False
-    assert parsed["processArgs"].puncProcessCovariatesFeatures == ()
 
 
 def _case_readConfigMuncCovariatesAcceptsManifestFeatureNames(
@@ -1110,17 +1081,7 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert (
         parsed["processArgs"].processNoiseCalibration
-        == constants.PROCESS_NOISE_CALIBRATION_PUNC
-    )
-    assert parsed["processArgs"].puncMinScale == pytest.approx(
-        constants.PROCESS_DEFAULT_PUNC_MIN_SCALE
-    )
-    assert parsed["processArgs"].puncMaxScale == pytest.approx(
-        constants.PROCESS_DEFAULT_PUNC_MAX_SCALE
-    )
-    assert (
-        parsed["processArgs"].puncUseReliabilityWeightedWindows
-        is constants.PROCESS_DEFAULT_PUNC_USE_RELIABILITY_WEIGHTED_WINDOWS
+        == constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
     )
     assert (
         parsed["observationArgs"].useReplicateTrends
@@ -1137,6 +1098,10 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     assert (
         parsed["outputArgs"].stateShrinkageModel
         == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
+    )
+    assert parsed["outputArgs"].stateShrinkageEnabled is True
+    assert parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier == pytest.approx(
+        1.0
     )
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight is None
 
@@ -1165,10 +1130,14 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
         "observationParams.dependenceAcfMinEvidenceNats",
+        "outputParams.stateShrinkageEnabled",
         "outputParams.stateShrinkageModel",
+        "outputParams.stateShrinkageSpikeOddsMultiplier",
         "outputParams.stateShrinkageScaleAnchorWeight",
         "outputParams.stateShrinkageStudentTDF",
         "outputParams.stateShrinkageStudentTQuadratureOrder",
+        "outputParams.plotPrecisionReweightingHistograms",
+        "outputParams.precisionReweightingHistogramSampleSize",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
         "uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho",
@@ -1200,10 +1169,17 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_NORMAL,
         constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T,
     )
+    assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_ENABLED is True
+    assert constants.OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS is True
+    assert constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE == 200_000
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT is None
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_FRACTION == 0.1
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MIN == 1.0e-6
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MAX == 1.0e6
+    assert (
+        constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER
+        == pytest.approx(1.0)
+    )
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT is None
     assert (
         constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_FRACTION
@@ -1325,7 +1301,6 @@ def _case_runtime_defaults_are_centralized(
         consenrich_config.DEFAULT_CONFIGURATION_KEYS
         is constants.DEFAULT_CONFIGURATION_KEYS
     )
-    assert hasattr(constants, "PROCESS_DEFAULT_PUNC_PRIOR_DF")
     assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
     assert (
         parsed["samArgs"].defaultCountMode
@@ -1335,31 +1310,15 @@ def _case_runtime_defaults_are_centralized(
         parsed["scArgs"].defaultCountMode
         == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
     )
-    assert constants.PROCESS_DEFAULT_PUNC_DEADBAND_PRIOR_WEIGHT == pytest.approx(0.99)
-    assert constants.PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_MIN_WINDOWS == 16
     assert constants.EB_PRIOR_STRENGTH_WINSOR_TAIL == pytest.approx(0.01)
-    assert (
-        constants.PROCESS_DEFAULT_PUNC_PRIOR_DF_MOMENTS_WINSOR_TAIL
-        == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
-    )
     assert (
         constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL
         == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
-    )
-    assert (
-        profile["processParams.puncPriorDf"]
-        == constants.PROCESS_DEFAULT_PUNC_PRIOR_DF
     )
     assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
     assert (
         parsed["processArgs"].processNoiseCalibration
         == profile["processParams.processNoiseCalibration"]
-    )
-    assert parsed["processArgs"].puncMinScale == profile["processParams.puncMinScale"]
-    assert parsed["processArgs"].puncMaxScale == profile["processParams.puncMaxScale"]
-    assert (
-        parsed["processArgs"].puncUseReliabilityWeightedWindows
-        == profile["processParams.puncUseReliabilityWeightedWindows"]
     )
     assert (
         parsed["processArgs"].processNoiseWarmupECMIters
@@ -1488,12 +1447,28 @@ def _case_runtime_defaults_are_centralized(
         == profile["outputParams.stateShrinkageModel"]
     )
     assert (
+        parsed["outputArgs"].stateShrinkageEnabled
+        == profile["outputParams.stateShrinkageEnabled"]
+    )
+    assert (
         parsed["outputArgs"].stateShrinkageStudentTDF
         == profile["outputParams.stateShrinkageStudentTDF"]
     )
     assert (
         parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder
         == profile["outputParams.stateShrinkageStudentTQuadratureOrder"]
+    )
+    assert (
+        parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier
+        == profile["outputParams.stateShrinkageSpikeOddsMultiplier"]
+    )
+    assert (
+        parsed["outputArgs"].plotPrecisionReweightingHistograms
+        == profile["outputParams.plotPrecisionReweightingHistograms"]
+    )
+    assert (
+        parsed["outputArgs"].precisionReweightingHistogramSampleSize
+        == profile["outputParams.precisionReweightingHistogramSampleSize"]
     )
     assert (
         consenrich_core.outputParams(
@@ -1882,9 +1857,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.centerMB: false
     countingParams.centerMBMethod: savgol
-    processParams.processNoiseCalibration: seed
-    processParams.puncMinScale: 0.75
-    processParams.puncMaxScale: 2.5
+    processParams.processNoiseCalibration: fixed
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
     observationParams.dependenceAcfPointThreshold: 0.02
@@ -1893,12 +1866,16 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
+    outputParams.stateShrinkageEnabled: false
     outputParams.stateShrinkageModel: spikeAndStudentT
     outputParams.stateShrinkagePriorSpikeProp: 0.33
+    outputParams.stateShrinkageSpikeOddsMultiplier: 2.5
     outputParams.stateShrinkageSpikePseudoCount: 2.5
     outputParams.stateShrinkageScaleAnchorWeight: 9
     outputParams.stateShrinkageStudentTDF: 5
     outputParams.stateShrinkageStudentTQuadratureOrder: 32
+    outputParams.plotPrecisionReweightingHistograms: false
+    outputParams.precisionReweightingHistogramSampleSize: 12345
     uncertaintyCalibrationParams.enabled: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.75
@@ -1913,9 +1890,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].centerMB is False
     assert parsed["countingArgs"].centerMBMethod == "savgol"
-    assert parsed["processArgs"].processNoiseCalibration == "seed"
-    assert parsed["processArgs"].puncMinScale == pytest.approx(0.75)
-    assert parsed["processArgs"].puncMaxScale == pytest.approx(2.5)
+    assert parsed["processArgs"].processNoiseCalibration == "fixed"
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
@@ -1926,15 +1901,19 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False
+    assert parsed["outputArgs"].stateShrinkageEnabled is False
     assert (
         parsed["outputArgs"].stateShrinkageModel
         == constants.OUTPUT_STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
     )
     assert parsed["outputArgs"].stateShrinkagePriorSpikeProp == pytest.approx(0.33)
+    assert parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier == pytest.approx(2.5)
     assert parsed["outputArgs"].stateShrinkageSpikePseudoCount == pytest.approx(2.5)
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight == pytest.approx(9.0)
     assert parsed["outputArgs"].stateShrinkageStudentTDF == pytest.approx(5.0)
     assert parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder == 32
+    assert parsed["outputArgs"].plotPrecisionReweightingHistograms is False
+    assert parsed["outputArgs"].precisionReweightingHistogramSampleSize == 12345
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
     assert parsed["matchingArgs"].uncertaintyScoreMode == "lower_confidence"
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(1.75)
@@ -1958,6 +1937,107 @@ def _case_readConfigRejectsLowStateShrinkageStudentTDF(
     with pytest.raises(ValueError, match="stateShrinkageStudentTDF"):
         readConfig(str(configPath))
 
+
+def _case_readConfigRejectsInvalidStateShrinkageSpikeOddsMultiplier(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    for label, value in (
+        ("bool", "true"),
+        ("zero", "0"),
+        ("negative", "-1"),
+        ("inf", ".inf"),
+    ):
+        configYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        outputParams.stateShrinkageSpikeOddsMultiplier: {value}
+        """
+        configPath = writeConfigFile(
+            tmp_path,
+            f"config_bad_state_shrinkage_spike_odds_multiplier_{label}.yaml",
+            configYaml,
+        )
+
+        with pytest.raises(ValueError, match="stateShrinkageSpikeOddsMultiplier"):
+            readConfig(str(configPath))
+
+
+def _case_readConfigRejectsInvalidStateShrinkageEnabled(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    outputParams.stateShrinkageEnabled: 1
+    """
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_bad_state_shrinkage_enabled.yaml",
+        configYaml,
+    )
+
+    with pytest.raises(ValueError, match="stateShrinkageEnabled"):
+        readConfig(str(configPath))
+
+
+def _case_readConfigRejectsInvalidPrecisionReweightingHistogramSettings(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    for label, key, value in (
+        ("plot", "outputParams.plotPrecisionReweightingHistograms", "1"),
+        (
+            "sample_zero",
+            "outputParams.precisionReweightingHistogramSampleSize",
+            "0",
+        ),
+        (
+            "sample_negative",
+            "outputParams.precisionReweightingHistogramSampleSize",
+            "-1",
+        ),
+        (
+            "sample_bool",
+            "outputParams.precisionReweightingHistogramSampleSize",
+            "true",
+        ),
+        (
+            "sample_float",
+            "outputParams.precisionReweightingHistogramSampleSize",
+            "12.5",
+        ),
+        (
+            "sample_inf",
+            "outputParams.precisionReweightingHistogramSampleSize",
+            ".inf",
+        ),
+    ):
+        configYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        {key}: {value}
+        """
+        configPath = writeConfigFile(
+            tmp_path,
+            f"config_bad_precision_histogram_{label}.yaml",
+            configYaml,
+        )
+
+        with pytest.raises(ValueError, match=key.rsplit(".", 1)[-1]):
+            readConfig(str(configPath))
+
+
 def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1970,24 +2050,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     genomeParams.name: testGenome
     processParams:
       processNoiseCalibration: fixed
-      puncLocalWindowMultiplier: 2.5
-      puncDependenceMultiplier: 3.0
-      puncMinScale: 0.5
-      puncMaxScale: 2.5
-      puncMinWindowWeight: 4.0
-      puncPriorDf: 7.0
-      puncPriorRidge: 0.02
-      puncLevelBufferZ: 0.75
-      puncUseReliabilityWeightedWindows: false
-      puncUseWarmupFit: false
-      puncUseTransitionEvidence: false
-      puncUseScaleRebase: false
-      puncUseGlobalScale: false
-      puncUseBoundaryClamps: false
-      puncUsePriorDfMoments: false
-      puncUsePriorShrinkage: false
-      qPriorLevel: 2.0e-3
-      qPriorTrend: 3.0e-4
       qSeedPriorLevel: 4.0e-8
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
@@ -2002,25 +2064,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     supportedProcessKwargs = {
         "processNoiseWarmupOuterPasses",
         "processNoiseCalibration",
-        "qPriorLevel",
-        "qPriorTrend",
-        "qSeedPriorLevel",
-        "puncLocalWindowMultiplier",
-        "puncDependenceMultiplier",
-        "puncMinScale",
-        "puncMaxScale",
-        "puncMinWindowWeight",
-        "puncPriorDf",
-        "puncPriorRidge",
-        "puncLevelBufferZ",
-        "puncUseReliabilityWeightedWindows",
-        "puncUseWarmupFit",
-        "puncUseTransitionEvidence",
-        "puncUseScaleRebase",
-        "puncUseGlobalScale",
-        "puncUseBoundaryClamps",
-        "puncUsePriorDfMoments",
-        "puncUsePriorShrinkage",
     }
     monkeypatch.setattr(
         consenrich_cli,
@@ -2030,25 +2073,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
 
     assert kwargs["processNoiseCalibration"] == "fixed"
-    assert kwargs["qPriorLevel"] == pytest.approx(2.0e-3)
-    assert kwargs["qPriorTrend"] == pytest.approx(3.0e-4)
-    assert kwargs["qSeedPriorLevel"] == pytest.approx(4.0e-8)
-    assert kwargs["puncLocalWindowMultiplier"] == pytest.approx(2.5)
-    assert kwargs["puncDependenceMultiplier"] == pytest.approx(3.0)
-    assert kwargs["puncMinScale"] == pytest.approx(0.5)
-    assert kwargs["puncMaxScale"] == pytest.approx(2.5)
-    assert kwargs["puncMinWindowWeight"] == pytest.approx(4.0)
-    assert kwargs["puncPriorDf"] == pytest.approx(7.0)
-    assert kwargs["puncPriorRidge"] == pytest.approx(0.02)
-    assert kwargs["puncLevelBufferZ"] == pytest.approx(0.75)
-    assert kwargs["puncUseReliabilityWeightedWindows"] is False
-    assert kwargs["puncUseWarmupFit"] is False
-    assert kwargs["puncUseTransitionEvidence"] is False
-    assert kwargs["puncUseScaleRebase"] is False
-    assert kwargs["puncUseGlobalScale"] is False
-    assert kwargs["puncUseBoundaryClamps"] is False
-    assert kwargs["puncUsePriorDfMoments"] is False
-    assert kwargs["puncUsePriorShrinkage"] is False
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
@@ -2283,6 +2307,9 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     for removedField in removedStateFields:
         assert not hasattr(parsedDefault["stateArgs"], removedField)
     defaultArgs = parsedDefault["uncertaintyCalibrationArgs"]
+    defaultOutputArgs = parsedDefault["outputArgs"]
+    assert defaultArgs.enabled is True
+    assert defaultOutputArgs.plotPrecisionReweightingHistograms is True
     assert defaultArgs.mode == constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
     assert (
         defaultArgs.deleteBlockVarianceMode
@@ -3456,6 +3483,18 @@ def test_config_parser_defaults_and_override_contracts(
             _case_readConfigRejectsLowStateShrinkageStudentTDF,
         ),
         (
+            "state shrinkage spike odds multiplier validation",
+            _case_readConfigRejectsInvalidStateShrinkageSpikeOddsMultiplier,
+        ),
+        (
+            "state shrinkage enabled validation",
+            _case_readConfigRejectsInvalidStateShrinkageEnabled,
+        ),
+        (
+            "precision histogram validation",
+            _case_readConfigRejectsInvalidPrecisionReweightingHistogramSettings,
+        ),
+        (
             "process noise warmup pass-through",
             _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
         ),
@@ -3588,7 +3627,7 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             "muncTrace": np.asarray([0.4, 0.2], dtype=np.float64),
             "sumGain0": np.asarray([0.1, 0.2], dtype=np.float64),
             "sumGain1": np.asarray([0.3, 0.4], dtype=np.float64),
-            "puncQScale": np.asarray([1.1, 0.9], dtype=np.float64),
+            "processQScale": np.asarray([1.1, 0.9], dtype=np.float64),
         },
     }
     precisionFrame = consenrich_cli._precisionDiagnosticsFrame(
@@ -3607,7 +3646,7 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             precisionDiagnostics=precisionDiagnostics,
             detail="full",
         ),
-        consenrich_cli._appendPuncKappaDiagnostics(
+        consenrich_cli._appendProcessKappaDiagnostics(
             precisionFrame,
             precisionPath,
             chromosome="chrTest",
@@ -3628,16 +3667,89 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     assert {
         "munc_lambda.interval",
         "munc_lambda.summary",
-        "punc_kappa.interval",
-        "punc_kappa.process_noise_calibration",
-        "punc_kappa.summary",
+        "process_kappa.interval",
+        "process_kappa.process_noise_calibration",
+        "process_kappa.summary",
     } <= precisionEvents
     assert sum(record["record_type"] == "interval" for record in precisionRecords) == 4
     assert precisionRecords[0]["lambda"] == pytest.approx(0.5)
-    firstPunc = next(
-        record for record in precisionRecords if record["event"] == "punc_kappa.interval"
+    firstProcess = next(
+        record
+        for record in precisionRecords
+        if record["event"] == "process_kappa.interval"
     )
-    assert firstPunc["kappa"] == pytest.approx(1.5)
+    assert firstProcess["kappa"] == pytest.approx(1.5)
+    histogramSamples = {
+        "lambda": np.empty(0, dtype=np.float64),
+        "kappa": np.empty(0, dtype=np.float64),
+    }
+    consenrich_cli._mergePrecisionReweightingHistogramSamples(
+        histogramSamples,
+        precisionFrame,
+        sampleSize=1,
+    )
+    np.testing.assert_allclose(histogramSamples["lambda"], [0.5])
+    np.testing.assert_allclose(histogramSamples["kappa"], [1.5])
+    kappaOnlySamples = {
+        "lambda": np.empty(0, dtype=np.float64),
+        "kappa": np.empty(0, dtype=np.float64),
+    }
+    consenrich_cli._mergePrecisionReweightingHistogramSamples(
+        kappaOnlySamples,
+        precisionFrame,
+        sampleSize=1,
+        columns=("kappa",),
+    )
+    assert kappaOnlySamples["lambda"].size == 0
+    np.testing.assert_allclose(kappaOnlySamples["kappa"], [1.5])
+    gainPlotRows = [
+        {
+            "replicate_index": 1,
+            "sample_name": "sampleA",
+            "sample_file": "sampleA",
+            "treatment_path": "sampleA.bam",
+            "control_path": None,
+            "chromosome_count": 2,
+            "finite_interval_count": 10,
+            "gain_avg": 1.2,
+            "gain_std": 0.15,
+        },
+        {
+            "replicate_index": 2,
+            "sample_name": "sampleB",
+            "sample_file": "sampleB",
+            "treatment_path": "sampleB.bam",
+            "control_path": None,
+            "chromosome_count": 2,
+            "finite_interval_count": 8,
+            "gain_avg": 0.9,
+            "gain_std": 0.1,
+        },
+    ]
+    deleteBlockPlotSamples = {"factor": np.asarray([1.0, 1.5, 2.0])}
+    deleteBlockCoverageRows = [
+        {
+            "stratum": "overall",
+            "target": 0.8,
+            "n": 10,
+            "coverage_before": 0.7,
+            "coverage_after": 0.79,
+        },
+        {
+            "stratum": "overall",
+            "target": 0.9,
+            "n": 8,
+            "coverage_before": 0.82,
+            "coverage_after": 0.88,
+        },
+    ]
+    np.testing.assert_allclose(
+        consenrich_cli._deleteBlockBlockFactorValues(
+            np.asarray([1.0, 3.0, 5.0], dtype=np.float64),
+            {"fold_refits": {"block_len_intervals": 2}},
+        ),
+        np.asarray([2.0, 5.0], dtype=np.float64),
+    )
 
     with monkeypatch.context() as mp:
         mp.setitem(sys.modules, "matplotlib", None)
@@ -3645,6 +3757,28 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             consenrich_cli._plotOptimizationPathLog(
                 rows,
                 str(tmp_path / "missing.png"),
+            )
+            is False
+        )
+        assert (
+            consenrich_cli._plotPrecisionReweightingHistograms(
+                histogramSamples,
+                str(tmp_path / "missing_hist.png"),
+            )
+            is False
+        )
+        assert (
+            consenrich_cli._plotReplicateCalibration(
+                gainPlotRows,
+                str(tmp_path / "missing_replicate.png"),
+            )
+            is False
+        )
+        assert (
+            consenrich_cli._plotDeleteBlockCalibration(
+                deleteBlockPlotSamples,
+                deleteBlockCoverageRows,
+                str(tmp_path / "missing_delete_block.png"),
             )
             is False
         )
@@ -3676,6 +3810,18 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         def scatter(self, *args, **kwargs):
             return None
 
+        def hist(self, *args, **kwargs):
+            return None
+
+        def bar(self, *args, **kwargs):
+            return None
+
+        def errorbar(self, *args, **kwargs):
+            return None
+
+        def axvline(self, *args, **kwargs):
+            return None
+
         def annotate(self, *args, **kwargs):
             return None
 
@@ -3686,6 +3832,18 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             return None
 
         def set_ylabel(self, *args, **kwargs):
+            return None
+
+        def set_xticks(self, *args, **kwargs):
+            return None
+
+        def set_xticklabels(self, *args, **kwargs):
+            return None
+
+        def set_xlim(self, *args, **kwargs):
+            return None
+
+        def set_ylim(self, *args, **kwargs):
             return None
 
         def grid(self, *args, **kwargs):
@@ -3709,6 +3867,9 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         def set_yscale(self, *args, **kwargs):
             return None
 
+        def set_xscale(self, *args, **kwargs):
+            return None
+
     fakeMatplotlib.use = lambda *args, **kwargs: None
     fakePyplot.rcParams = {}
     fakePyplot.subplots = lambda *args, **kwargs: (
@@ -3728,6 +3889,80 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             is True
         )
     assert saveCalls == [(str(tmp_path / "optimization.png"), 400)]
+    with monkeypatch.context() as mp:
+        fakePyplot.subplots = lambda *args, **kwargs: (
+            FakeFigure(),
+            [FakeAxis(), FakeAxis()],
+        )
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotPrecisionReweightingHistograms(
+                histogramSamples,
+                str(tmp_path / "precision_hist.png"),
+            )
+            is True
+        )
+    assert saveCalls[-1] == (str(tmp_path / "precision_hist.png"), 400)
+    histogramSubplotCalls = []
+
+    def fakeHistogramSubplots(*args, **kwargs):
+        histogramSubplotCalls.append(args)
+        return FakeFigure(), FakeAxis()
+
+    with monkeypatch.context() as mp:
+        fakePyplot.subplots = fakeHistogramSubplots
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotPrecisionReweightingHistograms(
+                kappaOnlySamples,
+                str(tmp_path / "kappa_hist.png"),
+            )
+            is True
+        )
+    assert histogramSubplotCalls[-1][1] == 1
+    assert saveCalls[-1] == (str(tmp_path / "kappa_hist.png"), 400)
+    assert consenrich_cli._precisionReweightingHistogramPath("exp name").name == (
+        f"consenrichOutput_exp_name_precisionReweightingHistograms.v{consenrich_cli.__version__}.png"
+    )
+    assert consenrich_cli._replicateCalibrationPlotPath("exp name").name == (
+        f"consenrichOutput_exp_name_replicateCalibration.v{consenrich_cli.__version__}.png"
+    )
+    assert consenrich_cli._deleteBlockCalibrationPlotPath("exp name").name == (
+        f"consenrichOutput_exp_name_deleteBlockCalibration.v{consenrich_cli.__version__}.png"
+    )
+    with monkeypatch.context() as mp:
+        fakePyplot.subplots = lambda *args, **kwargs: (
+            FakeFigure(),
+            [FakeAxis(), FakeAxis()],
+        )
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotReplicateCalibration(
+                gainPlotRows,
+                str(tmp_path / "replicate_calibration.png"),
+            )
+            is True
+        )
+    assert saveCalls[-1] == (str(tmp_path / "replicate_calibration.png"), 400)
+    with monkeypatch.context() as mp:
+        fakePyplot.subplots = lambda *args, **kwargs: (
+            FakeFigure(),
+            [[FakeAxis(), FakeAxis()], [FakeAxis(), FakeAxis()]],
+        )
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotDeleteBlockCalibration(
+                deleteBlockPlotSamples,
+                deleteBlockCoverageRows,
+                str(tmp_path / "delete_block_calibration.png"),
+            )
+            is True
+        )
+    assert saveCalls[-1] == (str(tmp_path / "delete_block_calibration.png"), 400)
     genomeRows = rows + [
         {
             **row,
@@ -3789,7 +4024,7 @@ def test_run_summary_output_helpers(tmp_path):
         runDiagnostics={
             "final_nll": 42.0,
             "final_forward_nis": 0.75,
-            "process_q_policy": "punc",
+            "process_q_policy": "fixedDiagonal",
             "process_q_diagnostics": {
                 "effectiveQTraceMin": 0.01,
                 "effectiveQTraceMedian": 0.02,
@@ -3946,6 +4181,8 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "effective_block_count": np.float64(6.0),
         "block_size_intervals": np.int64(3),
         "prior_spike_prop": np.float64(0.4),
+        "spike_odds_multiplier": np.float64(2.5),
+        "effective_prior_spike_prop": np.float64(0.625),
         "prior_scale": np.float64(1.25),
         "prior_variance": np.float64(1.5625),
         "prior_variance_defined": np.bool_(True),
@@ -3993,6 +4230,10 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
     assert record["state_shrinkage_slab_multiplier"] == [0.32, 1.28]
     assert record["state_shrinkage_component_weights"] == [0.4, 0.15, 0.45]
     assert record["state_shrinkage_prior_spike_prop"] == pytest.approx(0.4)
+    assert record["state_shrinkage_spike_odds_multiplier"] == pytest.approx(2.5)
+    assert record["state_shrinkage_effective_prior_spike_prop"] == pytest.approx(
+        0.625
+    )
     assert record["state_shrinkage_estimated_prior_spike_prop"] is True
     assert record["state_shrinkage_student_t_df"] == pytest.approx(3.0)
     assert record["state_shrinkage_student_t_scale"] == pytest.approx(

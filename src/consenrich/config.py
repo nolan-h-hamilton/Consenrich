@@ -143,7 +143,7 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
         "prekappaqtrend": "preKappaQTrend",
         "effectiveqlevel": "effectiveQLevel",
         "effectiveqtrend": "effectiveQTrend",
-        "puncqscale": "puncQScale",
+        "processqscale": "processQScale",
         "munctrace": "muncTrace",
         "rtrace": "muncTrace",
         "sumgain0": "sumGain0",
@@ -511,35 +511,6 @@ def _normalizeProcessNoiseCalibration(value: Any) -> str:
     return _sharedNormalizeProcessNoiseCalibration(value)
 
 
-def _normalizePuncCovariatesMode(value: Any) -> str:
-    raw = constants.PROCESS_DEFAULT_PUNC_COVARIATES_MODE if value is None else value
-    key = str(raw).strip().replace("-", "").replace("_", "").lower()
-    canonicalByKey = {
-        mode.replace("-", "").replace("_", "").lower(): mode
-        for mode in constants.PUNC_SUPPORTED_COVARIATE_MODES
-    }
-    if key not in canonicalByKey:
-        supported = ", ".join(constants.PUNC_SUPPORTED_COVARIATE_MODES)
-        raise ValueError(
-            f"Unsupported processParams.puncProcessCovariates.mode {raw!r}. "
-            f"Supported modes: {supported}."
-        )
-    return canonicalByKey[key]
-
-
-def _normalizePuncCovariateFeatures(
-    value: Any,
-    *,
-    availableFeatures: Sequence[str] | None = None,
-) -> tuple[str, ...]:
-    return resolve_genome_covariate_feature_config(
-        value,
-        default_features=constants.PROCESS_DEFAULT_PUNC_COVARIATE_FEATURES,
-        available_features=availableFeatures,
-        config_name="processParams.puncProcessCovariates.features",
-    )
-
-
 def _runtimeProcessParamsType(fields: tuple[str, ...]) -> type:
     processArgsType = _PROCESS_ARGS_TYPE_CACHE.get(fields)
     if processArgsType is None:
@@ -717,6 +688,14 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.writeStateShrinkage",
         constants.OUTPUT_DEFAULT_WRITE_STATE_SHRINKAGE,
     )
+    stateShrinkageEnabledRaw = _cfgGet(
+        configData,
+        "outputParams.stateShrinkageEnabled",
+        constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_ENABLED,
+    )
+    if not isinstance(stateShrinkageEnabledRaw, (bool, np.bool_)):
+        raise ValueError("outputParams.stateShrinkageEnabled must be boolean")
+    stateShrinkageEnabled_ = bool(stateShrinkageEnabledRaw)
     stateShrinkageModel_ = _normalizeStateShrinkageModel(
         _cfgGet(
             configData,
@@ -740,6 +719,30 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         ),
         "outputParams.stateShrinkagePriorScale",
     )
+    stateShrinkageSpikeOddsMultiplierRaw = _cfgGet(
+        configData,
+        "outputParams.stateShrinkageSpikeOddsMultiplier",
+        constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER,
+    )
+    if isinstance(stateShrinkageSpikeOddsMultiplierRaw, (bool, np.bool_)):
+        raise ValueError(
+            "outputParams.stateShrinkageSpikeOddsMultiplier must be finite and positive"
+        )
+    try:
+        stateShrinkageSpikeOddsMultiplier_ = float(
+            stateShrinkageSpikeOddsMultiplierRaw
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "outputParams.stateShrinkageSpikeOddsMultiplier must be finite and positive"
+        ) from exc
+    if (
+        not np.isfinite(stateShrinkageSpikeOddsMultiplier_)
+        or stateShrinkageSpikeOddsMultiplier_ <= 0.0
+    ):
+        raise ValueError(
+            "outputParams.stateShrinkageSpikeOddsMultiplier must be finite and positive"
+        )
     stateShrinkageSpikePseudoCount_ = _normalizeOptionalNonnegativeFloat(
         _cfgGet(
             configData,
@@ -792,6 +795,18 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.plotCorrelationLength",
         _cfgDefault(configData, "outputParams.plotCorrelationLength"),
     )
+    plotPrecisionReweightingHistogramsRaw = _cfgGet(
+        configData,
+        "outputParams.plotPrecisionReweightingHistograms",
+        constants.OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS,
+    )
+    if not isinstance(plotPrecisionReweightingHistogramsRaw, (bool, np.bool_)):
+        raise ValueError(
+            "outputParams.plotPrecisionReweightingHistograms must be boolean"
+        )
+    plotPrecisionReweightingHistograms_ = bool(
+        plotPrecisionReweightingHistogramsRaw
+    )
     cutoffReport_ = _cfgGet(
         configData,
         "outputParams.cutoffReport",
@@ -830,6 +845,37 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         ),
         "outputParams.maxPrecisionDiagnosticRowsPerChromosome",
     )
+    precisionReweightingHistogramSampleSizeRaw = _cfgGet(
+        configData,
+        "outputParams.precisionReweightingHistogramSampleSize",
+        constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
+    )
+    if isinstance(precisionReweightingHistogramSampleSizeRaw, (bool, np.bool_)):
+        raise ValueError(
+            "outputParams.precisionReweightingHistogramSampleSize must be a positive integer"
+        )
+    try:
+        precisionReweightingHistogramSampleSizeFloat = float(
+            precisionReweightingHistogramSampleSizeRaw
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "outputParams.precisionReweightingHistogramSampleSize must be a positive integer"
+        ) from exc
+    if (
+        not np.isfinite(precisionReweightingHistogramSampleSizeFloat)
+        or not precisionReweightingHistogramSampleSizeFloat.is_integer()
+    ):
+        raise ValueError(
+            "outputParams.precisionReweightingHistogramSampleSize must be a positive integer"
+        )
+    precisionReweightingHistogramSampleSize_ = int(
+        precisionReweightingHistogramSampleSizeFloat
+    )
+    if precisionReweightingHistogramSampleSize_ <= 0:
+        raise ValueError(
+            "outputParams.precisionReweightingHistogramSampleSize must be a positive integer"
+        )
     maxNonTrackFileBytes_ = _normalizeNonnegativeInt(
         _cfgGet(
             configData,
@@ -843,9 +889,11 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
         writeStateShrinkage=bool(writeStateShrinkage_),
+        stateShrinkageEnabled=stateShrinkageEnabled_,
         stateShrinkageModel=stateShrinkageModel_,
         stateShrinkagePriorSpikeProp=stateShrinkagePriorSpikeProp_,
         stateShrinkagePriorScale=stateShrinkagePriorScale_,
+        stateShrinkageSpikeOddsMultiplier=stateShrinkageSpikeOddsMultiplier_,
         stateShrinkageSpikePseudoCount=stateShrinkageSpikePseudoCount_,
         stateShrinkageScaleAnchorWeight=stateShrinkageScaleAnchorWeight_,
         stateShrinkageStudentTDF=stateShrinkageStudentTDF_,
@@ -854,6 +902,10 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
         plotCorrelationLength=bool(plotCorrelationLength_),
+        plotPrecisionReweightingHistograms=plotPrecisionReweightingHistograms_,
+        precisionReweightingHistogramSampleSize=(
+            precisionReweightingHistogramSampleSize_
+        ),
         diagnosticTracks=diagnosticTracks_,
         cutoffReport=bool(cutoffReport_),
         writeRunSummary=bool(writeRunSummary_),
@@ -1793,125 +1845,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             _cfgDefault(configData, "processParams.processNoiseCalibration"),
         )
     )
-    puncLocalWindowMultiplier = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncLocalWindowMultiplier",
-            _cfgDefault(configData, "processParams.puncLocalWindowMultiplier"),
-        ),
-        name="processParams.puncLocalWindowMultiplier",
-        positive=True,
-    )
-    puncDependenceMultiplier = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncDependenceMultiplier",
-            _cfgDefault(configData, "processParams.puncDependenceMultiplier"),
-        ),
-        name="processParams.puncDependenceMultiplier",
-        positive=True,
-    )
-    puncMinScale = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncMinScale",
-            _cfgDefault(configData, "processParams.puncMinScale"),
-        ),
-        name="processParams.puncMinScale",
-        positive=True,
-    )
-    puncMaxScale = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncMaxScale",
-            _cfgDefault(configData, "processParams.puncMaxScale"),
-        ),
-        name="processParams.puncMaxScale",
-        positive=True,
-    )
-    if float(puncMaxScale) < float(puncMinScale):
-        raise ValueError(
-            "`processParams.puncMaxScale` must be greater than or equal to "
-            "`processParams.puncMinScale`."
-        )
-    puncMinWindowWeight = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncMinWindowWeight",
-            _cfgDefault(configData, "processParams.puncMinWindowWeight"),
-        ),
-        name="processParams.puncMinWindowWeight",
-        positive=True,
-    )
-    puncPriorDf = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncPriorDf",
-            _cfgDefault(configData, "processParams.puncPriorDf"),
-        ),
-        name="processParams.puncPriorDf",
-        positive=True,
-    )
-    puncPriorRidge = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncPriorRidge",
-            _cfgDefault(configData, "processParams.puncPriorRidge"),
-        ),
-        name="processParams.puncPriorRidge",
-    )
-    if float(puncPriorRidge) < 0.0:
-        raise ValueError("`processParams.puncPriorRidge` must be non-negative.")
-    puncLevelBufferZ = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.puncLevelBufferZ",
-            _cfgDefault(configData, "processParams.puncLevelBufferZ"),
-        ),
-        name="processParams.puncLevelBufferZ",
-    )
-    if float(puncLevelBufferZ) < 0.0:
-        raise ValueError("`processParams.puncLevelBufferZ` must be non-negative.")
-    def coerceProcessBool(configName: str) -> bool:
-        rawBool = _cfgGet(
-            configData,
-            configName,
-            _cfgDefault(configData, configName),
-        )
-        if not isinstance(rawBool, (bool, np.bool_)):
-            raise ValueError(f"`{configName}` must be boolean.")
-        return bool(rawBool)
-
-    puncUseReliabilityWeightedWindows = coerceProcessBool(
-        "processParams.puncUseReliabilityWeightedWindows"
-    )
-    puncUseWarmupFit = coerceProcessBool("processParams.puncUseWarmupFit")
-    puncUseTransitionEvidence = coerceProcessBool(
-        "processParams.puncUseTransitionEvidence"
-    )
-    puncUseScaleRebase = coerceProcessBool("processParams.puncUseScaleRebase")
-    puncUseGlobalScale = coerceProcessBool("processParams.puncUseGlobalScale")
-    puncUseBoundaryClamps = coerceProcessBool("processParams.puncUseBoundaryClamps")
-    puncUsePriorDfMoments = coerceProcessBool("processParams.puncUsePriorDfMoments")
-    puncUsePriorShrinkage = coerceProcessBool("processParams.puncUsePriorShrinkage")
-    qPriorLevel = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.qPriorLevel",
-            _cfgDefault(configData, "processParams.qPriorLevel"),
-        ),
-        name="processParams.qPriorLevel",
-        positive=True,
-    )
-    qPriorTrend = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.qPriorTrend",
-            _cfgDefault(configData, "processParams.qPriorTrend"),
-        ),
-        name="processParams.qPriorTrend",
-        positive=True,
-    )
     qSeedPriorLevel = _coerceTransformFloat(
         _cfgGet(
             configData,
@@ -1920,25 +1853,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         ),
         name="processParams.qSeedPriorLevel",
         positive=True,
-    )
-    puncProcessCovariatesEnabled = bool(
-        _cfgGet(
-            configData,
-            "processParams.puncProcessCovariates.enabled",
-            _cfgDefault(configData, "processParams.puncProcessCovariates.enabled"),
-        )
-    )
-    puncProcessCovariatesMode = _normalizePuncCovariatesMode(
-        _cfgGet(
-            configData,
-            "processParams.puncProcessCovariates.mode",
-            _cfgDefault(configData, "processParams.puncProcessCovariates.mode"),
-        )
-    )
-    puncProcessCovariatesFeaturesRaw = _cfgGet(
-        configData,
-        "processParams.puncProcessCovariates.features",
-        _cfgDefault(configData, "processParams.puncProcessCovariates.features"),
     )
     processNoiseWarmupECMIters = int(
         _cfgGet(
@@ -1962,36 +1876,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`processParams.processNoiseWarmupOuterPasses` must be a positive integer."
         )
-    processGenomeCovariateValidation = None
-    if puncProcessCovariatesEnabled:
-        if not genomeParams.genomeCovariateCacheDir:
-            raise ValueError(
-                "`genomeParams.genomeCovariateCacheDir` is required when "
-                "`processParams.puncProcessCovariates.enabled` is true."
-            )
-        processGenomeCovariateValidation = validate_genome_covariate_cache(
-            genomeParams.genomeCovariateCacheDir,
-            interval_size_bp=countingParams.intervalSizeBP,
-        )
-    puncProcessCovariatesFeatures = _normalizePuncCovariateFeatures(
-        puncProcessCovariatesFeaturesRaw,
-        availableFeatures=(
-            processGenomeCovariateValidation.features
-            if processGenomeCovariateValidation is not None
-            else None
-        ),
-    )
-    if puncProcessCovariatesEnabled and not puncProcessCovariatesFeatures:
-        raise ValueError(
-            "`processParams.puncProcessCovariates.features` must select at least "
-            "one feature when PUNC process covariates are enabled."
-        )
-    if puncProcessCovariatesEnabled and processGenomeCovariateValidation is not None:
-        processGenomeCovariateValidation.validate_request(
-            required_features=puncProcessCovariatesFeatures,
-            interval_size_bp=countingParams.intervalSizeBP,
-            required_features_label="requested PUNC process features",
-        )
     processArgs = _buildProcessArgs(
         {
             "deltaF": _cfgGet(
@@ -2014,29 +1898,8 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 "processParams.maxQ",
                 _cfgDefault(configData, "processParams.maxQ"),
             ),
-            "qPriorLevel": qPriorLevel,
-            "qPriorTrend": qPriorTrend,
             "qSeedPriorLevel": qSeedPriorLevel,
             "processNoiseCalibration": processNoiseCalibration,
-            "puncLocalWindowMultiplier": puncLocalWindowMultiplier,
-            "puncDependenceMultiplier": puncDependenceMultiplier,
-            "puncMinScale": puncMinScale,
-            "puncMaxScale": puncMaxScale,
-            "puncMinWindowWeight": puncMinWindowWeight,
-            "puncPriorDf": puncPriorDf,
-            "puncPriorRidge": puncPriorRidge,
-            "puncLevelBufferZ": puncLevelBufferZ,
-            "puncUseReliabilityWeightedWindows": puncUseReliabilityWeightedWindows,
-            "puncUseWarmupFit": puncUseWarmupFit,
-            "puncUseTransitionEvidence": puncUseTransitionEvidence,
-            "puncUseScaleRebase": puncUseScaleRebase,
-            "puncUseGlobalScale": puncUseGlobalScale,
-            "puncUseBoundaryClamps": puncUseBoundaryClamps,
-            "puncUsePriorDfMoments": puncUsePriorDfMoments,
-            "puncUsePriorShrinkage": puncUsePriorShrinkage,
-            "puncProcessCovariatesEnabled": puncProcessCovariatesEnabled,
-            "puncProcessCovariatesMode": puncProcessCovariatesMode,
-            "puncProcessCovariatesFeatures": puncProcessCovariatesFeatures,
             "processNoiseWarmupECMIters": processNoiseWarmupECMIters,
             "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
             "precisionMultiplierMin": float(

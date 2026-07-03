@@ -49,6 +49,12 @@ Estimation Controls
     broad marks like H3K27me3, larger values (`100`, `250`, etc.) should suffice.
 
 ``fitParams.ECM_backgroundLengthScaleMultiplier``
-    Sets the multiplier that converts the inferred background dependence scale
-    into the background fitting span. Larger values smooth the shared
-    background estimate more strongly.
+    Sets the multiplier that converts the inferred correlation-length
+    into the soft background fitting window. Larger values softly restrict the shared
+    background estimate :math:`g_{[i=1,\ldots,i=n]}` to lower frequencies.
+
+``outputParams.stateShrinkageSpikeOddsMultiplier``
+    (Experimental) Ignored if posterior state shrinkage is disabled
+    entirely (``outputParams.stateShrinkageEnabled``). Values above `1.0`
+    multiply fitted point-null odds upward, which can reduce false positives
+    in low-signal regions. Values below `1.0` multiply those odds downward.
