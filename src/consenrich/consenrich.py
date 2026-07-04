@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple, Dict, Any, Union, Sequence, NamedTuple
 import sys
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 import consenrich.core as core
 import consenrich.diagnostics as diagnostics
@@ -126,6 +127,12 @@ _OUTPUT_TRACK_FALLBACK_NAMES: Dict[str, Tuple[str, ...]] = {
     "preKappaQLevel": ("baseQLevel",),
     "preKappaQTrend": ("baseQTrend",),
 }
+
+_REPLICATE_EXCHANGEABILITY_PERMUTATIONS = 199
+_REPLICATE_EXCHANGEABILITY_MIN_BLOCKS = 6
+_REPLICATE_EXCHANGEABILITY_TOP_EFFECTS = 10
+_REPLICATE_EXCHANGEABILITY_PAIR_CHUNK_ELEMENTS = 2_000_000
+_REPLICATE_EXCHANGEABILITY_MAX_BLOCKS = 5_000
 
 GAIN_SUMMARY_COLUMNS = [
     "replicate_index",
@@ -918,6 +925,16 @@ def _deleteBlockCalibrationPlotPath(experimentName: str) -> Path:
     return Path(
         f"consenrichOutput_{experimentToken}_deleteBlockCalibration.v{__version__}.png"
     )
+
+
+def _replicateExchangeabilityPlotPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(f"consenrichOutput_{experimentToken}_replicateExchangeability.png")
+
+
+def _replicateExchangeabilitySummaryPath(experimentName: str) -> Path:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(f"consenrichOutput_{experimentToken}_replicateExchangeability.txt")
 
 
 def _coerceOptimizationPathFrame(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
@@ -1790,6 +1807,538 @@ def _plotDeleteBlockCalibration(
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("deleteBlockCalibration.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _replicateExchangeabilityDenseMatrix(
+    pooledBlockVars: np.ndarray,
+    pooledPriorVariance: np.ndarray,
+    pooledSampleIndex: np.ndarray,
+    pooledChromIndex: np.ndarray,
+    pooledBlockStarts: np.ndarray,
+    sampleCount: int,
+    *,
+    maxBlocks: int = _REPLICATE_EXCHANGEABILITY_MAX_BLOCKS,
+) -> tuple[np.ndarray, int, int]:
+    blockVars = np.asarray(pooledBlockVars, dtype=np.float64).reshape(-1)
+    priorVariance = np.asarray(pooledPriorVariance, dtype=np.float64).reshape(-1)
+    sampleIndex = np.asarray(pooledSampleIndex, dtype=np.int64).reshape(-1)
+    chromIndex = np.asarray(pooledChromIndex, dtype=np.int64).reshape(-1)
+    blockStarts = np.asarray(pooledBlockStarts, dtype=np.int64).reshape(-1)
+    rowCount = int(blockVars.size)
+    if not (
+        priorVariance.size
+        == sampleIndex.size
+        == chromIndex.size
+        == blockStarts.size
+        == rowCount
+    ):
+        raise RuntimeError("replicate exchangeability block arrays are misaligned")
+    if sampleCount < 0:
+        raise RuntimeError("replicate exchangeability sample count is negative")
+    if rowCount == 0:
+        return np.empty((0, int(sampleCount)), dtype=np.float64), 0, 0
+    if np.any(sampleIndex < 0) or np.any(sampleIndex >= int(sampleCount)):
+        raise RuntimeError("replicate exchangeability sample index is out of range")
+    validInternal = (
+        np.isfinite(blockVars)
+        & np.isfinite(priorVariance)
+        & (blockVars > 0.0)
+        & (priorVariance > 0.0)
+    )
+    if not np.all(validInternal):
+        raise RuntimeError("replicate exchangeability variances must be positive finite")
+    order = np.lexsort((sampleIndex, blockStarts, chromIndex))
+    sortedChrom = chromIndex[order]
+    sortedStarts = blockStarts[order]
+    sortedSamples = sampleIndex[order]
+    keyBreaks = np.empty(rowCount, dtype=bool)
+    keyBreaks[0] = True
+    keyBreaks[1:] = (sortedChrom[1:] != sortedChrom[:-1]) | (
+        sortedStarts[1:] != sortedStarts[:-1]
+    )
+    blockIds = np.cumsum(keyBreaks, dtype=np.int64) - 1
+    duplicateRows = (
+        (blockIds[1:] == blockIds[:-1])
+        & (sortedSamples[1:] == sortedSamples[:-1])
+        if rowCount > 1
+        else np.zeros(0, dtype=bool)
+    )
+    if np.any(duplicateRows):
+        raise RuntimeError(
+            "replicate exchangeability found duplicate replicate-block rows"
+        )
+    blockCount = int(blockIds[-1] + 1)
+    maxBlocks_ = int(max(_REPLICATE_EXCHANGEABILITY_MIN_BLOCKS, maxBlocks))
+    if blockCount > maxBlocks_:
+        selectedBlockIds = np.linspace(
+            0,
+            blockCount - 1,
+            maxBlocks_,
+            dtype=np.int64,
+        )
+        keepRows = np.isin(blockIds, selectedBlockIds)
+        selectedOrder = order[keepRows]
+        selectedSamples = sortedSamples[keepRows]
+        selectedRows = np.searchsorted(selectedBlockIds, blockIds[keepRows])
+        matrixRows = int(selectedBlockIds.size)
+    else:
+        selectedOrder = order
+        selectedSamples = sortedSamples
+        selectedRows = blockIds
+        matrixRows = blockCount
+    matrix = np.full((matrixRows, int(sampleCount)), np.nan, dtype=np.float64)
+    logSdMultiplier = 0.5 * (
+        np.log(blockVars[selectedOrder]) - np.log(priorVariance[selectedOrder])
+    )
+    matrix[selectedRows, selectedSamples] = logSdMultiplier
+    return matrix, blockCount, matrixRows
+
+
+def _replicateExchangeabilityPairwiseSign(
+    centeredMatrix: np.ndarray,
+    *,
+    minBlocks: int = _REPLICATE_EXCHANGEABILITY_MIN_BLOCKS,
+) -> dict[str, Any]:
+    matrix = np.asarray(centeredMatrix, dtype=np.float64)
+    replicateCount = int(matrix.shape[1])
+    pValues = np.full((replicateCount, replicateCount), np.nan, dtype=np.float64)
+    wins = np.zeros((replicateCount, replicateCount), dtype=np.int64)
+    signBlocks = np.zeros((replicateCount, replicateCount), dtype=np.int64)
+    sharedBlocks = np.zeros((replicateCount, replicateCount), dtype=np.int64)
+    if replicateCount < 2:
+        return {
+            "pValues": pValues,
+            "wins": wins,
+            "signBlocks": signBlocks,
+            "sharedBlocks": sharedBlocks,
+            "minPair": None,
+        }
+    pairA, pairB = np.triu_indices(replicateCount, k=1)
+    blockCount = max(1, int(matrix.shape[0]))
+    chunkSize = max(
+        1,
+        min(
+            pairA.size,
+            _REPLICATE_EXCHANGEABILITY_PAIR_CHUNK_ELEMENTS // blockCount,
+        ),
+    )
+    for chunkStart in range(0, int(pairA.size), int(chunkSize)):
+        chunkEnd = min(chunkStart + int(chunkSize), int(pairA.size))
+        a = pairA[chunkStart:chunkEnd]
+        b = pairB[chunkStart:chunkEnd]
+        left = matrix[:, a]
+        right = matrix[:, b]
+        valid = np.isfinite(left) & np.isfinite(right)
+        diff = left - right
+        positive = valid & (diff > 0.0)
+        negative = valid & (diff < 0.0)
+        chunkWins = np.count_nonzero(positive, axis=0).astype(np.int64, copy=False)
+        chunkLosses = np.count_nonzero(negative, axis=0).astype(np.int64, copy=False)
+        chunkSignBlocks = chunkWins + chunkLosses
+        chunkSharedBlocks = np.count_nonzero(valid, axis=0).astype(
+            np.int64,
+            copy=False,
+        )
+        chunkMin = np.minimum(chunkWins, chunkLosses)
+        chunkP = np.ones(chunkWins.size, dtype=np.float64)
+        informative = chunkSignBlocks >= int(minBlocks)
+        if np.any(informative):
+            chunkP[informative] = np.minimum(
+                1.0,
+                2.0
+                * stats.binom.cdf(
+                    chunkMin[informative],
+                    chunkSignBlocks[informative],
+                    0.5,
+                ),
+            )
+            chunkP[informative] = np.maximum(
+                chunkP[informative],
+                np.nextafter(0.0, 1.0),
+            )
+        pValues[a, b] = chunkP
+        pValues[b, a] = chunkP
+        wins[a, b] = chunkWins
+        wins[b, a] = chunkLosses
+        signBlocks[a, b] = chunkSignBlocks
+        signBlocks[b, a] = chunkSignBlocks
+        sharedBlocks[a, b] = chunkSharedBlocks
+        sharedBlocks[b, a] = chunkSharedBlocks
+    validPairs = (
+        np.triu(np.ones((replicateCount, replicateCount), dtype=bool), k=1)
+        & (signBlocks >= int(minBlocks))
+        & np.isfinite(pValues)
+    )
+    if not np.any(validPairs):
+        minPair = None
+    else:
+        candidate = np.where(validPairs, pValues, np.inf)
+        flatIndex = int(np.argmin(candidate))
+        i, j = np.unravel_index(flatIndex, candidate.shape)
+        minPair = {
+            "replicateA": int(i),
+            "replicateB": int(j),
+            "pValue": float(pValues[i, j]),
+            "winsA": int(wins[i, j]),
+            "winsB": int(signBlocks[i, j] - wins[i, j]),
+            "signBlocks": int(signBlocks[i, j]),
+            "sharedBlocks": int(sharedBlocks[i, j]),
+        }
+    return {
+        "pValues": pValues,
+        "wins": wins,
+        "signBlocks": signBlocks,
+        "sharedBlocks": sharedBlocks,
+        "minPair": minPair,
+    }
+
+
+def _replicateExchangeabilityFromLogSDMatrix(
+    logSDMatrix: np.ndarray,
+    *,
+    sampleNames: Sequence[str] | None = None,
+    seed: int = constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+    permutationCount: int = _REPLICATE_EXCHANGEABILITY_PERMUTATIONS,
+    minBlocks: int = _REPLICATE_EXCHANGEABILITY_MIN_BLOCKS,
+) -> dict[str, Any]:
+    matrix = np.asarray(logSDMatrix, dtype=np.float64)
+    if matrix.ndim != 2:
+        raise RuntimeError("replicate exchangeability matrix must be two-dimensional")
+    blockCount, replicateCount = (int(matrix.shape[0]), int(matrix.shape[1]))
+    names = list(sampleNames or [])
+    if len(names) < replicateCount:
+        names.extend(
+            f"replicate_{i + 1}" for i in range(len(names), replicateCount)
+        )
+    names = [str(name) for name in names[:replicateCount]]
+    result: dict[str, Any] = {
+        "status": "skipped",
+        "reason": "",
+        "replicateCount": replicateCount,
+        "blockCount": blockCount,
+        "completeBlockCount": 0,
+        "sampleNames": names,
+    }
+    if replicateCount < 2:
+        result["reason"] = "fewer than two replicates"
+        return result
+    if blockCount < minBlocks:
+        result["reason"] = f"fewer than {int(minBlocks)} block rows"
+        return result
+    completeBlocks = np.all(np.isfinite(matrix), axis=1)
+    completeMatrix = matrix[completeBlocks, :]
+    completeBlockCount = int(completeMatrix.shape[0])
+    result["completeBlockCount"] = completeBlockCount
+    if completeBlockCount < minBlocks:
+        result["reason"] = f"fewer than {int(minBlocks)} complete shared blocks"
+        centeredForPairs = matrix - np.nanmean(matrix, axis=1, keepdims=True)
+        result["pairwiseSign"] = _replicateExchangeabilityPairwiseSign(
+            centeredForPairs,
+            minBlocks=minBlocks,
+        )
+        return result
+    centeredComplete = completeMatrix - np.mean(completeMatrix, axis=1, keepdims=True)
+    effectByReplicate = np.mean(centeredComplete, axis=0)
+    observedStatistic = float(np.max(np.abs(effectByReplicate)))
+    permutationStats = np.empty(int(permutationCount), dtype=np.float64)
+    rng = np.random.default_rng(int(seed))
+    for permutationIndex in range(int(permutationCount)):
+        permuted = rng.permuted(centeredComplete, axis=1)
+        permutationStats[permutationIndex] = float(
+            np.max(np.abs(np.mean(permuted, axis=0)))
+        )
+    exceedanceCount = int(np.count_nonzero(permutationStats >= observedStatistic))
+    pValue = float((exceedanceCount + 1.0) / (float(permutationCount) + 1.0))
+    centeredForPairs = matrix - np.nanmean(matrix, axis=1, keepdims=True)
+    result.update(
+        {
+            "status": "ok",
+            "reason": "ok",
+            "effectByReplicate": effectByReplicate,
+            "omnibusObserved": observedStatistic,
+            "omnibusPValue": pValue,
+            "omnibusPermutationStats": permutationStats,
+            "permutationCount": int(permutationCount),
+            "seed": int(seed),
+            "pairwiseSign": _replicateExchangeabilityPairwiseSign(
+                centeredForPairs,
+                minBlocks=minBlocks,
+            ),
+        }
+    )
+    return result
+
+
+def _replicateExchangeabilityFromPooledBlocks(
+    pooledBlockVars: np.ndarray,
+    pooledPriorVariance: np.ndarray,
+    pooledSampleIndex: np.ndarray,
+    pooledChromIndex: np.ndarray,
+    pooledBlockStarts: np.ndarray,
+    sampleCount: int,
+    *,
+    sampleNames: Sequence[str] | None = None,
+    seed: int = constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+) -> dict[str, Any]:
+    matrix, blockCount, diagnosticBlockCount = _replicateExchangeabilityDenseMatrix(
+        pooledBlockVars,
+        pooledPriorVariance,
+        pooledSampleIndex,
+        pooledChromIndex,
+        pooledBlockStarts,
+        sampleCount,
+    )
+    result = _replicateExchangeabilityFromLogSDMatrix(
+        matrix,
+        sampleNames=sampleNames,
+        seed=seed,
+    )
+    result["blockCount"] = int(blockCount)
+    result["diagnosticBlockCount"] = int(diagnosticBlockCount)
+    return result
+
+
+def _writeReplicateExchangeabilitySummary(
+    diagnostic: Mapping[str, Any],
+    path: str | Path,
+) -> bool:
+    status = str(diagnostic.get("status", "skipped"))
+    replicateCount = int(diagnostic.get("replicateCount", 0))
+    blockCount = int(diagnostic.get("blockCount", 0))
+    diagnosticBlockCount = int(diagnostic.get("diagnosticBlockCount", blockCount))
+    completeBlockCount = int(diagnostic.get("completeBlockCount", 0))
+    if status != "ok":
+        reason = str(diagnostic.get("reason", "not enough evidence"))
+        factorAdjusted = diagnostic.get("priorVarianceFactorAdjusted")
+        factorAdjustedText = (
+            ""
+            if factorAdjusted is None
+            else (
+                " prior_variance_factor_adjusted="
+                f"{'true' if bool(factorAdjusted) else 'false'}"
+            )
+        )
+        text = (
+            "replicate exchangeability diagnostics skipped: "
+            f"reason={reason} replicate_count={replicateCount} "
+            f"block_count={blockCount} complete_block_count={completeBlockCount}"
+            f"{factorAdjustedText}\n"
+        )
+        Path(path).write_text(text, encoding="utf-8")
+        logger.info("replicateExchangeability.output wrote %s", path)
+        return True
+    sampleNames = list(diagnostic.get("sampleNames", []))
+    effect = np.asarray(diagnostic["effectByReplicate"], dtype=np.float64)
+    topOrder = np.argsort(-np.abs(effect))[
+        : min(_REPLICATE_EXCHANGEABILITY_TOP_EFFECTS, effect.size)
+    ]
+    pairwise = diagnostic.get("pairwiseSign", {})
+    minPair = pairwise.get("minPair") if isinstance(pairwise, Mapping) else None
+    lines = [
+        "replicate exchangeability diagnostics",
+        f"replicate_count: {replicateCount}",
+        f"block_count: {blockCount}",
+        f"complete_block_count: {completeBlockCount}",
+        f"omnibus_statistic: {float(diagnostic['omnibusObserved']):.8g}",
+        f"omnibus_p_value: {float(diagnostic['omnibusPValue']):.8g}",
+    ]
+    if diagnosticBlockCount != blockCount:
+        lines.append(f"tested_block_count: {diagnosticBlockCount}")
+    if "priorVarianceFactorAdjusted" in diagnostic:
+        factorAdjusted = bool(diagnostic.get("priorVarianceFactorAdjusted", False))
+        lines.append(
+            f"prior_variance_factor_adjusted: {'true' if factorAdjusted else 'false'}"
+        )
+    if "rawOmnibusObserved" in diagnostic and "rawOmnibusPValue" in diagnostic:
+        lines.extend(
+            [
+                (
+                    "raw_omnibus_statistic: "
+                    f"{float(diagnostic['rawOmnibusObserved']):.8g}"
+                ),
+                f"raw_omnibus_p_value: {float(diagnostic['rawOmnibusPValue']):.8g}",
+            ]
+        )
+    if minPair is None:
+        lines.append("most_imbalanced_pair: none")
+    else:
+        pairA = int(minPair["replicateA"])
+        pairB = int(minPair["replicateB"])
+        nameA = sampleNames[pairA] if pairA < len(sampleNames) else f"replicate_{pairA + 1}"
+        nameB = sampleNames[pairB] if pairB < len(sampleNames) else f"replicate_{pairB + 1}"
+        lines.extend(
+            [
+                f"most_imbalanced_pair: {pairA + 1} {nameA} vs {pairB + 1} {nameB}",
+                f"most_imbalanced_pair_p_value: {float(minPair['pValue']):.8g}",
+                (
+                    "most_imbalanced_pair_sign_blocks: "
+                    f"{int(minPair['signBlocks'])}"
+                ),
+                (
+                    "most_imbalanced_pair_wins: "
+                    f"{int(minPair['winsA'])} vs {int(minPair['winsB'])}"
+                ),
+            ]
+        )
+    replicateVarianceFactors = np.asarray(
+        diagnostic.get("replicateVarianceFactors", []),
+        dtype=np.float64,
+    ).reshape(-1)
+    replicateSDMultipliers = np.asarray(
+        diagnostic.get("replicateSDMultipliers", []),
+        dtype=np.float64,
+    ).reshape(-1)
+    if replicateVarianceFactors.size:
+        lines.append("fitted_replicate_munc_factors:")
+        lines.append("replicate_index\tsample_name\tvariance_factor\tsd_multiplier")
+        for index in range(int(replicateVarianceFactors.size)):
+            name = sampleNames[index] if index < len(sampleNames) else (
+                f"replicate_{index + 1}"
+            )
+            sdMultiplier = (
+                float(replicateSDMultipliers[index])
+                if index < int(replicateSDMultipliers.size)
+                else float(math.sqrt(replicateVarianceFactors[index]))
+            )
+            lines.append(
+                f"{index + 1}\t{name}\t{float(replicateVarianceFactors[index]):.8g}"
+                f"\t{sdMultiplier:.8g}"
+            )
+    lines.append("top_replicate_effects:")
+    lines.append("replicate_index\tsample_name\tlog_sd_shift\tsd_multiplier")
+    for index in topOrder:
+        name = sampleNames[int(index)] if int(index) < len(sampleNames) else (
+            f"replicate_{int(index) + 1}"
+        )
+        lines.append(
+            f"{int(index) + 1}\t{name}\t{float(effect[index]):.8g}\t"
+            f"{float(np.exp(effect[index])):.8g}"
+        )
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info("replicateExchangeability.output wrote %s", path)
+    return True
+
+
+def _plotReplicateExchangeabilityDiagnostic(
+    diagnostic: Mapping[str, Any],
+    path: str | Path,
+    *,
+    dpi: int = 400,
+) -> bool:
+    if str(diagnostic.get("status", "skipped")) != "ok":
+        logger.info(
+            "replicateExchangeability.plot skipped because diagnostics were not fit."
+        )
+        return False
+    permutationStats = np.asarray(
+        diagnostic.get("omnibusPermutationStats", []),
+        dtype=np.float64,
+    ).reshape(-1)
+    pairwise = diagnostic.get("pairwiseSign", {})
+    wins = np.asarray(pairwise.get("wins", []), dtype=np.float64)
+    signBlocks = np.asarray(pairwise.get("signBlocks", []), dtype=np.float64)
+    if permutationStats.size == 0 or wins.ndim != 2 or signBlocks.shape != wins.shape:
+        logger.info(
+            "replicateExchangeability.plot skipped because plot arrays are empty."
+        )
+        return False
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "replicateExchangeability.plot skipped because matplotlib is not installed."
+        )
+        return False
+
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    darkBlack = "#050505"
+    navyBlue = "#003B73"
+    burntOrange = "#C65A1E"
+    gridColor = "#D8D8D8"
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(11.8, 4.8),
+        constrained_layout=True,
+    )
+    nullAx, heatAx = list(np.ravel(axes))
+    observed = float(diagnostic["omnibusObserved"])
+    plotPermutationStats = np.exp(permutationStats)
+    plotObserved = float(np.exp(observed))
+    nullAx.set_title("Block-Label Permutation Omnibus", color=darkBlack)
+    nullAx.set_xlabel("Max replicate mean SD multiplier", color=darkBlack)
+    nullAx.set_ylabel("Permutations", color=darkBlack)
+    nullAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+    nullAx.hist(
+        plotPermutationStats,
+        bins=_histogramBins(plotPermutationStats),
+        color=navyBlue,
+        alpha=0.84,
+        edgecolor=darkBlack,
+        linewidth=0.35,
+    )
+    nullAx.axvline(
+        plotObserved,
+        color=burntOrange,
+        linewidth=1.6,
+        alpha=0.95,
+        label="observed",
+    )
+    if "rawOmnibusObserved" in diagnostic:
+        nullAx.axvline(
+            float(np.exp(float(diagnostic["rawOmnibusObserved"]))),
+            color=darkBlack,
+            linewidth=1.2,
+            alpha=0.75,
+            linestyle="--",
+            label="raw",
+        )
+    nullAx.legend(loc="best", fontsize=8, frameon=False)
+
+    effect = np.asarray(diagnostic["effectByReplicate"], dtype=np.float64)
+    order = np.argsort(effect)
+    heat = np.full(wins.shape, np.nan, dtype=np.float64)
+    signReady = signBlocks > 0.0
+    heat[signReady] = (2.0 * (wins[signReady] / signBlocks[signReady])) - 1.0
+    heat = heat[np.ix_(order, order)]
+    image = heatAx.imshow(
+        heat,
+        vmin=-1.0,
+        vmax=1.0,
+        cmap="coolwarm",
+        interpolation="nearest",
+        aspect="auto",
+    )
+    heatAx.set_title("Pairwise Block Sign Test", color=darkBlack)
+    heatAx.set_xlabel("Replicate ordered by effect", color=darkBlack)
+    heatAx.set_ylabel("Replicate ordered by effect", color=darkBlack)
+    replicateCount = int(effect.size)
+    if replicateCount <= 24:
+        labels = [str(int(index) + 1) for index in order]
+        ticks = np.arange(replicateCount)
+        heatAx.set_xticks(ticks)
+        heatAx.set_yticks(ticks)
+        heatAx.set_xticklabels(labels, rotation=90, fontsize=6)
+        heatAx.set_yticklabels(labels, fontsize=6)
+    else:
+        heatAx.set_xticks([])
+        heatAx.set_yticks([])
+    colorbar = fig.colorbar(image, ax=heatAx, fraction=0.046, pad=0.04)
+    colorbar.set_label("Block-win balance vs 50:50", color=darkBlack)
+    fig.suptitle("Replicate Exchangeability Diagnostics", color=darkBlack)
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info("replicateExchangeability.output wrote %s dpi=%d", path, int(dpi))
     return True
 
 
@@ -3443,7 +3992,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
         (
-            "ROCCO shrunk-state scores",
+            "ROCCO shrunk-state export signal",
             yn(
                 getattr(
                     matchingArgs,
@@ -5281,9 +5830,13 @@ def main():
     pooledTrendWeightsParts: list[np.ndarray] = []
     pooledNuLTauWeightSum = 0.0
     pooledNuLWeightSum = 0.0
-    useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
-    if useReplicateTrends:
-        raise ValueError("observationParams.useReplicateTrends is not supported")
+    useReplicateVarianceScale = bool(
+        getattr(
+            observationArgs,
+            "useReplicateVarianceScale",
+            constants.OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE,
+        )
+    )
     useCountNoiseFloor = bool(
         getattr(
             observationArgs,
@@ -7655,8 +8208,9 @@ def main():
         trendLambdaMin=trendLambdaMin_,
         trendLambdaMax=trendLambdaMax_,
         trendLambdaGridSize=trendLambdaGridSize_,
+        sampleCount=int(numSamples),
     )
-    pooledPriorVariance = (
+    pooledPriorVarianceBase = (
         core.evalPSplineLogVarianceTrend(
             pooledMuncFit.trend,
             pooledBlockMeans,
@@ -7666,6 +8220,107 @@ def main():
         if pooledBlockMeans.size
         else np.empty(0, dtype=np.float64)
     )
+    pooledReplicateVarianceFactors = np.asarray(
+        pooledMuncFit.replicateVarianceFactors,
+        dtype=np.float64,
+    ).reshape(-1)
+    fittedPooledReplicateVarianceFactors = pooledReplicateVarianceFactors.copy()
+    if pooledReplicateVarianceFactors.shape != (int(numSamples),):
+        raise RuntimeError(
+            "pooled MUNC replicate variance factors do not match sample count"
+        )
+    if (
+        not np.all(np.isfinite(pooledReplicateVarianceFactors))
+        or np.any(pooledReplicateVarianceFactors <= 0.0)
+    ):
+        raise RuntimeError("pooled MUNC replicate variance factors are invalid")
+    if pooledSampleIndex.size and np.any(
+        (pooledSampleIndex < 0) | (pooledSampleIndex >= int(numSamples))
+    ):
+        raise RuntimeError("pooled MUNC sample indices are invalid")
+    if not useReplicateVarianceScale:
+        pooledReplicateVarianceFactors = np.ones_like(pooledReplicateVarianceFactors)
+    pooledPriorVariance = (
+        core._clipVarianceTrack(
+            pooledPriorVarianceBase * pooledReplicateVarianceFactors[pooledSampleIndex],
+            floor=varianceFloorForTrend,
+            cap=varianceCapForTrend,
+        ).astype(np.float64, copy=False)
+        if pooledPriorVarianceBase.size
+        else pooledPriorVarianceBase
+    )
+    if bool(
+        getattr(
+            outputArgs,
+            "writeReplicateExchangeabilityDiagnostics",
+            constants.OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS,
+        )
+    ):
+        replicateExchangeabilitySampleNames: list[str] = []
+        for sampleIndex in range(int(numSamples)):
+            source = (
+                treatmentSources[sampleIndex]
+                if sampleIndex < len(treatmentSources)
+                else None
+            )
+            if source is None:
+                sampleName = f"replicate_{sampleIndex + 1}"
+            else:
+                sampleName = str(
+                    source.sampleName
+                    or os.path.basename(source.path)
+                    or f"replicate_{sampleIndex + 1}"
+                )
+            replicateExchangeabilitySampleNames.append(sampleName)
+        rawReplicateExchangeabilityDiagnostic = (
+            _replicateExchangeabilityFromPooledBlocks(
+                pooledBlockVars,
+                pooledPriorVarianceBase,
+                pooledSampleIndex,
+                pooledChromIndex,
+                pooledBlockStarts,
+                int(numSamples),
+                sampleNames=replicateExchangeabilitySampleNames,
+            )
+        )
+        replicateExchangeabilityDiagnostic = _replicateExchangeabilityFromPooledBlocks(
+            pooledBlockVars,
+            pooledPriorVariance,
+            pooledSampleIndex,
+            pooledChromIndex,
+            pooledBlockStarts,
+            int(numSamples),
+            sampleNames=replicateExchangeabilitySampleNames,
+        )
+        replicateExchangeabilityDiagnostic["replicateVarianceFactors"] = (
+            fittedPooledReplicateVarianceFactors.copy()
+        )
+        replicateExchangeabilityDiagnostic["priorVarianceFactorAdjusted"] = bool(
+            useReplicateVarianceScale
+        )
+        replicateExchangeabilityDiagnostic["replicateSDMultipliers"] = np.sqrt(
+            fittedPooledReplicateVarianceFactors
+        )
+        if str(rawReplicateExchangeabilityDiagnostic.get("status", "skipped")) == "ok":
+            replicateExchangeabilityDiagnostic["rawOmnibusObserved"] = (
+                rawReplicateExchangeabilityDiagnostic["omnibusObserved"]
+            )
+            replicateExchangeabilityDiagnostic["rawOmnibusPValue"] = (
+                rawReplicateExchangeabilityDiagnostic["omnibusPValue"]
+            )
+            replicateExchangeabilityDiagnostic["rawEffectByReplicate"] = (
+                rawReplicateExchangeabilityDiagnostic["effectByReplicate"]
+            )
+        _writeReplicateExchangeabilitySummary(
+            replicateExchangeabilityDiagnostic,
+            _replicateExchangeabilitySummaryPath(str(experimentName)),
+        )
+        if str(replicateExchangeabilityDiagnostic.get("status", "skipped")) == "ok":
+            _plotReplicateExchangeabilityDiagnostic(
+                replicateExchangeabilityDiagnostic,
+                _replicateExchangeabilityPlotPath(str(experimentName)),
+                dpi=400,
+            )
 
     specifiedNu0 = core._coerceEBPriorStrength(observationArgs.EB_setNu0)
     pooledMuncNu0BySample = np.empty(numSamples, dtype=np.float64)
@@ -7739,20 +8394,18 @@ def main():
                 "were available; continuing with the baseline MUNC trend only."
             )
         else:
-            baselinePooledVariance = core.evalPSplineLogVarianceTrend(
-                pooledMuncFit.trend,
-                pooledBlockMeans,
-                eps=varianceFloorForTrend,
-                maxVariance=varianceCapForTrend,
-            ).astype(np.float64, copy=False)
             baselinePooledVariance = core._clipVarianceTrack(
-                baselinePooledVariance,
+                pooledPriorVarianceBase,
                 floor=varianceFloorForTrend,
                 cap=varianceCapForTrend,
             ).astype(np.float64, copy=False)
+            factorAdjustedBlockVars = (
+                np.asarray(pooledBlockVars, dtype=np.float64)
+                / pooledReplicateVarianceFactors[pooledSampleIndex]
+            )
             additiveCovariateModel = core.fitMuncAdditiveCovariateModel(
                 pooledBlockMeans,
-                pooledBlockVars,
+                factorAdjustedBlockVars,
                 baselinePooledVariance,
                 pooledBlockCovariates,
                 pooledSampleIndex,
@@ -7807,6 +8460,7 @@ def main():
         pooledChromIndex,
         pooledBlockStarts,
         pooledTrendWeights,
+        pooledPriorVarianceBase,
         pooledPriorVariance,
     )
 
@@ -8073,6 +8727,7 @@ def main():
         def _fitMuncTrack(j: int) -> tuple[int, np.ndarray]:
             pooledTrend = pooledMuncFit.trend
             pooledNu0 = float(pooledMuncNu0BySample[j])
+            replicateVarianceFactor = float(pooledReplicateVarianceFactors[j])
             finalMuncFloorKwargs: dict[str, np.ndarray] = {}
             if countModelVarianceFloorMat is not None:
                 finalMuncFloorKwargs["countModelVarianceFloor"] = (
@@ -8122,7 +8777,7 @@ def main():
                 pooledTrend=pooledTrend,
                 priorMeanTrack=muncPriorMeanTrack,
                 priorVarianceTrack=pooledPriorVarianceTrack,
-                replicateVarianceFactor=1.0,
+                replicateVarianceFactor=replicateVarianceFactor,
                 EB_pooledNu0=pooledNu0,
                 covariateTrack=chromMuncCovariates,
                 additiveCovariateModel=additiveCovariateModel,
@@ -9336,21 +9991,26 @@ def main():
 
     if peakCallingEnabled:
         try:
-            stateScoreSuffix = "stateShrunk" if useShrunkStateScores else "state"
-            uncertaintyScoreSuffix = (
-                "stateShrunkUncertainty" if useShrunkStateScores else "uncertainty"
-            )
+            stateScoreSuffix = "state"
+            uncertaintyScoreSuffix = "uncertainty"
+            exportSignalSuffix = "stateShrunk" if useShrunkStateScores else "state"
             stateBedGraphPath = (
                 f"consenrichOutput_{experimentName}_{stateScoreSuffix}.v{__version__}.bedGraph"
             )
             uncertaintyBedGraphPath = (
                 f"consenrichOutput_{experimentName}_{uncertaintyScoreSuffix}.v{__version__}.bedGraph"
             )
+            exportSignalBedGraphPath = (
+                f"consenrichOutput_{experimentName}_{exportSignalSuffix}.v{__version__}.bedGraph"
+                if useShrunkStateScores
+                else None
+            )
             _logCliSubphase(
-                "ROCCO peaks: scoreTrack=%s path=%s uncertaintyTrack=%s",
+                "ROCCO peaks: scoreTrack=%s path=%s uncertaintyTrack=%s exportSignalTrack=%s",
                 stateScoreSuffix,
                 stateBedGraphPath,
                 uncertaintyScoreSuffix,
+                exportSignalSuffix,
             )
             if not os.path.exists(uncertaintyBedGraphPath):
                 if matchingArgs.uncertaintyScoreMode == "lower_confidence":
@@ -9363,9 +10023,17 @@ def main():
                     uncertaintyBedGraphPath,
                 )
                 uncertaintyBedGraphPath = None
+            if exportSignalBedGraphPath is not None and not os.path.exists(
+                exportSignalBedGraphPath
+            ):
+                raise FileNotFoundError(
+                    "matchingParams.useShrunkStateScores requires "
+                    f"stateShrunk bedGraph {exportSignalBedGraphPath}."
+                )
             outName, roccoSummary = peaks.solveRocco(
                 stateBedGraphPath,
                 uncertaintyBedGraphFile=uncertaintyBedGraphPath,
+                exportSignalBedGraphFile=exportSignalBedGraphPath,
                 numBootstrap=int(matchingArgs.numBootstrap),
                 thresholdZ=float(matchingArgs.thresholdZ),
                 dependenceSpan=matchingArgs.dependenceSpan,
@@ -9409,6 +10077,7 @@ def main():
                     cutoffReportDir = peaks.solveRoccoCutoffReport(
                         stateBedGraphPath,
                         uncertaintyBedGraphFile=uncertaintyBedGraphPath,
+                        exportSignalBedGraphFile=exportSignalBedGraphPath,
                         numBootstrap=int(matchingArgs.numBootstrap),
                         thresholdZ=float(matchingArgs.thresholdZ),
                         dependenceSpan=matchingArgs.dependenceSpan,

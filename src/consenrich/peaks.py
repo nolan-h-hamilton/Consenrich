@@ -4391,6 +4391,7 @@ def _refineNestedROCCOSolution(
 def _readAlignedConsenrichBedGraphs(
     stateBedGraphFile: str,
     uncertaintyBedGraphFile: str | None = None,
+    exportSignalBedGraphFile: str | None = None,
     chromosomes: Iterable[str] | None = None,
 ) -> Dict[str, Dict[str, np.ndarray]]:
     colsState = ["chromosome", "start", "end", "state"]
@@ -4441,6 +4442,34 @@ def _readAlignedConsenrichBedGraphs(
                 "`stateBedGraphFile` and `uncertaintyBedGraphFile` are not aligned."
             )
 
+    exportSignalDF: pd.DataFrame | None = None
+    if exportSignalBedGraphFile is not None:
+        colsExportSignal = ["chromosome", "start", "end", "export_signal"]
+        exportSignalDF = pd.read_csv(
+            exportSignalBedGraphFile,
+            sep="\t",
+            header=None,
+            names=colsExportSignal,
+            dtype={
+                "chromosome": str,
+                "start": np.int64,
+                "end": np.int64,
+                "export_signal": np.float64,
+            },
+        )
+        exportSignalDF.sort_values(
+            by=["chromosome", "start", "end"],
+            kind="mergesort",
+            inplace=True,
+        )
+        exportSignalDF.reset_index(drop=True, inplace=True)
+        if not stateDF[["chromosome", "start", "end"]].equals(
+            exportSignalDF[["chromosome", "start", "end"]]
+        ):
+            raise ValueError(
+                "`stateBedGraphFile` and `exportSignalBedGraphFile` are not aligned."
+            )
+
     allowedChroms = set(chromosomes) if chromosomes is not None else None
     out: Dict[str, Dict[str, np.ndarray]] = {}
     for chromosome, chromStateDF in stateDF.groupby("chromosome", sort=False):
@@ -4449,6 +4478,11 @@ def _readAlignedConsenrichBedGraphs(
         chromUncDF = None
         if uncertaintyDF is not None:
             chromUncDF = uncertaintyDF[uncertaintyDF["chromosome"] == chromosome]
+        chromExportSignalDF = None
+        if exportSignalDF is not None:
+            chromExportSignalDF = exportSignalDF[
+                exportSignalDF["chromosome"] == chromosome
+            ]
         out[str(chromosome)] = {
             "intervals": chromStateDF["start"].to_numpy(dtype=np.int64, copy=True),
             "ends": chromStateDF["end"].to_numpy(dtype=np.int64, copy=True),
@@ -4456,6 +4490,14 @@ def _readAlignedConsenrichBedGraphs(
             "uncertainty": (
                 chromUncDF["uncertainty"].to_numpy(dtype=np.float64, copy=True)
                 if chromUncDF is not None
+                else None
+            ),
+            "export_signal": (
+                chromExportSignalDF["export_signal"].to_numpy(
+                    dtype=np.float64,
+                    copy=True,
+                )
+                if chromExportSignalDF is not None
                 else None
             ),
         }
@@ -6362,6 +6404,7 @@ def _writeRoccoMetadata(
 def solveRocco(
     stateBedGraphFile: str,
     uncertaintyBedGraphFile: str | None = None,
+    exportSignalBedGraphFile: str | None = None,
     chromosomes: Iterable[str] | None = None,
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
@@ -6413,6 +6456,7 @@ def solveRocco(
         narrowPath, narrowSummary = solveRocco(
             stateBedGraphFile,
             uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+            exportSignalBedGraphFile=exportSignalBedGraphFile,
             chromosomes=chromosomes,
             numBootstrap=numBootstrap,
             thresholdZ=thresholdZ,
@@ -6444,6 +6488,7 @@ def solveRocco(
         _gappedPathResult, gappedSummary = solveRocco(
             stateBedGraphFile,
             uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+            exportSignalBedGraphFile=exportSignalBedGraphFile,
             chromosomes=chromosomes,
             numBootstrap=numBootstrap,
             thresholdZ=thresholdZ,
@@ -6497,6 +6542,7 @@ def solveRocco(
     chromData = _readAlignedConsenrichBedGraphs(
         stateBedGraphFile,
         uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+        exportSignalBedGraphFile=exportSignalBedGraphFile,
         chromosomes=chromosomes,
     )
     stateBase = Path(stateBedGraphFile)
@@ -6537,6 +6583,16 @@ def solveRocco(
                 None
                 if uncertaintyBedGraphFile is None
                 else str(uncertaintyBedGraphFile)
+            ),
+            "export_signal_bedgraph": (
+                None
+                if exportSignalBedGraphFile is None
+                else str(exportSignalBedGraphFile)
+            ),
+            "export_signal_source": (
+                "state"
+                if exportSignalBedGraphFile is None
+                else "export_signal_bedgraph"
             ),
             "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
             "blacklist_filter_policy": "drop_any_overlap",
@@ -6628,6 +6684,11 @@ def solveRocco(
             if data["uncertainty"] is None
             else np.asarray(data["uncertainty"], dtype=np.float64)
         )
+        exportSignal = (
+            state
+            if data["export_signal"] is None
+            else np.asarray(data["export_signal"], dtype=np.float64)
+        )
         if state.size == 0:
             continue
 
@@ -6712,6 +6773,7 @@ def solveRocco(
             }
         chromWork[str(chromosome)] = {
             "state": state,
+            "export_signal": exportSignal,
             "uncertainty": uncertainty,
             "intervals": intervals,
             "ends": ends,
@@ -6739,6 +6801,7 @@ def solveRocco(
         intervals = np.asarray(work["intervals"], dtype=np.int64)
         ends = np.asarray(work["ends"], dtype=np.int64)
         scoreTrack = np.asarray(work["score_track"], dtype=np.float64)
+        exportSignal = np.asarray(work["export_signal"], dtype=np.float64)
         uncertainty = (
             None
             if work["uncertainty"] is None
@@ -6890,7 +6953,7 @@ def solveRocco(
                 str(chromosome),
                 intervals,
                 ends,
-                state,
+                exportSignal,
                 np.asarray(weakScoreTrack, dtype=np.float64),
                 broadParentSolution,
                 solution,
@@ -6920,7 +6983,7 @@ def solveRocco(
                 str(chromosome),
                 intervals,
                 ends,
-                state,
+                exportSignal,
                 np.asarray(scoreTrack, dtype=np.float64),
                 solution,
                 prefix=roccoPrefix,
@@ -6942,6 +7005,7 @@ def solveRocco(
             )
         chromResults[str(chromosome)] = {
             "state": state,
+            "export_signal": exportSignal,
             "intervals": intervals,
             "ends": ends,
             "uncertainty": uncertainty,
@@ -6987,6 +7051,7 @@ def solveRocco(
         intervals = np.asarray(result["intervals"], dtype=np.int64)
         ends = np.asarray(result["ends"], dtype=np.int64)
         scoreTrack = np.asarray(result["score_track"], dtype=np.float64)
+        exportSignal = np.asarray(result["export_signal"], dtype=np.float64)
         uncertainty = result["uncertainty"]
         solution = np.asarray(result["solution"], dtype=np.uint8)
         solveDetails = dict(result["solve_details"])
@@ -6997,7 +7062,7 @@ def solveRocco(
                 str(chromosome),
                 intervals,
                 ends,
-                state,
+                exportSignal,
                 scoreTrack,
                 solution,
                 prefix="consenrichROCCO",
@@ -7435,6 +7500,7 @@ def _cutoffSummaryRow(
 def solveRoccoCutoffReport(
     stateBedGraphFile: str,
     uncertaintyBedGraphFile: str | None = None,
+    exportSignalBedGraphFile: str | None = None,
     chromosomes: Iterable[str] | None = None,
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
@@ -7513,6 +7579,7 @@ def solveRoccoCutoffReport(
             _resultPath, summary = solveRocco(
                 stateBedGraphFile,
                 uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+                exportSignalBedGraphFile=exportSignalBedGraphFile,
                 chromosomes=chromosomesTuple,
                 numBootstrap=int(settings["numBootstrap"]),
                 thresholdZ=float(settings["thresholdZ"]),

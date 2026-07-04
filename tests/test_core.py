@@ -370,6 +370,9 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
         *,
         seedWeightEnabled=constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED,
         seedWeightStudentT=constants.OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T,
+        useReplicateVarianceScale=(
+            constants.OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE
+        ),
     ):
         sources = [
             core.inputSource(
@@ -443,6 +446,7 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
                 pad=1.0e-4,
                 precisionMultiplierMin=0.5,
                 precisionMultiplierMax=2.0,
+                useReplicateVarianceScale=useReplicateVarianceScale,
                 useCountNoiseFloor=False,
                 muncTrendBlockSizeBP=5 * intervalSizeBP,
                 muncLocalWindowSizeBP=4 * intervalSizeBP,
@@ -779,6 +783,217 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
         call["useSeedWeights"] is False
         for call in seedMomentCallsByFlag["seedWeightsOff"]
     )
+
+    class StopAfterMuncTracks(RuntimeError):
+        pass
+
+    activeFlag = "factorScale"
+    activeSeedUseWeightsByFlag[activeFlag] = True
+    expectedFactors = np.asarray([0.25, 4.0], dtype=np.float64)
+    diagnosticCalls = []
+    summaryDiagnostics = []
+    pooledNu0Inputs = []
+    muncTrackCalls = []
+
+    def fakePooledFactorFit(
+        blockMeans,
+        blockVariances,
+        sampleIndex,
+        *,
+        weights,
+        eps,
+        trendNumBasis,
+        trendMinObsPerBasis,
+        trendMinEdf,
+        trendMaxEdf,
+        trendLambdaMin,
+        trendLambdaMax,
+        trendLambdaGridSize,
+        sampleCount,
+    ):
+        assert int(sampleCount) == 2
+        trend = core.PSplineLogVarianceTrend(
+            knots=np.empty(0, dtype=np.float64),
+            degree=-1,
+            beta=np.asarray([np.log(2.0)], dtype=np.float64),
+            xMin=0.0,
+            xMax=0.0,
+            lambdaHat=0.0,
+            edf=1.0,
+            gcv=0.0,
+            lambdaAtBoundary=False,
+            finiteCount=int(np.asarray(blockMeans).size),
+            diagnostics={},
+        )
+        return core.PooledMuncVarianceTrend(
+            trend=trend,
+            replicateVarianceFactors=expectedFactors.copy(),
+            diagnostics={"replicate_factor_fit": "test"},
+        )
+
+    def fakePooledNu0(
+        localModelVariances,
+        globalModelVariances,
+        Nu_local,
+        sampleIndex=None,
+        chromosomeIndex=None,
+        blockStarts=None,
+        thinBinSize=1,
+        localLogVarianceNoise=None,
+    ):
+        sampleIndexArr = np.asarray(sampleIndex, dtype=np.int64)
+        sample = int(sampleIndexArr[0])
+        pooledNu0Inputs.append(
+            {
+                "sample": sample,
+                "global": np.asarray(globalModelVariances, dtype=np.float64).copy(),
+                "nuLocal": float(Nu_local),
+            }
+        )
+        return float(20.0 + sample)
+
+    def fakeExchangeabilityFromBlocks(
+        pooledBlockVars,
+        pooledPriorVariance,
+        pooledSampleIndex,
+        pooledChromIndex,
+        pooledBlockStarts,
+        sampleCountArg,
+        **kwargs,
+    ):
+        diagnosticCalls.append(
+            {
+                "prior": np.asarray(pooledPriorVariance, dtype=np.float64).copy(),
+                "sampleIndex": np.asarray(pooledSampleIndex, dtype=np.int64).copy(),
+                "sampleCount": int(sampleCountArg),
+            }
+        )
+        return {
+            "status": "skipped",
+            "reason": "test",
+            "replicateCount": int(sampleCountArg),
+            "blockCount": 0,
+            "completeBlockCount": 0,
+        }
+
+    def fakeWriteExchangeabilitySummary(diagnostic, path):
+        summaryDiagnostics.append(dict(diagnostic))
+        return True
+
+    def fakeGetMuncTrack(chromosome, intervals, values, intervalSizeBP, **kwargs):
+        muncTrackCalls.append(
+            {
+                "replicateIndex": int(kwargs["replicateIndex"]),
+                "replicateVarianceFactor": float(kwargs["replicateVarianceFactor"]),
+                "priorVarianceTrack": np.asarray(
+                    kwargs["priorVarianceTrack"],
+                    dtype=np.float64,
+                ).copy(),
+                "EBPooledNu0": float(kwargs["EB_pooledNu0"]),
+            }
+        )
+        if len(muncTrackCalls) == sampleCount:
+            raise StopAfterMuncTracks()
+        return np.full(intervalCount, 0.2, dtype=np.float32), 1.0
+
+    monkeypatch.setattr(core, "fitPooledMuncVarianceTrend", fakePooledFactorFit)
+    monkeypatch.setattr(core, "EB_computePooledPriorStrength", fakePooledNu0)
+    monkeypatch.setattr(core, "getMuncTrack", fakeGetMuncTrack)
+    monkeypatch.setattr(
+        consenrichRuntime,
+        "_replicateExchangeabilityFromPooledBlocks",
+        fakeExchangeabilityFromBlocks,
+    )
+    monkeypatch.setattr(
+        consenrichRuntime,
+        "_writeReplicateExchangeabilitySummary",
+        fakeWriteExchangeabilitySummary,
+    )
+
+    def runFactorScaleCase(factorScaleEnabled):
+        diagnosticCalls.clear()
+        summaryDiagnostics.clear()
+        pooledNu0Inputs.clear()
+        muncTrackCalls.clear()
+        seedQCallsByFlag[activeFlag] = []
+        seedMomentCallsByFlag[activeFlag] = []
+        pooledFitCallsByFlag.pop(activeFlag, None)
+        monkeypatch.setattr(
+            consenrichRuntime,
+            "readConfig",
+            lambda path, enabled=factorScaleEnabled: makeConfig(
+                True,
+                useReplicateVarianceScale=enabled,
+            ),
+        )
+        with pytest.raises(StopAfterMuncTracks):
+            consenrichRuntime.main()
+        assert len(diagnosticCalls) >= 2
+        assert summaryDiagnostics
+        return diagnosticCalls[-2], diagnosticCalls[-1], summaryDiagnostics[-1]
+
+    rawDiagnostic, adjustedDiagnostic, adjustedSummary = runFactorScaleCase(True)
+    np.testing.assert_allclose(rawDiagnostic["prior"], 2.0)
+    np.testing.assert_allclose(
+        adjustedDiagnostic["prior"],
+        2.0 * expectedFactors[adjustedDiagnostic["sampleIndex"]],
+    )
+    assert adjustedSummary["replicateCount"] == sampleCount
+    assert adjustedSummary["priorVarianceFactorAdjusted"] is True
+    np.testing.assert_allclose(
+        adjustedSummary["replicateVarianceFactors"],
+        expectedFactors,
+    )
+    assert [item["sample"] for item in pooledNu0Inputs] == [0, 1]
+    for item in pooledNu0Inputs:
+        np.testing.assert_allclose(
+            item["global"],
+            np.full(expectedBlockCount, 2.0 * expectedFactors[item["sample"]]),
+        )
+    assert [item["replicateIndex"] for item in muncTrackCalls] == [0, 1]
+    np.testing.assert_allclose(
+        [item["replicateVarianceFactor"] for item in muncTrackCalls],
+        expectedFactors,
+    )
+    np.testing.assert_allclose(
+        [item["EBPooledNu0"] for item in muncTrackCalls],
+        [20.0, 21.0],
+    )
+    for item in muncTrackCalls:
+        np.testing.assert_allclose(
+            item["priorVarianceTrack"],
+            np.full(intervalCount, 2.0, dtype=np.float64),
+        )
+
+    rawDiagnostic, adjustedDiagnostic, adjustedSummary = runFactorScaleCase(False)
+    np.testing.assert_allclose(rawDiagnostic["prior"], 2.0)
+    np.testing.assert_allclose(adjustedDiagnostic["prior"], 2.0)
+    assert adjustedSummary["replicateCount"] == sampleCount
+    assert adjustedSummary["priorVarianceFactorAdjusted"] is False
+    np.testing.assert_allclose(
+        adjustedSummary["replicateVarianceFactors"],
+        expectedFactors,
+    )
+    assert [item["sample"] for item in pooledNu0Inputs] == [0, 1]
+    for item in pooledNu0Inputs:
+        np.testing.assert_allclose(
+            item["global"],
+            np.full(expectedBlockCount, 2.0),
+        )
+    assert [item["replicateIndex"] for item in muncTrackCalls] == [0, 1]
+    np.testing.assert_allclose(
+        [item["replicateVarianceFactor"] for item in muncTrackCalls],
+        np.ones(sampleCount),
+    )
+    np.testing.assert_allclose(
+        [item["EBPooledNu0"] for item in muncTrackCalls],
+        [20.0, 21.0],
+    )
+    for item in muncTrackCalls:
+        np.testing.assert_allclose(
+            item["priorVarianceTrack"],
+            np.full(intervalCount, 2.0, dtype=np.float64),
+        )
 
 
 def test_munc_eb_prior_g_uncertainty_modes_are_limited():
@@ -4525,11 +4740,34 @@ def _casePooledMuncTrendUsesSharedShapeAndSampleStrength():
 
     xBase = x[: meansBase.size]
     sharedTarget = np.exp(-0.7 + 0.25 * np.sin(2.0 * xBase) + 0.08 * xBase)
-    assert np.allclose(pooled.replicateVarianceFactors, np.ones(residualSd.size))
+    assert np.allclose(
+        pooled.replicateVarianceFactors,
+        np.ones(residualSd.size),
+        atol=0.05,
+    )
     assert np.mean(np.abs(np.log(predicted) - np.log(sharedTarget))) < 0.35
     assert len({round(float(value), 4) for value in nu0BySample}) > 1
     assert pooled.diagnostics["predictor"] == "signed_log1p"
-    assert pooled.diagnostics["replicate_factor_fit"] == "disabled"
+    assert (
+        pooled.diagnostics["replicate_factor_fit"]
+        == "weighted_median_log_residual"
+    )
+
+    trueFactors = np.asarray([0.64, 1.0, 1.44], dtype=np.float64)
+    shiftedVariances = blockVariances * trueFactors[sampleIndex]
+    shifted = core.fitPooledMuncVarianceTrend(
+        means,
+        shiftedVariances,
+        sampleIndex,
+        trendNumBasis=30,
+        trendMinObsPerBasis=8.0,
+        trendMinEdf=3.0,
+        trendMaxEdf=20.0,
+        trendLambdaGridSize=21,
+        eps=1.0e-8,
+    )
+    centeredTrue = trueFactors / np.exp(np.mean(np.log(trueFactors)))
+    assert np.allclose(shifted.replicateVarianceFactors, centeredTrue, rtol=0.08)
 
 
 @pytest.mark.correctness
@@ -5521,9 +5759,11 @@ def _caseGetMuncTrackSmoothsPriorMeanWithEMA(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.correctness
-def _caseGetMuncTrackRejectsReplicateVarianceFactor():
+def _caseGetMuncTrackAppliesReplicateVarianceFactor():
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
     values = np.linspace(-1.0, 1.0, intervals.size, dtype=np.float32)
+    localVarianceTrack = np.linspace(0.5, 1.6, intervals.size, dtype=np.float32)
+    priorVarianceTrack = np.linspace(1.0, 2.1, intervals.size, dtype=np.float32)
     pooledTrend = core.PSplineLogVarianceTrend(
         knots=np.empty(0, dtype=np.float64),
         degree=-1,
@@ -5538,17 +5778,26 @@ def _caseGetMuncTrackRejectsReplicateVarianceFactor():
         diagnostics={},
     )
 
-    with pytest.raises(ValueError, match="replicateVarianceFactor"):
-        core.getMuncTrack(
-            chromosome="chrTest",
-            intervals=intervals,
-            values=values,
-            intervalSizeBP=25,
-            muncTrendBlockSizeBP=125,
-            muncLocalWindowSizeBP=150,
-            pooledTrend=pooledTrend,
-            replicateVarianceFactor=1.5,
-        )
+    muncTrack, _ = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+        pooledTrend=pooledTrend,
+        priorVarianceTrack=priorVarianceTrack,
+        replicateVarianceFactor=1.5,
+        EB_use=True,
+        EB_setNuL=6,
+        EB_pooledNu0=4.0,
+        localVarianceTrack=localVarianceTrack,
+        varianceFloor=1.0e-6,
+        varianceCap=20.0,
+    )
+
+    expected = (6.0 * localVarianceTrack + 4.0 * priorVarianceTrack * 1.5) / 10.0
+    np.testing.assert_allclose(muncTrack, expected.astype(np.float32), rtol=1.0e-6)
 
 
 @pytest.mark.correctness
@@ -7987,8 +8236,8 @@ def test_core_pspline_sparse_support_and_trend_contracts(
         monkeypatch,
     )
     contract_case(
-        "MUNC rejects replicate factor",
-        _caseGetMuncTrackRejectsReplicateVarianceFactor,
+        "MUNC applies replicate factor",
+        _caseGetMuncTrackAppliesReplicateVarianceFactor,
     )
 
 

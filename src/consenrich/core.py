@@ -123,6 +123,7 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
+    OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE,
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX,
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
@@ -137,6 +138,7 @@ from .constants import (
     OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
+    OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_ENABLED,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL,
     OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT,
@@ -277,6 +279,8 @@ _QINIT_PRECISION_CAP_QUANTILE = 0.95
 _QINIT_PRECISION_CAP_MULTIPLIER = 20.0
 _QINIT_PRIOR_LOG_SD = math.log(4.0)
 _QINIT_DEFAULT_T_NU = 8.0
+
+
 def _logEvent(
     event: str,
     fields: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
@@ -378,8 +382,8 @@ class observationParams(NamedTuple):
     :type muncLocalWindowDependenceMultiplier: float | None
     :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool | None
-    :param useReplicateTrends: If True, fit the empirical Bayes MUNC mean/variance prior separately for each replicate instead of using one pooled trend with replicate scale factors.
-    :type useReplicateTrends: bool | None
+    :param useReplicateVarianceScale: If True, scale the pooled MUNC prior variance by replicate-specific factors.
+    :type useReplicateVarianceScale: bool | None
     :param muncCovariatesEnabled: If True, add a nonnegative per-replicate genomic covariate variance component to the MUNC prior before empirical-Bayes shrinkage.
     :type muncCovariatesEnabled: bool | None
     :param muncCovariatesMode: Genomic covariate MUNC mode. Currently ``"perReplicateAdditive"``.
@@ -444,7 +448,9 @@ class observationParams(NamedTuple):
     pad: float | None
     precisionMultiplierMin: float | None = 0.25
     precisionMultiplierMax: float | None = 4.0
-    useReplicateTrends: bool | None = False
+    useReplicateVarianceScale: bool | None = (
+        OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE
+    )
     muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
     muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
@@ -1040,10 +1046,11 @@ class matchingParams(NamedTuple):
         keeps summary diagnostics, while ``"full"`` also includes per-peak and
         candidate-detail arrays.
     :type metadataDetail: str
-    :param useShrunkStateScores: If True, integrated ROCCO peak calling uses the
-        post-fit EB-shrunken state track as its score input and the shrinkage
-        posterior standard deviation as the paired uncertainty track. This only
-        affects ROCCO scoring/export and does not alter the Kalman/ECM fit.
+    :param useShrunkStateScores: If True, integrated ROCCO peak export uses the
+        post-fit EB-shrunken state track as the signalValue/export-filter track.
+        ROCCO budget, null calibration, selection, and peak-level significance
+        use the unshrunk state and uncertainty tracks. This does not alter the
+        Kalman/ECM fit.
     :type useShrunkStateScores: bool
     :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
@@ -1150,6 +1157,9 @@ class outputParams(NamedTuple):
     plotCorrelationLength: bool = OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
     saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
+    writeReplicateExchangeabilityDiagnostics: bool = (
+        OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
+    )
     cutoffReport: bool = OUTPUT_DEFAULT_CUTOFF_REPORT
     writeRunSummary: bool = OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
     precisionDiagnosticDetail: str = OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
@@ -5783,9 +5793,7 @@ def runConsenrich(
         processNoiseCalibrationInfo["warmupOuterPasses"] = float(warmupOuterPasses)
         processNoiseCalibrationInfo["warmupEffectiveQLevelMedian"] = warmupQLevel
         processNoiseCalibrationInfo["warmupEffectiveQTrendMedian"] = warmupQTrend
-        fitProcessNoiseWarmupMetadata = _fitDiagnosticsMetadata(
-            fitProcessNoiseWarmup
-        )
+        fitProcessNoiseWarmupMetadata = _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
         fitProcessNoiseWarmup = None
     else:
         skipReason = (
@@ -7087,15 +7095,26 @@ def fitPooledMuncVarianceTrend(
     trendLambdaGridSize: int = 41,
     maxIters: int = 3,
     tol: float = 0.02,
+    sampleCount: int | None = None,
 ) -> PooledMuncVarianceTrend:
     r"""Fit a pooled signed MUNC trend plus replicate variance factors."""
 
-    _ = maxIters, tol
     means = np.asarray(blockMeans, dtype=np.float64).ravel()
     variances = np.asarray(blockVariances, dtype=np.float64).ravel()
     samples = np.asarray(sampleIndex, dtype=np.intp).ravel()
     if means.shape != variances.shape or means.shape != samples.shape:
         raise ValueError("blockMeans, blockVariances, and sampleIndex must align")
+    if sampleCount is None:
+        nonnegativeSamples = samples[samples >= 0]
+        sampleCount_ = (
+            int(np.max(nonnegativeSamples)) + 1 if nonnegativeSamples.size else 0
+        )
+    else:
+        sampleCount_ = int(sampleCount)
+        if sampleCount_ < 0:
+            raise ValueError("sampleCount must be nonnegative")
+        if np.any(samples >= sampleCount_):
+            raise ValueError("sampleIndex entries must be less than sampleCount")
     if weights is None:
         weightsArr = np.ones_like(means, dtype=np.float64)
     else:
@@ -7114,6 +7133,7 @@ def fitPooledMuncVarianceTrend(
         & (variances > max(float(eps), 1.0e-12))
         & (weightsArr > 0.0)
         & (samples >= 0)
+        & (samples < sampleCount_)
     )
     means = means[mask]
     variances = variances[mask]
@@ -7136,13 +7156,88 @@ def fitPooledMuncVarianceTrend(
         )
         return PooledMuncVarianceTrend(
             trend=trend,
-            replicateVarianceFactors=np.ones(0, dtype=np.float64),
-            diagnostics={"fallback": "no_valid_pairs"},
+            replicateVarianceFactors=np.ones(sampleCount_, dtype=np.float64),
+            diagnostics={
+                "pooled_pairs": 0,
+                "replicate_count": int(sampleCount_),
+                "factor_min": 1.0,
+                "factor_median": 1.0,
+                "factor_max": 1.0,
+                "iterations": 0,
+                "max_log_factor_change": 0.0,
+                "predictor": "signed_log1p",
+                "replicate_factor_fit": "no_valid_pairs",
+            },
         )
 
+    logFactors = np.zeros(sampleCount_, dtype=np.float64)
+    sampleWeights = np.bincount(
+        samples,
+        weights=weightsArr,
+        minlength=sampleCount_,
+    ).astype(np.float64, copy=False)
+    activeSamples = sampleWeights > 0.0
+    trend: PSplineLogVarianceTrend | None = None
+    iterations = 0
+    maxLogFactorChange = 0.0
+    maxIters_ = int(max(1, maxIters))
+    tol_ = float(max(tol, 0.0))
+    for iteration in range(maxIters_):
+        scaledVariances = variances / np.exp(logFactors[samples])
+        trend = fitPSplineLogVarianceTrend(
+            means,
+            scaledVariances,
+            weights=weightsArr,
+            eps=eps,
+            trendNumBasis=trendNumBasis,
+            trendMinObsPerBasis=trendMinObsPerBasis,
+            trendMinEdf=trendMinEdf,
+            trendMaxEdf=trendMaxEdf,
+            trendLambdaMin=trendLambdaMin,
+            trendLambdaMax=trendLambdaMax,
+            trendLambdaGridSize=trendLambdaGridSize,
+        )
+        prior = evalPSplineLogVarianceTrend(
+            trend,
+            means,
+            eps=eps,
+        ).astype(np.float64, copy=False)
+        residual = np.log(variances) - np.log(
+            np.maximum(prior, max(float(eps), 1.0e-12))
+        )
+        newLogFactors = np.zeros(sampleCount_, dtype=np.float64)
+        for sample in range(sampleCount_):
+            sampleMask = (samples == sample) & np.isfinite(residual)
+            if not np.any(sampleMask):
+                continue
+            newLogFactors[sample] = float(
+                _weightedQuantile(
+                    residual[sampleMask],
+                    weightsArr[sampleMask],
+                    np.asarray([0.5], dtype=np.float64),
+                )[0]
+            )
+        if np.any(activeSamples):
+            center = float(
+                np.sum(newLogFactors[activeSamples] * sampleWeights[activeSamples])
+                / np.sum(sampleWeights[activeSamples])
+            )
+            newLogFactors[activeSamples] -= center
+        maxLogFactorChange = (
+            float(np.max(np.abs(newLogFactors - logFactors)))
+            if newLogFactors.size
+            else 0.0
+        )
+        logFactors = newLogFactors
+        iterations = int(iteration + 1)
+        if maxLogFactorChange <= tol_:
+            break
+    if trend is None:
+        raise RuntimeError("pooled MUNC trend fit did not run")
+    scaledVariances = variances / np.exp(logFactors[samples])
     trend = fitPSplineLogVarianceTrend(
         means,
-        variances,
+        scaledVariances,
         weights=weightsArr,
         eps=eps,
         trendNumBasis=trendNumBasis,
@@ -7153,18 +7248,22 @@ def fitPooledMuncVarianceTrend(
         trendLambdaMax=trendLambdaMax,
         trendLambdaGridSize=trendLambdaGridSize,
     )
-    sampleCount = int(np.max(samples)) + 1
-    factors = np.ones(sampleCount, dtype=np.float64)
+    factors = np.exp(logFactors)
+    if not np.all(np.isfinite(factors)) or np.any(factors <= 0.0):
+        raise FloatingPointError("pooled MUNC replicate variance factors are invalid")
     diagnostics = {
         "pooled_pairs": int(means.size),
-        "replicate_count": int(sampleCount),
-        "factor_min": 1.0,
-        "factor_median": 1.0,
-        "factor_max": 1.0,
-        "iterations": 0,
-        "max_log_factor_change": 0.0,
+        "replicate_count": int(sampleCount_),
+        "factor_min": float(np.min(factors)) if factors.size else 1.0,
+        "factor_median": float(np.median(factors)) if factors.size else 1.0,
+        "factor_max": float(np.max(factors)) if factors.size else 1.0,
+        "sd_factor_min": float(np.sqrt(np.min(factors))) if factors.size else 1.0,
+        "sd_factor_median": float(np.sqrt(np.median(factors))) if factors.size else 1.0,
+        "sd_factor_max": float(np.sqrt(np.max(factors))) if factors.size else 1.0,
+        "iterations": int(iterations),
+        "max_log_factor_change": float(maxLogFactorChange),
         "predictor": "signed_log1p",
-        "replicate_factor_fit": "disabled",
+        "replicate_factor_fit": "weighted_median_log_residual",
     }
     return PooledMuncVarianceTrend(
         trend=trend,
@@ -7586,7 +7685,7 @@ def centerMBInPlace(
     values: npt.NDArray[np.floating],
     *,
     intervalSizeBP: int,
-    filterWindowBP: int = 1_000_000,
+    filterWindowBP: int = 1_250_000,
     centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD,
 ) -> dict[str, Any]:
     arr = np.asarray(values)
@@ -8437,8 +8536,8 @@ def getMuncTrack(
     )
     muncVarianceModelName = _normalizeMuncVarianceModel(muncVarianceModel)
     replicateFactor = float(replicateVarianceFactor)
-    if not np.isfinite(replicateFactor) or abs(replicateFactor - 1.0) > 1.0e-8:
-        raise ValueError("replicateVarianceFactor is not supported for MUNC priors")
+    if not np.isfinite(replicateFactor) or replicateFactor <= 0.0:
+        raise ValueError("replicateVarianceFactor must be positive and finite")
     sizing = _resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
         dependenceSpanIntervals=dependenceSpanIntervals,
@@ -8666,6 +8765,18 @@ def getMuncTrack(
                 float(np.median(finiteAdditional)),
                 float(np.quantile(finiteAdditional, 0.95)),
             )
+    if abs(replicateFactor - 1.0) > 1.0e-8:
+        priorTrack = (
+            np.asarray(priorTrack, dtype=np.float64).reshape(-1) * replicateFactor
+        )
+        logger.info(
+            "MUNC replicate variance factor: replicate=%s sampleFile=%s "
+            "variance_factor=%.6g sd_multiplier=%.6g",
+            "pooled" if replicateIndex is None else int(replicateIndex),
+            sampleFileLog,
+            float(replicateFactor),
+            float(math.sqrt(replicateFactor)),
+        )
     priorTrack, _ = cconsenrich.cFinalizeMuncEBTrack(
         priorTrack,
         useEB=False,

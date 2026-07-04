@@ -785,6 +785,24 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.saveGains",
         _cfgDefault(configData, "outputParams.saveGains"),
     )
+    writeReplicateExchangeabilityDiagnosticsRaw = _cfgGet(
+        configData,
+        "outputParams.writeReplicateExchangeabilityDiagnostics",
+        _cfgDefault(
+            configData,
+            "outputParams.writeReplicateExchangeabilityDiagnostics",
+        ),
+    )
+    if not isinstance(
+        writeReplicateExchangeabilityDiagnosticsRaw,
+        (bool, np.bool_),
+    ):
+        raise ValueError(
+            "outputParams.writeReplicateExchangeabilityDiagnostics must be boolean"
+        )
+    writeReplicateExchangeabilityDiagnostics_ = bool(
+        writeReplicateExchangeabilityDiagnosticsRaw
+    )
     plotOptimizationPath_ = _cfgGet(
         configData,
         "outputParams.plotOptimizationPath",
@@ -900,6 +918,9 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         stateShrinkageStudentTQuadratureOrder=stateShrinkageStudentTQuadratureOrder_,
         saveBackgroundTracks=saveBackgroundTracks_,
         saveGains=saveGains_,
+        writeReplicateExchangeabilityDiagnostics=(
+            writeReplicateExchangeabilityDiagnostics_
+        ),
         plotOptimizationPath=plotOptimizationPath_,
         plotCorrelationLength=bool(plotCorrelationLength_),
         plotPrecisionReweightingHistograms=plotPrecisionReweightingHistograms_,
@@ -2411,17 +2432,13 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             interval_size_bp=countingParams.intervalSizeBP,
             required_features_label="requested MUNC features",
         )
-    useReplicateTrendsValue = bool(
+    useReplicateVarianceScaleValue = bool(
         _cfgGet(
             configData,
-            "observationParams.useReplicateTrends",
-            constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
+            "observationParams.useReplicateVarianceScale",
+            constants.OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE,
         )
     )
-    if useReplicateTrendsValue:
-        raise ValueError(
-            "`observationParams.useReplicateTrends` is not supported."
-        )
     muncEBPriorTileSizeBP = _cfgGet(
         configData,
         "observationParams.muncEBPrior.tileSizeBP",
@@ -2637,7 +2654,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 _cfgDefault(configData, "observationParams.precisionMultiplierMax"),
             )
         ),
-        "useReplicateTrends": useReplicateTrendsValue,
+        "useReplicateVarianceScale": useReplicateVarianceScaleValue,
         "useCountNoiseFloor": bool(
             _cfgGet(
                 configData,

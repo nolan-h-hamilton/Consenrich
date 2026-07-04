@@ -1073,6 +1073,73 @@ def _caseSolveRoccoAppliesMinPeakSignalFilter(tmp_path):
 
 
 @pytest.mark.correctness
+def _caseSolveRoccoUsesExportSignalOnlyForOutputGate(tmp_path):
+    n = 128
+    step = 50
+    state = np.zeros(n, dtype=np.float64)
+    state[18:38] = 6.0
+    uncertainty = np.ones(n, dtype=np.float64)
+    exportSignal = np.zeros(n, dtype=np.float64)
+    exportSignal[18:38] = 8.5
+    exportSignal[80:100] = 30.0
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        step=step,
+        stem="export_gate",
+    )
+    exportSignalPath, _ = _writeSingleChromBedGraphs(
+        tmp_path,
+        exportSignal,
+        None,
+        step=step,
+        stem="export_gate_signal",
+    )
+    outPath = tmp_path / "export_gate_rocco.narrowPeak"
+    metaPath = tmp_path / "export_gate_rocco.narrowPeak.json"
+
+    resultPath, summary = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        exportSignalBedGraphFile=str(exportSignalPath),
+        peakMode="narrow",
+        numBootstrap=16,
+        dependenceSpan=6,
+        randSeed=23,
+        gamma=0.0,
+        nestedRoccoIters=0,
+        massiveSubpeakCleanup=False,
+        minPeakScore=7.0,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+        metadataDetail="full",
+        returnSummary=True,
+    )
+
+    rows = [
+        line.split("\t")
+        for line in outPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+
+    assert resultPath == str(outPath)
+    assert rows
+    assert summary["exported_peak_count"] == len(rows)
+    assert meta["settings"]["state_bedgraph"] == str(statePath)
+    assert meta["settings"]["uncertainty_bedgraph"] == str(uncPath)
+    assert meta["settings"]["export_signal_bedgraph"] == str(exportSignalPath)
+    assert meta["settings"]["export_signal_source"] == "export_signal_bedgraph"
+    assert max(float(row[6]) for row in rows) == pytest.approx(8.5)
+    assert all(float(row[6]) >= 7.0 for row in rows)
+    assert all(
+        int(row[2]) <= 80 * step or int(row[1]) >= 100 * step
+        for row in rows
+    )
+
+
+@pytest.mark.correctness
 def _caseIntegratedBudgetUsesExcessTailGrid():
     rng = np.random.default_rng(3)
     state = np.zeros(1024, dtype=np.float64)
@@ -2802,6 +2869,12 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
         _caseSolveRoccoAppliesMinPeakSignalFilter,
         tmp_path,
     )
+    contract_case(
+        "export signal gate only",
+        _caseSolveRoccoUsesExportSignalOnlyForOutputGate,
+        tmp_path,
+    )
+
 
 def test_rocco_subpeak_policy_contracts(contract_case):
     for label, func, args in (

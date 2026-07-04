@@ -2,6 +2,7 @@ import textwrap
 import io
 import json
 import logging
+import math
 import sys
 import types
 from pathlib import Path
@@ -592,6 +593,141 @@ def test_count_model_variance_floor_scalar_uses_count_noise_not_munc_minr():
     ) == pytest.approx(1.0e-7)
 
 
+def test_replicate_exchangeability_diagnostic_helpers(tmp_path):
+    nullMatrix = np.zeros((12, 3), dtype=np.float64)
+    nullDiagnostic = consenrich_cli._replicateExchangeabilityFromLogSDMatrix(
+        nullMatrix,
+        sampleNames=("a", "b", "c"),
+        seed=11,
+        permutationCount=19,
+    )
+    assert nullDiagnostic["status"] == "ok"
+    assert nullDiagnostic["omnibusObserved"] == pytest.approx(0.0)
+    assert nullDiagnostic["omnibusPValue"] == pytest.approx(1.0)
+
+    shiftedMatrix = np.zeros((18, 3), dtype=np.float64)
+    shiftedMatrix[:, 0] = 0.8
+    shiftedDiagnostic = consenrich_cli._replicateExchangeabilityFromLogSDMatrix(
+        shiftedMatrix,
+        sampleNames=("shifted", "baseA", "baseB"),
+        seed=11,
+        permutationCount=99,
+    )
+    assert shiftedDiagnostic["status"] == "ok"
+    assert shiftedDiagnostic["omnibusPValue"] <= 0.05
+    minPair = shiftedDiagnostic["pairwiseSign"]["minPair"]
+    assert minPair is not None
+    assert {minPair["replicateA"], minPair["replicateB"]} == {0, 1}
+    assert minPair["pValue"] < 0.001
+
+    summaryPath = tmp_path / "exchangeability.txt"
+    assert (
+        consenrich_cli._writeReplicateExchangeabilitySummary(
+            shiftedDiagnostic,
+            summaryPath,
+        )
+        is True
+    )
+    summaryText = summaryPath.read_text(encoding="utf-8")
+    assert "omnibus_p_value" in summaryText
+    assert "shifted" in summaryText
+    assert consenrich_cli._replicateExchangeabilityPlotPath("exp name").name == (
+        "consenrichOutput_exp_name_replicateExchangeability.png"
+    )
+    assert consenrich_cli._replicateExchangeabilitySummaryPath("exp name").name == (
+        "consenrichOutput_exp_name_replicateExchangeability.txt"
+    )
+
+    blockCount = 6
+    sampleIndex = np.tile(np.arange(2, dtype=np.int64), blockCount)
+    chromIndex = np.zeros(sampleIndex.size, dtype=np.int64)
+    blockStarts = np.repeat(np.arange(blockCount, dtype=np.int64), 2)
+    factors = np.asarray([0.25, 4.0], dtype=np.float64)
+    basePrior = np.repeat(np.linspace(1.0, 2.0, blockCount), 2)
+    factorPrior = basePrior * factors[sampleIndex]
+    factorDiagnostic = consenrich_cli._replicateExchangeabilityFromPooledBlocks(
+        factorPrior,
+        factorPrior,
+        sampleIndex,
+        chromIndex,
+        blockStarts,
+        2,
+        sampleNames=("low", "high"),
+        seed=17,
+    )
+    factorDiagnostic["priorVarianceFactorAdjusted"] = True
+    factorDiagnostic["replicateVarianceFactors"] = factors
+    factorDiagnostic["replicateSDMultipliers"] = np.sqrt(factors)
+    factorDiagnostic["rawOmnibusObserved"] = math.log(2.0)
+    factorDiagnostic["rawOmnibusPValue"] = 0.01
+    assert factorDiagnostic["status"] == "ok"
+    assert factorDiagnostic["omnibusObserved"] == pytest.approx(0.0)
+    assert factorDiagnostic["omnibusPValue"] == pytest.approx(1.0)
+
+    factorSummaryPath = tmp_path / "exchangeability_factor.txt"
+    assert (
+        consenrich_cli._writeReplicateExchangeabilitySummary(
+            factorDiagnostic,
+            factorSummaryPath,
+        )
+        is True
+    )
+    factorSummaryText = factorSummaryPath.read_text(encoding="utf-8")
+    assert "prior_variance_factor_adjusted: true" in factorSummaryText
+    assert "raw_omnibus_p_value: 0.01" in factorSummaryText
+    assert "fitted_replicate_munc_factors" in factorSummaryText
+    assert "high" in factorSummaryText
+
+    largeBlockCount = consenrich_cli._REPLICATE_EXCHANGEABILITY_MAX_BLOCKS + 7
+    largeSampleCount = 3
+    largeSampleIndex = np.tile(
+        np.arange(largeSampleCount, dtype=np.int64),
+        largeBlockCount,
+    )
+    largeBlockStarts = np.repeat(
+        np.arange(largeBlockCount, dtype=np.int64),
+        largeSampleCount,
+    )
+    largeVars = np.ones(largeSampleIndex.size, dtype=np.float64)
+    largeDiagnostic = consenrich_cli._replicateExchangeabilityFromPooledBlocks(
+        largeVars,
+        largeVars,
+        largeSampleIndex,
+        np.zeros(largeSampleIndex.size, dtype=np.int64),
+        largeBlockStarts,
+        largeSampleCount,
+        seed=17,
+    )
+    assert largeDiagnostic["blockCount"] == largeBlockCount
+    assert (
+        largeDiagnostic["diagnosticBlockCount"]
+        == consenrich_cli._REPLICATE_EXCHANGEABILITY_MAX_BLOCKS
+    )
+    assert largeDiagnostic["status"] == "ok"
+
+
+def test_replicate_exchangeability_plot_smoke(tmp_path):
+    pytest.importorskip("matplotlib")
+    shiftedMatrix = np.zeros((18, 3), dtype=np.float64)
+    shiftedMatrix[:, 0] = 0.8
+    shiftedDiagnostic = consenrich_cli._replicateExchangeabilityFromLogSDMatrix(
+        shiftedMatrix,
+        sampleNames=("shifted", "baseA", "baseB"),
+        seed=11,
+        permutationCount=99,
+    )
+    shiftedDiagnostic["rawOmnibusObserved"] = math.log(2.0)
+    plotPath = tmp_path / "exchangeability.png"
+    assert (
+        consenrich_cli._plotReplicateExchangeabilityDiagnostic(
+            shiftedDiagnostic,
+            plotPath,
+        )
+        is True
+    )
+    assert plotPath.stat().st_size > 0
+
+
 def _case_readConfigDottedAndNestedEquivalent(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -612,6 +748,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.writeRunSummary: false
     outputParams.precisionDiagnosticDetail: sampled
     outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
+    outputParams.writeReplicateExchangeabilityDiagnostics: true
     outputParams.plotPrecisionReweightingHistograms: false
     outputParams.precisionReweightingHistogramSampleSize: 123
     outputParams.maxNonTrackFileBytes: 1024
@@ -656,6 +793,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       writeRunSummary: false
       precisionDiagnosticDetail: sampled
       maxPrecisionDiagnosticRowsPerChromosome: 7
+      writeReplicateExchangeabilityDiagnostics: true
       plotPrecisionReweightingHistograms: false
       precisionReweightingHistogramSampleSize: 123
       maxNonTrackFileBytes: 1024
@@ -755,6 +893,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputNested.precisionDiagnosticDetail == "sampled"
     assert outputDotted.maxPrecisionDiagnosticRowsPerChromosome == 7
     assert outputNested.maxPrecisionDiagnosticRowsPerChromosome == 7
+    assert outputDotted.writeReplicateExchangeabilityDiagnostics is True
+    assert outputNested.writeReplicateExchangeabilityDiagnostics is True
     assert outputDotted.plotPrecisionReweightingHistograms is False
     assert outputNested.plotPrecisionReweightingHistograms is False
     assert outputDotted.precisionReweightingHistogramSampleSize == 123
@@ -879,6 +1019,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     observationParams:
       precisionMultiplierMin: 0.1
       precisionMultiplierMax: 8.0
+      useReplicateVarianceScale: false
       useCountNoiseFloor: false
       muncEBPrior:
         gUncertaintyMode: disabled
@@ -900,7 +1041,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
     assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
     assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
-    assert configParsed["observationArgs"].useReplicateTrends is False
+    assert configParsed["observationArgs"].useReplicateVarianceScale is False
     assert configParsed["observationArgs"].useCountNoiseFloor is False
     assert (
         configParsed["observationArgs"].muncEBPriorGUncertaintyMode
@@ -1084,8 +1225,8 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         == constants.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
     )
     assert (
-        parsed["observationArgs"].useReplicateTrends
-        is constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS
+        parsed["observationArgs"].useReplicateVarianceScale
+        is constants.OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE
     )
     assert (
         parsed["observationArgs"].useCountNoiseFloor
@@ -1488,6 +1629,15 @@ def _case_runtime_defaults_are_centralized(
     )
     assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
+        parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics
+        is constants.OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
+        is True
+    )
+    assert (
+        parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics
+        == profile["outputParams.writeReplicateExchangeabilityDiagnostics"]
+    )
+    assert (
         parsed["outputArgs"].cutoffReport
         == profile["outputParams.cutoffReport"]
     )
@@ -1874,6 +2024,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     outputParams.stateShrinkageScaleAnchorWeight: 9
     outputParams.stateShrinkageStudentTDF: 5
     outputParams.stateShrinkageStudentTQuadratureOrder: 32
+    outputParams.writeReplicateExchangeabilityDiagnostics: true
     outputParams.plotPrecisionReweightingHistograms: false
     outputParams.precisionReweightingHistogramSampleSize: 12345
     uncertaintyCalibrationParams.enabled: false
@@ -1912,6 +2063,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight == pytest.approx(9.0)
     assert parsed["outputArgs"].stateShrinkageStudentTDF == pytest.approx(5.0)
     assert parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder == 32
+    assert parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics is True
     assert parsed["outputArgs"].plotPrecisionReweightingHistograms is False
     assert parsed["outputArgs"].precisionReweightingHistogramSampleSize == 12345
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
@@ -2760,21 +2912,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     )
     with pytest.raises(ValueError, match="muncEBPrior.mode"):
         readConfig(str(configEBPriorModePath))
-
-    configReplicateTrend = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.useReplicateTrends: true
-    """
-    configReplicateTrendPath = writeConfigFile(
-        tmp_path,
-        "config_replicate_munc_trend.yaml",
-        configReplicateTrend,
-    )
-    with pytest.raises(ValueError, match="useReplicateTrends"):
-        readConfig(str(configReplicateTrendPath))
-
 
 def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
     sparseBedPath = tmp_path / "sparse_regions.bed"
