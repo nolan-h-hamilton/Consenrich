@@ -2,15 +2,14 @@ Quickstart + Usage
 ------------------
 
 After installing Consenrich, run it from the command line with
-``consenrich -h`` or import it from Python.
-The examples below are intentionally short demos on a couple chromosomes.
+``consenrich -h`` for usage or programmatically as a Python import.
 
 .. _getting-started:
 
 Getting Started: H3K27ac ChIP-seq
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This minimal example estimates a consensus H3K27ac signal from four ENCODE
+This minimal example estimates a consensus from *four* ENCODE
 epidermis ChIP-seq experiments with matched input controls.
 
 Input Data
@@ -137,7 +136,7 @@ current package version, the principal output files are:
 ATAC-seq Demo
 ~~~~~~~~~~~~~
 
-This demo estimates a consensus chromatin-accessibility signal from ten ENCODE
+This demo estimates a consensus chromatin accessibility signal from *ten* ENCODE
 ATAC-seq alignments.
 
 Download Alignments
@@ -210,10 +209,10 @@ Results
 Broad Mark ChIP-seq Demo
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
+This demo estimates a consensus H3K4me1 signal from *six* ENCODE ChIP-seq experiments with matched input controls.
+
 Download Alignments
 """""""""""""""""""
-
-(This will take a while!)
 
 .. code-block:: bash
 
@@ -222,26 +221,18 @@ Download Alignments
   while read -r accession output; do
       wget -O "$output" "$encodeFiles/$accession/@@download/$accession.bam"
   done <<'EOF'
-  ENCFF365LTV ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
-  ENCFF630KZV ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
-  ENCFF851FLQ ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
-  ENCFF581VRR ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
   ENCFF451FGF ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
   ENCFF660DDB ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
   ENCFF828GWI ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
-  ENCFF392MXC ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
-  ENCFF366HMH ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
   ENCFF671AAF ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
-  ENCFF536MLZ ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
-  ENCFF007LNN ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
-  ENCFF422MKH ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
-  ENCFF525NLT ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
+  ENCFF366HMH ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
+  ENCFF392MXC ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
   ENCFF013ION ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
   ENCFF730PAF ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
   ENCFF971XWL ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
-  ENCFF273EYI ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
-  ENCFF944AYC ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
   ENCFF271VZL ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+  ENCFF944AYC ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
+  ENCFF273EYI ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
   EOF
 
   samtools index -M *.bam
@@ -264,22 +255,6 @@ Save the following as ``bigH3K4me1Demo.yaml``:
 
   inputParams:
     samples:
-      - name: ENCSR449FRQ_H3K4me1
-        path: ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
-        format: bam
-        role: treatment
-      - name: ENCSR678RFS_H3K4me1
-        path: ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
-        format: bam
-        role: treatment
-      - name: ENCSR412THE_H3K4me1
-        path: ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
-        format: bam
-        role: treatment
-      - name: ENCSR208XKJ_H3K4me1
-        path: ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR724MJX_H3K4me1
         path: ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
         format: bam
@@ -292,35 +267,19 @@ Save the following as ``bigH3K4me1Demo.yaml``:
         path: ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
         format: bam
         role: treatment
-      - name: ENCSR485LPA_H3K4me1
-        path: ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
+      - name: ENCSR299NYB_H3K4me1
+        path: ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
         format: bam
         role: treatment
       - name: ENCSR817JNE_H3K4me1
         path: ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
         format: bam
         role: treatment
-      - name: ENCSR299NYB_H3K4me1
-        path: ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
+      - name: ENCSR485LPA_H3K4me1
+        path: ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
         format: bam
         role: treatment
 
-      - name: ENCSR178FVP_input_for_ENCSR449FRQ
-        path: ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
-        format: bam
-        role: control
-      - name: ENCSR632MPN_input_for_ENCSR678RFS
-        path: ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
-        format: bam
-        role: control
-      - name: ENCSR040TRJ_input_for_ENCSR412THE
-        path: ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
-        format: bam
-        role: control
-      - name: ENCSR979YKY_input_for_ENCSR208XKJ
-        path: ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
-        format: bam
-        role: control
       - name: ENCSR109IWL_input_for_ENCSR724MJX
         path: ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
         format: bam
@@ -333,24 +292,18 @@ Save the following as ``bigH3K4me1Demo.yaml``:
         path: ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
         format: bam
         role: control
-      - name: ENCSR120ITZ_input_for_ENCSR485LPA
-        path: ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
+      - name: ENCSR261PLD_input_for_ENCSR299NYB
+        path: ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
         format: bam
         role: control
       - name: ENCSR061EXX_input_for_ENCSR817JNE
         path: ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
         format: bam
         role: control
-      - name: ENCSR261PLD_input_for_ENCSR299NYB
-        path: ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+      - name: ENCSR120ITZ_input_for_ENCSR485LPA
+        path: ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
         format: bam
         role: control
-
-  countingParams:
-    intervalSizeBP: 100
-
-  matchingParams:
-    peakMode: broad
 
 
 Run Consenrich
