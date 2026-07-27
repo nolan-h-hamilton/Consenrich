@@ -89,80 +89,6 @@ def writeGenomeCovariateCache(
     return cacheDir
 
 
-def _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier():
-    coarseMinSpan, coarseMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(50)
-    fineMinSpan, fineMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(25)
-    assert 2 * fineMinSpan * 25 >= consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP
-    assert 2 * (fineMinSpan - 1) * 25 < consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP
-    assert fineMinSpan >= coarseMinSpan
-    assert fineMaxSpan >= coarseMaxSpan
-    assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
-    fragmentMinSpan, fragmentMaxSpan = (
-        consenrich_cli._dependenceSpanBoundsFromContextBP(
-            100,
-            medianFragmentLengthBP=1_800,
-        )
-    )
-    fragmentContextBP = max(
-        consenrich_cli._DEPENDENCE_MIN_CONTEXT_BP,
-        int(np.ceil(2.0 * 1_800 + 1.0)),
-    )
-    assert 2 * (fragmentMinSpan - 1) * 100 + 1 < fragmentContextBP
-    assert 2 * fragmentMinSpan * 100 + 1 >= fragmentContextBP
-    assert fragmentMaxSpan >= fragmentMinSpan
-    assert consenrich_cli._dependenceFallbackSpanIntervals(25, None) == 200
-    assert consenrich_cli._dependenceFallbackSpanIntervals(100, 1_800) == 180
-    coarseLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceSpanIntervals=coarseMaxSpan,
-        backgroundBlockSizeBP=-1,
-        intervalSizeBP=50,
-        lengthScaleMultiplier=16.0,
-    )
-    fineLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceSpanIntervals=fineMaxSpan,
-        backgroundBlockSizeBP=-1,
-        intervalSizeBP=25,
-        lengthScaleMultiplier=16.0,
-    )
-    assert abs(coarseLen * 50 - fineLen * 25) <= (
-        16.0 * abs(coarseMaxSpan * 50 - fineMaxSpan * 25) + 50
-    )
-
-    blockLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceSpanIntervals=5,
-        backgroundBlockSizeBP=550,
-        intervalSizeBP=50,
-        lengthScaleMultiplier=8.0,
-    )
-    assert blockLen == 89
-    assert (
-        consenrich_cli._resolveRuntimeBackgroundBlockLen(
-            dependenceSpanIntervals=None,
-            backgroundBlockSizeBP=250,
-            intervalSizeBP=50,
-            lengthScaleMultiplier=8.0,
-        )
-        == 41
-    )
-    assert (
-        consenrich_cli._resolveRuntimeBackgroundBlockLen(
-            dependenceSpanIntervals=5,
-            backgroundBlockSizeBP=550,
-            intervalSizeBP=50,
-            lengthScaleMultiplier=4.0,
-        )
-        == 45
-    )
-    sizing = consenrich_core._resolveMuncRuntimeSizing(
-        intervalSizeBP=50,
-        dependenceSpanIntervals=5,
-        muncTrendBlockSizeBP=None,
-        muncLocalWindowSizeBP=None,
-        muncTrendBlockDependenceMultiplier=2.0,
-        muncLocalWindowDependenceMultiplier=3.0,
-    )
-    assert sizing.trendBlockSource == "correlation length"
-    assert sizing.localWindowSource == "correlation length"
 
 
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
@@ -706,6 +632,151 @@ def test_replicate_exchangeability_diagnostic_helpers(tmp_path):
     assert largeDiagnostic["status"] == "ok"
 
 
+def test_replicateVarianceHeterogeneityWarningPolicy(tmp_path, caplog):
+    diagnosticPath = tmp_path / "replicate_variance_diagnostic.txt"
+    caseRows = (
+        (
+            "rawRatio",
+            0.05,
+            (1.0, 1.1, 1.5),
+            0.5,
+            (1.0, 1.1, 1.1),
+            (1.0, 1.1, 1.1),
+            False,
+            True,
+        ),
+        (
+            "fittedRatio",
+            0.05,
+            (1.0, 1.1, 1.1),
+            0.5,
+            (1.0, 1.1, 1.1),
+            (1.0, 1.1, 1.5),
+            True,
+            True,
+        ),
+        (
+            "rawPOnly",
+            0.05,
+            (1.0, 1.1, 1.49),
+            0.5,
+            (1.0, 1.1, 1.1),
+            (1.0, 1.1, 1.49),
+            False,
+            False,
+        ),
+        (
+            "rawRatioOnly",
+            0.051,
+            (1.0, 1.1, 1.5),
+            0.5,
+            (1.0, 1.1, 1.1),
+            (1.0, 1.1, 1.1),
+            False,
+            False,
+        ),
+        (
+            "strongAdjusted",
+            0.05,
+            (1.0, 1.1, 1.5),
+            0.01,
+            (1.0, 1.1, 1.25),
+            (1.0, 1.1, 1.4),
+            True,
+            True,
+        ),
+        (
+            "adjustedPOnly",
+            0.5,
+            (1.0, 1.1, 1.1),
+            0.01,
+            (1.0, 1.1, 1.24),
+            (1.0, 1.1, 1.1),
+            True,
+            False,
+        ),
+        (
+            "adjustedRatioOnly",
+            0.5,
+            (1.0, 1.1, 1.1),
+            0.011,
+            (1.0, 1.1, 1.25),
+            (1.0, 1.1, 1.1),
+            True,
+            False,
+        ),
+        (
+            "adjustmentDisabled",
+            0.5,
+            (1.0, 1.1, 1.1),
+            0.01,
+            (1.0, 1.1, 1.25),
+            (1.0, 1.1, 1.1),
+            False,
+            False,
+        ),
+    )
+    strongMessage = ""
+    caplog.set_level(logging.WARNING)
+    for (
+        caseName,
+        rawPValue,
+        rawSDMultipliers,
+        adjustedPValue,
+        adjustedSDMultipliers,
+        fittedSDMultipliers,
+        factorAdjusted,
+        shouldWarn,
+    ) in caseRows:
+        diagnostic = {
+            "status": "ok",
+            "sampleNames": ("lowReplicate", "middleReplicate", "highReplicate"),
+            "rawEffectByReplicate": np.log(
+                np.asarray(rawSDMultipliers, dtype=np.float64)
+            ),
+            "effectByReplicate": np.log(
+                np.asarray(adjustedSDMultipliers, dtype=np.float64)
+            ),
+            "replicateSDMultipliers": np.asarray(
+                fittedSDMultipliers,
+                dtype=np.float64,
+            ),
+            "rawOmnibusPValue": rawPValue,
+            "omnibusPValue": adjustedPValue,
+            "priorVarianceFactorAdjusted": factorAdjusted,
+            "pairwiseSign": {
+                "minPair": {"pValue": 1.0 if shouldWarn else 1.0e-12}
+            },
+        }
+        caplog.clear()
+        warned = consenrich_cli._warnReplicateVarianceHeterogeneity(
+            diagnostic,
+            diagnosticPath,
+        )
+        warningMessages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+        ]
+        assert warned is shouldWarn, caseName
+        assert len(warningMessages) == int(shouldWarn), caseName
+        if caseName == "strongAdjusted":
+            strongMessage = warningMessages[0]
+
+    assert strongMessage.startswith("Strong modeled heterogeneity warning")
+    assert "divergentReplicates='lowReplicate','highReplicate'" in strongMessage
+    assert "rawSDRatio=1.5" in strongMessage
+    assert "adjustedSDRatio=1.25" in strongMessage
+    assert "rawPValue=0.05" in strongMessage
+    assert "adjustedPValue=0.01" in strongMessage
+    assert f"diagnosticFile={diagnosticPath.resolve()}" in strongMessage
+    assert "replicates exhibit blockwise variance heterogeneity" in strongMessage
+    assert (
+        "does not establish that global biological exchangeability is invalid"
+        in strongMessage
+    )
+
+
 def test_replicate_exchangeability_plot_smoke(tmp_path):
     pytest.importorskip("matplotlib")
     shiftedMatrix = np.zeros((18, 3), dtype=np.float64)
@@ -752,13 +823,20 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.plotPrecisionReweightingHistograms: false
     outputParams.precisionReweightingHistogramSampleSize: 123
     outputParams.maxNonTrackFileBytes: 1024
-    observationParams.muncDependenceMinContextSizeBP: 5000
     observationParams.muncTrendBlockDependenceMultiplier: 1.75
     observationParams.muncLocalWindowDependenceMultiplier: 2.25
+    observationParams.dependenceWindowCount: 32
+    observationParams.dependenceWindowBP: 100000
+    observationParams.dependenceMaxLagBP: 40000
+    observationParams.dependenceWorkingQuantile: 0.90
+    observationParams.dependenceBootstrapDraws: 40
+    observationParams.dependenceMinWindowCount: 20
+    observationParams.dependenceMinAutosomeCount: 4
     observationParams.dependenceAcfPointThreshold: 0.03
-    observationParams.dependenceAcfRequiredCrossings: 4
-    observationParams.dependenceAcfMinEvidenceNats: 3.5
-    observationParams.dependencePriorMedianSpan: 42
+    observationParams.dependenceAcfSmoothingBP: 350
+    observationParams.dependenceCrossingPersistenceBP: 450
+    observationParams.dependenceMinFinitePairs: 175
+    observationParams.dependenceMinFinitePairCoverage: 0.65
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     matchingParams.metadataDetail: full
@@ -798,13 +876,20 @@ def _case_readConfigDottedAndNestedEquivalent(
       precisionReweightingHistogramSampleSize: 123
       maxNonTrackFileBytes: 1024
     observationParams:
-      muncDependenceMinContextSizeBP: 5000
       muncTrendBlockDependenceMultiplier: 1.75
       muncLocalWindowDependenceMultiplier: 2.25
+      dependenceWindowCount: 32
+      dependenceWindowBP: 100000
+      dependenceMaxLagBP: 40000
+      dependenceWorkingQuantile: 0.90
+      dependenceBootstrapDraws: 40
+      dependenceMinWindowCount: 20
+      dependenceMinAutosomeCount: 4
       dependenceAcfPointThreshold: 0.03
-      dependenceAcfRequiredCrossings: 4
-      dependenceAcfMinEvidenceNats: 3.5
-      dependencePriorMedianSpan: 42
+      dependenceAcfSmoothingBP: 350
+      dependenceCrossingPersistenceBP: 450
+      dependenceMinFinitePairs: 175
+      dependenceMinFinitePairCoverage: 0.65
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
@@ -871,13 +956,20 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert type(processDotted) is type(processNested)
     assert observationDotted == observationNested
     assert processDotted == processNested
-    assert observationDotted.muncDependenceMinContextSizeBP == 5000
     assert observationDotted.muncTrendBlockDependenceMultiplier == pytest.approx(1.75)
     assert observationDotted.muncLocalWindowDependenceMultiplier == pytest.approx(2.25)
+    assert observationDotted.dependenceWindowCount == 32
+    assert observationDotted.dependenceWindowBP == 100_000
+    assert observationDotted.dependenceMaxLagBP == 40_000
+    assert observationDotted.dependenceWorkingQuantile == pytest.approx(0.90)
+    assert observationDotted.dependenceBootstrapDraws == 40
+    assert observationDotted.dependenceMinWindowCount == 20
+    assert observationDotted.dependenceMinAutosomeCount == 4
     assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
-    assert observationDotted.dependenceAcfRequiredCrossings == 4
-    assert observationDotted.dependenceAcfMinEvidenceNats == pytest.approx(3.5)
-    assert observationDotted.dependencePriorMedianSpan == pytest.approx(42.0)
+    assert observationDotted.dependenceAcfSmoothingBP == 350
+    assert observationDotted.dependenceCrossingPersistenceBP == 450
+    assert observationDotted.dependenceMinFinitePairs == 175
+    assert observationDotted.dependenceMinFinitePairCoverage == pytest.approx(0.65)
 
     outputDotted = configDotted["outputArgs"]
     outputNested = configNested["outputArgs"]
@@ -1242,9 +1334,14 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert parsed["outputArgs"].stateShrinkageEnabled is True
     assert parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier == pytest.approx(
-        1.0
+        2.5
     )
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight is None
+    assert (
+        parsed["outputArgs"].deleteBedGraphsAfterBigWig
+        is constants.OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG
+        is True
+    )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -1270,7 +1367,18 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.warmupOuterPasses",
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
-        "observationParams.dependenceAcfMinEvidenceNats",
+        "observationParams.dependenceWindowCount",
+        "observationParams.dependenceWindowBP",
+        "observationParams.dependenceMaxLagBP",
+        "observationParams.dependenceWorkingQuantile",
+        "observationParams.dependenceBootstrapDraws",
+        "observationParams.dependenceMinWindowCount",
+        "observationParams.dependenceMinAutosomeCount",
+        "observationParams.dependenceAcfPointThreshold",
+        "observationParams.dependenceAcfSmoothingBP",
+        "observationParams.dependenceCrossingPersistenceBP",
+        "observationParams.dependenceMinFinitePairs",
+        "observationParams.dependenceMinFinitePairCoverage",
         "outputParams.stateShrinkageEnabled",
         "outputParams.stateShrinkageModel",
         "outputParams.stateShrinkageSpikeOddsMultiplier",
@@ -1319,7 +1427,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MAX == 1.0e6
     assert (
         constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER
-        == pytest.approx(1.0)
+        == pytest.approx(2.5)
     )
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT is None
     assert (
@@ -1496,10 +1604,6 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.muncLocalWindowSizeBP"]
     )
     assert (
-        parsed["observationArgs"].muncDependenceMinContextSizeBP
-        == profile["observationParams.muncDependenceMinContextSizeBP"]
-    )
-    assert (
         parsed["observationArgs"].muncTrendBlockDependenceMultiplier
         == profile["observationParams.muncTrendBlockDependenceMultiplier"]
     )
@@ -1507,25 +1611,43 @@ def _case_runtime_defaults_are_centralized(
         parsed["observationArgs"].muncLocalWindowDependenceMultiplier
         == profile["observationParams.muncLocalWindowDependenceMultiplier"]
     )
-    assert (
-        parsed["observationArgs"].dependenceAcfMinEvidenceNats
-        == profile["observationParams.dependenceAcfMinEvidenceNats"]
-        == pytest.approx(
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS
-        )
-    )
-    assert parsed["observationArgs"].dependencePriorMedianSpan is None
+    dependenceDefaults = {
+        "dependenceWindowCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
+        "dependenceWindowBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
+        "dependenceMaxLagBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
+        "dependenceWorkingQuantile": 0.90,
+        "dependenceBootstrapDraws": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
+        ),
+        "dependenceMinWindowCount": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
+        ),
+        "dependenceMinAutosomeCount": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT
+        ),
+        "dependenceAcfSmoothingBP": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
+        ),
+        "dependenceCrossingPersistenceBP": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
+        ),
+        "dependenceMinFinitePairs": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
+        ),
+        "dependenceMinFinitePairCoverage": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE
+        ),
+    }
+    for fieldName, expectedValue in dependenceDefaults.items():
+        configKey = f"observationParams.{fieldName}"
+        assert getattr(parsed["observationArgs"], fieldName) == expectedValue
+        assert profile[configKey] == expectedValue
     assert (
         parsed["observationArgs"].dependenceAcfPointThreshold
         == profile["observationParams.dependenceAcfPointThreshold"]
         == pytest.approx(
             constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
         )
-    )
-    assert (
-        parsed["observationArgs"].dependenceAcfRequiredCrossings
-        == profile["observationParams.dependenceAcfRequiredCrossings"]
-        == constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS
     )
     assert (
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
@@ -2010,12 +2132,22 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.processNoiseCalibration: fixed
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
+    observationParams.dependenceWindowCount: 48
+    observationParams.dependenceWindowBP: 120000
+    observationParams.dependenceMaxLagBP: 45000
+    observationParams.dependenceWorkingQuantile: 0.90
+    observationParams.dependenceBootstrapDraws: 75
+    observationParams.dependenceMinWindowCount: 24
+    observationParams.dependenceMinAutosomeCount: 5
     observationParams.dependenceAcfPointThreshold: 0.02
-    observationParams.dependenceAcfRequiredCrossings: 5
-    observationParams.dependenceAcfMinEvidenceNats: 4.25
+    observationParams.dependenceAcfSmoothingBP: 300
+    observationParams.dependenceCrossingPersistenceBP: 400
+    observationParams.dependenceMinFinitePairs: 150
+    observationParams.dependenceMinFinitePairCoverage: 0.60
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
+    outputParams.deleteBedGraphsAfterBigWig: false
     outputParams.stateShrinkageEnabled: false
     outputParams.stateShrinkageModel: spikeAndStudentT
     outputParams.stateShrinkagePriorSpikeProp: 0.33
@@ -2044,14 +2176,24 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].processNoiseCalibration == "fixed"
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
+    assert parsed["observationArgs"].dependenceWindowCount == 48
+    assert parsed["observationArgs"].dependenceWindowBP == 120_000
+    assert parsed["observationArgs"].dependenceMaxLagBP == 45_000
+    assert parsed["observationArgs"].dependenceWorkingQuantile == pytest.approx(0.90)
+    assert parsed["observationArgs"].dependenceBootstrapDraws == 75
+    assert parsed["observationArgs"].dependenceMinWindowCount == 24
+    assert parsed["observationArgs"].dependenceMinAutosomeCount == 5
     assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
-    assert parsed["observationArgs"].dependenceAcfRequiredCrossings == 5
-    assert parsed["observationArgs"].dependenceAcfMinEvidenceNats == pytest.approx(
-        4.25
+    assert parsed["observationArgs"].dependenceAcfSmoothingBP == 300
+    assert parsed["observationArgs"].dependenceCrossingPersistenceBP == 400
+    assert parsed["observationArgs"].dependenceMinFinitePairs == 150
+    assert parsed["observationArgs"].dependenceMinFinitePairCoverage == pytest.approx(
+        0.60
     )
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False
+    assert parsed["outputArgs"].deleteBedGraphsAfterBigWig is False
     assert parsed["outputArgs"].stateShrinkageEnabled is False
     assert (
         parsed["outputArgs"].stateShrinkageModel
@@ -2782,7 +2924,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     observationParams.muncVarianceModel: kalman
     observationParams.muncTrendBlockSizeBP: 250
     observationParams.muncLocalWindowSizeBP: 500
-    observationParams.muncDependenceMinContextSizeBP: 5000
     observationParams.muncTrendBlockDependenceMultiplier: 1.5
     observationParams.muncLocalWindowDependenceMultiplier: 2.5
     observationParams.muncEBPrior.tileSizeBP: 1000
@@ -2811,7 +2952,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert not hasattr(explicitObservationArgs, "muncAR1VarianceFunctional")
     assert explicitObservationArgs.muncTrendBlockSizeBP == 250
     assert explicitObservationArgs.muncLocalWindowSizeBP == 500
-    assert explicitObservationArgs.muncDependenceMinContextSizeBP == 5000
     assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
     assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
     assert explicitObservationArgs.muncEBPriorTileSizeBP == 1000
@@ -2842,20 +2982,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     )
     with pytest.raises(ValueError, match="MUNC variance model"):
         readConfig(str(configInvalidModelPath))
-
-    configInvalidMinContext = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.muncDependenceMinContextSizeBP: 0
-    """
-    configInvalidMinContextPath = writeConfigFile(
-        tmp_path,
-        "config_invalid_munc_min_context.yaml",
-        configInvalidMinContext,
-    )
-    with pytest.raises(ValueError, match="muncDependenceMinContextSizeBP"):
-        readConfig(str(configInvalidMinContextPath))
 
     configInvalidFunctional = """
     experimentName: testExperiment
@@ -3289,6 +3415,7 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
         str(chromSizesPath),
         suffixes=suffixes,
         validatedBedGraphs={str(bedGraphPaths["state"])},
+        deleteBedGraphsAfterBigWig=True,
     )
 
     assert readCalls == [str(chromSizesPath)]
@@ -3303,6 +3430,7 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
         f"consenrichOutput_{experimentName}_uncertainty.v{version}.bedGraph",
     ]
     assert all(call[3] == [("chr1", 100)] for call in convertCalls)
+    assert all(not bedGraphPath.exists() for bedGraphPath in bedGraphPaths.values())
 
 
 def test_convertBedGraphToBigWigValidatedSkipStillRejectsUnsortedTrack(
@@ -3342,10 +3470,12 @@ def test_convertBedGraphToBigWigValidatedSkipStillRejectsUnsortedTrack(
         str(chromSizesPath),
         suffixes=["state"],
         validatedBedGraphs={str(bedGraphPath)},
+        deleteBedGraphsAfterBigWig=True,
     )
 
     assert validateCalls == []
     assert not (tmp_path / f"{experimentName}_consenrich_state.v{version}.bw").exists()
+    assert bedGraphPath.exists()
 
 
 def _case_sortBedGraphInPlace(tmp_path):
@@ -3532,10 +3662,6 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
 
 
 def test_config_runtime_validation_contracts(tmp_path, contract_case):
-    contract_case(
-        "runtime correlation length sizing",
-        _caseRuntimeCorrelationLengthUsesLengthScaleMultiplier,
-    )
     contract_case(
         "replicate gain summary",
         _caseReplicateGainSummaryWritesPooledAverageAndStd,
@@ -3957,6 +4083,9 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             return None
 
         def axvline(self, *args, **kwargs):
+            return None
+
+        def axvspan(self, *args, **kwargs):
             return None
 
         def annotate(self, *args, **kwargs):
@@ -4392,22 +4521,88 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     monkeypatch,
 ):
     details = {
-        "blocks_requested": 6,
-        "blocks_valid": 2,
-        "chromosomes_used": ["chr1"],
-        "sampled_width_median_bp": 4500,
-        "posterior_log_span_mean": np.log(8.0),
-        "posterior_log_span_sd": 0.0,
-        "sampled_point_span": [4, 8, 12, 16],
-        "sampled_acf_evidence_nats": [0.5, 2.0, 3.0, 5.0],
-        "acf_evidence_threshold_nats": 2.0,
-        "acf_span_0p05": 12,
-        "acf_span_0p10": 8,
-        "acf_span_0p20": 5,
-        "max_span": 20,
-        "max_span_hit_blocks": 1,
-        "pooled_right_censored_fraction": 0.25,
-        "fallback": True,
+        "status": "estimated",
+        "method": "deterministicFinitePairWindowACF",
+        "inferenceScope": "conditionalOnInputTracksAndSelectedWindows",
+        "confidenceIntervalMethod": (
+            "centralInterquartileSimultaneousLogLogKMSurvivalBand"
+        ),
+        "survivalBandRegionLower": 0.25,
+        "survivalBandRegionUpper": 0.75,
+        "survivalBandJumpClosureUsed": True,
+        "survivalBandJumpClosureCount": 1,
+        "confidenceLevel": 0.95,
+        "estimateBP": 400.0,
+        "fullSampleMedianRadiusBP": 400.0,
+        "lowerBP": 300.0,
+        "upperBP": 550.0,
+        "workingSpanBP": 800.0,
+        "fullSampleWorkingSpanBP": 800.0,
+        "workingQuantile": 0.95,
+        "chromosomesUsed": ["chr1", "chr2", "chr3", "chr4"],
+        "candidateWindowCount": 24,
+        "selectedWindowCount": 20,
+        "crossedWindowCount": 19,
+        "rightCensoredWindowCount": 1,
+        "supportCensoredWindowCount": 1,
+        "capCensoredWindowCount": 0,
+        "selectedAutosomeCount": 4,
+        "censorFraction": 0.05,
+        "censorTimeBPMinimum": 1000.0,
+        "censorTimeBPMedian": 1000.0,
+        "censorTimeBPMaximum": 1000.0,
+        "inputRowCount": 3,
+        "uniqueRowCount": 2,
+        "duplicateRowCount": 1,
+        "rowDeduplication": "exactBytes",
+        "acfThreshold": 0.1,
+        "acfSmoothingBP": 250,
+        "acfSmoothingBins": 5,
+        "crossingPersistenceBP": 250,
+        "crossingPersistenceBins": 5,
+        "minFinitePairs": 200,
+        "minFinitePairCoverage": 0.5,
+        "finitePairMinimumUsed": 500.0,
+        "finitePairCoverageMinimumUsed": 0.75,
+        "validRowsAtCrossingMinimum": 2,
+        "dominantACFPeriodBPMedian": None,
+        "unresolvedPeriodFraction": 0.0,
+        "oscillationStrength": None,
+        "postCrossingRevival": None,
+        "selectedAdjacencyCount": 12,
+        "selectedLongestRun": 5,
+        "bootstrapMethod": "hierarchicalAutosomeStationaryWindow",
+        "bootstrapBlockLengthWindows": 3,
+        "bootstrapDrawsRequested": 4,
+        "bootstrapResolvedMedianDraws": 4,
+        "bootstrapResolvedWorkingDraws": 4,
+        "bootstrapResolvedJointDraws": 4,
+        "radiusDistributionBP": [250.0, 400.0, 550.0, 1000.0],
+        "radiusCensored": [False, False, False, True],
+        "selectedWindows": [
+            {
+                "chromosome": f"chr{index + 1}",
+                "startBP": index * 100_000,
+                "endBP": (index + 1) * 100_000,
+                "score": 10.0 - index,
+                "rawCrossingLagBP": None if index == 3 else (250.0 + 150.0 * index),
+                "censorLagBP": 1000.0 if index == 3 else (250.0 + 150.0 * index),
+                "gaussianEquivalentRadiusBP": radiusBP,
+                "rightCensored": index == 3,
+                "censorReason": "support" if index == 3 else "none",
+                "supportCapLagBP": 1000.0,
+                "finitePairMinimumUsed": 500.0,
+                "finitePairCoverageMinimumUsed": 0.75,
+                "validRowCount": 2,
+                "validRowsAtCrossing": 2,
+                "dominantACFPeriodBP": 200.0,
+                "oscillationStrength": 0.2,
+                "postCrossingRevival": 0.15,
+            }
+            for index, radiusBP in enumerate((250.0, 400.0, 550.0, 1000.0))
+        ],
+        "bootstrapMedianRadiusBP": [350.0, 400.0, 450.0, 425.0],
+        "bootstrapWorkingSpanBP": [700.0, 800.0, 900.0, 850.0],
     }
     row = consenrich_cli._correlationLengthRow(
         intervalSizeBP=50,
@@ -4415,6 +4610,25 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         contextBP=801,
         details=details,
     )
+    assert row["correlation_length_bp"] == pytest.approx(400.0)
+    assert row["working_span_bp"] == pytest.approx(800.0)
+    assert row["survival_band_region_lower"] == pytest.approx(0.25)
+    assert row["survival_band_region_upper"] == pytest.approx(0.75)
+    assert row["selected_window_count"] == 20
+    assert row["duplicate_row_count"] == 1
+    assert row["dominant_acf_period_bp_median"] is None
+    assert row["oscillation_strength"] is None
+    assert row["post_crossing_revival"] is None
+    assert consenrich_cli._formatOptionalLogValue(None) == "NA"
+    assert row["survival_band_jump_closure_used"] is True
+    assert row["survival_band_jump_closure_count"] == 1
+    windowRows = consenrich_cli._correlationLengthWindowRows(details)
+    assert len(windowRows) == 4
+    assert tuple(windowRows[0]) == tuple(
+        consenrich_cli.CORRELATION_LENGTH_WINDOW_COLUMNS
+    )
+    assert windowRows[-1]["censor_reason"] == "support"
+    assert windowRows[-1]["raw_crossing_lag_bp"] is None
     plotPath = tmp_path / "correlation_length.png"
 
     with monkeypatch.context() as mp:
@@ -4446,16 +4660,28 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         def colorbar(self, *args, **kwargs):
             return FakeColorbar()
 
+        def suptitle(self, *args, **kwargs):
+            return None
+
     class FakeAxis:
         transAxes = object()
 
         def axvline(self, *args, **kwargs):
             return None
 
+        def axvspan(self, *args, **kwargs):
+            return None
+
+        def hist(self, *args, **kwargs):
+            return None
+
         def fill_between(self, *args, **kwargs):
             return None
 
         def plot(self, *args, **kwargs):
+            return None
+
+        def step(self, *args, **kwargs):
             return None
 
         def scatter(self, *args, **kwargs):
@@ -4497,7 +4723,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     fakePyplot.rcParams = {}
     fakePyplot.subplots = lambda *args, **kwargs: (
         FakeFigure(),
-        [FakeAxis(), FakeAxis()],
+        [FakeAxis(), FakeAxis(), FakeAxis()],
     )
     fakePyplot.close = lambda *args, **kwargs: None
     fakeMatplotlib.pyplot = fakePyplot
@@ -4524,7 +4750,19 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         (
             "artifact.correlation_length_plot",
             str(plotPath),
-            (("format", "png"), ("dpi", 400)),
+            (
+                ("format", "png"),
+                ("dpi", 400),
+                (
+                    "confidenceIntervalMethod",
+                    "centralInterquartileSimultaneousLogLogKMSurvivalBand",
+                ),
+                ("survivalBandRegionLower", 0.25),
+                ("survivalBandRegionUpper", 0.75),
+                ("survivalBandJumpClosureUsed", True),
+                ("survivalBandJumpClosureCount", 1),
+                ("bootstrapBlockLengthWindows", 3),
+            ),
         )
     ]
     assert consenrich_cli._correlationLengthPlotPath("exp name").name == (
@@ -4532,7 +4770,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     )
 
 
-def test_munc_estimation_log_uses_correlation_length_label(monkeypatch):
+def test_munc_estimation_log_uses_working_span_label(monkeypatch):
     logCalls = []
 
     def fakeLogAsciiBlock(title, rows, **kwargs):
@@ -4596,11 +4834,11 @@ def test_munc_estimation_log_uses_correlation_length_label(monkeypatch):
     title, rows = logCalls[0]
     rowMap = dict(rows)
     assert title == "MUNC estimation parameters"
-    assert rowMap["MUNC correlation length"] == 7
-    assert rowMap["MUNC trend block source"] == "correlation length"
-    assert rowMap["MUNC local window source"] == "correlation length"
-    assert rowMap["trend correlation length multiplier"] == pytest.approx(2.0)
-    assert rowMap["local correlation length multiplier"] == pytest.approx(3.0)
+    assert rowMap["MUNC dependence working span"] == 7
+    assert rowMap["MUNC trend block source"] == "dependence working span"
+    assert rowMap["MUNC local window source"] == "dependence working span"
+    assert rowMap["trend dependence span multiplier"] == pytest.approx(2.0)
+    assert rowMap["local dependence span multiplier"] == pytest.approx(3.0)
     assert "MUNC dependence span" not in rowMap
     assert "trend span multiplier" not in rowMap
     assert "local span multiplier" not in rowMap
@@ -4720,3 +4958,80 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
         ),
     ):
         contract_case(label, func, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("caseText", "fieldName"),
+    (
+        ("observationParams.dependenceWindowCount: 0", "dependenceWindowCount"),
+        ("observationParams.dependenceWindowBP: 0", "dependenceWindowBP"),
+        ("observationParams.dependenceMaxLagBP: 0", "dependenceMaxLagBP"),
+        (
+            "observationParams.dependenceWorkingQuantile: 1",
+            "dependenceWorkingQuantile",
+        ),
+        (
+            "observationParams.dependenceBootstrapDraws: 0",
+            "dependenceBootstrapDraws",
+        ),
+        (
+            "observationParams.dependenceMinWindowCount: 0",
+            "dependenceMinWindowCount",
+        ),
+        (
+            "observationParams.dependenceMinAutosomeCount: 0",
+            "dependenceMinAutosomeCount",
+        ),
+        (
+            "observationParams.dependenceAcfPointThreshold: 1",
+            "dependenceAcfPointThreshold",
+        ),
+        (
+            "observationParams.dependenceAcfSmoothingBP: 0",
+            "dependenceAcfSmoothingBP",
+        ),
+        (
+            "observationParams.dependenceCrossingPersistenceBP: 0",
+            "dependenceCrossingPersistenceBP",
+        ),
+        (
+            "observationParams.dependenceMinFinitePairs: 0",
+            "dependenceMinFinitePairs",
+        ),
+        (
+            "observationParams.dependenceMinFinitePairCoverage: 1.1",
+            "dependenceMinFinitePairCoverage",
+        ),
+        (
+            "observationParams.dependenceWindowBP: 1000\n"
+            "observationParams.dependenceMaxLagBP: 501",
+            "dependenceMaxLagBP",
+        ),
+        (
+            "observationParams.dependenceWindowCount: 20\n"
+            "observationParams.dependenceMinWindowCount: 21",
+            "dependenceMinWindowCount",
+        ),
+    ),
+)
+def test_dependence_config_rejects_out_of_range_values(
+    tmp_path,
+    monkeypatch,
+    caseText,
+    fieldName,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    indentedCaseText = caseText.replace("\n", "\n        ")
+    configPath = writeConfigFile(
+        tmp_path,
+        f"config_bad_dependence_{fieldName}.yaml",
+        f"""
+        experimentName: dependenceConfigRange
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        {indentedCaseText}
+        """,
+    )
+    with pytest.raises(ValueError, match=fieldName):
+        readConfig(str(configPath))

@@ -117,12 +117,15 @@ markers = [
     "correctness: basic tests for correctness",
     "peaks: tests for the built-in ROCCO peak caller",
     "chelpers: tests for the Cython-implemented functions",
+    "real_bam: local real-BAM scientific release gate",
 ]
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 test-groups = ["test"]
-test-command = 'python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"'
+test-command = '''
+python -c "import numpy as np; from scipy.ndimage import gaussian_filter1d; import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState; rng=np.random.default_rng(13); matrices=[(gaussian_filter1d(rng.normal(size=10000), 10.0)+3.0).astype(np.float32)[None, :] for _ in range(4)]; result=consenrich.cconsenrich.cchooseDependenceSpan(['chr1','chr2','chr3','chr4'], matrices, 50, windowCount=20, bootstrapDraws=20); details=result[3]; assert details['status']=='estimated'; assert details['workingQuantile']==0.90; assert details['confidenceIntervalMethod']=='centralInterquartileSimultaneousLogLogKMSurvivalBand'; assert details['survivalBandRegionLower']==0.25; assert details['survivalBandRegionUpper']==0.75; assert details['survivalBandJumpClosureCount']==int(details['survivalBandJumpClosureUsed']); assert details['bootstrapMethod']=='hierarchicalAutosomeStationaryWindow'; assert details['estimateBP']==details['fullSampleMedianRadiusBP']; assert details['workingSpanBP']==details['fullSampleWorkingSpanBP']"
+'''
 
 [tool.cibuildwheel.linux]
 before-all = """

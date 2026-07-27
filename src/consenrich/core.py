@@ -79,10 +79,18 @@ from .constants import (
     MUNC_SUPPORTED_VARIANCE_MODELS,
     MUNC_VARIANCE_MODEL_CODE_KALMAN,
     MUNC_VARIANCE_MODEL_KALMAN,
-    OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS,
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
-    OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS,
-    OBSERVATION_DEFAULT_DEPENDENCE_POSTERIOR_QUANTILE,
+    OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS,
+    OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT,
+    OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE,
+    OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS,
+    OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
+    OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
+    OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
@@ -99,14 +107,6 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
     OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE,
-    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MAX_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MEDIAN_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MIN_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_SIGMA,
-    OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_NUM_BLOCKS,
-    OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_LOG_SD,
-    OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM,
@@ -120,7 +120,6 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_ECM_ITERS,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_WARMUP_OUTER_PASSES,
     OBSERVATION_DEFAULT_MIN_R,
-    OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
     OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE,
@@ -129,6 +128,7 @@ from .constants import (
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
     OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
     OUTPUT_DEFAULT_CUTOFF_REPORT,
+    OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG,
     OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME,
     OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
@@ -454,34 +454,35 @@ class observationParams(NamedTuple):
     muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
     muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
-    muncDependenceMinContextSizeBP: int | None = (
-        OBSERVATION_DEFAULT_MUNC_DEPENDENCE_MIN_CONTEXT_SIZE_BP
+    dependenceWindowCount: int | None = OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT
+    dependenceWindowBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP
+    dependenceMaxLagBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP
+    dependenceWorkingQuantile: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE
     )
-    dependenceMaxContextSizeBP: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_MAX_CONTEXT_SIZE_BP
+    dependenceBootstrapDraws: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
     )
-    dependenceNumBlocks: int | None = OBSERVATION_DEFAULT_DEPENDENCE_NUM_BLOCKS
-    dependenceBlockMedianBP: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MEDIAN_BP
+    dependenceMinWindowCount: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
     )
-    dependenceBlockSigma: float | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_SIGMA
-    dependenceBlockMinBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MIN_BP
-    dependenceBlockMaxBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_BLOCK_MAX_BP
-    dependencePriorMedianSpan: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_MEDIAN_SPAN
+    dependenceMinAutosomeCount: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT
     )
-    dependencePriorLogSd: float | None = OBSERVATION_DEFAULT_DEPENDENCE_PRIOR_LOG_SD
     dependenceAcfPointThreshold: float | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
     )
-    dependenceAcfRequiredCrossings: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_ACF_REQUIRED_CROSSINGS
+    dependenceAcfSmoothingBP: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
     )
-    dependenceAcfMinEvidenceNats: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_ACF_MIN_EVIDENCE_NATS
+    dependenceCrossingPersistenceBP: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
     )
-    dependencePosteriorQuantile: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_POSTERIOR_QUANTILE
+    dependenceMinFinitePairs: int | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
+    )
+    dependenceMinFinitePairCoverage: float | None = (
+        OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE
     )
     muncTrendBlockDependenceMultiplier: float | None = (
         OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
@@ -1181,6 +1182,7 @@ class outputParams(NamedTuple):
     precisionReweightingHistogramSampleSize: int = (
         OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE
     )
+    deleteBedGraphsAfterBigWig: bool = OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG
 
 
 class loggingParams(NamedTuple):
@@ -8134,7 +8136,7 @@ def _resolveMuncRuntimeSizing(
         trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
         usedDependenceSpan = trendIntervals is not None
         if trendIntervals is not None:
-            trendSource = "correlation length"
+            trendSource = "dependence working span"
         if trendIntervals is None:
             trendIntervals = int(defaultTrendIntervals)
             trendSource = "fallback default"
@@ -8145,7 +8147,7 @@ def _resolveMuncRuntimeSizing(
         localIntervals = resolveDependenceIntervals(localMultiplier, 4)
         usedDependenceSpan = usedDependenceSpan or localIntervals is not None
         if localIntervals is not None:
-            localSource = "correlation length"
+            localSource = "dependence working span"
         if localIntervals is None:
             localIntervals = int(defaultLocalIntervals)
             localSource = "fallback default"
@@ -8606,7 +8608,7 @@ def getMuncTrack(
             ("MUNC local window bp", int(sizing.localWindowSizeBP)),
             ("local window intervals", int(localWindowIntervals)),
             (
-                "MUNC correlation length",
+                "MUNC dependence working span",
                 (
                     "NA"
                     if sizing.dependenceSpanIntervals is None
@@ -8614,7 +8616,7 @@ def getMuncTrack(
                 ),
             ),
             (
-                "trend correlation length multiplier",
+                "trend dependence span multiplier",
                 float(
                     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
                     if muncTrendBlockDependenceMultiplier is None
@@ -8622,7 +8624,7 @@ def getMuncTrack(
                 ),
             ),
             (
-                "local correlation length multiplier",
+                "local dependence span multiplier",
                 float(
                     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
                     if muncLocalWindowDependenceMultiplier is None

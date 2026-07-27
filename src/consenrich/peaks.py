@@ -118,9 +118,9 @@ _MASSIVE_SUBPEAK_MAX_DEPTH = MASSIVE_SUBPEAK_MAX_DEPTH
 _MASSIVE_SUBPEAK_MIN_CHILD_BP = MASSIVE_SUBPEAK_MIN_CHILD_BP
 _MASSIVE_SUBPEAK_MIN_CHILD_FRACTION = MASSIVE_SUBPEAK_MIN_CHILD_FRACTION
 _MASSIVE_SUBPEAK_TRIGGER_Z_CAP = 3.0
-_DWB_PEAK_SCORING_MAX_REPLAYS = 48
-_DWB_PEAK_SCORING_MAX_SEGMENTS = 10000
-_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW = 500
+_DWB_PEAK_SCORING_MAX_REPLAYS = 64
+_DWB_PEAK_SCORING_MAX_SEGMENTS = 20000
+_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW = 1000
 
 
 def _asFloatVector(name: str, values) -> np.ndarray:
@@ -5841,15 +5841,20 @@ def _negativeLog10OrMissing(value: Any) -> float | int:
     return float(-math.log10(numeric))
 
 
-def _fillBroadRowsDWBValues(
-    gappedRows: List[List[str | int | float]],
+def _fillRowsDWBValues(
+    rows: List[List[str | int | float]],
     peakMeta: Sequence[Mapping[str, Any]],
+    pValueColumnIndex: int,
 ) -> None:
     metaByName = {str(meta["name"]): meta for meta in peakMeta}
-    for row in gappedRows:
+    for row in rows:
         meta = metaByName[str(row[3])]
-        row[13] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_p"))
-        row[14] = _negativeLog10OrMissing(meta.get("dwb_peak_empirical_q"))
+        row[pValueColumnIndex] = _negativeLog10OrMissing(
+            meta.get("dwb_peak_empirical_p")
+        )
+        row[pValueColumnIndex + 1] = _negativeLog10OrMissing(
+            meta.get("dwb_peak_empirical_q")
+        )
 
 
 def _fileInventoryEntry(path: str | None, kind: str) -> Dict[str, Any]:
@@ -7143,8 +7148,11 @@ def solveRocco(
             peakMeta = retainedPeakMeta
             if peakMode_ == "broad":
                 rows = _pairedGappedRowsForPeakMeta(rows, peakMeta)
-        if peakMode_ == "broad":
-            _fillBroadRowsDWBValues(rows, peakMeta)
+        _fillRowsDWBValues(
+            rows,
+            peakMeta,
+            pValueColumnIndex=13 if peakMode_ == "broad" else 7,
+        )
         nullReplayDiagnostics = dict(
             exportDetails.get("null_replay_false_segment_diagnostics", {})
         )

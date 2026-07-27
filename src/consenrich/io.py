@@ -533,6 +533,7 @@ def convertBedGraphToBigWig(
     suffixes: Optional[List[str]] = None,
     *,
     validatedBedGraphs: Optional[Sequence[str]] = None,
+    deleteBedGraphsAfterBigWig: bool = False,
 ):
     if suffixes is None:
         # at least look for `state` bedGraph
@@ -592,6 +593,9 @@ def convertBedGraphToBigWig(
             continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
             logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
+            if deleteBedGraphsAfterBigWig:
+                os.remove(bedgraph)
+                logger.info(f"Deleted converted bedGraph {bedgraph}.")
 
 
 def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:

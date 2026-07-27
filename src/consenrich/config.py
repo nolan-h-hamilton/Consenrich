@@ -672,6 +672,14 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.convertToBigWig",
         io_helpers._pyBigWigAvailable(),
     )
+    deleteBedGraphsAfterBigWigRaw = _cfgGet(
+        configData,
+        "outputParams.deleteBedGraphsAfterBigWig",
+        _cfgDefault(configData, "outputParams.deleteBedGraphsAfterBigWig"),
+    )
+    if not isinstance(deleteBedGraphsAfterBigWigRaw, (bool, np.bool_)):
+        raise ValueError("outputParams.deleteBedGraphsAfterBigWig must be boolean")
+    deleteBedGraphsAfterBigWig_ = bool(deleteBedGraphsAfterBigWigRaw)
 
     roundDigits_ = _cfgGet(
         configData,
@@ -906,6 +914,7 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
+        deleteBedGraphsAfterBigWig=deleteBedGraphsAfterBigWig_,
         writeStateShrinkage=bool(writeStateShrinkage_),
         stateShrinkageEnabled=stateShrinkageEnabled_,
         stateShrinkageModel=stateShrinkageModel_,
@@ -2061,100 +2070,40 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
         raise ValueError("`observationParams.smoothToFraglen` must be boolean.")
     smoothToFraglen = bool(smoothToFraglenRaw)
-    muncDependenceMinContextSizeBP = _cfgGet(
-        configData,
-        "observationParams.muncDependenceMinContextSizeBP",
-        _cfgDefault(configData, "observationParams.muncDependenceMinContextSizeBP"),
+    dependenceWindowCount = dependencePositiveInt(
+        "observationParams.dependenceWindowCount"
     )
-    if isinstance(muncDependenceMinContextSizeBP, bool):
+    dependenceWindowBP = dependencePositiveInt(
+        "observationParams.dependenceWindowBP"
+    )
+    dependenceMaxLagBP = dependencePositiveInt(
+        "observationParams.dependenceMaxLagBP"
+    )
+    if dependenceMaxLagBP > dependenceWindowBP // 2:
         raise ValueError(
-            "`observationParams.muncDependenceMinContextSizeBP` must be positive."
+            "`observationParams.dependenceMaxLagBP` must not exceed half "
+            "`observationParams.dependenceWindowBP`."
         )
-    if isinstance(muncDependenceMinContextSizeBP, (float, np.floating)) and not float(
-        muncDependenceMinContextSizeBP
-    ).is_integer():
+    dependenceWorkingQuantile = dependencePositiveFloat(
+        "observationParams.dependenceWorkingQuantile"
+    )
+    if dependenceWorkingQuantile >= 1.0:
         raise ValueError(
-            "`observationParams.muncDependenceMinContextSizeBP` must be an integer."
+            "`observationParams.dependenceWorkingQuantile` must be less than 1."
         )
-    muncDependenceMinContextSizeBP = _normalizeNonnegativeInt(
-        muncDependenceMinContextSizeBP,
-        "observationParams.muncDependenceMinContextSizeBP",
+    dependenceBootstrapDraws = dependencePositiveInt(
+        "observationParams.dependenceBootstrapDraws"
     )
-    if muncDependenceMinContextSizeBP <= 0:
+    dependenceMinWindowCount = dependencePositiveInt(
+        "observationParams.dependenceMinWindowCount"
+    )
+    if dependenceMinWindowCount > dependenceWindowCount:
         raise ValueError(
-            "`observationParams.muncDependenceMinContextSizeBP` must be positive."
+            "`observationParams.dependenceMinWindowCount` must not exceed "
+            "`observationParams.dependenceWindowCount`."
         )
-    if (
-        muncDependenceMinContextSizeBP
-        < constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP
-    ):
-        raise ValueError(
-            "`observationParams.muncDependenceMinContextSizeBP` must be at least "
-            f"{constants.OBSERVATION_DEPENDENCE_MIN_CONTEXT_FLOOR_BP}."
-        )
-    dependenceMaxContextSizeBP = dependencePositiveInt(
-        "observationParams.dependenceMaxContextSizeBP"
-    )
-    if (
-        dependenceMaxContextSizeBP
-        > constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP
-    ):
-        raise ValueError(
-            "`observationParams.dependenceMaxContextSizeBP` must be at most "
-            f"{constants.OBSERVATION_DEPENDENCE_MAX_CONTEXT_CEILING_BP}."
-        )
-    if dependenceMaxContextSizeBP < muncDependenceMinContextSizeBP:
-        raise ValueError(
-            "`observationParams.dependenceMaxContextSizeBP` must be at least "
-            "`observationParams.muncDependenceMinContextSizeBP`."
-        )
-    dependenceNumBlocks = dependencePositiveInt(
-        "observationParams.dependenceNumBlocks"
-    )
-    dependenceBlockMedianBP = dependencePositiveFloat(
-        "observationParams.dependenceBlockMedianBP"
-    )
-    dependenceBlockSigma = dependencePositiveFloat(
-        "observationParams.dependenceBlockSigma"
-    )
-    dependenceBlockMinBP = dependencePositiveInt(
-        "observationParams.dependenceBlockMinBP"
-    )
-    dependenceBlockMaxBP = dependencePositiveInt(
-        "observationParams.dependenceBlockMaxBP"
-    )
-    if dependenceBlockMaxBP < dependenceBlockMinBP:
-        raise ValueError(
-            "`observationParams.dependenceBlockMaxBP` must be at least "
-            "`observationParams.dependenceBlockMinBP`."
-        )
-    dependencePriorMedianSpanRaw = _cfgGet(
-        configData,
-        "observationParams.dependencePriorMedianSpan",
-        _cfgDefault(configData, "observationParams.dependencePriorMedianSpan"),
-    )
-    if dependencePriorMedianSpanRaw is None:
-        dependencePriorMedianSpan = None
-    else:
-        if isinstance(dependencePriorMedianSpanRaw, (bool, np.bool_)):
-            raise ValueError(
-                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
-            )
-        try:
-            dependencePriorMedianSpan = float(dependencePriorMedianSpanRaw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
-            ) from exc
-        if not (
-            np.isfinite(dependencePriorMedianSpan)
-            and dependencePriorMedianSpan > 0.0
-        ):
-            raise ValueError(
-                "`observationParams.dependencePriorMedianSpan` must be finite and positive."
-            )
-    dependencePriorLogSd = dependencePositiveFloat(
-        "observationParams.dependencePriorLogSd"
+    dependenceMinAutosomeCount = dependencePositiveInt(
+        "observationParams.dependenceMinAutosomeCount"
     )
     dependenceAcfPointThreshold = dependencePositiveFloat(
         "observationParams.dependenceAcfPointThreshold"
@@ -2163,52 +2112,21 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.dependenceAcfPointThreshold` must be less than 1."
         )
-    dependenceAcfRequiredCrossings = dependencePositiveInt(
-        "observationParams.dependenceAcfRequiredCrossings"
+    dependenceAcfSmoothingBP = dependencePositiveInt(
+        "observationParams.dependenceAcfSmoothingBP"
     )
-    dependenceAcfMinEvidenceNatsRaw = _cfgGet(
-        configData,
-        "observationParams.dependenceAcfMinEvidenceNats",
-        _cfgDefault(configData, "observationParams.dependenceAcfMinEvidenceNats"),
+    dependenceCrossingPersistenceBP = dependencePositiveInt(
+        "observationParams.dependenceCrossingPersistenceBP"
     )
-    if isinstance(dependenceAcfMinEvidenceNatsRaw, (bool, np.bool_)):
-        raise ValueError(
-            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
-        )
-    try:
-        dependenceAcfMinEvidenceNats = float(dependenceAcfMinEvidenceNatsRaw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
-        ) from exc
-    if not (
-        np.isfinite(dependenceAcfMinEvidenceNats)
-        and dependenceAcfMinEvidenceNats >= 0.0
-    ):
-        raise ValueError(
-            "`observationParams.dependenceAcfMinEvidenceNats` must be finite and nonnegative."
-        )
-    dependencePosteriorQuantileRaw = _cfgGet(
-        configData,
-        "observationParams.dependencePosteriorQuantile",
-        _cfgDefault(configData, "observationParams.dependencePosteriorQuantile"),
+    dependenceMinFinitePairs = dependencePositiveInt(
+        "observationParams.dependenceMinFinitePairs"
     )
-    if isinstance(dependencePosteriorQuantileRaw, (bool, np.bool_)):
+    dependenceMinFinitePairCoverage = dependencePositiveFloat(
+        "observationParams.dependenceMinFinitePairCoverage"
+    )
+    if dependenceMinFinitePairCoverage > 1.0:
         raise ValueError(
-            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
-        )
-    try:
-        dependencePosteriorQuantile = float(dependencePosteriorQuantileRaw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
-        ) from exc
-    if not (
-        np.isfinite(dependencePosteriorQuantile)
-        and 0.0 < dependencePosteriorQuantile < 1.0
-    ):
-        raise ValueError(
-            "`observationParams.dependencePosteriorQuantile` must satisfy 0 < q < 1."
+            "`observationParams.dependenceMinFinitePairCoverage` must not exceed 1."
         )
     muncTrendBlockDependenceMultiplierRaw = _cfgGet(
         configData,
@@ -2666,19 +2584,18 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
         "smoothToFraglen": smoothToFraglen,
-        "muncDependenceMinContextSizeBP": muncDependenceMinContextSizeBP,
-        "dependenceMaxContextSizeBP": dependenceMaxContextSizeBP,
-        "dependenceNumBlocks": dependenceNumBlocks,
-        "dependenceBlockMedianBP": dependenceBlockMedianBP,
-        "dependenceBlockSigma": dependenceBlockSigma,
-        "dependenceBlockMinBP": dependenceBlockMinBP,
-        "dependenceBlockMaxBP": dependenceBlockMaxBP,
-        "dependencePriorMedianSpan": dependencePriorMedianSpan,
-        "dependencePriorLogSd": dependencePriorLogSd,
+        "dependenceWindowCount": dependenceWindowCount,
+        "dependenceWindowBP": dependenceWindowBP,
+        "dependenceMaxLagBP": dependenceMaxLagBP,
+        "dependenceWorkingQuantile": dependenceWorkingQuantile,
+        "dependenceBootstrapDraws": dependenceBootstrapDraws,
+        "dependenceMinWindowCount": dependenceMinWindowCount,
+        "dependenceMinAutosomeCount": dependenceMinAutosomeCount,
         "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
-        "dependenceAcfRequiredCrossings": dependenceAcfRequiredCrossings,
-        "dependenceAcfMinEvidenceNats": dependenceAcfMinEvidenceNats,
-        "dependencePosteriorQuantile": dependencePosteriorQuantile,
+        "dependenceAcfSmoothingBP": dependenceAcfSmoothingBP,
+        "dependenceCrossingPersistenceBP": dependenceCrossingPersistenceBP,
+        "dependenceMinFinitePairs": dependenceMinFinitePairs,
+        "dependenceMinFinitePairCoverage": dependenceMinFinitePairCoverage,
         "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
         "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,

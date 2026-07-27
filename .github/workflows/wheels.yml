@@ -98,6 +98,7 @@ jobs:
             "itrigamma==0.2.0a1"
           python -m pip install --no-index --find-links dist consenrich
           python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
+          python -c "import numpy as np; from scipy.ndimage import gaussian_filter1d; import consenrich.cconsenrich as cc; rng=np.random.default_rng(13); matrices=[(gaussian_filter1d(rng.normal(size=10000), 10.0)+3.0).astype(np.float32)[None, :] for _ in range(4)]; result=cc.cchooseDependenceSpan(['chr1','chr2','chr3','chr4'], matrices, 50, windowCount=20, bootstrapDraws=20); details=result[3]; assert details['status']=='estimated'; assert details['workingQuantile']==0.90; assert details['confidenceIntervalMethod']=='centralInterquartileSimultaneousLogLogKMSurvivalBand'; assert details['survivalBandRegionLower']==0.25; assert details['survivalBandRegionUpper']==0.75; assert details['survivalBandJumpClosureCount']==int(details['survivalBandJumpClosureUsed']); assert details['bootstrapMethod']=='hierarchicalAutosomeStationaryWindow'; assert details['estimateBP']==details['fullSampleMedianRadiusBP']; assert details['workingSpanBP']==details['fullSampleWorkingSpanBP']"
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true'

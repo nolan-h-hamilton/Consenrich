@@ -441,7 +441,9 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     lines = outPath.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 1
     assert lines[0].startswith("chr")
-    assert all(line.split("\t")[7:9] == ["-1", "-1"] for line in lines)
+    for line in lines:
+        pLog, qLog = (float(value) for value in line.split("\t")[7:9])
+        assert pLog >= qLog >= 0.0
 
 
 def _caseRunROCCOLowerConfidenceRecordsMetadata(tmp_path):
@@ -1069,7 +1071,17 @@ def _caseSolveRoccoAppliesMinPeakSignalFilter(tmp_path):
         len(rows) + exportDetails["num_segments_dropped_min_peak_score"]
     )
     assert exportDetails["num_segments_dropped_min_peak_score"] >= 1
-    assert all("dwb_empirical_q" in peak for peak in chromMeta["peak_details"])
+    peakByName = {
+        str(peak["name"]): peak for peak in chromMeta["peak_details"]
+    }
+    for row in rows:
+        peak = peakByName[row[3]]
+        assert [float(row[7]), float(row[8])] == pytest.approx(
+            [
+                -np.log10(float(peak["dwb_empirical_p"])),
+                -np.log10(float(peak["dwb_empirical_q"])),
+            ]
+        )
 
 
 @pytest.mark.correctness
@@ -1344,7 +1356,15 @@ def _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ(tmp_path):
         if line.strip()
     ]
     assert len(narrowRows) == len(peakDetails)
-    assert all(row[7:9] == ["-1", "-1"] for row in narrowRows)
+    peakByName = {str(peak["name"]): peak for peak in peakDetails}
+    for row in narrowRows:
+        peak = peakByName[row[3]]
+        assert [float(row[7]), float(row[8])] == pytest.approx(
+            [
+                -np.log10(float(peak["dwb_empirical_p"])),
+                -np.log10(float(peak["dwb_empirical_q"])),
+            ]
+        )
     _assertNoBoundaryGammaMetadata(peakDetails)
 
 
