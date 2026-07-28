@@ -178,7 +178,7 @@ def _expandWildCards(pathList: List[str]) -> List[str]:
 def _inferSourceKind(path: str) -> str:
     lowerPath = str(path).lower()
     if lowerPath.endswith(".cram"):
-        raise ValueError("CRAM inputs are no longer supported.")
+        raise ValueError("CRAM inputs are unsupported.")
     if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
         return core.BEDGRAPH_SOURCE_KIND
     if "fragments" in os.path.basename(lowerPath):
@@ -289,7 +289,7 @@ def _normalizeSourceKind(sourceKind: Optional[str], path: str) -> str:
             normalizedKind = _inferSourceKind(path)
 
     if normalizedKind == "CRAM":
-        raise ValueError("CRAM inputs are no longer supported.")
+        raise ValueError("CRAM inputs are unsupported.")
     if normalizedKind not in core.SUPPORTED_SOURCE_KINDS:
         raise ValueError(f"Unsupported source kind `{normalizedKind}` for `{path}`.")
     return normalizedKind

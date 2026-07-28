@@ -958,7 +958,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
 
     cdef Py_ssize_t n = weightTrack.shape[0]
     cdef Py_ssize_t i
+    cdef Py_ssize_t firstBadPivot = -1
     cdef double minPivot = 1.0e-12
+    cdef double badPivotValue = 0.0
     cdef double offVal
     cdef double l2Val
     cdef double sumRhs = 0.0
@@ -978,6 +980,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
 
     if rhsTrack.shape[0] != n:
         raise ValueError("weightTrack and rhsTrack must have the same length")
+    if not isfinite(lamFirst) or lamFirst < 0.0:
+        raise ValueError("lamFirst must be finite and nonnegative")
+    if not isfinite(lam) or lam < 0.0:
+        raise ValueError("lam must be finite and nonnegative")
 
     out = np.zeros(n, dtype=np.float64)
     if n <= 0:
@@ -986,7 +992,11 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
         if not zeroCenter:
             denomOne = <double>weightTrack[0]
             if denomOne < minPivot:
-                denomOne = minPivot
+                raise RuntimeError(
+                    "roughness-penalized LDL factorization required pivot "
+                    f"modification at index 0 (pivot={denomOne:.6g}, "
+                    f"floor={minPivot:.6g})."
+                )
             out[0] = (<double>rhsTrack[0]) / denomOne
         return out
 
@@ -1009,6 +1019,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
                 + _secondDiffPenaltyDiag(n, i, lam)
             )
             if diagView[i] < minPivot:
+                if firstBadPivot < 0:
+                    firstBadPivot = i
+                    badPivotValue = diagView[i]
                 diagView[i] = minPivot
 
         # Pentadiagonal LDL' factorization. The second lower diagonal is
@@ -1018,6 +1031,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
         firstLowerView[1] = offVal / diagView[0]
         diagView[1] = diagView[1] - firstLowerView[1] * firstLowerView[1] * diagView[0]
         if diagView[1] < minPivot:
+            if firstBadPivot < 0:
+                firstBadPivot = 1
+                badPivotValue = diagView[1]
             diagView[1] = minPivot
 
         for i in range(2, n):
@@ -1029,6 +1045,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
                 - (lam * lam) / diagView[i - 2]
             )
             if diagView[i] < minPivot:
+                if firstBadPivot < 0:
+                    firstBadPivot = i
+                    badPivotValue = diagView[i]
                 diagView[i] = minPivot
 
         # Forward solve for two RHS vectors: the data RHS and A^{-1}1 for
@@ -1066,6 +1085,13 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
         else:
             for i in range(n):
                 outView[i] = rhsView[i]
+
+    if firstBadPivot >= 0:
+        raise RuntimeError(
+            "roughness-penalized LDL factorization required pivot "
+            f"modification at index {firstBadPivot} "
+            f"(pivot={badPivotValue:.6g}, floor={minPivot:.6g})."
+        )
 
     return out
 
@@ -3258,11 +3284,10 @@ cpdef tuple cchooseDependenceSpan(
     object windowBP=100000,
     object windowCount=256,
     object maxLagBP=50000,
-    object workingQuantile=0.90,
+    object workingQuantile=0.75,
     object bootstrapDraws=500,
     object randSeed=1729,
     object minWindowCount=20,
-    object minAutosomeCount=4,
     object acfThreshold=0.1,
     object acfSmoothingBP=250,
     object crossingPersistenceBP=250,
@@ -3305,9 +3330,11 @@ cpdef tuple cchooseDependenceSpan(
     cdef object record
     cdef object window
     cdef object chromosome
-    cdef object rng
+    cdef object selectionSeed
+    cdef object bootstrapSeed
+    cdef object selectionRNG
+    cdef object bootstrapRNG
     cdef object sampledChromosomeIndices
-    cdef object sampledWindowIndices
     cdef object fullGrid
     cdef object fullSurvival
     cdef object fullTransformed
@@ -3326,7 +3353,12 @@ cpdef tuple cchooseDependenceSpan(
     cdef list chromosomeWindows
     cdef list chromosomePositions
     cdef list rankingScores
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] exponentialKeys
+    cdef cnp.float64_t[::1] exponentialKeyView
     cdef Py_ssize_t i
+    cdef Py_ssize_t candidateCount
+    cdef Py_ssize_t rankStart
+    cdef Py_ssize_t rankEnd
     cdef int rowCount = -1
     cdef int windowBins
     cdef int maxLagBins
@@ -3339,7 +3371,6 @@ cpdef tuple cchooseDependenceSpan(
     cdef int bootstrapDrawsValue
     cdef int randSeedValue
     cdef int minWindowCountValue
-    cdef int minAutosomeCountValue
     cdef int acfSmoothingBPValue
     cdef int crossingPersistenceBPValue
     cdef int minFinitePairsValue
@@ -3372,8 +3403,12 @@ cpdef tuple cchooseDependenceSpan(
     cdef int positionIndex
     cdef int finiteCount
     cdef int bandIndex
+    cdef int evaluatedCandidateWindowCount = 0
     cdef double score
     cdef double rowScore
+    cdef double positiveSignalRank
+    cdef double rankWeight
+    cdef double selectionKey
     cdef double rankCoverageMinimum
     cdef double workingQuantileValue
     cdef double acfThresholdValue
@@ -3422,10 +3457,6 @@ cpdef tuple cchooseDependenceSpan(
         minWindowCount,
         "minWindowCount",
     )
-    minAutosomeCountValue = <int>_dependenceValidatedInteger(
-        minAutosomeCount,
-        "minAutosomeCount",
-    )
     acfSmoothingBPValue = <int>_dependenceValidatedInteger(
         acfSmoothingBP,
         "acfSmoothingBP",
@@ -3459,8 +3490,6 @@ cpdef tuple cchooseDependenceSpan(
         raise ValueError("randSeed must be nonnegative")
     if minWindowCountValue <= 0 or minWindowCountValue > windowCountValue:
         raise ValueError("minWindowCount must satisfy 0 < minWindowCount <= windowCount")
-    if minAutosomeCountValue <= 0 or minAutosomeCountValue > 22:
-        raise ValueError("minAutosomeCount must be in [1, 22]")
     if workingQuantileValue <= 0.0 or workingQuantileValue >= 1.0:
         raise ValueError("workingQuantile must satisfy 0 < q < 1")
     if acfThresholdValue <= 0.0 or acfThresholdValue >= 1.0:
@@ -3543,11 +3572,8 @@ cpdef tuple cchooseDependenceSpan(
     for record in eligibleRecords:
         eligibleNames.append(str(record[1]))
         eligibleMatrices.append(record[2])
-    if len(eligibleNames) < minAutosomeCountValue:
-        raise ValueError(
-            "dependence estimator has %d eligible autosomes and needs at least %d"
-            % (len(eligibleNames), minAutosomeCountValue)
-        )
+    if len(eligibleNames) <= 0:
+        raise ValueError("dependence estimator found no eligible autosomes")
 
     retainedRows = _dependenceUniqueRows(eligibleMatrices, rowCount)
     if len(retainedRows) <= 0:
@@ -3596,6 +3622,42 @@ cpdef tuple cchooseDependenceSpan(
                 )
             )
     candidateWindows.sort()
+    candidateCount = len(candidateWindows)
+    selectionSeed, bootstrapSeed = np.random.SeedSequence(randSeedValue).spawn(2)
+    selectionRNG = default_rng(selectionSeed)
+    bootstrapRNG = default_rng(bootstrapSeed)
+    exponentialKeys = np.ascontiguousarray(
+        selectionRNG.exponential(size=candidateCount),
+        dtype=np.float64,
+    )
+    exponentialKeyView = exponentialKeys
+    rankStart = 0
+    while rankStart < candidateCount:
+        rankEnd = rankStart + 1
+        while (
+            rankEnd < candidateCount
+            and candidateWindows[rankEnd][0] == candidateWindows[rankStart][0]
+        ):
+            rankEnd += 1
+        positiveSignalRank = 0.5 * (
+            <double>(rankStart + 1) + <double>rankEnd
+        )
+        rankWeight = <double>candidateCount - positiveSignalRank + 1.0
+        for i in range(rankStart, rankEnd):
+            candidate = candidateWindows[i]
+            selectionKey = exponentialKeyView[i] / rankWeight
+            candidateWindows[i] = (
+                float(selectionKey),
+                int(candidate[1]),
+                int(candidate[2]),
+                int(candidate[3]),
+                int(candidate[4]),
+                int(candidate[5]),
+                float(candidate[6]),
+                float(positiveSignalRank),
+            )
+        rankStart = rankEnd
+    candidateWindows.sort()
 
     for candidate in candidateWindows:
         chromosomeIndex = int(candidate[3])
@@ -3603,6 +3665,7 @@ cpdef tuple cchooseDependenceSpan(
         endBin = int(candidate[5])
         matrix = eligibleMatrices[chromosomeIndex]
         windowMatrix = np.asarray(matrix[retainedRows, startBin:endBin])
+        evaluatedCandidateWindowCount += 1
         result = _dependenceFinitePairWindow(
             windowMatrix,
             intervalSizeBPValue,
@@ -3624,6 +3687,7 @@ cpdef tuple cchooseDependenceSpan(
             "startBP": int(startBP),
             "endBP": int(endBP),
             "score": float(candidate[6]),
+            "positiveSignalRank": float(candidate[7]),
             "rawCrossingLagBP": result["rawCrossingLagBP"],
             "censorLagBP": result["censorLagBP"],
             "gaussianEquivalentRadiusBP": float(result["gaussianEquivalentRadiusBP"]),
@@ -3682,18 +3746,14 @@ cpdef tuple cchooseDependenceSpan(
         if len(selectedWindows) > 0
         else 0.0
     )
-    if (
-        len(selectedWindows) < minWindowCountValue
-        or selectedAutosomeCount < minAutosomeCountValue
-    ):
+    if len(selectedWindows) < minWindowCountValue:
         raise RuntimeError(
-            "dependence estimator has %d valid windows from %d autosomes; "
-            "needs at least %d windows from %d autosomes; censor fraction %.6f"
+            "dependence estimator has %d valid windows from %d autosomes, "
+            "needs at least %d windows, censor fraction %.6f"
             % (
                 len(selectedWindows),
                 selectedAutosomeCount,
                 minWindowCountValue,
-                minAutosomeCountValue,
                 censorFraction,
             )
         )
@@ -3736,11 +3796,10 @@ cpdef tuple cchooseDependenceSpan(
     if int(np.count_nonzero(bandDomainMask)) <= 0:
         bandDomainMask[int(np.argmin(np.abs(fullSurvival - 0.5)))] = True
     restartProbability = 1.0 / <double>bootstrapBlockLengthWindows
-    rng = default_rng(randSeedValue)
     for drawIndex in range(bootstrapDrawsValue):
         drawValues = []
         drawCensored = []
-        sampledChromosomeIndices = rng.integers(
+        sampledChromosomeIndices = bootstrapRNG.integers(
             0,
             selectedAutosomeCount,
             size=selectedAutosomeCount,
@@ -3759,14 +3818,16 @@ cpdef tuple cchooseDependenceSpan(
             chromosomeWindows = []
             for record in chromosomePositions:
                 chromosomeWindows.append(int(record[1]))
-            currentPosition = int(rng.integers(0, len(chromosomeWindows)))
+            currentPosition = int(
+                bootstrapRNG.integers(0, len(chromosomeWindows))
+            )
             for positionIndex in range(len(chromosomeWindows)):
                 windowIndex = int(chromosomeWindows[currentPosition])
                 drawValues.append(float(radiusValues[windowIndex]))
                 drawCensored.append(bool(radiusCensored[windowIndex]))
                 nextPosition = currentPosition + 1
                 if (
-                    float(rng.random()) < restartProbability
+                    float(bootstrapRNG.random()) < restartProbability
                     or nextPosition >= len(chromosomeWindows)
                     or int(
                         selectedWindows[int(chromosomeWindows[nextPosition])]["startBP"]
@@ -3774,7 +3835,7 @@ cpdef tuple cchooseDependenceSpan(
                     != int(selectedWindows[windowIndex]["endBP"])
                 ):
                     currentPosition = int(
-                        rng.integers(0, len(chromosomeWindows))
+                        bootstrapRNG.integers(0, len(chromosomeWindows))
                     )
                 else:
                     currentPosition = nextPosition
@@ -3877,7 +3938,8 @@ cpdef tuple cchooseDependenceSpan(
 
     diagnostics = {
         "status": "estimated",
-        "method": "deterministicFinitePairWindowACF",
+        "method": "rankWeightedFinitePairWindowACF",
+        "randomSeed": int(randSeedValue),
         "estimateBP": float(estimateBP),
         "lowerBP": float(lowerBP),
         "upperBP": float(upperBP),
@@ -3906,9 +3968,9 @@ cpdef tuple cchooseDependenceSpan(
         "windowBP": int(windowBPValue),
         "windowCountRequested": int(windowCountValue),
         "candidateWindowCount": int(len(candidateWindows)),
+        "evaluatedCandidateWindowCount": int(evaluatedCandidateWindowCount),
         "selectedWindowCount": int(len(selectedWindows)),
         "minWindowCount": int(minWindowCountValue),
-        "minAutosomeCount": int(minAutosomeCountValue),
         "selectedAutosomeCount": int(selectedAutosomeCount),
         "chromosomesUsed": [str(value) for value in chromosomesUsed],
         "chromosomesExcluded": sorted(set(excludedNames)),

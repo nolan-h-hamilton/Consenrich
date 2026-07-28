@@ -438,12 +438,6 @@ def _caseTargetCalibrationTrackScaleUsesQOverZ():
     assert info["reason"] == "scaled_by_certified_target_bound_q_over_z"
 
 
-def _caseOldPredictiveHeldoutModeUnsupported():
-    for oldMode in ("predictive_holdout", "predictive-heldout", "heldout_residual"):
-        with pytest.raises(ValueError, match="predictive held-out residual.*removed"):
-            uncertainty._normalizeUncertaintyCalibrationMode(oldMode)
-
-
 def _caseAutoBlockSizeForShortContigs():
     assert diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
         None,

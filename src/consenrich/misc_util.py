@@ -28,7 +28,7 @@ def checkAlignmentFile(alignmentFile: str) -> bool:
     if not os.path.exists(alignmentFile):
         raise FileNotFoundError(f"Could not find {alignmentFile}")
     if str(alignmentFile).lower().endswith(".cram"):
-        raise ValueError("CRAM inputs are no longer supported.")
+        raise ValueError("CRAM inputs are unsupported.")
     return bool(
         ccounts.ccounts_checkAlignmentPath(
             alignmentFile,
@@ -55,7 +55,7 @@ def alignmentFilesArePairedEnd(
     results = []
     for path in alignmentFiles:
         if str(path).lower().endswith(".cram"):
-            raise ValueError("CRAM inputs are no longer supported.")
+            raise ValueError("CRAM inputs are unsupported.")
         results.append(
             bool(
                 ccounts.ccounts_isAlignmentPairedEnd(

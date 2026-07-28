@@ -149,6 +149,7 @@ GAIN_SUMMARY_COLUMNS = [
 CORRELATION_LENGTH_COLUMNS = [
     "status",
     "method",
+    "random_seed",
     "inference_scope",
     "confidence_interval_method",
     "survival_band_region_lower",
@@ -168,6 +169,7 @@ CORRELATION_LENGTH_COLUMNS = [
     "context_bp",
     "chromosomes_used",
     "candidate_window_count",
+    "evaluated_candidate_window_count",
     "selected_window_count",
     "crossed_window_count",
     "right_censored_window_count",
@@ -210,6 +212,7 @@ CORRELATION_LENGTH_WINDOW_COLUMNS = [
     "start_bp",
     "end_bp",
     "score",
+    "positive_signal_rank",
     "raw_crossing_lag_bp",
     "censor_lag_bp",
     "gaussian_equivalent_radius_bp",
@@ -3835,6 +3838,7 @@ def _correlationLengthRow(
     return {
         "status": str(details["status"]),
         "method": str(details["method"]),
+        "random_seed": intValue("randomSeed"),
         "inference_scope": str(details["inferenceScope"]),
         "confidence_interval_method": str(details["confidenceIntervalMethod"]),
         "survival_band_region_lower": numberValue("survivalBandRegionLower"),
@@ -3858,6 +3862,9 @@ def _correlationLengthRow(
         "context_bp": int(contextBP),
         "chromosomes_used": int(len(usedChromosomes)),
         "candidate_window_count": intValue("candidateWindowCount"),
+        "evaluated_candidate_window_count": intValue(
+            "evaluatedCandidateWindowCount"
+        ),
         "selected_window_count": intValue("selectedWindowCount"),
         "crossed_window_count": intValue("crossedWindowCount"),
         "right_censored_window_count": intValue("rightCensoredWindowCount"),
@@ -3935,6 +3942,9 @@ def _correlationLengthWindowRows(
                 "start_bp": _summaryInt(record.get("startBP")),
                 "end_bp": _summaryInt(record.get("endBP")),
                 "score": _summaryNumber(record.get("score")),
+                "positive_signal_rank": _summaryNumber(
+                    record.get("positiveSignalRank")
+                ),
                 "raw_crossing_lag_bp": _summaryNumber(
                     record.get("rawCrossingLagBP")
                 ),
@@ -4326,17 +4336,33 @@ def _resolveRuntimeBackgroundBlockLen(
     lengthScaleMultiplier: float,
 ) -> int:
     multiplier = float(lengthScaleMultiplier)
+    intervalSizeBP_ = max(1, int(intervalSizeBP))
     if not np.isfinite(multiplier) or multiplier <= 0.0:
         raise ValueError(
             "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
         )
     if int(backgroundBlockSizeBP) > 0:
-        windowBP = multiplier * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
+        baseBP = max(float(backgroundBlockSizeBP), float(intervalSizeBP_))
     elif dependenceSpanIntervals is not None and int(dependenceSpanIntervals) > 0:
-        windowBP = multiplier * float(dependenceSpanIntervals) * float(intervalSizeBP)
+        baseBP = float(dependenceSpanIntervals) * float(intervalSizeBP_)
     else:
-        windowBP = multiplier * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
-    return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=1)
+        baseBP = max(float(backgroundBlockSizeBP), float(intervalSizeBP_))
+    windowBP = min(
+        multiplier * baseBP,
+        float(constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP),
+    )
+    resolvedIntervals = _oddIntervalsFromBP(
+        windowBP,
+        intervalSizeBP_,
+        minIntervals=1,
+    )
+    capIntervals = max(
+        1,
+        int(constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP) // intervalSizeBP_,
+    )
+    if capIntervals > 1 and capIntervals % 2 == 0:
+        capIntervals -= 1
+    return min(int(resolvedIntervals), int(capIntervals))
 
 
 def _formatOptionalLogValue(value: Any) -> Any:
@@ -5141,13 +5167,6 @@ def main():
             constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
         )
     )
-    dependenceMinAutosomeCount_ = int(
-        getattr(
-            observationArgs,
-            "dependenceMinAutosomeCount",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT,
-        )
-    )
     if (
         dependenceWindowCount_ <= 0
         or dependenceWindowBP_ <= 0
@@ -5159,7 +5178,6 @@ def main():
         or dependenceBootstrapDraws_ <= 0
         or dependenceMinWindowCount_ <= 0
         or dependenceMinWindowCount_ > dependenceWindowCount_
-        or dependenceMinAutosomeCount_ <= 0
     ):
         raise ValueError("observationParams dependence window settings are invalid")
     dependenceAcfPointThreshold_ = float(
@@ -7085,7 +7103,6 @@ def main():
                 bootstrapDraws=int(dependenceBootstrapDraws_),
                 randSeed=int(constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED),
                 minWindowCount=int(dependenceMinWindowCount_),
-                minAutosomeCount=int(dependenceMinAutosomeCount_),
                 acfThreshold=float(dependenceAcfPointThreshold_),
                 acfSmoothingBP=int(dependenceAcfSmoothingBP_),
                 crossingPersistenceBP=int(dependenceCrossingPersistenceBP_),
@@ -7125,12 +7142,14 @@ def main():
         excludedLabel = "none" if not excluded else ",".join(excluded)
         logger.info(
             "chooseCorrelationLength.finitePairWindows status=%s method=%s "
+            "random_seed=%d "
             "inference_scope=%s confidence_interval_method=%s "
             "survival_band_region=[%.6g,%.6g] "
             "survival_band_jump_closure_used=%s "
             "survival_band_jump_closure_count=%d "
             "chromosomes_used=%d chromosomes_excluded=%s "
-            "candidate_windows=%d selected_windows=%d requested_windows=%d "
+            "candidate_windows=%d evaluated_candidate_windows=%d "
+            "selected_windows=%d requested_windows=%d "
             "selected_adjacencies=%d selected_longest_run=%d "
             "window_bp=%d max_lag_bp=%d threshold=%.6g "
             "acf_smoothing_bp=%d acf_smoothing_bins=%d "
@@ -7155,6 +7174,7 @@ def main():
             "bootstrap_resolved_joint=%d confidence_level=%.6g",
             str(depDiagnostics["status"]),
             str(depDiagnostics["method"]),
+            int(depDiagnostics["randomSeed"]),
             str(depDiagnostics["inferenceScope"]),
             str(depDiagnostics["confidenceIntervalMethod"]),
             float(depDiagnostics["survivalBandRegionLower"]),
@@ -7168,6 +7188,7 @@ def main():
             int(len(depDiagnostics["chromosomesUsed"])),
             excludedLabel,
             int(depDiagnostics["candidateWindowCount"]),
+            int(depDiagnostics["evaluatedCandidateWindowCount"]),
             int(depDiagnostics["selectedWindowCount"]),
             int(depDiagnostics["windowCountRequested"]),
             int(depDiagnostics["selectedAdjacencyCount"]),
@@ -7218,6 +7239,65 @@ def main():
             int(depDiagnostics["bootstrapResolvedJointDraws"]),
             float(depDiagnostics["confidenceLevel"]),
         )
+        censorFraction = float(depDiagnostics["censorFraction"])
+        workingQuantile = float(depDiagnostics["workingQuantile"])
+        maxLagBP = float(depDiagnostics["maxLagBP"])
+        censorThreshold = 1.0 - workingQuantile
+        maxLagFraction = workingSpanBP / maxLagBP
+        if (
+            censorFraction >= censorThreshold
+            or maxLagFraction >= 0.8
+        ):
+            logger.warning(
+                "dependence working span has weak upper-tail support: "
+                "censorFraction=%.6g censorThreshold=%.6g "
+                "workingQuantile=%.6g workingSpanBP=%.6g maxLagBP=%.6g "
+                "maxLagFraction=%.6g. Tail-derived span inference may be "
+                "weakly supported.",
+                censorFraction,
+                censorThreshold,
+                workingQuantile,
+                workingSpanBP,
+                maxLagBP,
+                maxLagFraction,
+            )
+
+        if bool(fitArgs.fitBackground) and int(backgroundBlockSizeBP_) <= 0:
+            inferredSpanIntervals = _resolveRuntimeBackgroundBlockLen(
+                dependenceSpanIntervals_,
+                int(backgroundBlockSizeBP_),
+                intervalSizeBP,
+                fitArgs.ECM_backgroundLengthScaleMultiplier,
+            )
+            inferredLambdaFirst, inferredLambdaSecond = (
+                core._backgroundPenaltyWeightsFromSpan(
+                    blockLenIntervals=int(inferredSpanIntervals),
+                    backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
+                )
+            )
+            nominalRoundoffIndex = float(
+                np.finfo(np.float64).eps
+                * (
+                    1.0
+                    + 4.0 * float(inferredLambdaFirst)
+                    + 16.0 * float(inferredLambdaSecond)
+                )
+            )
+            if nominalRoundoffIndex >= 1.0:
+                logger.warning(
+                    "inferred roughness span is numerically wide: "
+                    "dependenceSpanIntervals=%d lengthScaleMultiplier=%.6g "
+                    "resolvedSpanIntervals=%d resolvedSpanBP=%d "
+                    "smoothness=%.6g nominalRoundoffIndex=%.6g. "
+                    "The penalty scale reaches float64 resolution at unit "
+                    "observation precision.",
+                    int(dependenceSpanIntervals_),
+                    float(fitArgs.ECM_backgroundLengthScaleMultiplier),
+                    int(inferredSpanIntervals),
+                    int(inferredSpanIntervals * intervalSizeBP),
+                    float(fitArgs.ECM_backgroundSmoothness),
+                    nominalRoundoffIndex,
+                )
         _logCliProgressMilestone(
             "Correlation length: radius_intervals=%d radius_bp=%.6g "
             "working_span_intervals=%d working_span_bp=%.6g elapsed=%.1fs",

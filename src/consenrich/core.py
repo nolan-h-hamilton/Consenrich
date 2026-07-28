@@ -84,7 +84,6 @@ from .constants import (
     OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS,
     OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
     OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
@@ -465,9 +464,6 @@ class observationParams(NamedTuple):
     )
     dependenceMinWindowCount: int | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
-    )
-    dependenceMinAutosomeCount: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT
     )
     dependenceAcfPointThreshold: float | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
@@ -1292,7 +1288,7 @@ class fitParams(NamedTuple):
 def _inferAlignmentSourceKind(path: str) -> str:
     lowerPath = str(path).lower()
     if lowerPath.endswith(".cram"):
-        raise ValueError("CRAM inputs are no longer supported.")
+        raise ValueError("CRAM inputs are unsupported.")
     if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
         return BEDGRAPH_SOURCE_KIND
     return "BAM"
@@ -8251,6 +8247,49 @@ def solveZeroCenteredBackground(
     )
     weightTrack = np.ascontiguousarray(weightTrack, dtype=np.float64)
     rhsTrack = np.ascontiguousarray(rhsTrack, dtype=np.float64)
+    meanPositivePrecision = float(
+        np.sum(weightTrack, dtype=np.float64) / float(positiveSupportCount)
+    )
+    scaleDenominator = meanPositivePrecision
+    spectralScaleRatio = float(
+        1.0
+        + (4.0 * float(lamFirst) + 16.0 * float(lamSecond))
+        / scaleDenominator
+    )
+    if (
+        not np.isfinite(scaleDenominator)
+        or scaleDenominator <= 0.0
+        or not np.isfinite(spectralScaleRatio)
+        or spectralScaleRatio <= 0.0
+    ):
+        raise RuntimeError("roughness-penalized LDL scale is invalid")
+    roundoffIndex = float(np.finfo(np.float64).eps * spectralScaleRatio)
+    if roundoffIndex >= 1.0:
+        raise RuntimeError(
+            "roughness-penalized LDL system exceeds float64 reliability: "
+            f"spanIntervals={int(blockLenIntervals)} "
+            f"smoothness={float(backgroundSmoothness):.6g} "
+            f"meanPositivePrecision={meanPositivePrecision:.6g} "
+            f"lambdaFirst={float(lamFirst):.6g} "
+            f"lambdaSecond={float(lamSecond):.6g} "
+            f"spectralScaleRatio={spectralScaleRatio:.6g} "
+            f"roundoffIndex={roundoffIndex:.6g} threshold=1"
+        )
+    if roundoffIndex >= 1.0e-2 and initialBackground is None:
+        logger.warning(
+            "roughness-penalized LDL system is ill-conditioned: "
+            "spanIntervals=%d smoothness=%.6g meanPositivePrecision=%.6g "
+            "lambdaFirst=%.6g lambdaSecond=%.6g "
+            "spectralScaleRatio=%.6g roundoffIndex=%.6g. "
+            "Background-solve accuracy may be reduced.",
+            int(blockLenIntervals),
+            float(backgroundSmoothness),
+            meanPositivePrecision,
+            float(lamFirst),
+            float(lamSecond),
+            spectralScaleRatio,
+            roundoffIndex,
+        )
 
     if useNonnegative:
         return _solveNonnegativeBackground(

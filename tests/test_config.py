@@ -831,7 +831,6 @@ def _case_readConfigDottedAndNestedEquivalent(
     observationParams.dependenceWorkingQuantile: 0.90
     observationParams.dependenceBootstrapDraws: 40
     observationParams.dependenceMinWindowCount: 20
-    observationParams.dependenceMinAutosomeCount: 4
     observationParams.dependenceAcfPointThreshold: 0.03
     observationParams.dependenceAcfSmoothingBP: 350
     observationParams.dependenceCrossingPersistenceBP: 450
@@ -884,7 +883,6 @@ def _case_readConfigDottedAndNestedEquivalent(
       dependenceWorkingQuantile: 0.90
       dependenceBootstrapDraws: 40
       dependenceMinWindowCount: 20
-      dependenceMinAutosomeCount: 4
       dependenceAcfPointThreshold: 0.03
       dependenceAcfSmoothingBP: 350
       dependenceCrossingPersistenceBP: 450
@@ -964,7 +962,6 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert observationDotted.dependenceWorkingQuantile == pytest.approx(0.90)
     assert observationDotted.dependenceBootstrapDraws == 40
     assert observationDotted.dependenceMinWindowCount == 20
-    assert observationDotted.dependenceMinAutosomeCount == 4
     assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
     assert observationDotted.dependenceAcfSmoothingBP == 350
     assert observationDotted.dependenceCrossingPersistenceBP == 450
@@ -1334,7 +1331,7 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert parsed["outputArgs"].stateShrinkageEnabled is True
     assert parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier == pytest.approx(
-        2.5
+        2.0
     )
     assert parsed["outputArgs"].stateShrinkageScaleAnchorWeight is None
     assert (
@@ -1373,7 +1370,6 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.dependenceWorkingQuantile",
         "observationParams.dependenceBootstrapDraws",
         "observationParams.dependenceMinWindowCount",
-        "observationParams.dependenceMinAutosomeCount",
         "observationParams.dependenceAcfPointThreshold",
         "observationParams.dependenceAcfSmoothingBP",
         "observationParams.dependenceCrossingPersistenceBP",
@@ -1427,7 +1423,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MAX == 1.0e6
     assert (
         constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER
-        == pytest.approx(2.5)
+        == pytest.approx(2.0)
     )
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT is None
     assert (
@@ -1437,9 +1433,6 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SCALE_ANCHOR_WEIGHT_MIN == 25.0
     assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
-    assert "observationParams.muncEBPrior.mode" not in defaults
-    assert "observationParams.muncAR1VarianceFunctional" not in defaults
-    assert "observationParams.muncGUncertaintyMode" not in defaults
 
 
 def _case_readConfigRejectsUnsupportedCenterMBMethod(
@@ -1463,33 +1456,6 @@ def _case_readConfigRejectsUnsupportedCenterMBMethod(
 
     with pytest.raises(ValueError, match="countingParams.centerMBMethod"):
         readConfig(str(configPath))
-
-
-def _case_readConfigRejectsRemovedStateShrinkageKeys(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    for key in (
-        "outputParams.stateShrinkagePriorNull",
-        "outputParams.stateShrinkageNullPseudoCount",
-    ):
-        configYaml = f"""
-        experimentName: testExperiment
-        inputParams.bamFiles: [smallTest.bam]
-        genomeParams.name: testGenome
-        {key}: 0.25
-        """
-        configPath = writeConfigFile(
-            tmp_path,
-            f"config_removed_{key.rsplit('.', 1)[-1]}.yaml",
-            configYaml,
-        )
-
-        with pytest.raises(ValueError, match=key):
-            readConfig(str(configPath))
 
 
 def _case_runtime_defaults_are_centralized(
@@ -1615,15 +1581,12 @@ def _case_runtime_defaults_are_centralized(
         "dependenceWindowCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
         "dependenceWindowBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
         "dependenceMaxLagBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-        "dependenceWorkingQuantile": 0.90,
+        "dependenceWorkingQuantile": 0.75,
         "dependenceBootstrapDraws": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
         ),
         "dependenceMinWindowCount": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
-        ),
-        "dependenceMinAutosomeCount": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_AUTOSOME_COUNT
         ),
         "dependenceAcfSmoothingBP": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
@@ -2138,7 +2101,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     observationParams.dependenceWorkingQuantile: 0.90
     observationParams.dependenceBootstrapDraws: 75
     observationParams.dependenceMinWindowCount: 24
-    observationParams.dependenceMinAutosomeCount: 5
     observationParams.dependenceAcfPointThreshold: 0.02
     observationParams.dependenceAcfSmoothingBP: 300
     observationParams.dependenceCrossingPersistenceBP: 400
@@ -2182,7 +2144,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["observationArgs"].dependenceWorkingQuantile == pytest.approx(0.90)
     assert parsed["observationArgs"].dependenceBootstrapDraws == 75
     assert parsed["observationArgs"].dependenceMinWindowCount == 24
-    assert parsed["observationArgs"].dependenceMinAutosomeCount == 5
     assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
     assert parsed["observationArgs"].dependenceAcfSmoothingBP == 300
     assert parsed["observationArgs"].dependenceCrossingPersistenceBP == 400
@@ -2949,7 +2910,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert (
         explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_KALMAN
     )
-    assert not hasattr(explicitObservationArgs, "muncAR1VarianceFunctional")
     assert explicitObservationArgs.muncTrendBlockSizeBP == 250
     assert explicitObservationArgs.muncLocalWindowSizeBP == 500
     assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
@@ -2983,20 +2943,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     with pytest.raises(ValueError, match="MUNC variance model"):
         readConfig(str(configInvalidModelPath))
 
-    configInvalidFunctional = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.muncAR1VarianceFunctional: innovation
-    """
-    configInvalidFunctionalPath = writeConfigFile(
-        tmp_path,
-        "config_invalid_munc_ar1_functional.yaml",
-        configInvalidFunctional,
-    )
-    with pytest.raises(ValueError, match="muncAR1VarianceFunctional"):
-        readConfig(str(configInvalidFunctionalPath))
-
     configInvalidGMode = """
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
@@ -3010,34 +2956,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     )
     with pytest.raises(ValueError, match="muncEBPrior.gUncertaintyMode"):
         readConfig(str(configInvalidGModePath))
-
-    configTopLevelGMode = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.muncGUncertaintyMode: disabled
-    """
-    configTopLevelGModePath = writeConfigFile(
-        tmp_path,
-        "config_top_level_munc_g_mode.yaml",
-        configTopLevelGMode,
-    )
-    with pytest.raises(ValueError, match="muncGUncertaintyMode"):
-        readConfig(str(configTopLevelGModePath))
-
-    configEBPriorMode = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.muncEBPrior.mode: sampled
-    """
-    configEBPriorModePath = writeConfigFile(
-        tmp_path,
-        "config_munc_eb_prior_mode.yaml",
-        configEBPriorMode,
-    )
-    with pytest.raises(ValueError, match="muncEBPrior.mode"):
-        readConfig(str(configEBPriorModePath))
 
 def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
     sparseBedPath = tmp_path / "sparse_regions.bed"
@@ -3261,7 +3179,7 @@ def _case_readConfigRejectsCRAMSources(
     """
 
     configPath = writeConfigFile(tmp_path, "config_cram.yaml", configYaml)
-    with pytest.raises(ValueError, match="CRAM inputs are no longer supported"):
+    with pytest.raises(ValueError, match="CRAM inputs are unsupported"):
         readConfig(str(configPath))
 
 
@@ -3768,10 +3686,6 @@ def test_config_parser_defaults_and_override_contracts(
         (
             "unsupported centerMB method rejected",
             _case_readConfigRejectsUnsupportedCenterMBMethod,
-        ),
-        (
-            "removed state shrinkage keys rejected",
-            _case_readConfigRejectsRemovedStateShrinkageKeys,
         ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
@@ -4522,7 +4436,8 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
 ):
     details = {
         "status": "estimated",
-        "method": "deterministicFinitePairWindowACF",
+        "method": "rankWeightedFinitePairWindowACF",
+        "randomSeed": 1729,
         "inferenceScope": "conditionalOnInputTracksAndSelectedWindows",
         "confidenceIntervalMethod": (
             "centralInterquartileSimultaneousLogLogKMSurvivalBand"
@@ -4541,6 +4456,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         "workingQuantile": 0.95,
         "chromosomesUsed": ["chr1", "chr2", "chr3", "chr4"],
         "candidateWindowCount": 24,
+        "evaluatedCandidateWindowCount": 21,
         "selectedWindowCount": 20,
         "crossedWindowCount": 19,
         "rightCensoredWindowCount": 1,
@@ -4585,6 +4501,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
                 "startBP": index * 100_000,
                 "endBP": (index + 1) * 100_000,
                 "score": 10.0 - index,
+                "positiveSignalRank": float(index + 1),
                 "rawCrossingLagBP": None if index == 3 else (250.0 + 150.0 * index),
                 "censorLagBP": 1000.0 if index == 3 else (250.0 + 150.0 * index),
                 "gaussianEquivalentRadiusBP": radiusBP,
@@ -4612,6 +4529,8 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     )
     assert row["correlation_length_bp"] == pytest.approx(400.0)
     assert row["working_span_bp"] == pytest.approx(800.0)
+    assert row["random_seed"] == 1729
+    assert row["evaluated_candidate_window_count"] == 21
     assert row["survival_band_region_lower"] == pytest.approx(0.25)
     assert row["survival_band_region_upper"] == pytest.approx(0.75)
     assert row["selected_window_count"] == 20
@@ -4628,6 +4547,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         consenrich_cli.CORRELATION_LENGTH_WINDOW_COLUMNS
     )
     assert windowRows[-1]["censor_reason"] == "support"
+    assert windowRows[-1]["positive_signal_rank"] == pytest.approx(4.0)
     assert windowRows[-1]["raw_crossing_lag_bp"] is None
     plotPath = tmp_path / "correlation_length.png"
 
@@ -4977,10 +4897,6 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
         (
             "observationParams.dependenceMinWindowCount: 0",
             "dependenceMinWindowCount",
-        ),
-        (
-            "observationParams.dependenceMinAutosomeCount: 0",
-            "dependenceMinAutosomeCount",
         ),
         (
             "observationParams.dependenceAcfPointThreshold: 1",

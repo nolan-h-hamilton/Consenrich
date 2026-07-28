@@ -34,6 +34,267 @@ TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
+def test_roughness_ldl_guardrails(caplog):
+    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP == 100_000
+    assert constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP == 150_000
+    assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
+        171,
+        0,
+        50,
+        16.0,
+    ) == 2737
+    assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
+        200,
+        0,
+        50,
+        16.0,
+    ) == 2999
+    assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
+        None,
+        20_000,
+        50,
+        16.0,
+    ) == 2999
+
+    residualMatrix = np.ones((1, 64), dtype=np.float32)
+    invVarMatrix = np.full((1, 64), 8.53348, dtype=np.float32)
+
+    healthy = core.solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=401,
+        backgroundSmoothness=64.0,
+        zeroCenter=False,
+        useNonnegative=False,
+    )
+    np.testing.assert_allclose(healthy, 1.0, rtol=1.0e-3)
+
+    with caplog.at_level(logging.WARNING, logger="consenrich.core"):
+        warned = core.solveZeroCenteredBackground(
+            residualMatrix=residualMatrix,
+            invVarMatrix=invVarMatrix,
+            blockLenIntervals=1771,
+            backgroundSmoothness=64.0,
+            zeroCenter=False,
+            useNonnegative=False,
+        )
+    assert np.isfinite(warned).all()
+    assert "roundoffIndex" in caplog.text
+
+    with pytest.raises(RuntimeError, match="exceeds float64 reliability"):
+        core.solveZeroCenteredBackground(
+            residualMatrix=residualMatrix,
+            invVarMatrix=invVarMatrix,
+            blockLenIntervals=6427,
+            backgroundSmoothness=128.0,
+            zeroCenter=False,
+            useNonnegative=False,
+        )
+
+    with pytest.raises(RuntimeError, match="required pivot modification"):
+        cconsenrich.csolveZeroCenteredBackground(
+            np.zeros(3, dtype=np.float64),
+            np.zeros(3, dtype=np.float64),
+            0.0,
+            False,
+            lamFirst=0.0,
+        )
+
+    singleton = cconsenrich.csolveZeroCenteredBackground(
+        np.asarray([2.0], dtype=np.float64),
+        np.asarray([8.0], dtype=np.float64),
+        9.0,
+        False,
+        lamFirst=6.0,
+    )
+    np.testing.assert_allclose(singleton, np.asarray([4.0]))
+
+
+def test_background_difference_penalties_match_sparse_reference():
+    intervalCount = 7
+    weightTrack = np.asarray(
+        [0.7, 1.4, 2.2, 0.9, 3.1, 1.8, 0.6],
+        dtype=np.float64,
+    )
+    rhsTrack = np.asarray(
+        [0.3, -1.1, 2.4, 0.8, -0.7, 1.6, -0.2],
+        dtype=np.float64,
+    )
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(3, 2.0)
+    firstPenalty = core._buildFirstDiffPenalty(intervalCount)
+    secondPenalty = core._buildSecondDiffPenalty(intervalCount)
+    systemMat = core.sparse.diags(
+        weightTrack,
+        offsets=0,
+        format="csc",
+    )
+    systemMat += lamFirst * firstPenalty + lamSecond * secondPenalty
+
+    for zeroCenter in (False, True):
+        actual = core.solveZeroCenteredBackground(
+            residualMatrix=np.zeros((1, intervalCount), dtype=np.float32),
+            invVarMatrix=np.ones((1, intervalCount), dtype=np.float32),
+            blockLenIntervals=3,
+            backgroundSmoothness=2.0,
+            zeroCenter=zeroCenter,
+            useNonnegative=False,
+            weightTrack=weightTrack,
+            rhsTrack=rhsTrack,
+        )
+        if zeroCenter:
+            constraint = np.ones(intervalCount, dtype=np.float64)
+            kktMat = core.sparse.bmat(
+                [
+                    [systemMat, constraint[:, None]],
+                    [constraint[None, :], None],
+                ],
+                format="csc",
+            )
+            expected = core.sparse_linalg.spsolve(
+                kktMat,
+                np.concatenate([rhsTrack, np.zeros(1, dtype=np.float64)]),
+            )[:-1]
+        else:
+            expected = core.sparse_linalg.spsolve(systemMat, rhsTrack)
+        np.testing.assert_allclose(actual, expected, atol=1.0e-4)
+
+    np.testing.assert_allclose(
+        core._backgroundPenaltyDiagonal(intervalCount, lamFirst, lamSecond),
+        systemMat.diagonal() - weightTrack,
+    )
+    backgroundTarget = np.linspace(-0.4, 0.7, intervalCount, dtype=np.float64)
+    total, first, second = core._backgroundObjectivePenalty(
+        background=backgroundTarget,
+        blockLenIntervals=3,
+        backgroundSmoothness=2.0,
+    )
+    np.testing.assert_allclose(
+        total - first - second,
+        0.0,
+        atol=1.0e-12,
+    )
+
+
+def test_dependence_span_rank_weighted_sampling_contract():
+    windowBins = 64
+    candidateCount = 300
+    baseShape = ndi.gaussian_filter1d(
+        np.random.default_rng(9).normal(size=windowBins),
+        1.5,
+    )
+    baseShape = baseShape - np.min(baseShape) + 1.0
+    blocks = [np.full(windowBins, 400.0, dtype=np.float32)]
+    for index in range(1, candidateCount):
+        offset = 2.0 + np.floor((candidateCount - index) / 2.0)
+        blocks.append(np.asarray(baseShape + offset, dtype=np.float32))
+    matrix = np.concatenate(blocks)[None, :]
+
+    estimatorArgs = {
+        "windowBP": windowBins,
+        "maxLagBP": 24,
+        "bootstrapDraws": 20,
+        "randSeed": 21,
+        "minWindowCount": 20,
+        "acfThreshold": 0.15,
+        "acfSmoothingBP": 1,
+        "crossingPersistenceBP": 1,
+        "minFinitePairs": 8,
+        "minFinitePairCoverage": 0.5,
+    }
+    result = cconsenrich.cchooseDependenceSpan(
+        ["chr11"],
+        [matrix],
+        1,
+        **estimatorArgs,
+    )
+    details = result[3]
+
+    candidateMatrix = matrix.reshape(candidateCount, windowBins).astype(np.float64)
+    scores = np.sum(np.maximum(candidateMatrix, 0.0), axis=1)
+    starts = np.arange(candidateCount, dtype=np.int64) * windowBins
+    scoreOrder = np.lexsort((starts, -scores))
+    rankedScores = scores[scoreOrder]
+    ranks = np.empty(candidateCount, dtype=np.float64)
+    rankStart = 0
+    while rankStart < candidateCount:
+        rankEnd = rankStart + 1
+        while (
+            rankEnd < candidateCount
+            and rankedScores[rankEnd] == rankedScores[rankStart]
+        ):
+            rankEnd += 1
+        ranks[rankStart:rankEnd] = 0.5 * ((rankStart + 1) + rankEnd)
+        rankStart = rankEnd
+
+    selectionSeed = np.random.SeedSequence(21).spawn(2)[0]
+    weights = candidateCount - ranks + 1.0
+    selectionKeys = (
+        np.random.default_rng(selectionSeed).exponential(size=candidateCount)
+        / weights
+    )
+    weightedOrder = np.lexsort((starts[scoreOrder], selectionKeys))
+    expectedStarts = []
+    expectedRanks = []
+    expectedEvaluationCount = 0
+    for rankedIndex in weightedOrder:
+        expectedEvaluationCount += 1
+        startBP = int(starts[scoreOrder[rankedIndex]])
+        if startBP == 0:
+            continue
+        expectedStarts.append(startBP)
+        expectedRanks.append(float(ranks[rankedIndex]))
+        if len(expectedStarts) == constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT:
+            break
+
+    selectedWindows = details["selectedWindows"]
+    actualStarts = [int(window["startBP"]) for window in selectedWindows]
+    actualRanks = [
+        float(window["positiveSignalRank"]) for window in selectedWindows
+    ]
+    assert details["method"] == "rankWeightedFinitePairWindowACF"
+    assert details["randomSeed"] == 21
+    assert details["candidateWindowCount"] == candidateCount
+    assert details["evaluatedCandidateWindowCount"] == expectedEvaluationCount
+    assert details["selectedWindowCount"] == details["windowCountRequested"] == 256
+    assert details["selectedAutosomeCount"] == 1
+    assert details["chromosomesUsed"] == ["chr11"]
+    assert actualStarts == expectedStarts
+    assert actualRanks == expectedRanks
+    assert len(set(actualStarts)) == len(actualStarts)
+    assert 0 not in actualStarts
+    assert max(actualRanks) > 256.0
+    assert (
+        cconsenrich.cchooseDependenceSpan(
+            ["chr11"],
+            [matrix],
+            1,
+            **estimatorArgs,
+        )
+        == result
+    )
+
+    shortened = matrix[:, : 12 * windowBins]
+    shortenedDetails = cconsenrich.cchooseDependenceSpan(
+        ["chr11"],
+        [shortened],
+        1,
+        windowCount=20,
+        **{**estimatorArgs, "minWindowCount": 10},
+    )[3]
+    assert shortenedDetails["candidateWindowCount"] == 12
+    assert shortenedDetails["evaluatedCandidateWindowCount"] == 12
+    assert shortenedDetails["selectedWindowCount"] == 11
+
+    with pytest.raises(RuntimeError, match="needs at least 20 windows"):
+        cconsenrich.cchooseDependenceSpan(
+            ["chr11"],
+            [matrix[:, : 20 * windowBins]],
+            1,
+            windowCount=20,
+            **estimatorArgs,
+        )
+
+
 def test_process_precision_auto_min_rejects_too_small_max():
     with pytest.raises(ValueError, match="auto .*convexity-preserving lower bound"):
         core._checkProcessPrecisionMultiplierBounds(

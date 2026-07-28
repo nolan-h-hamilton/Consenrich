@@ -760,10 +760,7 @@ def _normalizeUncertaintyCalibrationMode(value: str | None) -> str:
     }
     normalized = aliases.get(normalized, normalized)
     if normalized != core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE:
-        raise ValueError(
-            "predictive held-out residual uncertainty calibration has been removed; "
-            "use uncertaintyCalibrationParams.mode='delete_block_state'"
-        )
+        raise ValueError(f"unsupported uncertainty calibration mode: {value!r}")
     return normalized
 
 

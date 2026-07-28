@@ -84,7 +84,7 @@ def getScaleFactor1x(
             effectiveGenomeSize -= chromSizes[chrom]
     if sourceKind is None:
         if str(bamFile).lower().endswith(".cram"):
-            raise ValueError("CRAM inputs are no longer supported.")
+            raise ValueError("CRAM inputs are unsupported.")
         sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
     if sourceKind == "FRAGMENTS":
@@ -193,7 +193,7 @@ def getScaleFactorPerMillion(
         normMethodUpper = "RPKM"
     if sourceKind is None:
         if str(bamFile).lower().endswith(".cram"):
-            raise ValueError("CRAM inputs are no longer supported.")
+            raise ValueError("CRAM inputs are unsupported.")
         sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
     if normMethodUpper not in {"CPM", "RPKM"}:

@@ -660,12 +660,6 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
 
 def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outputParams:
     configData = loadConfig(config_path)
-    for removedKey in (
-        "outputParams.stateShrinkagePriorNull",
-        "outputParams.stateShrinkageNullPseudoCount",
-    ):
-        if _cfgHas(configData, removedKey):
-            raise ValueError(f"{removedKey} was removed")
 
     convertToBigWig_ = _cfgGet(
         configData,
@@ -1999,21 +1993,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             _cfgDefault(configData, "observationParams.muncVarianceModel"),
         )
     )
-    if _cfgHas(configData, "observationParams.muncEBPrior.mode"):
-        raise ValueError("`observationParams.muncEBPrior.mode` is not supported.")
-    if _cfgHas(configData, "observationParams.muncGUncertaintyMode"):
-        raise ValueError(
-            "`observationParams.muncGUncertaintyMode` is not supported. "
-            "Use `observationParams.muncEBPrior.gUncertaintyMode`."
-        )
-    if _cfgHas(configData, "observationParams.muncAR1VarianceFunctional") or _cfgHas(
-        configData,
-        "observationParams.muncAR1ObservationVarianceFunctional",
-    ):
-        raise ValueError(
-            "`observationParams.muncAR1VarianceFunctional` is not supported."
-        )
-
     def dependencePositiveInt(dottedKey: str) -> int:
         rawValue = _cfgGet(configData, dottedKey, _cfgDefault(configData, dottedKey))
         if isinstance(rawValue, (bool, np.bool_)):
@@ -2102,9 +2081,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "`observationParams.dependenceMinWindowCount` must not exceed "
             "`observationParams.dependenceWindowCount`."
         )
-    dependenceMinAutosomeCount = dependencePositiveInt(
-        "observationParams.dependenceMinAutosomeCount"
-    )
     dependenceAcfPointThreshold = dependencePositiveFloat(
         "observationParams.dependenceAcfPointThreshold"
     )
@@ -2590,7 +2566,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "dependenceWorkingQuantile": dependenceWorkingQuantile,
         "dependenceBootstrapDraws": dependenceBootstrapDraws,
         "dependenceMinWindowCount": dependenceMinWindowCount,
-        "dependenceMinAutosomeCount": dependenceMinAutosomeCount,
         "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
         "dependenceAcfSmoothingBP": dependenceAcfSmoothingBP,
         "dependenceCrossingPersistenceBP": dependenceCrossingPersistenceBP,
