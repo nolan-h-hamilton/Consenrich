@@ -1286,6 +1286,7 @@ def test_core_fixed_process_q_respects_q_bounds(qKwargs, expectedMessage):
         "stateUpperBound": 0.0,
         "blockLenIntervals": 2,
         "ECM_fixedBackgroundIters": 1,
+        "processNoiseCalibration": core.PROCESS_NOISE_CALIBRATION_FIXED,
     }
     kwargs.update(qKwargs)
 
@@ -4105,8 +4106,6 @@ def _caseRunConsenrichOuterPassSmoke():
         rtol=2.0e-6,
         atol=2.0e-6,
     )
-    warmupDiagnostics = diagnostics["process_noise_warmup_fit"]
-    assert warmupDiagnostics["actual_outer_passes"] == 2
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
     assert len(gainSummary["median"]) == m
@@ -4190,12 +4189,14 @@ def _caseRunConsenrichOuterPassSmoke():
     assert qInfo["processNoiseCalibrationStatus"] == "estimated"
     assert "".join(("block", "Mode")) not in qInfo
     assert "_".join(("process", "q", "calibration")) not in diagnostics
-    expectedWarmupQ = qInfo["warmupEffectiveQLevelMedian"]
-    assert qInfo["preKappaQLevel"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
-    assert qInfo["preKappaQTrend"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
+    expectedLevelQ = qInfo["qSeedLevelFinal"]
+    expectedTrendQ = qInfo["qSeedTrendFinal"]
+    assert qInfo["processNoiseCalibrationReason"] == "data_derived_q_estimate"
+    assert qInfo["preKappaQLevel"] == pytest.approx(expectedLevelQ, rel=5.0e-6)
+    assert qInfo["preKappaQTrend"] == pytest.approx(expectedTrendQ, rel=5.0e-6)
     np.testing.assert_allclose(
         qInfo["matrixQ0Final"],
-        np.diag([expectedWarmupQ, expectedWarmupQ]),
+        np.diag([expectedLevelQ, expectedTrendQ]),
         rtol=5.0e-6,
     )
     assert "processQScaleSummary" in qInfo
@@ -4272,14 +4273,14 @@ def _caseRunConsenrichLevelStateModelSmoke():
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
     assert qInfo["processNoisePolicy"] == "fixedDiagonal"
-    assert runDiagnostics["process_noise_warmup_fit"]["actual_outer_passes"] == 2
-    expectedWarmupQ = qInfo["warmupEffectiveQLevelMedian"]
-    assert qInfo["preKappaQLevel"] == pytest.approx(expectedWarmupQ, rel=5.0e-6)
+    expectedLevelQ = qInfo["qSeedLevelFinal"]
+    assert qInfo["processNoiseCalibrationReason"] == "data_derived_q_estimate"
+    assert qInfo["preKappaQLevel"] == pytest.approx(expectedLevelQ, rel=5.0e-6)
     assert qInfo["preKappaQTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
     np.testing.assert_allclose(
         qInfo["matrixQ0Final"],
-        [[expectedWarmupQ]],
+        [[expectedLevelQ]],
         rtol=5.0e-6,
     )
 
@@ -4310,6 +4311,11 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
     monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
 
+    def failSeedEstimator(**_kwargs):
+        raise AssertionError("explicit process Q must bypass data estimation")
+
+    monkeypatch.setattr(core, "_estimateInitialProcessNoiseFromData", failSeedEstimator)
+
     initialQ = np.diag([1.0e-3, 1.0e-4]).astype(np.float32)
     out = core.runConsenrich(
         matrixData,
@@ -4333,7 +4339,6 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
     diagnostics = out[-1]
     assert ecmModes == [(True, False)]
-    assert diagnostics["process_noise_warmup_fit"] is None
     qInfo = diagnostics["process_noise_calibration"]
     assert qInfo["processNoiseCalibrationStatus"] == "skipped"
     assert qInfo["processNoiseCalibrationReason"] == "initial_process_q"
@@ -4348,7 +4353,7 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichFixedDiagonalUsesFixedQ(monkeypatch):
+def _caseRunConsenrichFixedDiagonalUsesDataQ(monkeypatch):
     rng = np.random.default_rng(3)
     n = 36
     m = 3
@@ -4361,10 +4366,34 @@ def _caseRunConsenrichFixedDiagonalUsesFixedQ(monkeypatch):
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.05, dtype=np.float32)
 
-    def failSeedEstimator(*_args, **_kwargs):
-        raise AssertionError("seed estimator should not run")
+    seedQ = np.diag([2.0e-5, 3.0e-5]).astype(np.float32)
+    seedCalls = []
 
-    monkeypatch.setattr(core, "_estimateInitialProcessNoiseFromData", failSeedEstimator)
+    def fakeSeedEstimator(**kwargs):
+        seedCalls.append(kwargs)
+        return seedQ.copy(), {
+            "qSeedSource": "test",
+            "qSeedTransitionCount": n - 1,
+            "qSeedLevelFinal": float(seedQ[0, 0]),
+            "qSeedTrendFinal": float(seedQ[1, 1]),
+        }
+
+    monkeypatch.setattr(core, "_estimateInitialProcessNoiseFromData", fakeSeedEstimator)
+
+    originalECM = cconsenrich.cfixedBackgroundECM
+    ecmCalls = []
+
+    def spyECM(*args, **kwargs):
+        ecmCalls.append(
+            {
+                "matrixQ0": np.asarray(kwargs["matrixQ0"], dtype=np.float64).copy(),
+                "useAPN": bool(kwargs["ECM_useAPN"]),
+                "useProcPrec": bool(kwargs["ECM_useProcessPrecisionReweighting"]),
+            }
+        )
+        return originalECM(*args, **kwargs)
+
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", spyECM)
 
     initialKappa = np.linspace(0.5, 1.8, n, dtype=np.float32)
     out = core.runConsenrich(
@@ -4386,6 +4415,7 @@ def _caseRunConsenrichFixedDiagonalUsesFixedQ(monkeypatch):
         fitBackground=False,
         ECM_useProcessPrecisionReweighting=True,
         initialProcessPrecision=initialKappa,
+        qSeedPriorLevel=7.0e-6,
         returnPrecisionDiagnostics=True,
         returnDiagnostics=True,
     )
@@ -4393,161 +4423,47 @@ def _caseRunConsenrichFixedDiagonalUsesFixedQ(monkeypatch):
     precisionDiagnostics = out[-2]
     runDiagnostics = out[-1]
     qInfo = runDiagnostics["process_noise_calibration"]
-    warmupDiagnostics = runDiagnostics["process_noise_warmup_fit"]
-    assert warmupDiagnostics["actual_outer_passes"] == 1
-    assert qInfo["processNoisePolicy"] == "fixedDiagonal"
-    assert qInfo["processNoiseCalibrationReason"] == (
-        "fixed_diagonal_kappa_warmup_median"
+    assert len(seedCalls) == 1
+    seedCall = seedCalls[0]
+    np.testing.assert_array_equal(seedCall["matrixData"], matrixData)
+    np.testing.assert_array_equal(seedCall["matrixMunc"], matrixMunc)
+    assert seedCall["pad"] == pytest.approx(1.0e-4)
+    assert seedCall["stateModel"] == core.STATE_MODEL_LEVEL_TREND
+    assert seedCall["minQ"] == pytest.approx(1.0e-6)
+    assert seedCall["maxQ"] == pytest.approx(1.0)
+    assert seedCall["deltaF"] == pytest.approx(0.2)
+    assert seedCall["robustTNu"] == pytest.approx(8.0)
+    assert seedCall["qSeedPriorLevel"] == pytest.approx(7.0e-6)
+    assert len(ecmCalls) == 1
+    np.testing.assert_allclose(
+        ecmCalls[0]["matrixQ0"],
+        seedQ,
+        rtol=0.0,
+        atol=1.0e-10,
     )
-    expectedLevelQ = qInfo["warmupEffectiveQLevelMedian"]
+    assert ecmCalls[0]["useAPN"] is False
+    assert ecmCalls[0]["useProcPrec"] is True
+    assert "process_noise_warmup_fit" not in runDiagnostics
+    assert qInfo["processNoisePolicy"] == "fixedDiagonal"
+    assert qInfo["processNoiseCalibrationStatus"] == "estimated"
+    assert qInfo["processNoiseCalibrationReason"] == "data_derived_q_estimate"
+    assert qInfo["qSeedSource"] == "test"
+    assert qInfo["validTransitionCount"] == n - 1
     np.testing.assert_allclose(
         qInfo["matrixQ0Final"],
-        np.diag([expectedLevelQ, expectedLevelQ]),
-        rtol=5.0e-6,
+        seedQ,
+        rtol=0.0,
+        atol=1.0e-10,
     )
     outputTracks = precisionDiagnostics["outputTracks"]
     np.testing.assert_allclose(outputTracks["processQScale"], np.ones(n))
+    np.testing.assert_allclose(outputTracks["baseQLevel"], seedQ[0, 0])
+    np.testing.assert_allclose(outputTracks["baseQTrend"], seedQ[1, 1])
+    np.testing.assert_allclose(outputTracks["preKappaQLevel"], seedQ[0, 0])
+    np.testing.assert_allclose(outputTracks["preKappaQTrend"], seedQ[1, 1])
     assert np.any(
         np.abs(outputTracks["effectiveQLevel"] - outputTracks["preKappaQLevel"])
         > 1.0e-9
-    )
-
-    levelOut = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        stateModel="level",
-        deltaF=-10.0,
-        minQ=1.0e-6,
-        maxQ=1.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=6,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_minOuterIters=1,
-        fitBackground=False,
-        ECM_useProcessPrecisionReweighting=True,
-        initialProcessPrecision=initialKappa,
-        returnPrecisionDiagnostics=True,
-        returnDiagnostics=True,
-    )
-    levelPrecisionDiagnostics = levelOut[-2]
-    levelRunDiagnostics = levelOut[-1]
-    levelQInfo = levelRunDiagnostics["process_noise_calibration"]
-    levelExpectedQ = levelQInfo["warmupEffectiveQLevelMedian"]
-    np.testing.assert_allclose(
-        levelQInfo["matrixQ0Final"],
-        [[levelExpectedQ]],
-        rtol=5.0e-6,
-    )
-    assert levelQInfo["preKappaQTrend"] == pytest.approx(0.0)
-    assert levelQInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    np.testing.assert_allclose(
-        levelPrecisionDiagnostics["outputTracks"]["processQScale"],
-        np.ones(n),
-    )
-
-
-@pytest.mark.correctness
-def test_core_run_consenrich_fixed_diagonal_kappa_median_warmup(monkeypatch):
-    n = 6
-    m = 2
-    grid = np.linspace(-0.5, 0.5, n, dtype=np.float32)
-    matrixData = np.vstack([grid, grid + 0.05]).astype(np.float32)
-    matrixMunc = np.full((m, n), 0.08, dtype=np.float32)
-    warmupProcessPrec = np.asarray(
-        [1.0, 0.25, 0.25, 0.5, 0.5, 0.5],
-        dtype=np.float32,
-    )
-    ecmCalls = []
-
-    def fakeECM(**kwargs):
-        trackCount, intervalCount = kwargs["matrixDataLocal"].shape
-        stateDim = 1 if kwargs["stateModelMode"] == core.STATE_MODEL_LEVEL else 2
-        assert intervalCount == n
-        ecmCalls.append(
-            {
-                "iters": int(kwargs["ecmItersLocal"]),
-                "matrixQ0": np.asarray(
-                    kwargs["matrixQ0Local"],
-                    dtype=np.float64,
-                ).copy(),
-                "useAPN": bool(kwargs["useAPNLocal"]),
-                "useProcPrec": bool(kwargs["useProcPrecLocal"]),
-                "processPrecInit": kwargs["processPrecExpLocal"],
-            }
-        )
-        state = np.zeros((intervalCount, stateDim), dtype=np.float32)
-        covar = np.zeros((intervalCount, stateDim, stateDim), dtype=np.float32)
-        residuals = np.zeros((trackCount, intervalCount), dtype=np.float32)
-        processPrec = (
-            warmupProcessPrec.copy() if kwargs["useProcPrecLocal"] else None
-        )
-        return core._FixedBackgroundECMResult(
-            iters_done=1,
-            nll=1.0,
-            state_smoothed=state,
-            state_covar_smoothed=covar,
-            lag_covar_smoothed=covar,
-            post_fit_residuals=residuals,
-            lambda_exp=None,
-            process_prec_exp=processPrec,
-            diagnostics={"converged": True, "nll_increase_count": 0},
-        )
-
-    monkeypatch.setattr(core, "_runFixedBackgroundECMPhase", fakeECM)
-
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.2,
-        minQ=1.0e-6,
-        maxQ=1.0,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=3,
-        ECM_fixedBackgroundIters=1,
-        ECM_outerIters=1,
-        ECM_minOuterIters=1,
-        fitBackground=False,
-        ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
-        processNoiseWarmupECMIters=2,
-        processNoiseWarmupOuterPasses=2,
-        returnDiagnostics=True,
-    )
-
-    baseQ = 1.0e-4
-    expectedQ = float(np.median(baseQ / warmupProcessPrec[1:].astype(np.float64)))
-    assert [call["iters"] for call in ecmCalls] == [2, 1]
-    assert [call["useProcPrec"] for call in ecmCalls] == [True, True]
-    assert [call["useAPN"] for call in ecmCalls] == [False, False]
-    assert [call["processPrecInit"] for call in ecmCalls] == [None, None]
-    np.testing.assert_allclose(
-        ecmCalls[0]["matrixQ0"],
-        np.diag([baseQ, baseQ]),
-        rtol=0.0,
-        atol=1.0e-10,
-    )
-    np.testing.assert_allclose(
-        ecmCalls[1]["matrixQ0"],
-        np.diag([expectedQ, expectedQ]),
-        rtol=0.0,
-        atol=1.0e-10,
-    )
-    np.testing.assert_allclose(
-        out[-1]["process_noise_calibration"]["matrixQ0Final"],
-        np.diag([expectedQ, expectedQ]),
-        rtol=0.0,
-        atol=1.0e-10,
     )
 
 
@@ -4608,7 +4524,6 @@ def test_core_run_consenrich_initial_background_reaches_final_fit():
     )
 
     diagnostics = out[-1]
-    assert diagnostics["process_noise_warmup_fit"]["actual_outer_passes"] == 2
     warmStart = diagnostics["post_process_noise_fit"]["warm_start"]
     assert warmStart["background"] is True
     assert warmStart["background_prepass"] is False
@@ -7678,8 +7593,8 @@ def test_core_em_loop_contracts(monkeypatch, contract_case):
             _caseRunConsenrichInitialProcessQSkipsWarmup,
         ),
         (
-            "fixed diagonal process noise",
-            _caseRunConsenrichFixedDiagonalUsesFixedQ,
+            "data-derived fixed diagonal process noise",
+            _caseRunConsenrichFixedDiagonalUsesDataQ,
         ),
         (
             "outer-pass minimum iterations",

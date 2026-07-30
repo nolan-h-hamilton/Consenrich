@@ -678,7 +678,6 @@ def _flattenOptimizationPathDiagnostics(
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     phases = (
-        ("process_noise_warmup_fit", "process_noise_warmup"),
         ("post_process_noise_fit", "post_process_noise_fit"),
     )
     for fitKey, phaseLabel in phases:
@@ -4177,6 +4176,7 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
     warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
     kwargs: Dict[str, Any] = {
         "stateModel": processArgs.stateModel,
+        "qSeedPriorLevel": processArgs.qSeedPriorLevel,
         "processNoiseWarmupECMIters": processArgs.processNoiseWarmupECMIters,
         "processPrecisionMultiplierMin": processArgs.precisionMultiplierMin,
         "processPrecisionMultiplierMax": processArgs.precisionMultiplierMax,
@@ -4284,11 +4284,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
                 f"[{processKappaMinLabel}, "
                 f"{float(processArgs.precisionMultiplierMax):.6g}]"
             ),
-        ),
-        (
-            "process noise warmup",
-            f"{_getProcessNoiseWarmupOuterPasses(processArgs)} outer passes x "
-            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters",
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),

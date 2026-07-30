@@ -269,9 +269,9 @@ from ._normalization import (
 
 logger = logging.getLogger(__name__)
 
-_PROCESS_NOISE_WARMUP_Q_LOG_CHANGE_RTOL = 1.0e-2
 _QINIT_MIN_TRANSITIONS = 8
 _QINIT_MAX_TRANSITIONS = 32_000
+_QINIT_SIGNAL_PANEL_SIZE = 1024
 _QINIT_GRID_SIZE = 64
 _QINIT_PRECISION_SAMPLE_CAP = 32_000
 _QINIT_PRECISION_CAP_QUANTILE = 0.95
@@ -3601,6 +3601,7 @@ def _estimateSameTrackProcessNoiseTransitions(
         float(_QINIT_PRECISION_CAP_MULTIPLIER),
         int(_QINIT_MAX_TRANSITIONS),
         int(_QINIT_PRECISION_SAMPLE_CAP),
+        int(_QINIT_SIGNAL_PANEL_SIZE),
     )
 
 
@@ -3746,6 +3747,12 @@ def _estimateInitialProcessNoiseFromData(
             estimate.get("effectiveTransitionCount", 0.0)
         ),
         "qSeedPairCount": int(sameTrackDiagnostics.get("pairCount", 0)),
+        "qSeedCandidateTransitionCount": int(
+            sameTrackDiagnostics.get("candidateTransitionCount", 0)
+        ),
+        "qSeedSelectedTransitionCount": int(
+            sameTrackDiagnostics.get("selectedTransitionCount", 0)
+        ),
         "qSeedPrecisionCapFraction": float(
             sameTrackDiagnostics.get("precisionCapFraction", 0.0)
         ),
@@ -3889,6 +3896,7 @@ def runConsenrich(
     returnBackground: bool = False,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
     processNoiseCalibration: str = PROCESS_DEFAULT_NOISE_CALIBRATION,
+    qSeedPriorLevel: float = PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL,
     processNoiseWarmupECMIters: int = PROCESS_DEFAULT_WARMUP_ECM_ITERS,
     processNoiseWarmupOuterPasses: int = PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
     observationPrecisionMultiplierMin: float = 0.25,
@@ -4028,18 +4036,19 @@ def runConsenrich(
         processNoiseCalibration
     )
     fixedProcessQ = 1.0e-4
-    if initialProcessQArr is None and float(minQ) > fixedProcessQ:
+    useFixedProcessQ = (
+        initialProcessQArr is None
+        and processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED
+    )
+    if useFixedProcessQ and float(minQ) > fixedProcessQ:
         raise ValueError("`minQ` must not exceed the fixed process Q")
     if (
-        initialProcessQArr is None
+        useFixedProcessQ
         and np.isfinite(maxQForAPN)
         and float(maxQForAPN) < fixedProcessQ
     ):
         raise ValueError("`maxQ` must be negative or at least the fixed process Q")
     qCalibrationSupport = _processNoiseCalibrationSupport(matrixData, matrixMunc, pad)
-    processCalibrationSkipReason = None
-    processNoiseWarmupECMIters = max(1, int(processNoiseWarmupECMIters))
-    processNoiseWarmupOuterPasses = max(1, int(processNoiseWarmupOuterPasses))
     if isinstance(t_innerIters, (bool, np.bool_)):
         raise ValueError("t_innerIters must be a positive integer")
     try:
@@ -4123,7 +4132,6 @@ def runConsenrich(
                 "process active adjacent transitions",
                 int(qCalibrationSupport["activeAdjacentTransitionCount"]),
             ),
-            ("process calibration skip reason", processCalibrationSkipReason or "none"),
             ("background model fit", bool(fitBackground)),
             ("nonnegative background", bool(useNonnegativeBackground)),
             (
@@ -4605,10 +4613,6 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         ecmItersLocal: int,
         ecmRtolLocal: float,
-        outerItersLocal: int | None = None,
-        minOuterItersLocal: int | None = None,
-        useProcPrecReweightOverride: bool | None = None,
-        useAPNOverride: bool | None = None,
         initialBackgroundLocal: np.ndarray | None = None,
         initialLambdaLocal: np.ndarray | None = None,
         initialProcessPrecLocal: np.ndarray | None = None,
@@ -4616,17 +4620,12 @@ def runConsenrich(
         phaseLabel: str = "fit",
         phaseIndentLevel: int = 0,
         logAlternatingECMIterations: bool = False,
-        showNonAlternatingECMProgress: bool = True,
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
         fitBackgroundLocal = bool(fitBackground)
-        useAPNLocal = bool(ECM_useAPN if useAPNOverride is None else useAPNOverride)
-        useProcPrecLocal = bool(
-            ECM_useProcessPrecisionReweighting
-            if useProcPrecReweightOverride is None
-            else useProcPrecReweightOverride
-        )
+        useAPNLocal = bool(ECM_useAPN)
+        useProcPrecLocal = bool(ECM_useProcessPrecisionReweighting)
         if useAPNLocal:
             useProcPrecLocal = False
 
@@ -4703,15 +4702,8 @@ def runConsenrich(
         lastBackgroundShiftLocal = 0.0
 
         if fitBackgroundLocal:
-            requestedOuterIters = max(
-                1,
-                int(ECM_outerIters if outerItersLocal is None else outerItersLocal),
-            )
-            minOuterIters = (
-                int(ECM_minOuterIters)
-                if minOuterItersLocal is None
-                else max(1, int(minOuterItersLocal))
-            )
+            requestedOuterIters = max(1, int(ECM_outerIters))
+            minOuterIters = int(ECM_minOuterIters)
             outerPassCount = max(
                 minOuterIters,
                 requestedOuterIters,
@@ -5668,8 +5660,21 @@ def runConsenrich(
     )
 
     matrixF = buildMatrixF(float(deltaF_fit))
+    qEstimateDiagnostics: dict[str, Any] | None = None
     if initialProcessQArr is not None:
         matrixQ0 = np.ascontiguousarray(initialProcessQArr, dtype=np.float32).copy()
+    elif processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL:
+        matrixQ0, qEstimateDiagnostics = _estimateInitialProcessNoiseFromData(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            pad=float(pad),
+            stateModel=stateModelMode,
+            minQ=float(minQ),
+            maxQ=float(maxQ),
+            deltaF=float(deltaF_fit),
+            robustTNu=float(ECM_robustTNu),
+            qSeedPriorLevel=float(qSeedPriorLevel),
+        )
     else:
         matrixQ0 = buildFixedDiagonalMatrixQ0()
     matrixQ0 = _clampProcessNoiseMatrix(
@@ -5678,20 +5683,9 @@ def runConsenrich(
         minQ=float(minQ),
         maxQ=float(maxQ),
     )
-    fitProcessNoiseWarmup: Mapping[str, Any] | None = None
-    fitProcessNoiseWarmupMetadata: dict[str, Any] | None = None
     processNoiseCalibrationInfo: dict[str, Any] | None = None
-    postQInitialBackground = initialBackgroundArr
-    postQInitialLambda = initialObservationPrecisionArr
-    postQInitialProcessPrec = initialProcessPrecisionArr
 
     processQScaleFinal = np.ones(intervalCount, dtype=np.float32)
-    runFixedDiagonalKappaWarmup = (
-        initialProcessQArr is None
-        and processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
-        and bool(ECM_useProcessPrecisionReweighting)
-        and not bool(ECM_useAPN)
-    )
     if initialProcessQArr is not None:
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
             processNoisePolicy=PROCESS_NOISE_CALIBRATION_FIXED,
@@ -5704,79 +5698,11 @@ def runConsenrich(
             support=qCalibrationSupport,
             warmStartProcessNoise=1.0,
         )
-    elif runFixedDiagonalKappaWarmup:
-        warmupIters = int(processNoiseWarmupECMIters)
-        warmupOuterPasses = int(processNoiseWarmupOuterPasses)
-        warmupStartedAt = time.perf_counter()
-        fitProcessNoiseWarmup = _fitOuter(
-            matrixDataLocal=matrixData,
-            matrixMuncLocal=matrixMunc,
-            matrixFLocal=matrixF,
-            matrixQ0Local=matrixQ0,
-            ecmItersLocal=warmupIters,
-            ecmRtolLocal=float(ECM_fixedBackgroundRtol),
-            outerItersLocal=warmupOuterPasses,
-            minOuterItersLocal=warmupOuterPasses,
-            useProcPrecReweightOverride=True,
-            useAPNOverride=False,
-            initialBackgroundLocal=postQInitialBackground,
-            initialLambdaLocal=postQInitialLambda,
-            initialProcessPrecLocal=postQInitialProcessPrec,
-            processQScaleLocal=processQScaleFinal,
-            phaseLabel="fixedDiagonal kappa warmup",
-            phaseIndentLevel=logIndentLevel + 1,
-            logAlternatingECMIterations=False,
-        )
-        warmupProcessPrec = fitProcessNoiseWarmup.get("processPrecExp")
-        if warmupProcessPrec is None:
-            raise RuntimeError("fixedDiagonal kappa warmup did not return kappa")
-        warmupProcessPrec = np.asarray(warmupProcessPrec, dtype=np.float32)
-        warmupQTracks = _processQTrackArrays(
-            matrixQ0=matrixQ0,
-            intervalCount=int(intervalCount),
-            stateModel=stateModelMode,
-            processPrecExp=warmupProcessPrec,
-            processQScale=fitProcessNoiseWarmup.get("processQScale"),
-            pNoiseForward=np.asarray(
-                fitProcessNoiseWarmup["pNoiseForward"],
-                dtype=np.float32,
-            ),
-            procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
-            procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-            returnFullQ=False,
-        )
-        warmupQLevel = float(np.median(warmupQTracks["effectiveQLevel"][1:]))
-        if stateModelMode == STATE_MODEL_LEVEL:
-            matrixQ0 = np.asarray([[warmupQLevel]], dtype=np.float32)
-            warmupQTrend = 0.0
-        else:
-            warmupQTrend = float(np.median(warmupQTracks["effectiveQTrend"][1:]))
-            matrixQ0 = constructMatrixQ(
-                minDiagQ=float(minQ),
-                Q00=warmupQLevel,
-                Q01=0.0,
-                Q10=0.0,
-                Q11=warmupQTrend,
-            ).astype(np.float32, copy=False)
-        matrixQ0 = _clampProcessNoiseMatrix(
-            matrixQ0,
-            stateModel=stateModelMode,
-            minQ=float(minQ),
-            maxQ=float(maxQ),
-        )
-        postQInitialBackground = np.asarray(
-            fitProcessNoiseWarmup["background"],
-            dtype=np.float32,
-        )
-        postQInitialLambda = (
-            np.asarray(fitProcessNoiseWarmup["lambdaExp"], dtype=np.float32)
-            if fitProcessNoiseWarmup.get("lambdaExp") is not None
-            else initialObservationPrecisionArr
-        )
+    elif qEstimateDiagnostics is not None:
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
             processNoisePolicy=processNoiseCalibrationMode,
             status="estimated",
-            reason="fixed_diagonal_kappa_warmup_median",
+            reason="data_derived_q_estimate",
             matrixQ0=matrixQ0,
             stateModel=stateModelMode,
             minQ=float(minQ),
@@ -5784,30 +5710,15 @@ def runConsenrich(
             support=qCalibrationSupport,
             warmStartProcessNoise=1.0,
         )
-        processNoiseCalibrationInfo["warmupElapsedSeconds"] = float(
-            time.perf_counter() - warmupStartedAt
+        processNoiseCalibrationInfo.update(qEstimateDiagnostics)
+        processNoiseCalibrationInfo["validTransitionCount"] = int(
+            qEstimateDiagnostics["qSeedTransitionCount"]
         )
-        processNoiseCalibrationInfo["warmupECMIters"] = float(warmupIters)
-        processNoiseCalibrationInfo["warmupOuterPasses"] = float(warmupOuterPasses)
-        processNoiseCalibrationInfo["warmupEffectiveQLevelMedian"] = warmupQLevel
-        processNoiseCalibrationInfo["warmupEffectiveQTrendMedian"] = warmupQTrend
-        fitProcessNoiseWarmupMetadata = _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
-        fitProcessNoiseWarmup = None
     else:
-        skipReason = (
-            str(processCalibrationSkipReason)
-            if processCalibrationSkipReason is not None
-            else (
-                "fixed_diagonal"
-                if processNoiseCalibrationMode
-                == PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL
-                else processNoiseCalibrationMode
-            )
-        )
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
             processNoisePolicy=processNoiseCalibrationMode,
             status="skipped",
-            reason=skipReason,
+            reason=processNoiseCalibrationMode,
             matrixQ0=matrixQ0,
             stateModel=stateModelMode,
             minQ=float(minQ),
@@ -5894,9 +5805,9 @@ def runConsenrich(
         matrixQ0Local=matrixQ0,
         ecmItersLocal=int(ECM_fixedBackgroundIters),
         ecmRtolLocal=float(ECM_fixedBackgroundRtol),
-        initialBackgroundLocal=postQInitialBackground,
-        initialLambdaLocal=postQInitialLambda,
-        initialProcessPrecLocal=postQInitialProcessPrec,
+        initialBackgroundLocal=initialBackgroundArr,
+        initialLambdaLocal=initialObservationPrecisionArr,
+        initialProcessPrecLocal=initialProcessPrecisionArr,
         processQScaleLocal=processQScaleFinal,
         phaseLabel=fitPhaseLabel,
         phaseIndentLevel=logIndentLevel + 1,
@@ -6069,7 +5980,6 @@ def runConsenrich(
             processPrecisionMax=float(processPrecisionMultiplierMax),
         ),
         "process_noise_calibration": processNoiseCalibrationMetadata,
-        "process_noise_warmup_fit": fitProcessNoiseWarmupMetadata,
         "post_process_noise_fit": _fitDiagnosticsMetadata(fitFinal),
         "optimization_path_tracked": bool(trackOptimizationPath),
         "process_precision_reweighting_requested": bool(

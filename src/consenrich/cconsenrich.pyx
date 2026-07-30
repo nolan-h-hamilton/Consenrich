@@ -1446,6 +1446,7 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     double precisionCapMultiplier,
     Py_ssize_t maxTransitionSamples=0,
     Py_ssize_t precisionSampleCap=32000,
+    Py_ssize_t signalPanelSize=0,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] dataArr
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] obsArr
@@ -1454,8 +1455,13 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deltasArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] samplingVariancesArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] transitionWeightsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] signalLevelsArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] localDeltaArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] localLevelArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] localPrecisionArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] selectedDeltasArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] selectedSamplingVariancesArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] selectedTransitionWeightsArr
     cdef double[:, ::1] dataView
     cdef double[:, ::1] obsView
     cdef cnp.uint8_t[:, ::1] activeView
@@ -1463,8 +1469,13 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef double[::1] deltasView
     cdef double[::1] samplingVariancesView
     cdef double[::1] transitionWeightsView
+    cdef double[::1] signalLevelsView
     cdef double[::1] localDeltaView
+    cdef double[::1] localLevelView
     cdef double[::1] localPrecisionView
+    cdef double[::1] selectedDeltasView
+    cdef double[::1] selectedSamplingVariancesView
+    cdef double[::1] selectedTransitionWeightsView
     cdef Py_ssize_t trackCount
     cdef Py_ssize_t intervalCount
     cdef Py_ssize_t maxTransitionCount
@@ -1475,8 +1486,13 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef Py_ssize_t precisionSampleCount = 0
     cdef Py_ssize_t cappedPairCount = 0
     cdef Py_ssize_t outCount = 0
+    cdef Py_ssize_t candidateTransitionCount = 0
+    cdef Py_ssize_t selectedTransitionCount = 0
     cdef Py_ssize_t localCount
     cdef Py_ssize_t scanIndex
+    cdef Py_ssize_t panelIndex
+    cdef Py_ssize_t selectedRank
+    cdef Py_ssize_t candidateIndex
     cdef Py_ssize_t pairOrdinal
     cdef Py_ssize_t sampleSlot
     cdef Py_ssize_t targetPairIndex
@@ -1493,14 +1509,18 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef double capFraction = 0.0
     cdef double diff
     cdef double loc
+    cdef double signalLevel
     cdef double sumP
     cdef double sumP2
     cdef double effPairs
     cdef double transitionSampleFraction = 1.0
     cdef bint cappedMode = False
     cdef dict diagnostics
+    cdef object signalOrder
     cdef object sampledTransitionIndices
 
+    if signalPanelSize < 0:
+        raise ValueError("signalPanelSize must be nonnegative")
     if (not isfinite(precisionCapQuantile)) or precisionCapQuantile < 0.0 or precisionCapQuantile > 1.0:
         raise ValueError("precisionCapQuantile must be in [0, 1]")
     if (not isfinite(precisionCapMultiplier)) or precisionCapMultiplier <= 0.0:
@@ -1521,6 +1541,8 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
             "pairCount": int(0),
             "precisionCap": float(cap),
             "precisionCapFraction": float(capFraction),
+            "candidateTransitionCount": int(0),
+            "selectedTransitionCount": int(0),
         }
         if cappedMode:
             diagnostics.update(
@@ -1641,12 +1663,16 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     deltasArr = np.empty(transitionScanCount, dtype=np.float64)
     samplingVariancesArr = np.empty(transitionScanCount, dtype=np.float64)
     transitionWeightsArr = np.empty(transitionScanCount, dtype=np.float64)
+    signalLevelsArr = np.empty(transitionScanCount, dtype=np.float64)
     localDeltaArr = np.empty(trackCount, dtype=np.float64)
+    localLevelArr = np.empty(trackCount, dtype=np.float64)
     localPrecisionArr = np.empty(trackCount, dtype=np.float64)
     deltasView = deltasArr
     samplingVariancesView = samplingVariancesArr
     transitionWeightsView = transitionWeightsArr
+    signalLevelsView = signalLevelsArr
     localDeltaView = localDeltaArr
+    localLevelView = localLevelArr
     localPrecisionView = localPrecisionArr
     for scanIndex in range(transitionScanCount):
         if cappedMode:
@@ -1663,11 +1689,21 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
                 if cap > 0.0 and precision > cap:
                     precision = cap
                 localDeltaView[localCount] = dataView[j, k + 1] - dataView[j, k]
+                rd = obsView[j, k] + obsView[j, k + 1]
+                localLevelView[localCount] = (
+                    (obsView[j, k + 1] / rd) * dataView[j, k]
+                    + (obsView[j, k] / rd) * dataView[j, k + 1]
+                )
                 localPrecisionView[localCount] = precision
                 localCount += 1
         if localCount <= 0:
             continue
         loc = _robustLocationF64(&localDeltaView[0], &localPrecisionView[0], localCount)
+        signalLevel = _robustLocationF64(
+            &localLevelView[0],
+            &localPrecisionView[0],
+            localCount,
+        )
         sumP = 0.0
         sumP2 = 0.0
         for j in range(localCount):
@@ -1682,13 +1718,57 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
         if effPairs < 1.0:
             effPairs = 1.0
         transitionWeightsView[outCount] = effPairs
+        signalLevelsView[outCount] = signalLevel
         outCount += 1
+    candidateTransitionCount = outCount
+    selectedTransitionCount = candidateTransitionCount
+    if (
+        signalPanelSize > 0
+        and candidateTransitionCount > signalPanelSize
+    ):
+        signalOrder = np.argsort(
+            signalLevelsArr[:candidateTransitionCount],
+            kind="mergesort",
+        )
+        selectedTransitionCount = signalPanelSize
+        selectedDeltasArr = np.empty(selectedTransitionCount, dtype=np.float64)
+        selectedSamplingVariancesArr = np.empty(
+            selectedTransitionCount,
+            dtype=np.float64,
+        )
+        selectedTransitionWeightsArr = np.empty(
+            selectedTransitionCount,
+            dtype=np.float64,
+        )
+        selectedDeltasView = selectedDeltasArr
+        selectedSamplingVariancesView = selectedSamplingVariancesArr
+        selectedTransitionWeightsView = selectedTransitionWeightsArr
+        for panelIndex in range(selectedTransitionCount):
+            selectedRank = _qSeedSampleIndex(
+                panelIndex,
+                candidateTransitionCount,
+                selectedTransitionCount,
+            )
+            candidateIndex = <Py_ssize_t>signalOrder[selectedRank]
+            selectedDeltasView[panelIndex] = deltasView[candidateIndex]
+            selectedSamplingVariancesView[panelIndex] = (
+                samplingVariancesView[candidateIndex]
+            )
+            selectedTransitionWeightsView[panelIndex] = (
+                transitionWeightsView[candidateIndex]
+            )
+        deltasArr = selectedDeltasArr
+        samplingVariancesArr = selectedSamplingVariancesArr
+        transitionWeightsArr = selectedTransitionWeightsArr
+        outCount = selectedTransitionCount
     if cappedMode and pairCount > 0:
         capFraction = <double>cappedPairCount / <double>pairCount
     diagnostics = {
         "pairCount": int(pairCount),
         "precisionCap": float(cap),
         "precisionCapFraction": float(capFraction),
+        "candidateTransitionCount": int(candidateTransitionCount),
+        "selectedTransitionCount": int(selectedTransitionCount),
     }
     if cappedMode:
         if transitionScanCount <= 1024:

@@ -2328,6 +2328,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
 
     assert kwargs["processNoiseCalibration"] == "fixed"
+    assert kwargs["qSeedPriorLevel"] == pytest.approx(4.0e-8)
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
@@ -3725,7 +3726,6 @@ def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_
 
 def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     diagnostics = {
-        "process_noise_warmup_fit": None,
         "post_process_noise_fit": {
             "fixed_background_ecm": [
                 {
