@@ -70,7 +70,6 @@ the BAM files:
   :name: demoHistoneChIPSeq.yaml
 
   experimentName: demoHistoneChIPSeq
-  countingPreset: chip-se
 
   genomeParams:
     name: hg38
@@ -162,7 +161,6 @@ Save the following as ``atacDemo.yaml``:
   :name: atacDemo.yaml
 
   experimentName: atacDemo
-  countingPreset: atac
 
   genomeParams:
     name: hg38
@@ -250,7 +248,6 @@ Save the following as ``bigH3K4me1Demo.yaml``:
   :name: bigH3K4me1Demo.yaml
 
   experimentName: bigH3K4me1Demo
-  countingPreset: chip-se
 
   genomeParams:
     name: hg38
