@@ -36,6 +36,8 @@ GENERIC_DEFAULT_CONFIGURATION = constants.GENERIC_DEFAULT_CONFIGURATION
 SUPPORTED_DEFAULT_CONFIGURATIONS = constants.SUPPORTED_DEFAULT_CONFIGURATIONS
 DEFAULT_CONFIGURATION_KEYS = constants.DEFAULT_CONFIGURATION_KEYS
 DEFAULT_CONFIGURATION_VALUES = constants.DEFAULT_CONFIGURATION_VALUES
+SUPPORTED_COUNTING_PRESETS = constants.SUPPORTED_COUNTING_PRESETS
+COUNTING_PRESET_VALUES = constants.COUNTING_PRESET_VALUES
 
 _PROCESS_ARGS_TYPE_CACHE: dict[tuple[str, ...], type] = {}
 
@@ -115,9 +117,15 @@ def _normalizeDefaultConfigurationName(value: Any) -> str:
         return GENERIC_DEFAULT_CONFIGURATION
     if name != GENERIC_DEFAULT_CONFIGURATION:
         supported = ", ".join(SUPPORTED_DEFAULT_CONFIGURATIONS)
+        countingPresetHint = (
+            f" Set `countingPreset: {name}` for assay counting."
+            if name in SUPPORTED_COUNTING_PRESETS
+            else ""
+        )
         raise ValueError(
             f"Unsupported default configuration {value!r}. "
             f"Supported default configurations: {supported}."
+            f"{countingPresetHint}"
         )
     return name
 
@@ -135,6 +143,73 @@ def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
     return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
 
 
+def _getCountingPresetName(configMap: Mapping[str, Any]) -> str | None:
+    countingPreset = _cfgGet(configMap, "countingPreset", None)
+    if countingPreset is None:
+        return None
+    if (
+        not isinstance(countingPreset, str)
+        or countingPreset not in SUPPORTED_COUNTING_PRESETS
+    ):
+        supported = ", ".join(SUPPORTED_COUNTING_PRESETS)
+        raise ValueError(f"`countingPreset` must be one of: {supported}.")
+    return countingPreset
+
+
+def _countingPresetDefault(
+    configMap: Mapping[str, Any], dottedKey: str, defaultVal: Any
+) -> Any:
+    countingPreset = _getCountingPresetName(configMap)
+    if countingPreset is None:
+        return defaultVal
+    presetValues = COUNTING_PRESET_VALUES[countingPreset]
+    if dottedKey in presetValues and dottedKey in configMap:
+        nestedValue: Any = configMap
+        for keyPart in dottedKey.split("."):
+            if not isinstance(nestedValue, Mapping) or keyPart not in nestedValue:
+                break
+            nestedValue = nestedValue[keyPart]
+        else:
+            if configMap[dottedKey] != nestedValue:
+                raise ValueError(
+                    f"Configuration collision for `{dottedKey}`: dotted and nested "
+                    "forms have unequal values."
+                )
+    return presetValues.get(dottedKey, defaultVal)
+
+
+def _validateCountingPresetEndpointSettings(
+    countingPreset: str | None,
+    normMethod: str | None,
+    oneReadPerBin: int,
+    countModes: Sequence[str],
+) -> None:
+    if countingPreset is None:
+        return
+    endpointModes = sorted(
+        {
+            str(countMode)
+            for countMode in countModes
+            if str(countMode)
+            in {"cutsite", "fiveprime", "ffp", "ffp-center", "center"}
+        }
+    )
+    if not endpointModes:
+        return
+    endpointModeText = ",".join(endpointModes)
+    if str(normMethod).upper() in {"EGS", "RPGC"}:
+        raise ValueError(
+            f"`countingPreset` {countingPreset!r} resolved endpoint count mode(s) "
+            f"{endpointModeText}, which cannot be combined with "
+            f"`countingParams.normMethod={normMethod}`."
+        )
+    if int(oneReadPerBin) != 0:
+        raise ValueError(
+            f"`countingPreset` {countingPreset!r} resolved endpoint count mode(s) "
+            f"{endpointModeText}, which require `samParams.oneReadPerBin=0`."
+        )
+
+
 def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
     aliasByKey = {
         "slope": "slope",
@@ -143,7 +218,6 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
         "prekappaqtrend": "preKappaQTrend",
         "effectiveqlevel": "effectiveQLevel",
         "effectiveqtrend": "effectiveQTrend",
-        "processqscale": "processQScale",
         "munctrace": "muncTrace",
         "rtrace": "muncTrace",
         "sumgain0": "sumGain0",
@@ -249,6 +323,20 @@ def _normalizeNonnegativeInt(value: Any, configName: str) -> int:
     return out
 
 
+def _normalizeOptionalPositiveInteger(value: Any, configName: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{configName} must be a positive integer or null")
+    try:
+        out = operator.index(value)
+    except TypeError as exc:
+        raise ValueError(f"{configName} must be a positive integer or null") from exc
+    if out <= 0:
+        raise ValueError(f"{configName} must be a positive integer or null")
+    return int(out)
+
+
 def _normalizeOptionalOpenUnitInterval(value: Any, configName: str) -> float | None:
     if value is None:
         return None
@@ -341,20 +429,6 @@ def _normalizeStateShrinkageModel(value: Any) -> str:
     )
 
 
-def _normalizeMatchingMetadataDetail(value: Any) -> str:
-    raw = constants.MATCHING_DEFAULT_METADATA_DETAIL if value is None else value
-    key = str(raw).strip().lower().replace("-", "_")
-    if key in {"compact", "summary", "summarized", "summarised"}:
-        return "compact"
-    if key in {"full", "all", "verbose"}:
-        return "full"
-    supported = ", ".join(constants.MATCHING_METADATA_DETAILS)
-    raise ValueError(
-        f"Unsupported matchingParams.metadataDetail {value!r}; "
-        f"supported values: {supported}."
-    )
-
-
 def _normalizeMatchingPeakMode(value: Any) -> str:
     raw = constants.MATCHING_DEFAULT_PEAK_MODE if value is None else value
     peakMode = str(raw)
@@ -378,27 +452,6 @@ def _validateMatchingBroadWeakThresholdZ(value: Any) -> float:
             "matchingParams.broadWeakThresholdZ must be finite and non-negative"
         )
     return thresholdZ
-
-
-def _validateMatchingBroadMaxGapBP(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        raise ValueError("matchingParams.broadMaxGapBP must be an integer or null")
-    try:
-        asFloat = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "matchingParams.broadMaxGapBP must be an integer or null"
-        ) from exc
-    if not np.isfinite(asFloat) or not asFloat.is_integer():
-        raise ValueError("matchingParams.broadMaxGapBP must be an integer or null")
-    gapBP = int(asFloat)
-    if gapBP < 0:
-        raise ValueError(
-            "matchingParams.broadMaxGapBP must be non-negative when provided"
-        )
-    return gapBP
 
 
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
@@ -815,6 +868,16 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.plotCorrelationLength",
         _cfgDefault(configData, "outputParams.plotCorrelationLength"),
     )
+    plotNullCalibrationDiagnosticsRaw = _cfgGet(
+        configData,
+        "outputParams.plotNullCalibrationDiagnostics",
+        _cfgDefault(configData, "outputParams.plotNullCalibrationDiagnostics"),
+    )
+    if not isinstance(plotNullCalibrationDiagnosticsRaw, (bool, np.bool_)):
+        raise ValueError(
+            "outputParams.plotNullCalibrationDiagnostics must be boolean"
+        )
+    plotNullCalibrationDiagnostics_ = bool(plotNullCalibrationDiagnosticsRaw)
     plotPrecisionReweightingHistogramsRaw = _cfgGet(
         configData,
         "outputParams.plotPrecisionReweightingHistograms",
@@ -826,11 +889,6 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         )
     plotPrecisionReweightingHistograms_ = bool(
         plotPrecisionReweightingHistogramsRaw
-    )
-    cutoffReport_ = _cfgGet(
-        configData,
-        "outputParams.cutoffReport",
-        _cfgDefault(configData, "outputParams.cutoffReport"),
     )
     writeRunSummary_ = _cfgGet(
         configData,
@@ -926,12 +984,12 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         ),
         plotOptimizationPath=plotOptimizationPath_,
         plotCorrelationLength=bool(plotCorrelationLength_),
+        plotNullCalibrationDiagnostics=plotNullCalibrationDiagnostics_,
         plotPrecisionReweightingHistograms=plotPrecisionReweightingHistograms_,
         precisionReweightingHistogramSampleSize=(
             precisionReweightingHistogramSampleSize_
         ),
         diagnosticTracks=diagnosticTracks_,
-        cutoffReport=bool(cutoffReport_),
         writeRunSummary=bool(writeRunSummary_),
         precisionDiagnosticDetail=precisionDiagnosticDetail_,
         maxPrecisionDiagnosticRowsPerChromosome=maxPrecisionDiagnosticRowsPerChromosome_,
@@ -1176,8 +1234,25 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        constants.COUNTING_DEFAULT_NORM_METHOD,
+        _countingPresetDefault(
+            configData,
+            "countingParams.normMethod",
+            constants.COUNTING_DEFAULT_NORM_METHOD,
+        ),
     )
+    if (
+        _getCountingPresetName(configData) is not None
+        and _cfgHas(configData, "countingParams.normMethod")
+        and (
+            not isinstance(normMethod_, str)
+            or normMethod_.upper() not in constants.COUNTING_SUPPORTED_NORM_METHODS
+        )
+    ):
+        supported = ", ".join(constants.COUNTING_SUPPORTED_NORM_METHODS)
+        raise ValueError(
+            f"`countingParams.normMethod` must be one of: {supported} when "
+            "`countingPreset` is set."
+        )
     if normMethod_.upper() not in constants.COUNTING_SUPPORTED_NORM_METHODS:
         logger.warning(
             f"Unknown `countingParams.normMethod`...Using `{constants.COUNTING_DEFAULT_NORM_METHOD}`...",
@@ -1328,6 +1403,21 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         "countingParams.centerMB",
         _cfgDefault(configData, "countingParams.centerMB"),
     )
+    centerMBWindowBPRaw = _cfgGet(
+        configData,
+        "countingParams.centerMBWindowBP",
+        _cfgDefault(configData, "countingParams.centerMBWindowBP"),
+    )
+    if isinstance(centerMBWindowBPRaw, (bool, np.bool_)):
+        raise ValueError("countingParams.centerMBWindowBP must be a positive integer")
+    try:
+        centerMBWindowBP_ = operator.index(centerMBWindowBPRaw)
+    except TypeError as ex:
+        raise ValueError(
+            "countingParams.centerMBWindowBP must be a positive integer"
+        ) from ex
+    if centerMBWindowBP_ <= 0:
+        raise ValueError("countingParams.centerMBWindowBP must be a positive integer")
     centerMBMethod_ = _cfgGet(
         configData,
         "countingParams.centerMBMethod",
@@ -1356,6 +1446,7 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
         transformShape=transformShape_,
         centerMB=bool(centerMB_),
         centerMBMethod=centerMBMethod_,
+        centerMBWindowBP=int(centerMBWindowBP_),
     )
 
 
@@ -1370,7 +1461,11 @@ def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams
     defaultCountMode_ = _cfgGet(
         configData,
         "scParams.defaultCountMode",
-        constants.SC_DEFAULT_COUNT_MODE,
+        _countingPresetDefault(
+            configData,
+            "scParams.defaultCountMode",
+            constants.SC_DEFAULT_COUNT_MODE,
+        ),
     )
     defaultCountMode_ = core._normalizeCountMode(
         defaultCountMode_,
@@ -1832,6 +1927,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     """
     configData = loadConfig(config_path)
     defaultConfiguration = _getDefaultConfigurationName(configData)
+    countingPreset = _getCountingPresetName(configData)
 
     inputParams = getInputArgs(configData)
     outputParams = getOutputArgs(configData)
@@ -2041,9 +2137,13 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     smoothToFraglenRaw = _cfgGet(
         configData,
         "observationParams.smoothToFraglen",
-        _cfgDefault(
+        _countingPresetDefault(
             configData,
             "observationParams.smoothToFraglen",
+            _cfgDefault(
+                configData,
+                "observationParams.smoothToFraglen",
+            ),
         ),
     )
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
@@ -2599,9 +2699,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     }
     observationArgs = core.observationParams(**observationValues)
 
-    ECM_useAPN_ = bool(
-        _cfgGet(configData, "fitParams.ECM_useAPN", constants.FIT_DEFAULT_USE_APN)
-    )
     rawTInnerIters = _cfgGet(
         configData,
         "fitParams.t_innerIters",
@@ -2617,6 +2714,26 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         ) from ex
     if t_innerIters <= 0:
         raise ValueError("`fitParams.t_innerIters` must be a positive integer.")
+
+    rawProcessRobustTNu = _cfgGet(
+        configData,
+        "fitParams.ECM_processRobustTNu",
+        constants.FIT_DEFAULT_PROCESS_ROBUST_T_NU,
+    )
+    if isinstance(rawProcessRobustTNu, (bool, np.bool_)):
+        raise ValueError(
+            "`fitParams.ECM_processRobustTNu` must be positive and finite."
+        )
+    try:
+        processRobustTNu = float(rawProcessRobustTNu)
+    except (TypeError, ValueError) as ex:
+        raise ValueError(
+            "`fitParams.ECM_processRobustTNu` must be positive and finite."
+        ) from ex
+    if not np.isfinite(processRobustTNu) or processRobustTNu <= 0.0:
+        raise ValueError(
+            "`fitParams.ECM_processRobustTNu` must be positive and finite."
+        )
 
     fitArgs = core.fitParams(
         ECM_fixedBackgroundIters=_cfgGet(
@@ -2635,6 +2752,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "fitParams.ECM_robustTNu",
             constants.FIT_DEFAULT_ROBUST_T_NU,
         ),
+        ECM_processRobustTNu=processRobustTNu,
         ECM_useObsPrecisionReweighting=_cfgGet(
             configData,
             "fitParams.ECM_useObsPrecisionReweighting",
@@ -2644,9 +2762,17 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             configData,
             "fitParams.ECM_useProcessPrecisionReweighting",
             constants.FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
-        )
-        and (not ECM_useAPN_),
-        ECM_useAPN=ECM_useAPN_,
+        ),
+        ECM_scaleObsPrecisionToMedian=_cfgGet(
+            configData,
+            "fitParams.ECM_scaleObsPrecisionToMedian",
+            _cfgDefault(configData, "fitParams.ECM_scaleObsPrecisionToMedian"),
+        ),
+        ECM_scaleProcessPrecisionToMedian=_cfgGet(
+            configData,
+            "fitParams.ECM_scaleProcessPrecisionToMedian",
+            _cfgDefault(configData, "fitParams.ECM_scaleProcessPrecisionToMedian"),
+        ),
         fitBackground=_cfgGet(
             configData,
             "fitParams.fitBackground",
@@ -2711,17 +2837,29 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
-        constants.SAM_DEFAULT_FLAG_EXCLUDE,
+        _countingPresetDefault(
+            configData,
+            "samParams.samFlagExclude",
+            constants.SAM_DEFAULT_FLAG_EXCLUDE,
+        ),
     )
     minMappingQuality = _cfgGet(
         configData,
         "samParams.minMappingQuality",
-        constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
+        _countingPresetDefault(
+            configData,
+            "samParams.minMappingQuality",
+            constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
+        ),
     )
     oneReadPerBin = _cfgGet(
         configData,
         "samParams.oneReadPerBin",
-        constants.SAM_DEFAULT_ONE_READ_PER_BIN,
+        _countingPresetDefault(
+            configData,
+            "samParams.oneReadPerBin",
+            constants.SAM_DEFAULT_ONE_READ_PER_BIN,
+        ),
     )
     chunkSize = _cfgGet(
         configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE
@@ -2729,41 +2867,69 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     bamInputMode = _cfgGet(
         configData,
         "samParams.bamInputMode",
-        constants.SAM_DEFAULT_BAM_INPUT_MODE,
+        _countingPresetDefault(
+            configData,
+            "samParams.bamInputMode",
+            constants.SAM_DEFAULT_BAM_INPUT_MODE,
+        ),
     )
     defaultCountMode = _cfgGet(
         configData,
         "samParams.defaultCountMode",
-        constants.SAM_DEFAULT_COUNT_MODE,
+        _countingPresetDefault(
+            configData,
+            "samParams.defaultCountMode",
+            constants.SAM_DEFAULT_COUNT_MODE,
+        ),
     )
     shiftForward5p = int(
         _cfgGet(
             configData,
             "samParams.shiftForward5p",
-            constants.SAM_DEFAULT_SHIFT_FORWARD_5P,
+            _countingPresetDefault(
+                configData,
+                "samParams.shiftForward5p",
+                constants.SAM_DEFAULT_SHIFT_FORWARD_5P,
+            ),
         )
     )
     shiftReverse5p = int(
         _cfgGet(
             configData,
             "samParams.shiftReverse5p",
-            constants.SAM_DEFAULT_SHIFT_REVERSE_5P,
+            _countingPresetDefault(
+                configData,
+                "samParams.shiftReverse5p",
+                constants.SAM_DEFAULT_SHIFT_REVERSE_5P,
+            ),
         )
     )
     extendFrom5pBP = _cfgGet(
         configData,
         "samParams.extendFrom5pBP",
-        constants.SAM_DEFAULT_EXTEND_FROM_5P_BP,
+        _countingPresetDefault(
+            configData,
+            "samParams.extendFrom5pBP",
+            constants.SAM_DEFAULT_EXTEND_FROM_5P_BP,
+        ),
     )
     maxInsertSize = _cfgGet(
         configData,
         "samParams.maxInsertSize",
-        constants.SAM_DEFAULT_MAX_INSERT_SIZE,
+        _countingPresetDefault(
+            configData,
+            "samParams.maxInsertSize",
+            constants.SAM_DEFAULT_MAX_INSERT_SIZE,
+        ),
     )
     inferFragmentLength = _cfgGet(
         configData,
         "samParams.inferFragmentLength",
-        constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
+        _countingPresetDefault(
+            configData,
+            "samParams.inferFragmentLength",
+            constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
+        ),
     )
     core._normalizeBamInputMode(bamInputMode)
     defaultCountMode = core._normalizeCountMode(
@@ -2791,24 +2957,102 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         minTemplateLength=_cfgGet(
             configData,
             "samParams.minTemplateLength",
-            constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
+            _countingPresetDefault(
+                configData,
+                "samParams.minTemplateLength",
+                constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
+            ),
         ),
     )
-
-    minPeakScore = _cfgGet(
-        configData,
-        "matchingParams.minPeakScore",
-        constants.MATCHING_DEFAULT_MIN_PEAK_SCORE,
+    sourceCountModes = [
+        io_helpers._getSourceCountMode(
+            source,
+            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
+            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
+        )
+        for source in (inputParams.treatmentSources or [])
+        + (inputParams.controlSources or [])
+    ]
+    _validateCountingPresetEndpointSettings(
+        countingPreset,
+        countingParams.normMethod,
+        samArgs.oneReadPerBin,
+        sourceCountModes,
     )
-    if minPeakScore is not None:
-        if isinstance(minPeakScore, bool):
-            raise ValueError("matchingParams.minPeakScore must be numeric")
+
+    minMeanSignal = _cfgGet(
+        configData,
+        "matchingParams.minMeanSignal",
+        constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
+    )
+    if minMeanSignal is not None:
+        if isinstance(minMeanSignal, (bool, np.bool_)):
+            raise ValueError("matchingParams.minMeanSignal must be numeric")
         try:
-            minPeakScore = float(minPeakScore)
+            minMeanSignal = float(minMeanSignal)
         except (TypeError, ValueError) as exc:
-            raise ValueError("matchingParams.minPeakScore must be numeric") from exc
-        if not np.isfinite(minPeakScore):
-            raise ValueError("matchingParams.minPeakScore must be finite")
+            raise ValueError("matchingParams.minMeanSignal must be numeric") from exc
+        if not np.isfinite(minMeanSignal):
+            raise ValueError("matchingParams.minMeanSignal must be finite")
+
+    numRegionReplays = _normalizeOptionalPositiveInteger(
+        _cfgGet(
+            configData,
+            "matchingParams.numRegionReplays",
+            constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS,
+        ),
+        "matchingParams.numRegionReplays",
+    )
+    if numRegionReplays is None:
+        raise ValueError("matchingParams.numRegionReplays must be a positive integer")
+    peakMode = _normalizeMatchingPeakMode(
+        _cfgGet(
+            configData,
+            "matchingParams.peakMode",
+            constants.MATCHING_DEFAULT_PEAK_MODE,
+        )
+    )
+    mergeToleranceBP = _normalizeOptionalPositiveInteger(
+        _cfgGet(
+            configData,
+            "matchingParams.mergeToleranceBP",
+            constants.MATCHING_DEFAULT_MERGE_TOLERANCE_BP,
+        ),
+        "matchingParams.mergeToleranceBP",
+    )
+    maxRegionBP = _normalizeOptionalPositiveInteger(
+        _cfgGet(
+            configData,
+            "matchingParams.maxRegionBP",
+            constants.MATCHING_DEFAULT_MAX_REGION_BP,
+        ),
+        "matchingParams.maxRegionBP",
+    )
+    if peakMode in {"broad", "both"}:
+        if mergeToleranceBP is None:
+            raise ValueError(
+                "matchingParams.mergeToleranceBP is required for broad peak calling"
+            )
+        if maxRegionBP is None:
+            raise ValueError(
+                "matchingParams.maxRegionBP is required for broad peak calling"
+            )
+    shrinkChromosomeBudgets = _cfgGet(
+        configData,
+        "matchingParams.shrinkChromosomeBudgets",
+        constants.MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS,
+    )
+    if not isinstance(shrinkChromosomeBudgets, (bool, np.bool_)):
+        raise ValueError("matchingParams.shrinkChromosomeBudgets must be boolean")
+    if _cfgHas(configData, "matchingParams.useLocalBootstrapRadius"):
+        raise ValueError("matchingParams.useLocalBootStrapRadius must be boolean")
+    useLocalBootStrapRadius = _cfgGet(
+        configData,
+        "matchingParams.useLocalBootStrapRadius",
+        constants.MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
+    )
+    if not isinstance(useLocalBootStrapRadius, (bool, np.bool_)):
+        raise ValueError("matchingParams.useLocalBootStrapRadius must be boolean")
 
     matchingArgs = core.matchingParams(
         enabled=bool(
@@ -2834,11 +3078,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 "matchingParams.thresholdZ",
                 constants.MATCHING_DEFAULT_THRESHOLD_Z,
             )
-        ),
-        dependenceSpan=_cfgGet(
-            configData,
-            "matchingParams.dependenceSpan",
-            constants.MATCHING_DEFAULT_DEPENDENCE_SPAN,
         ),
         gamma=_cfgGet(
             configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
@@ -2876,6 +3115,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER,
             )
         ),
+        numRegionReplays=numRegionReplays,
         uncertaintyScoreMode=_normalizeMatchingUncertaintyScoreMode(
             _cfgGet(
                 configData,
@@ -2890,14 +3130,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
             )
         ),
-        metadataDetail=_normalizeMatchingMetadataDetail(
-            _cfgGet(
-                configData,
-                "matchingParams.metadataDetail",
-                constants.MATCHING_DEFAULT_METADATA_DETAIL,
-            )
-        ),
-        minPeakScore=minPeakScore,
+        minMeanSignal=minMeanSignal,
         useShrunkStateScores=bool(
             _cfgGet(
                 configData,
@@ -2905,13 +3138,9 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
             )
         ),
-        peakMode=_normalizeMatchingPeakMode(
-            _cfgGet(
-                configData,
-                "matchingParams.peakMode",
-                constants.MATCHING_DEFAULT_PEAK_MODE,
-            )
-        ),
+        shrinkChromosomeBudgets=bool(shrinkChromosomeBudgets),
+        useLocalBootStrapRadius=bool(useLocalBootStrapRadius),
+        peakMode=peakMode,
         broadWeakThresholdZ=_validateMatchingBroadWeakThresholdZ(
             _cfgGet(
                 configData,
@@ -2919,18 +3148,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
             )
         ),
-        broadMaxGapBP=_validateMatchingBroadMaxGapBP(
-            _cfgGet(
-                configData,
-                "matchingParams.broadMaxGapBP",
-                constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
-            )
-        ),
+        mergeToleranceBP=mergeToleranceBP,
+        maxRegionBP=maxRegionBP,
     )
 
     return {
         "experimentName": experimentName,
         "defaultConfiguration": defaultConfiguration,
+        "countingPreset": countingPreset,
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "outputArgs": outputParams,
@@ -2948,10 +3173,12 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
 
 
 __all__ = [
+    "COUNTING_PRESET_VALUES",
     "DEFAULT_CONFIGURATION_KEYS",
     "DEFAULT_CONFIGURATION_VALUES",
     "GENERIC_DEFAULT_CONFIGURATION",
     "SUPPORTED_DEFAULT_CONFIGURATIONS",
+    "SUPPORTED_COUNTING_PRESETS",
     "_cfgDefault",
     "_cfgGet",
     "_cfgHas",

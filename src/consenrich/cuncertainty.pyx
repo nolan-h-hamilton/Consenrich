@@ -907,16 +907,6 @@ cpdef dict cdeleteBlockPostFitDiagnostics(
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] fitRowsArr = np.ascontiguousarray(
         fitRows, dtype=np.int64
     )
-    if (
-        residualArr.ndim != 1
-        or pDeltaArr.ndim != 1
-        or factorArr.ndim != 1
-        or intervalArr.ndim != 1
-        or blockArr.ndim != 1
-        or targetMaskArr.ndim != 1
-        or fitRowsArr.ndim != 1
-    ):
-        raise ValueError("delete-block post-fit inputs must be one-dimensional")
     cdef Py_ssize_t n = residualArr.shape[0]
     cdef Py_ssize_t fitCount = fitRowsArr.shape[0]
     cdef Py_ssize_t factorCount = factorArr.shape[0]
@@ -1129,11 +1119,11 @@ cpdef tuple csegShrinkScopeCodes(
     object intervalIndex,
 ):
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentArr = np.ascontiguousarray(
-        np.asarray(segmentByInterval, dtype=np.int32).reshape(-1), dtype=np.int32
-    )
+        segmentByInterval, dtype=np.int32
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalArr = np.ascontiguousarray(
-        np.asarray(intervalIndex, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        intervalIndex, dtype=np.int64
+    ).reshape(-1)
     cdef Py_ssize_t n = intervalArr.shape[0]
     cdef Py_ssize_t intervalCount = segmentArr.shape[0]
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] contigScope = np.empty(n, dtype=np.int32)
@@ -1169,11 +1159,11 @@ cpdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] csegShrinkGroupCodes(
     object blockIDX,
 ):
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] foldArr = np.ascontiguousarray(
-        np.asarray(foldIndex, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        foldIndex, dtype=np.int64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockArr = np.ascontiguousarray(
-        np.asarray(blockIDX, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        blockIDX, dtype=np.int64
+    ).reshape(-1)
     cdef Py_ssize_t n = foldArr.shape[0]
     if blockArr.shape[0] != n:
         raise ValueError("foldIndex and blockIDX must have the same length")
@@ -1222,23 +1212,23 @@ cpdef tuple csegShrinkBootstrapLogFactorsCompact(
     double factorMax,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] ratioArr = np.ascontiguousarray(
-        np.asarray(ratio, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        ratio, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightArr = np.ascontiguousarray(
-        np.asarray(rowWeight, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        rowWeight, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] groupArr = np.ascontiguousarray(
-        np.asarray(groupCode, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        groupCode, dtype=np.int64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] multArr = np.ascontiguousarray(
         np.asarray(bootstrapMultiplier, dtype=np.float64), dtype=np.float64
     )
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] indexArr = np.ascontiguousarray(
-        np.asarray(scopeRowIndex, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        scopeRowIndex, dtype=np.int64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] offsetArr = np.ascontiguousarray(
-        np.asarray(scopeOffset, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
+        scopeOffset, dtype=np.int64
+    ).reshape(-1)
     cdef Py_ssize_t n = ratioArr.shape[0]
     if weightArr.shape[0] != n or groupArr.shape[0] != n:
         raise ValueError("segShrink compact bootstrap inputs must have the same length")
@@ -1348,20 +1338,20 @@ cpdef dict csegShrinkEmpiricalBayes(
     object segmentContigIndex,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigLogArr = np.ascontiguousarray(
-        np.asarray(contigLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        contigLogFactor, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] contigVarArr = np.ascontiguousarray(
-        np.asarray(contigVariance, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        contigVariance, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentLogArr = np.ascontiguousarray(
-        np.asarray(segmentLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        segmentLogFactor, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] segmentVarArr = np.ascontiguousarray(
-        np.asarray(segmentVariance, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        segmentVariance, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentContigArr = np.ascontiguousarray(
-        np.asarray(segmentContigIndex, dtype=np.int32).reshape(-1), dtype=np.int32
-    )
+        segmentContigIndex, dtype=np.int32
+    ).reshape(-1)
     cdef Py_ssize_t contigCount = contigLogArr.shape[0]
     cdef Py_ssize_t segmentCount = segmentLogArr.shape[0]
     if contigVarArr.shape[0] != contigCount:
@@ -1465,14 +1455,14 @@ cpdef tuple csegShrinkApplyFactors(
     double positiveFloor,
 ):
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] segmentArr = np.ascontiguousarray(
-        np.asarray(segmentByInterval, dtype=np.int32).reshape(-1), dtype=np.int32
-    )
+        segmentByInterval, dtype=np.int32
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logArr = np.ascontiguousarray(
-        np.asarray(segmentLogFactor, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        segmentLogFactor, dtype=np.float64
+    ).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pArr = np.ascontiguousarray(
-        np.asarray(fullP, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+        fullP, dtype=np.float64
+    ).reshape(-1)
     cdef Py_ssize_t n = segmentArr.shape[0]
     if pArr.shape[0] != n:
         raise ValueError("segmentByInterval and fullP must have the same length")

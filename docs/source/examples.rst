@@ -130,6 +130,7 @@ current package version, the principal output files are:
   demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.gappedPeak
+  consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak.nullCalibration.png
 
 .. _atac-demo:
 

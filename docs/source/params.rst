@@ -7,7 +7,7 @@ Peak Calling Controls
 ~~~~~~~~~~~~~~~~~~~~~
 
 ``matchingParams.peakMode``
-    Selects ROCCO export shape.
+    Specifies calling of narrow and/or broad marks.
 
     ``narrow``
         Writes `UCSC narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ calls.
@@ -16,7 +16,9 @@ Peak Calling Controls
         Writes `UCSC gappedPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format13>`_ calls.
 
     ``both``
-        Writes narrow and broad calls. This is the default.
+        Writes narrow and broad calls.
+
+    ``narrow`` is the default.
 
 ``matchingParams.thresholdZ``
     Sets a one-sided :math:`z`-score cutoff used to define the budget (max. proportion of genome called).
@@ -24,21 +26,18 @@ Peak Calling Controls
     The default value is `2.0`.
 
 
-``matchingParams.minPeakScore``
-    Filter selected peaks to those with an average signal above this threshold.
+``matchingParams.minMeanSignal``
+    Keeps regions whose covered-BP-weighted mean signal reaches the supplied
+    descriptive threshold. Disable with ``null``.
 
+``matchingParams.mergeToleranceBP``
+    Sets the maximum gap eligible for broad-family merging. A positive value
+    is required for broad and combined modes.
 
-Uncertainty Score
-"""""""""""""""""
+``matchingParams.maxRegionBP``
+    Sets the maximum outer width for a broad family. A positive value is
+    required for broad and combined modes.
 
-``matchingParams.uncertaintyScoreMode``
-    ``state`` uses the fitted state track directly. ``lower_confidence`` uses
-    ``state - matchingParams.uncertaintyScoreZ * uncertainty`` to penalize regions
-    where estimates are uncertain.
-
-``matchingParams.uncertaintyScoreZ``
-    Sets the multiplier used by ``lower_confidence`` scoring. Larger values
-    penalize uncertain regions more strongly.
 
 Estimation Controls
 ~~~~~~~~~~~~~~~~~~~
@@ -48,13 +47,17 @@ Estimation Controls
     Higher-resolution results may be obtained using `25`, `10`, etc. For detecting domain-level enriched-regions in
     broad marks like H3K27me3, larger values (`100`, `250`, etc.) should suffice.
 
-``fitParams.ECM_backgroundLengthScaleMultiplier``
-    Sets the multiplier that converts the inferred correlation-length
-    into the soft background fitting window. Larger values softly restrict the shared
-    background estimate :math:`g_{[i=1,\ldots,i=n]}` to lower frequencies.
+``observationParams.precisionMultiplierMin`` and ``observationParams.precisionMultiplierMax``
+    Bound observation precision multipliers. The defaults are ``0.1`` and
+    ``10.0``.
 
-``outputParams.stateShrinkageSpikeOddsMultiplier``
-    (Experimental) Ignored if posterior state shrinkage is disabled
-    entirely (``outputParams.stateShrinkageEnabled``). Values above `1.0`
-    multiply fitted point-null odds upward, which can reduce false positives
-    in low-signal regions. Values below `1.0` multiply those odds downward.
+``processParams.precisionMultiplierMin`` and ``processParams.precisionMultiplierMax``
+    Bound process precision multipliers. The defaults are ``1.0e-4`` and
+    ``10.0``. Because :math:`Q_i=Q_0/\kappa_i`, the multipliers let the local
+    frequency response adapt: smaller :math:`\kappa_i` admits faster variation,
+    whereas larger :math:`\kappa_i` favors smoother variation.
+
+``outputParams.stateShrinkageEnabled``
+    Enables experimental posterior state shrinkage and defaults to ``True``.
+    Set it to ``False`` to disable it. Use the shrunk state as a visualization
+    or ranking track, rather than as a replacement for the fitted state.

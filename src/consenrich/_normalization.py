@@ -226,7 +226,7 @@ def weighted_quantile(
     values_arr = values_arr[order]
     weights_arr = weights_arr[order]
     total = float(np.sum(weights_arr))
-    if not np.isfinite(total) or total <= 0.0:
+    if not np.isfinite(total):
         raise ValueError("weighted quantile requires positive total weight")
     cumulative = np.cumsum(weights_arr) / total
 
@@ -267,13 +267,8 @@ def weighted_quantile_interpolated(
     weights_arr = weights_arr[valid]
     order = np.argsort(values_arr, kind="mergesort")
     values_arr = values_arr[order]
-    weights_arr = np.maximum(weights_arr[order], 0.0)
+    weights_arr = weights_arr[order]
     total = float(np.sum(weights_arr))
-    if total <= 0.0 or values_arr.size == 0:
-        out = np.full(q_arr.shape, np.nan, dtype=np.float64)
-        if q_arr.ndim == 0:
-            return float(np.asarray(out).reshape(()))
-        return out
     cdf = np.cumsum(weights_arr)
     out = np.interp(np.clip(q_arr, 0.0, 1.0) * total, cdf, values_arr)
     if q_arr.ndim == 0:

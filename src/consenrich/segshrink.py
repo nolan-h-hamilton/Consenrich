@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+import os
 from typing import Any
 
 import numpy as np
@@ -358,12 +360,412 @@ def combinePreparedContigs(
         raise ValueError("segShrink uncertainty calibration has no processed contigs")
     contigCount = int(len(prepared))
     if contigCount == 1:
+        if "calibrationReplayPath" in prepared[0]:
+            raise ValueError(
+                "segShrink replay pooling requires at least two processed contigs"
+            )
         item = dict(prepared[0])
         model = dict(item["model"])
         model["hierarchyScope"] = "singleProcessedContig"
         model["processedContigCount"] = 1
         item["model"] = model
         return [item]
+
+    positiveFloor = float(positiveFloor)
+    if not np.isfinite(positiveFloor) or positiveFloor <= 0.0:
+        raise ValueError("segShrink positive floor must be finite and positive")
+    expectedItemKeys = {
+        "chromosome",
+        "intervals",
+        "fullP",
+        "model",
+        "calibrationReplayPath",
+        "summaryRowIndex",
+    }
+    expectedReplayKeys = {
+        "residual",
+        "pDelta",
+        "intervalIndex",
+        "fitRows",
+        "targetBlockMask",
+        "deletedObservationAll",
+        "coverageCodeAll",
+        "coverageCodeFit",
+        "summaryDecile",
+    }
+    replayDtypes = {
+        "residual": np.dtype(np.float64),
+        "pDelta": np.dtype(np.float64),
+        "intervalIndex": np.dtype(np.int64),
+        "fitRows": np.dtype(np.int64),
+        "targetBlockMask": np.dtype(np.uint8),
+        "deletedObservationAll": np.dtype(np.int64),
+        "coverageCodeAll": np.dtype(np.int32),
+        "coverageCodeFit": np.dtype(np.int32),
+        "summaryDecile": np.dtype(np.int32),
+    }
+    preparedCopies: list[dict[str, Any]] = []
+    seenChromosomes: set[str] = set()
+    seenSummaryRows: set[int] = set()
+    sharedSelectedTarget: float | None = None
+    sharedTargetSignal: str | None = None
+    sharedScaleFlag: bool | None = None
+    sharedTargetEnabled: bool | None = None
+    sharedDelta: float | None = None
+    for itemOrdinal, item in enumerate(prepared):
+        if not isinstance(item, Mapping):
+            raise ValueError("segShrink prepared contigs must be mappings")
+        itemKeys = set(item)
+        if itemKeys != expectedItemKeys:
+            missing = sorted(expectedItemKeys - itemKeys)
+            extra = sorted(itemKeys - expectedItemKeys)
+            raise ValueError(
+                "segShrink prepared contig keys do not match the replay contract: "
+                f"missing={missing} extra={extra}"
+            )
+        chromosome = item["chromosome"]
+        if not isinstance(chromosome, str) or not chromosome.strip():
+            raise ValueError("segShrink prepared chromosome must be a nonempty string")
+        if chromosome in seenChromosomes:
+            raise ValueError("segShrink prepared contig chromosomes must be unique")
+        seenChromosomes.add(chromosome)
+        if not isinstance(item["intervals"], np.ndarray) or not isinstance(
+            item["fullP"],
+            np.ndarray,
+        ):
+            raise ValueError("segShrink prepared intervals and fullP must be arrays")
+        intervals = np.asarray(item["intervals"])
+        fullP = np.asarray(item["fullP"])
+        if intervals.dtype != np.dtype(np.int64):
+            raise ValueError("segShrink prepared intervals dtype must be int64")
+        if fullP.dtype != np.dtype(np.float64):
+            raise ValueError("segShrink prepared fullP dtype must be float64")
+        if intervals.ndim != 1 or fullP.ndim != 1 or intervals.shape != fullP.shape:
+            raise ValueError("segShrink intervals and fullP must be aligned vectors")
+        if intervals.size == 0 or np.any(intervals < 0):
+            raise ValueError("segShrink intervals must be nonempty and nonnegative")
+        if intervals.size > 1 and np.any(np.diff(intervals) <= 0):
+            raise ValueError("segShrink intervals must be strictly increasing")
+        if fullP.size == 0 or not np.all(np.isfinite(fullP)) or np.any(fullP <= 0.0):
+            raise ValueError("segShrink fullP must be nonempty, finite, and positive")
+        model = item["model"]
+        if not isinstance(model, Mapping):
+            raise ValueError("segShrink calibration model must be a mapping")
+        if model.get("factor_model") != SEGSHRINK_MODEL:
+            raise ValueError("segShrink prepared model must have the segShrink tag")
+        if "factorModel" in model and model["factorModel"] != SEGSHRINK_MODEL:
+            raise ValueError("segShrink prepared factor-model tags disagree")
+        foldRefits = model.get("fold_refits")
+        if not isinstance(foldRefits, Mapping):
+            raise ValueError("segShrink prepared model requires fold_refits")
+        blockLenValue = foldRefits.get("block_len_intervals")
+        if isinstance(blockLenValue, (bool, np.bool_)) or not isinstance(
+            blockLenValue,
+            (int, np.integer),
+        ):
+            raise ValueError("segShrink prepared block length must be an integer")
+        blockLenIntervals = int(blockLenValue)
+        if blockLenIntervals < 1:
+            raise ValueError("segShrink prepared block length must be positive")
+        topBlockLen = model.get("block_len_intervals")
+        if topBlockLen is not None and (
+            isinstance(topBlockLen, (bool, np.bool_))
+            or not isinstance(topBlockLen, (int, np.integer))
+            or int(topBlockLen) != blockLenIntervals
+        ):
+            raise ValueError("segShrink prepared block-length metadata disagree")
+        targetsValue = model.get("targets")
+        if not isinstance(targetsValue, (list, tuple)) or not targetsValue:
+            raise ValueError("segShrink prepared model requires targets")
+        targets: list[float] = []
+        for targetValue in targetsValue:
+            if isinstance(targetValue, (bool, np.bool_)) or not isinstance(
+                targetValue,
+                (int, float, np.integer, np.floating),
+            ):
+                raise ValueError("segShrink prepared targets must be numeric")
+            target = float(targetValue)
+            if not np.isfinite(target) or not 0.0 < target < 1.0:
+                raise ValueError("segShrink prepared targets must be probabilities")
+            targets.append(target)
+        selectedTarget = max(targets)
+        globalTargetValue = model.get("global_factor_target")
+        if globalTargetValue is not None:
+            if isinstance(globalTargetValue, (bool, np.bool_)) or not isinstance(
+                globalTargetValue,
+                (int, float, np.integer, np.floating),
+            ):
+                raise ValueError("segShrink selected target must be numeric")
+            if float(globalTargetValue) != selectedTarget:
+                raise ValueError("segShrink selected target must be the maximum target")
+        targetSignal = model.get("target_signal")
+        if not isinstance(targetSignal, str) or not targetSignal:
+            raise ValueError("segShrink prepared target signal must be a nonempty string")
+        targetCalibration = model.get("target_calibration")
+        if not isinstance(targetCalibration, Mapping):
+            raise ValueError("segShrink prepared model requires target calibration")
+        for key in (
+            "enabled",
+            "delta",
+            "scale_uncertainty_by_target_calibration",
+        ):
+            if key not in targetCalibration:
+                raise ValueError(
+                    f"segShrink prepared target calibration requires {key}"
+                )
+        targetEnabledValue = targetCalibration["enabled"]
+        scaleFlagValue = targetCalibration[
+            "scale_uncertainty_by_target_calibration"
+        ]
+        if not isinstance(targetEnabledValue, (bool, np.bool_)):
+            raise ValueError("segShrink target-calibration enabled flag must be boolean")
+        if not isinstance(scaleFlagValue, (bool, np.bool_)):
+            raise ValueError("segShrink target-calibration scale flag must be boolean")
+        targetEnabled = bool(targetEnabledValue)
+        scaleFlag = bool(scaleFlagValue)
+        deltaValue = targetCalibration["delta"]
+        if targetEnabled:
+            if isinstance(deltaValue, (bool, np.bool_)) or not isinstance(
+                deltaValue,
+                (int, float, np.integer, np.floating),
+            ):
+                raise ValueError("segShrink enabled target calibration requires delta")
+            targetDelta = float(deltaValue)
+            if not np.isfinite(targetDelta) or not 0.0 < targetDelta < 1.0:
+                raise ValueError("segShrink target delta must be a probability")
+        else:
+            if deltaValue is not None:
+                raise ValueError("segShrink disabled target calibration requires null delta")
+            targetDelta = None
+        contigRowsValue = model.get("contigShrinkage")
+        if not isinstance(contigRowsValue, (list, tuple)) or len(contigRowsValue) != 1:
+            raise ValueError("segShrink prepared contig table must have one row")
+        contigRow = contigRowsValue[0]
+        if not isinstance(contigRow, Mapping) or not {
+            "rawFactor",
+            "bootstrapVariance",
+        } <= set(contigRow):
+            raise ValueError("segShrink prepared contig table row is malformed")
+        segmentRowsValue = model.get("segmentShrinkage")
+        if not isinstance(segmentRowsValue, (list, tuple)) or not segmentRowsValue:
+            raise ValueError("segShrink prepared segment table must be nonempty")
+        segmentRowTotal = 0
+        for segmentOrdinal, segmentRow in enumerate(segmentRowsValue):
+            if not isinstance(segmentRow, Mapping) or not {
+                "segment",
+                "rows",
+                "rawFactor",
+                "bootstrapVariance",
+            } <= set(segmentRow):
+                raise ValueError("segShrink prepared segment table row is malformed")
+            segmentValue = segmentRow["segment"]
+            rowsValue = segmentRow["rows"]
+            if (
+                isinstance(segmentValue, (bool, np.bool_))
+                or not isinstance(segmentValue, (int, np.integer))
+                or int(segmentValue) != segmentOrdinal
+            ):
+                raise ValueError("segShrink prepared segment indices must be consecutive")
+            if (
+                isinstance(rowsValue, (bool, np.bool_))
+                or not isinstance(rowsValue, (int, np.integer))
+                or int(rowsValue) < 0
+            ):
+                raise ValueError(
+                    "segShrink prepared segment row counts must be nonnegative"
+                )
+            segmentRowTotal += int(rowsValue)
+        if len(segmentRowsValue) > fullP.size:
+            raise ValueError("segShrink prepared segment table exceeds fullP")
+        rowsFitValue = model.get("rows_fit")
+        if rowsFitValue is not None and (
+            isinstance(rowsFitValue, (bool, np.bool_))
+            or not isinstance(rowsFitValue, (int, np.integer))
+            or int(rowsFitValue) != segmentRowTotal
+        ):
+            raise ValueError("segShrink prepared segment rows do not match rows_fit")
+        segmentCountValue = model.get("segmentCount")
+        if segmentCountValue is not None and (
+            isinstance(segmentCountValue, (bool, np.bool_))
+            or not isinstance(segmentCountValue, (int, np.integer))
+            or int(segmentCountValue) != len(segmentRowsValue)
+        ):
+            raise ValueError("segShrink prepared segment-count metadata disagree")
+        summaryRowIndex = item["summaryRowIndex"]
+        if (
+            isinstance(summaryRowIndex, (bool, np.bool_))
+            or not isinstance(summaryRowIndex, (int, np.integer))
+            or int(summaryRowIndex) < 0
+        ):
+            raise ValueError("segShrink summary row index must be a nonnegative integer")
+        summaryRowIndex = int(summaryRowIndex)
+        if summaryRowIndex in seenSummaryRows:
+            raise ValueError("segShrink summary row indices must be unique")
+        seenSummaryRows.add(summaryRowIndex)
+        if itemOrdinal == 0:
+            sharedSelectedTarget = selectedTarget
+            sharedTargetSignal = targetSignal
+            sharedScaleFlag = scaleFlag
+            sharedTargetEnabled = targetEnabled
+            sharedDelta = targetDelta
+        else:
+            if selectedTarget != sharedSelectedTarget:
+                raise ValueError(
+                    "segShrink prepared contigs must share the selected maximum target"
+                )
+            if targetSignal != sharedTargetSignal:
+                raise ValueError(
+                    "segShrink prepared contigs must share the target signal"
+                )
+            if scaleFlag != sharedScaleFlag:
+                raise ValueError(
+                    "segShrink prepared contigs must share the target-calibration scale flag"
+                )
+            if targetEnabled != sharedTargetEnabled:
+                raise ValueError(
+                    "segShrink prepared contigs must share the target-calibration enabled flag"
+                )
+            if targetDelta != sharedDelta:
+                raise ValueError(
+                    "segShrink prepared contigs must share the target-calibration delta"
+                )
+        try:
+            replayPath = os.fspath(item["calibrationReplayPath"])
+        except TypeError as exc:
+            raise ValueError("segShrink calibration replay path is invalid") from exc
+        if not isinstance(replayPath, str) or not replayPath:
+            raise ValueError("segShrink calibration replay path must be a nonempty string")
+        if not os.path.isfile(replayPath):
+            raise ValueError(f"segShrink calibration replay does not exist: {replayPath}")
+        with np.load(replayPath, allow_pickle=False) as replay:
+            replayKeys = set(replay.files)
+            if replayKeys != expectedReplayKeys:
+                missing = sorted(expectedReplayKeys - replayKeys)
+                extra = sorted(replayKeys - expectedReplayKeys)
+                raise ValueError(
+                    "segShrink calibration replay keys do not match the contract: "
+                    f"missing={missing} extra={extra}"
+                )
+            replayArrays = {key: np.asarray(replay[key]) for key in expectedReplayKeys}
+            if any(array.ndim != 1 for array in replayArrays.values()):
+                raise ValueError("segShrink calibration replay arrays must be vectors")
+            for key, dtype in replayDtypes.items():
+                if replayArrays[key].dtype != dtype:
+                    raise ValueError(
+                        f"segShrink calibration replay {key} dtype must be {dtype}"
+                    )
+            rowCount = int(replayArrays["residual"].size)
+            if rowCount < 1:
+                raise ValueError("segShrink calibration replay has no perturbation rows")
+            for key in (
+                "pDelta",
+                "intervalIndex",
+                "deletedObservationAll",
+                "coverageCodeAll",
+            ):
+                if replayArrays[key].size != rowCount:
+                    raise ValueError(
+                        f"segShrink calibration replay {key} does not match residual rows"
+                    )
+            fitCount = int(replayArrays["fitRows"].size)
+            if fitCount < 1:
+                raise ValueError("segShrink calibration replay has no factor-fit rows")
+            for key in ("coverageCodeFit", "summaryDecile"):
+                if replayArrays[key].size != fitCount:
+                    raise ValueError(
+                        f"segShrink calibration replay {key} does not match fit rows"
+                    )
+            residual = replayArrays["residual"]
+            pDelta = replayArrays["pDelta"]
+            intervalIndex = replayArrays["intervalIndex"]
+            fitRows = replayArrays["fitRows"]
+            targetBlockMask = replayArrays["targetBlockMask"]
+            deletedObservationAll = replayArrays["deletedObservationAll"]
+            coverageCodeAll = replayArrays["coverageCodeAll"]
+            coverageCodeFit = replayArrays["coverageCodeFit"]
+            summaryDecile = replayArrays["summaryDecile"]
+            if not np.all(np.isfinite(residual)):
+                raise ValueError("segShrink calibration replay residual is not finite")
+            if not np.all(np.isfinite(pDelta)) or np.any(pDelta <= positiveFloor):
+                raise ValueError(
+                    "segShrink calibration replay pDelta must exceed the positive floor"
+                )
+            if np.any(intervalIndex < 0) or np.any(intervalIndex >= fullP.size):
+                raise ValueError("segShrink calibration replay interval index is out of bounds")
+            if np.any(fitRows < 0) or np.any(fitRows >= rowCount):
+                raise ValueError("segShrink calibration replay fit row is out of bounds")
+            if fitRows.size > 1 and np.any(np.diff(fitRows) <= 0):
+                raise ValueError(
+                    "segShrink calibration replay fit rows must be strictly increasing"
+                )
+            blockIndex = intervalIndex // blockLenIntervals
+            expectedBlockCount = int(np.max(blockIndex)) + 1
+            if targetBlockMask.size != expectedBlockCount:
+                raise ValueError(
+                    "segShrink calibration replay target mask does not match rebuilt blocks"
+                )
+            if np.any((targetBlockMask != 0) & (targetBlockMask != 1)):
+                raise ValueError("segShrink calibration replay target mask must be binary")
+            presentBlockMask = np.zeros(expectedBlockCount, dtype=bool)
+            presentBlockMask[np.unique(blockIndex)] = True
+            if np.any(targetBlockMask[~presentBlockMask] != 0):
+                raise ValueError(
+                    "segShrink calibration replay selects a block without perturbation rows"
+                )
+            if not targetEnabled and np.any(targetBlockMask != 0):
+                raise ValueError(
+                    "segShrink disabled target calibration selects target blocks"
+                )
+            if np.any(deletedObservationAll < 1):
+                raise ValueError(
+                    "segShrink calibration replay deleted-observation counts must be positive"
+                )
+            if np.any((coverageCodeAll < 0) | (coverageCodeAll > 4)):
+                raise ValueError(
+                    "segShrink calibration replay all-row coverage code is invalid"
+                )
+            if np.any((coverageCodeFit < 0) | (coverageCodeFit > 4)):
+                raise ValueError(
+                    "segShrink calibration replay fit-row coverage code is invalid"
+                )
+            if np.any((summaryDecile < -1) | (summaryDecile > 9)):
+                raise ValueError(
+                    "segShrink calibration replay summary decile is invalid"
+                )
+            del (
+                blockIndex,
+                coverageCodeAll,
+                coverageCodeFit,
+                deletedObservationAll,
+                fitRows,
+                intervalIndex,
+                pDelta,
+                presentBlockMask,
+                replayArrays,
+                residual,
+                summaryDecile,
+                targetBlockMask,
+            )
+        intervalsView = intervals.view()
+        intervalsView.flags.writeable = False
+        fullPView = fullP.view()
+        fullPView.flags.writeable = False
+        preparedCopies.append(
+            {
+                "chromosome": chromosome,
+                "intervals": intervalsView,
+                "fullP": fullPView,
+                "model": model,
+                "calibrationReplayPath": replayPath,
+                "summaryRowIndex": summaryRowIndex,
+            }
+        )
+
+    from . import uncertainty as _uncertainty
+
+    replayEvaluator = getattr(_uncertainty, "_evaluateSegShrinkReplay", None)
+    if not callable(replayEvaluator):
+        raise RuntimeError("segShrink calibration replay evaluator is unavailable")
 
     contigLog = np.empty(contigCount, dtype=np.float64)
     contigVariance = np.empty(contigCount, dtype=np.float64)
@@ -372,7 +774,7 @@ def combinePreparedContigs(
     segmentContigPieces: list[np.ndarray] = []
     segmentRowsByContig: list[list[dict[str, Any]]] = []
 
-    for contigOrdinal, item in enumerate(prepared):
+    for contigOrdinal, item in enumerate(preparedCopies):
         model = item["model"]
         contigRows = list(model.get("contigShrinkage", ()))
         contigRow = contigRows[0] if contigRows else {}
@@ -438,7 +840,7 @@ def combinePreparedContigs(
         contigTable.append(
             {
                 "contigOrdinal": int(contigOrdinal),
-                "chromosome": str(prepared[contigOrdinal].get("chromosome", "")),
+                "chromosome": str(preparedCopies[contigOrdinal]["chromosome"]),
                 "rawFactor": rawFactor,
                 "bootstrapVariance": None if not np.isfinite(variance) else float(variance),
                 "shrinkageWeight": float(contigAlpha[contigOrdinal]),
@@ -448,9 +850,9 @@ def combinePreparedContigs(
 
     out: list[dict[str, Any]] = []
     offset = 0
-    for contigOrdinal, item in enumerate(prepared):
+    for contigOrdinal, item in enumerate(preparedCopies):
         model = dict(item["model"])
-        fullP = np.asarray(item["fullP"], dtype=np.float64).reshape(-1)
+        fullP = item["fullP"]
         segmentRows = segmentRowsByContig[contigOrdinal]
         localCount = len(segmentRows)
         localTheta = segmentTheta[offset:offset + localCount]
@@ -459,32 +861,18 @@ def combinePreparedContigs(
             int(fullP.shape[0]),
             max(localCount, 1),
         )
-        factor, _calibrated = _cuncertainty.csegShrinkApplyFactors(
+        fullPWork = np.require(
+            fullP,
+            dtype=np.float64,
+            requirements=("C", "W"),
+        )
+        factorRaw, _calibrated = _cuncertainty.csegShrinkApplyFactors(
             segmentByInterval,
             localTheta,
-            fullP,
+            fullPWork,
             float(positiveFloor),
         )
-        factor = np.maximum(np.asarray(factor, dtype=np.float64), 1.0)
-        calibrated = np.sqrt(np.maximum(factor * fullP, positiveFloor)).astype(np.float32)
-        targetCalibration = model.get("target_calibration")
-        uncertaintyTrackScale = 1.0
-        if isinstance(targetCalibration, dict) and bool(
-            targetCalibration.get("uncertainty_track_scaled", False)
-        ):
-            uncertaintyTrackScale = float(
-                targetCalibration.get("uncertainty_track_scale", 1.0)
-            )
-            if not (np.isfinite(uncertaintyTrackScale) and uncertaintyTrackScale > 0.0):
-                raise ValueError("segShrink target uncertainty scale is not positive")
-            calibrated = (
-                np.asarray(calibrated, dtype=np.float32)
-                * np.float32(uncertaintyTrackScale)
-            )
-        calibrated = np.maximum(
-            np.asarray(calibrated, dtype=np.float32),
-            np.sqrt(fullP).astype(np.float32),
-        )
+        del _calibrated, fullPWork
         segmentTable = []
         for localIDX, row in enumerate(segmentRows):
             rawLog = segmentLog[offset + localIDX]
@@ -525,12 +913,75 @@ def combinePreparedContigs(
                 "segmentShrinkage": segmentTable,
             }
         )
+        replayResult = replayEvaluator(
+            factorRaw=factorRaw,
+            fullP=fullP,
+            calibrationModel=model,
+            replayPath=item["calibrationReplayPath"],
+            positiveFloor=float(positiveFloor),
+        )
+        if not isinstance(replayResult, Mapping) or set(replayResult) != {
+            "factor",
+            "calibrated",
+            "summary",
+            "model",
+        }:
+            raise RuntimeError("segShrink replay result does not match the interface")
+        factor = replayResult["factor"]
+        calibrated = replayResult["calibrated"]
+        summary = replayResult["summary"]
+        replayedModel = replayResult["model"]
+        factor = np.asarray(factor)
+        calibrated = np.asarray(calibrated)
+        if factor.ndim != 1 or calibrated.ndim != 1:
+            raise RuntimeError("segShrink replay outputs must be vectors")
+        if factor.shape != fullP.shape or calibrated.shape != fullP.shape:
+            raise RuntimeError("segShrink replay output does not match fullP")
+        if not np.all(np.isfinite(factor)) or np.any(factor <= 0.0):
+            raise RuntimeError("segShrink replay factor must be positive and finite")
+        if not np.all(np.isfinite(calibrated)) or np.any(calibrated < 0.0):
+            raise RuntimeError("segShrink replay uncertainty must be finite and nonnegative")
+        if not isinstance(replayedModel, Mapping):
+            raise RuntimeError("segShrink replay model must be a mapping")
+        if replayedModel.get("hierarchyScope") != "processedGenome" or int(
+            replayedModel.get("processedContigCount", 0)
+        ) != contigCount:
+            raise RuntimeError("segShrink replay discarded processed-genome metadata")
+        targetCalibration = replayedModel.get("target_calibration")
+        if not isinstance(targetCalibration, Mapping):
+            raise RuntimeError("segShrink replay target calibration must be a mapping")
+        uncertaintyTrackScale = float(
+            targetCalibration.get("uncertainty_track_scale", 1.0)
+        )
+        if not np.isfinite(uncertaintyTrackScale) or uncertaintyTrackScale <= 0.0:
+            raise RuntimeError("segShrink replay target uncertainty scale is not positive")
+        rawSD = np.sqrt(np.maximum(fullP, positiveFloor))
+        baseSD = np.sqrt(np.maximum(factor * fullP, positiveFloor))
+        expectedCalibrated = np.maximum(
+            baseSD * uncertaintyTrackScale,
+            rawSD,
+        ).astype(np.float32)
+        if not np.allclose(
+            calibrated,
+            expectedCalibrated,
+            rtol=2.0e-6,
+            atol=2.0e-7,
+        ):
+            raise RuntimeError(
+                "segShrink replay uncertainty does not match factor and target scale"
+            )
+        if not hasattr(summary, "copy") or not hasattr(summary, "to_dict"):
+            raise RuntimeError("segShrink replay summary must be tabular")
         out.append(
             {
-                **item,
-                "factor": np.asarray(factor, dtype=np.float64),
-                "calibrated": np.asarray(calibrated, dtype=np.float32),
-                "model": model,
+                "chromosome": item["chromosome"],
+                "intervals": item["intervals"],
+                "fullP": fullP,
+                "factor": factor,
+                "calibrated": calibrated,
+                "summary": summary,
+                "model": replayedModel,
+                "summaryRowIndex": item["summaryRowIndex"],
             }
         )
         offset += localCount

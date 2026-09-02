@@ -58,15 +58,16 @@ _CONSOLE_EVENT_ATTR = "consenrich_console"
 _CONSOLE_VERBOSE_EVENT_ATTR = "consenrich_console_verbose"
 _CONSOLE_PHASE_ATTR = "consenrich_console_phase"
 _CONSOLE_SUBPHASE_ATTR = "consenrich_console_subphase"
+_CONSOLE_PROGRESS_ATTR = "consenrich_console_progress"
 _CONSOLE_BLUE_ATTR = "consenrich_console_blue"
 _CONSOLE_RICH_NAVY_TEXT = "\033[1;38;2;0;48;96m"
-_CONSOLE_BURNT_ORANGE_TEXT = "\033[38;2;191;87;0m"
+_CONSOLE_CARDINAL_TEXT = "\033[38;2;140;21;21m"
 _CONSOLE_DARK_MAGENTA_TEXT = "\033[1;38;2;128;24;96m"
 _CONSOLE_PHASE_TEXT = _CONSOLE_RICH_NAVY_TEXT
-_CONSOLE_SUBPHASE_TEXT = _CONSOLE_BURNT_ORANGE_TEXT
+_CONSOLE_SUBPHASE_TEXT = _CONSOLE_CARDINAL_TEXT
 _CONSOLE_MILESTONE_TEXT = _CONSOLE_DARK_MAGENTA_TEXT
 _CONSOLE_BLUE_TEXT = _CONSOLE_RICH_NAVY_TEXT
-_CONSOLE_WARNING_TEXT = _CONSOLE_BURNT_ORANGE_TEXT
+_CONSOLE_WARNING_TEXT = _CONSOLE_CARDINAL_TEXT
 _CONSOLE_ERROR_TEXT = _CONSOLE_DARK_MAGENTA_TEXT
 _CONSOLE_STYLE_RESET = "\033[0m"
 _JSON_LOG_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
@@ -115,10 +116,8 @@ PRECISION_DIAGNOSTIC_COLUMNS = [
     "effectiveQ00",
     "effectiveQ11",
     "process_q_policy",
-    "apn_enabled",
     "process_precision_reweighting_requested",
     "process_precision_reweighting_effective",
-    "process_precision_reweighting_disabled_by_apn",
     "median_diag_R",
     "median_effective_diag_R",
 ]
@@ -259,17 +258,14 @@ PROCESS_KAPPA_LOG_COLUMNS = [
     "kappa_lower_bound_hit",
     "kappa_upper_bound_hit",
     "process_q_policy",
-    "apn_enabled",
     "process_precision_reweighting_requested",
     "process_precision_reweighting_effective",
-    "process_precision_reweighting_disabled_by_apn",
     "baseQ00",
     "baseQ11",
     "preKappaQLevel",
     "preKappaQTrend",
     "effectiveQLevel",
     "effectiveQTrend",
-    "processQScale",
     "key",
     "value",
 ]
@@ -287,6 +283,7 @@ DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
     "high_signal",
     "stratum",
     "target",
+    "target_role",
     "alpha",
     "delta",
     "q",
@@ -294,11 +291,14 @@ DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
     "k",
     "tail_probability",
     "finite_bound",
-    "certified",
+    "bound_available",
+    "bound_scope",
     "reason",
     "n",
     "coverage_before",
     "coverage_after",
+    "coverage_estimand",
+    "coverage_scope",
     "mean_width_before",
     "mean_width_after",
     "median_width_before",
@@ -306,9 +306,9 @@ DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
     "q90_width_before",
     "q90_width_after",
     "residual",
-    "deleted_state_delta",
-    "state_full",
-    "state_masked",
+    "deleted_target_signal_delta",
+    "target_signal_full",
+    "target_signal_masked",
     "P00_full",
     "P00_masked",
     "covariance_delta",
@@ -316,6 +316,8 @@ DELETE_BLOCK_CALIBRATION_LOG_COLUMNS = [
     "kept_information",
     "heldout_information",
     "heldout_information_fraction",
+    "deleted_replicates",
+    "deleted_observations",
     "delta_variance",
     "delta_variance_source",
     "row_weight",
@@ -453,41 +455,6 @@ def _countTransformVarianceFloorKwargs(
 _MUNC_NUMERIC_VARIANCE_FLOOR = 1.0e-12
 
 
-def _countNoisePseudoVarianceMassForScaledCounts(
-    scaledCounts: np.ndarray,
-    scaleFactor: float,
-    rawNoiseMass: np.ndarray | None,
-    countMode: str | None,
-) -> float:
-    if (
-        rawNoiseMass is None
-        or countMode != constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    ):
-        return 0.5
-    counts = np.asarray(scaledCounts, dtype=np.float64)
-    rawNoise = np.asarray(rawNoiseMass, dtype=np.float64)
-    if rawNoise.shape != counts.shape:
-        raise ValueError("rawNoiseMass must match scaledCounts shape")
-    rawCounts = counts / float(scaleFactor)
-    finite = np.isfinite(rawNoise) & np.isfinite(rawCounts)
-    if np.any(finite & ((rawNoise < 0.0) | (rawCounts < 0.0))):
-        raise ValueError("count and noise masses must be nonnegative where finite")
-    positive = finite & (rawCounts > 0.0)
-    rawNoiseSum = float(np.sum(rawNoise[positive], dtype=np.float64))
-    rawCountSum = float(np.sum(rawCounts[positive], dtype=np.float64))
-    if (
-        not np.isfinite(rawNoiseSum)
-        or rawNoiseSum <= 0.0
-        or not np.isfinite(rawCountSum)
-        or rawCountSum <= 0.0
-    ):
-        raise ValueError("count noise pseudo variance masses must be positive finite")
-    pseudoVarianceMass = 0.5 * rawNoiseSum / rawCountSum
-    if not np.isfinite(pseudoVarianceMass) or pseudoVarianceMass <= 0.0:
-        raise ValueError("countNoisePseudoVarianceMass must be positive and finite")
-    return float(pseudoVarianceMass)
-
-
 def _countModelVarianceFloorForScaledCounts(
     scaledCounts: np.ndarray,
     scaleFactor: float,
@@ -507,12 +474,23 @@ def _countModelVarianceFloorForScaledCounts(
         return floor
     if not np.isfinite(scaleFactor_) or scaleFactor_ <= 0.0:
         return floor
-    countNoisePseudoVarianceMass = _countNoisePseudoVarianceMassForScaledCounts(
-        counts,
-        scaleFactor_,
-        rawNoiseMass,
-        countMode,
-    )
+    countNoisePseudoVarianceMass = 0.5
+    if (
+        rawNoiseMass is not None
+        and countMode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
+    ):
+        scaledCountSum = float(np.sum(counts, dtype=np.float64))
+        if scaledCountSum == 0.0:
+            raise ValueError(
+                "conserved fractional-overlap count row has no positive support"
+            )
+        countNoisePseudoVarianceMass = (
+            0.5
+            * float(
+                np.sum(np.asarray(rawNoiseMass, dtype=np.float64), dtype=np.float64)
+            )
+            / (scaledCountSum / scaleFactor_)
+        )
     return np.asarray(
         core.transformCountVarianceFloor(
             counts,
@@ -600,8 +578,6 @@ def _countModelVarianceFloorScalar(
         return float(fallback)
     q = float(np.clip(float(quantile), 0.0, 1.0))
     value = float(np.quantile(values, q))
-    if not np.isfinite(value) or value <= 0.0:
-        return float(fallback)
     return float(max(value, float(fallback)))
 
 
@@ -932,6 +908,56 @@ def _appendMappingDiagnostics(
         **{str(key): value for key, value in values.items()},
     }
     return _appendJsonlRecords(path, [record])
+
+
+def _appendPooledDeleteBlockDiagnostics(
+    path: Path,
+    chromosome: str,
+    summary: pd.DataFrame,
+    calibrationModel: Mapping[str, Any],
+) -> int:
+    if not isinstance(summary, pd.DataFrame) or summary.empty:
+        raise RuntimeError("processed-genome delete-block summary is empty")
+    if not isinstance(calibrationModel, Mapping):
+        raise RuntimeError("processed-genome delete-block model is not a mapping")
+    rowsWritten = _appendMappingDiagnostics(
+        path,
+        recordType="model",
+        event="delete_block_calibration.segShrink.processed_genome_model",
+        chromosome=str(chromosome),
+        values=calibrationModel,
+    )
+    summaryRecords = [
+        {
+            **dict(row),
+            "record_type": "summary",
+            "event": "delete_block_calibration.segShrink.processed_genome_summary",
+            "chromosome": str(chromosome),
+        }
+        for row in summary.to_dict(orient="records")
+    ]
+    rowsWritten += _appendJsonlRecords(path, summaryRecords)
+    targetCalibration = _summaryMapping(calibrationModel.get("target_calibration"))
+    targetBounds = targetCalibration.get("bounds", ())
+    if not isinstance(targetBounds, Sequence) or isinstance(targetBounds, (str, bytes)):
+        raise RuntimeError("processed-genome target bounds are not a sequence")
+    targetBoundRecords = []
+    for bound in targetBounds:
+        if not isinstance(bound, Mapping):
+            raise RuntimeError("processed-genome target bound is not a mapping")
+        targetBoundRecords.append(
+            {
+                **dict(bound),
+                "record_type": "target_bound",
+                "event": (
+                    "delete_block_calibration.segShrink."
+                    "processed_genome_target_bound"
+                ),
+                "chromosome": str(chromosome),
+            }
+        )
+    rowsWritten += _appendJsonlRecords(path, targetBoundRecords)
+    return int(rowsWritten)
 
 
 def _selectPrecisionDiagnosticIntervalRows(
@@ -1498,6 +1524,12 @@ def _deleteBlockBlockFactorValues(
     if not np.all(np.isfinite(factorArr)) or np.any(factorArr <= 0.0):
         raise RuntimeError("delete-block calibration factors must be positive finite")
     calibration = _summaryMapping(calibrationModel)
+    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    trackScale = _summaryNumber(targetCalibration.get("uncertainty_track_scale"))
+    trackScale = 1.0 if trackScale is None else float(trackScale)
+    if not np.isfinite(trackScale) or trackScale <= 0.0:
+        raise RuntimeError("delete-block calibration track scale must be positive finite")
+    factorArr = np.maximum(factorArr * trackScale * trackScale, 1.0)
     foldRefits = _summaryMapping(calibration.get("fold_refits"))
     blockLen = _summaryInt(foldRefits.get("block_len_intervals"))
     if blockLen is None:
@@ -1527,7 +1559,32 @@ def _deleteBlockCoverageRowsForPlot(
         ]
     else:
         rows = []
-    return [{"chromosome": str(chromosome), **dict(row)} for row in rows]
+    targetCalibration = _summaryMapping(calibration.get("target_calibration"))
+    selectedTarget = _summaryNumber(
+        targetCalibration.get("uncertainty_track_scale_target")
+    )
+    if selectedTarget is None:
+        selectedTarget = _summaryNumber(calibration.get("global_factor_target"))
+    if selectedTarget is None:
+        rowTargets = [
+            value
+            for value in (_summaryNumber(row.get("target")) for row in rows)
+            if value is not None
+        ]
+        selectedTarget = max(rowTargets) if rowTargets else None
+    out = []
+    for row in rows:
+        rowOut = {"chromosome": str(chromosome), **dict(row)}
+        rowTarget = _summaryNumber(row.get("target"))
+        if selectedTarget is not None and rowTarget is not None:
+            rowOut["selected_target"] = float(selectedTarget)
+            rowOut["target_role"] = (
+                "selected"
+                if np.isclose(float(rowTarget), float(selectedTarget))
+                else "descriptive"
+            )
+        out.append(rowOut)
+    return out
 
 
 def _plotDeleteBlockCalibration(
@@ -1578,9 +1635,9 @@ def _plotDeleteBlockCalibration(
     )
     sdFactorAx, sdCDFax, coverageAx, detailAx = list(np.ravel(axes))
 
-    sdFactorAx.set_title("Block-Level SD Multipliers", color=darkBlack)
-    sdFactorAx.set_xlabel("Block mean SD multiplier", color=darkBlack)
-    sdFactorAx.set_ylabel("Blocks", color=darkBlack)
+    sdFactorAx.set_title("Block-Level RMS SD Multipliers", color=darkBlack)
+    sdFactorAx.set_xlabel("Block RMS SD multiplier", color=darkBlack)
+    sdFactorAx.set_ylabel("Sampled blocks", color=darkBlack)
     sdFactorAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
     if sdFactorValues.size:
         sdFactorAx.hist(
@@ -1615,7 +1672,7 @@ def _plotDeleteBlockCalibration(
         )
 
     sdCDFax.set_title("SD Multiplier ECDF", color=darkBlack)
-    sdCDFax.set_xlabel("Block mean SD multiplier", color=darkBlack)
+    sdCDFax.set_xlabel("Block RMS SD multiplier", color=darkBlack)
     sdCDFax.set_ylabel("Cumulative fraction", color=darkBlack)
     sdCDFax.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
     if sdFactorValues.size:
@@ -1704,9 +1761,9 @@ def _plotDeleteBlockCalibration(
         coveragePlotFrame = pd.DataFrame()
         overallFrame = pd.DataFrame()
 
-    coverageAx.set_title("Coverage Calibration", color=darkBlack)
+    coverageAx.set_title("Delete-block perturbation recount", color=darkBlack)
     coverageAx.set_xlabel("Nominal coverage", color=darkBlack)
-    coverageAx.set_ylabel("Observed coverage", color=darkBlack)
+    coverageAx.set_ylabel("Observed perturbation coverage", color=darkBlack)
     coverageAx.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
     if overallFrame.empty:
         coverageAx.text(
@@ -1758,6 +1815,36 @@ def _plotDeleteBlockCalibration(
             linewidth=1.2,
             label="calibrated",
         )
+        selectedTargetValues = (
+            pd.to_numeric(overallFrame["selected_target"], errors="coerce")
+            .dropna()
+            .to_numpy(dtype=np.float64)
+            if "selected_target" in overallFrame
+            else np.empty(0, dtype=np.float64)
+        )
+        selectedTarget = (
+            float(np.max(selectedTargetValues))
+            if selectedTargetValues.size
+            else float(np.max(targetValues))
+        )
+        coverageAx.axvline(
+            selectedTarget,
+            color=violet,
+            linewidth=1.0,
+            linestyle=":",
+            alpha=0.8,
+            label="selected target",
+        )
+        coverageAx.set_xticks(targetValues)
+        coverageAx.set_xticklabels(
+            [
+                f"{value:.2f}\nselected"
+                if np.isclose(value, selectedTarget)
+                else f"{value:.2f}\ndescriptive"
+                for value in targetValues
+            ],
+            fontsize=8,
+        )
         coverageAx.set_xlim(axisMin, axisMax)
         coverageAx.set_ylim(axisMin, axisMax)
         coverageAx.legend(loc="best", fontsize=8, frameon=False)
@@ -1781,11 +1868,17 @@ def _plotDeleteBlockCalibration(
         if not strataPlotFrame.empty:
             x = np.arange(len(strataPlotFrame), dtype=np.float64)
             width = 0.38
+            targetRole = (
+                "Selected"
+                if "target_role" in targetFrame
+                and bool(np.any(targetFrame["target_role"].astype(str) == "selected"))
+                else "Descriptive"
+            )
             detailAx.set_title(
-                f"Strata Coverage at Target {targetValue:.2f}",
+                f"{targetRole} Target {targetValue:.2f} Strata Coverage",
                 color=darkBlack,
             )
-            detailAx.set_ylabel("Observed coverage", color=darkBlack)
+            detailAx.set_ylabel("Observed perturbation coverage", color=darkBlack)
             detailAx.bar(
                 x - width / 2.0,
                 strataPlotFrame["coverage_before"].to_numpy(dtype=np.float64),
@@ -1873,9 +1966,32 @@ def _plotDeleteBlockCalibration(
                 linewidth=1.2,
                 label="calibrated",
             )
+            widthTargets = widthPlotFrame["target"].to_numpy(dtype=np.float64)
+            selectedValues = (
+                pd.to_numeric(widthFrame["selected_target"], errors="coerce")
+                .dropna()
+                .to_numpy(dtype=np.float64)
+                if "selected_target" in widthFrame
+                else np.empty(0, dtype=np.float64)
+            )
+            selectedTarget = (
+                float(np.max(selectedValues))
+                if selectedValues.size
+                else float(np.max(widthTargets))
+            )
+            detailAx.set_xticks(widthTargets)
+            detailAx.set_xticklabels(
+                [
+                    f"{value:.2f}\nselected"
+                    if np.isclose(value, selectedTarget)
+                    else f"{value:.2f}\ndescriptive"
+                    for value in widthTargets
+                ],
+                fontsize=8,
+            )
             detailAx.legend(loc="best", fontsize=8, frameon=False)
 
-    fig.suptitle("Delete-Block Calibration", color=darkBlack)
+    fig.suptitle("Delete-block perturbation recount", color=darkBlack)
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("deleteBlockCalibration.output wrote %s dpi=%d", path, int(dpi))
@@ -2250,9 +2366,7 @@ def _warnReplicateVarianceHeterogeneity(
         "%s: replicates exhibit blockwise variance heterogeneity. "
         "divergentReplicates=%r,%r pairBasis=%s rawSDRatio=%.6g "
         "adjustedSDRatio=%.6g fittedSDRatio=%s rawPValue=%.6g "
-        "adjustedPValue=%.6g diagnosticFile=%s. The result is confined to "
-        "blockwise variance and does not establish that global biological "
-        "exchangeability is invalid.",
+        "adjustedPValue=%.6g diagnosticFile=%s.",
         warningLead,
         sampleNames[lowIndex],
         sampleNames[highIndex],
@@ -3086,12 +3200,6 @@ def _precisionDiagnosticsFrame(
         return arr
 
     processQPolicy = str(precisionDiagnostics.get("process_q_policy") or "")
-    apnEnabled = bool(
-        precisionDiagnostics.get(
-            "ECM_useAPN",
-            processQPolicy == "adaptive_process_noise",
-        )
-    )
     processPrecisionRequested = bool(
         precisionDiagnostics.get(
             "process_precision_reweighting_requested",
@@ -3104,16 +3212,8 @@ def _precisionDiagnosticsFrame(
             processPrecExp is not None,
         )
     )
-    processPrecisionDisabledByAPN = bool(
-        precisionDiagnostics.get(
-            "process_precision_reweighting_disabled_by_apn",
-            processPrecisionRequested and apnEnabled and not processPrecisionEffective,
-        )
-    )
     if not processQPolicy:
-        if apnEnabled:
-            processQPolicy = "adaptive_process_noise"
-        elif processPrecisionEffective and processPrecExp is not None:
+        if processPrecisionEffective and processPrecExp is not None:
             processQPolicy = "student_t_kappa"
         else:
             processQPolicy = "base"
@@ -3132,7 +3232,6 @@ def _precisionDiagnosticsFrame(
 
     effectiveQ00 = _coerceOutputTrack("effectiveQLevel")
     effectiveQ11 = _coerceOutputTrack("effectiveQTrend")
-    usedEffectiveQFallback = effectiveQ00 is None or effectiveQ11 is None
     if effectiveQ00 is None:
         effectiveQ00 = (
             baseQ00 / kappaArr
@@ -3144,12 +3243,6 @@ def _precisionDiagnosticsFrame(
             baseQ11 / kappaArr
             if processPrecisionEffective and processPrecExp is not None
             else baseQ11.copy()
-        )
-    if apnEnabled and usedEffectiveQFallback:
-        logger.warning(
-            "precisionDiagnostics.output %s has APN enabled but no effective process-Q "
-            "tracks; falling back to base Q for missing precision TSV columns.",
-            chromosome,
         )
     q00 = effectiveQ00
     q11 = effectiveQ11
@@ -3179,12 +3272,8 @@ def _precisionDiagnosticsFrame(
             "effectiveQ00": effectiveQ00,
             "effectiveQ11": effectiveQ11,
             "process_q_policy": processQPolicy,
-            "apn_enabled": apnEnabled,
             "process_precision_reweighting_requested": processPrecisionRequested,
             "process_precision_reweighting_effective": processPrecisionEffective,
-            "process_precision_reweighting_disabled_by_apn": (
-                processPrecisionDisabledByAPN
-            ),
             "median_diag_R": medianDiagR,
             "median_effective_diag_R": medianEffectiveDiagR,
         }
@@ -3260,6 +3349,9 @@ def _appendMuncLambdaDiagnostics(
         values={
             **sampling,
             "rows": int(rowsWritten),
+            "scale_obs_precision_to_median": bool(
+                precisionDiagnostics.get("scale_obs_precision_to_median", False)
+            ),
             "lambda_median": float(pd.to_numeric(frame["lambda"]).median()),
             "median_diag_R": float(pd.to_numeric(frame["median_diag_R"]).median()),
             "median_effective_diag_R": float(
@@ -3314,15 +3406,11 @@ def _appendProcessKappaDiagnostics(
             "kappa_lower_bound_hit": kappaLowerHit,
             "kappa_upper_bound_hit": kappaUpperHit,
             "process_q_policy": outFrame["process_q_policy"],
-            "apn_enabled": outFrame["apn_enabled"],
             "process_precision_reweighting_requested": outFrame[
                 "process_precision_reweighting_requested"
             ],
             "process_precision_reweighting_effective": outFrame[
                 "process_precision_reweighting_effective"
-            ],
-            "process_precision_reweighting_disabled_by_apn": outFrame[
-                "process_precision_reweighting_disabled_by_apn"
             ],
             "baseQ00": outFrame["baseQ00"],
             "baseQ11": outFrame["baseQ11"],
@@ -3332,13 +3420,6 @@ def _appendProcessKappaDiagnostics(
             "effectiveQTrend": outFrame["effectiveQ11"],
         }
     )
-    outputTracks = precisionDiagnostics.get("outputTracks", {})
-    if isinstance(outputTracks, Mapping) and "processQScale" in outputTracks:
-        track = np.asarray(outputTracks["processQScale"], dtype=np.float64).reshape(-1)
-        if track.shape[0] == len(frame):
-            out["processQScale"] = track[rowPositions]
-        elif track.shape[0] == len(outFrame):
-            out["processQScale"] = track
     rowsWritten = _appendJsonlRecords(path, out)
     processNoise = runDiagnostics.get("process_noise_calibration")
     if isinstance(processNoise, Mapping):
@@ -3357,6 +3438,12 @@ def _appendProcessKappaDiagnostics(
         values={
             **sampling,
             "rows": int(rowsWritten),
+            "scale_process_precision_to_median": bool(
+                precisionDiagnostics.get(
+                    "scale_process_precision_to_median",
+                    False,
+                )
+            ),
             "kappa_median": float(pd.to_numeric(frame["kappa"]).median()),
             "effective_q_level_median": float(
                 pd.to_numeric(frame["effectiveQ00"]).median()
@@ -3426,6 +3513,32 @@ def _stateShrinkageOutputTracks(
             ]
         )
     return tracks
+
+
+def _stateShrinkageVariance(uncertainty: np.ndarray) -> np.ndarray:
+    variance = np.array(
+        uncertainty,
+        dtype=np.float32,
+        order="C",
+        copy=True,
+    )
+    np.multiply(variance, variance, out=variance)
+    np.maximum(
+        variance,
+        np.float32(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        out=variance,
+    )
+    return variance
+
+
+def _uncertaintyCalibrationIsRequired(
+    calibrationEnabled: bool,
+    writeUncertainty: bool,
+    useStateShrinkage: bool,
+) -> bool:
+    return bool(
+        calibrationEnabled and (writeUncertainty or useStateShrinkage)
+    )
 
 
 def _stateShrinkageSummaryFields(
@@ -4216,6 +4329,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("version", __version__),
         ("experiment", config.get("experimentName", "")),
         ("defaults", config.get("defaultConfiguration", "generic")),
+        ("counting preset", config.get("countingPreset") or "none"),
         ("genome", getattr(genomeArgs, "genomeName", "")),
         ("chromosome count", len(getattr(genomeArgs, "chromosomes", []) or [])),
         ("treatment inputs", len(getattr(inputArgs, "treatmentSources", []) or [])),
@@ -4230,6 +4344,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             )[1],
         ),
         ("centerMB method", countingArgs.centerMBMethod),
+        ("centerMB window bp", int(countingArgs.centerMBWindowBP)),
         ("MUNC variance model", observationArgs.muncVarianceModel),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         (
@@ -4238,12 +4353,22 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
                 getattr(
                     observationArgs,
                     "useCountNoiseFloor",
-                    True,
+                    constants.OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
                 )
             ),
         ),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
+        ("observation Student-t df", float(fitArgs.ECM_robustTNu)),
+        ("process Student-t df", float(fitArgs.ECM_processRobustTNu)),
+        (
+            "lambda median scaling",
+            yn(fitArgs.ECM_scaleObsPrecisionToMedian),
+        ),
+        (
+            "kappa median scaling",
+            yn(fitArgs.ECM_scaleProcessPrecisionToMedian),
+        ),
         ("outer passes", int(fitArgs.ECM_outerIters)),
         ("background model", yn(fitArgs.fitBackground)),
         ("nonnegative background", yn(fitArgs.useNonnegativeBackground)),
@@ -4299,6 +4424,223 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
     )
     core._logEvent("config.initial", rows, logger_=logger)
+
+
+def _warnCountingPresetSourceSemantics(
+    countingPreset: Optional[str],
+    sources: Sequence[core.inputSource],
+    bamInputModes: Sequence[str],
+    sampleGroup: str,
+) -> None:
+    if countingPreset is None:
+        return
+    pairedExpectedPresets = {"chip-pe", "cut-and-run", "cut-and-tag"}
+    layoutCheckedPresets = pairedExpectedPresets | {"atac", "chip-se"}
+    seenSources: set[tuple[str, str, str]] = set()
+    for sourceIndex, (source, bamInputMode) in enumerate(
+        zip(sources, bamInputModes, strict=True),
+        start=1,
+    ):
+        sourceKind = str(source.sourceKind).upper()
+        sourceKey = (str(source.path), sourceKind, str(bamInputMode))
+        if sourceKey in seenSources:
+            continue
+        seenSources.add(sourceKey)
+        sourceFields = (
+            ("counting preset", countingPreset),
+            ("sample group", sampleGroup),
+            ("source index", sourceIndex),
+            ("path", source.path),
+            ("source kind", sourceKind),
+            (
+                "bam input mode",
+                bamInputMode if sourceKind in core.ALIGNMENT_SOURCE_KINDS else None,
+            ),
+            ("settings rewritten", False),
+        )
+        if sourceKind == core.FRAGMENTS_SOURCE_KIND:
+            core._logEvent(
+                "config.counting_preset.fragments_text_advisory",
+                sourceFields
+                + (
+                    (
+                        "message",
+                        "`FRAGMENTS` text input detected. BAM shifts, MAPQ, SAM "
+                        "flags, and TLEN filters do not apply to this source. "
+                        "Resolved counting settings are unchanged.",
+                    ),
+                ),
+                logger_=logger,
+                level=logging.WARNING,
+            )
+            continue
+        if (
+            sourceKind not in core.ALIGNMENT_SOURCE_KINDS
+            or countingPreset not in layoutCheckedPresets
+        ):
+            continue
+        pairedEnd = core._isAlignmentSourcePairedEnd(source.path)
+        detectedLayout = "paired-end" if pairedEnd else "single-end"
+        if countingPreset == "chip-se" and pairedEnd:
+            expectedLayout = "single-end"
+            if bamInputMode == "reads":
+                consequence = (
+                    "In reads mode, paired-end mates are extended independently."
+                )
+            elif bamInputMode == "read1":
+                consequence = "Resolved read1 mode counts only read1 alignments."
+            else:
+                consequence = (
+                    "Resolved fragments mode counts proper templates rather than "
+                    "extending mates independently."
+                )
+        elif countingPreset in pairedExpectedPresets and not pairedEnd:
+            expectedLayout = "paired-end"
+            if bamInputMode == "fragments":
+                consequence = (
+                    "Fragment-mode counting may yield no proper templates for this "
+                    "source."
+                )
+            else:
+                consequence = (
+                    f"Resolved {bamInputMode} mode counts alignments without a "
+                    "proper-template requirement."
+                )
+        else:
+            expectedLayout = None
+            consequence = None
+        if expectedLayout is not None:
+            core._logEvent(
+                "config.counting_preset.layout_mismatch",
+                sourceFields
+                + (
+                    ("expected layout", expectedLayout),
+                    ("detected layout", detectedLayout),
+                    (
+                        "message",
+                        f"`countingPreset={countingPreset}` expects "
+                        f"{expectedLayout} BAM input, but {detectedLayout} reads "
+                        f"were detected in {source.path}. {consequence} "
+                        "Resolved counting settings are unchanged.",
+                    ),
+                ),
+                logger_=logger,
+                level=logging.WARNING,
+            )
+        if (
+            countingPreset == "atac"
+            and pairedEnd
+            and bamInputMode in {"reads", "read1"}
+        ):
+            ATACGeometry = "per-end" if bamInputMode == "reads" else "read1"
+            core._logEvent(
+                "config.counting_preset.atac_paired_advisory",
+                sourceFields
+                + (
+                    ("detected layout", detectedLayout),
+                    (
+                        "message",
+                        f"Paired-end ATAC BAM input is counted in {bamInputMode} "
+                        f"mode. {ATACGeometry} Tn5 shifts are applied, but "
+                        "proper-pair flags are not required. Provide a "
+                        "proper-pair-filtered "
+                        "paired-end BAM to ensure only proper pairs contribute. "
+                        "Resolved counting settings are unchanged.",
+                    ),
+                ),
+                logger_=logger,
+                level=logging.WARNING,
+            )
+
+
+def _logResolvedCountingPresetSources(
+    countingPreset: str,
+    sources: Sequence[core.inputSource],
+    bamInputModes: Sequence[str],
+    countModes: Sequence[str],
+    extendFrom5pBPValues: Sequence[int],
+    characteristicFragmentLengths: Sequence[int],
+    sampleGroup: str,
+    normMethod: Optional[str],
+    smoothToFraglen: bool,
+    samArgs: core.samParams,
+    scArgs: Any,
+) -> None:
+    for sourceIndex, (
+        source,
+        bamInputMode,
+        countMode,
+        extendFrom5pBP,
+        characteristicFragmentLength,
+    ) in enumerate(
+        zip(
+            sources,
+            bamInputModes,
+            countModes,
+            extendFrom5pBPValues,
+            characteristicFragmentLengths,
+            strict=True,
+        ),
+        start=1,
+    ):
+        sourceKind = str(source.sourceKind).upper()
+        isBAM = sourceKind in core.ALIGNMENT_SOURCE_KINDS
+        isFragmentsText = sourceKind == core.FRAGMENTS_SOURCE_KIND
+        fragmentPositionMode = (
+            core._normalizeFragmentPositionMode(
+                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
+            )
+            if isFragmentsText
+            else None
+        )
+        sourceFlagExclude = (
+            core._resolveSourceFlagExclude(samArgs.samFlagExclude, bamInputMode)
+            if isBAM
+            else None
+        )
+        core._logEvent(
+            "config.counting_preset.source",
+            (
+                ("counting preset", countingPreset),
+                ("sample group", sampleGroup),
+                ("source index", sourceIndex),
+                ("path", source.path),
+                ("source kind", sourceKind),
+                ("count mode", countMode),
+                ("normalization", normMethod),
+                ("smooth to fragment length", bool(smoothToFraglen)),
+                ("bam input mode", bamInputMode if isBAM else None),
+                ("fragment position mode", fragmentPositionMode),
+                (
+                    "one read per bin",
+                    int(samArgs.oneReadPerBin)
+                    if sourceKind != core.BEDGRAPH_SOURCE_KIND
+                    else None,
+                ),
+                ("shift forward 5p", samArgs.shiftForward5p if isBAM else None),
+                ("shift reverse 5p", samArgs.shiftReverse5p if isBAM else None),
+                ("extend from 5p bp", int(extendFrom5pBP) if isBAM else None),
+                (
+                    "characteristic fragment length",
+                    int(characteristicFragmentLength) if isBAM else None,
+                ),
+                (
+                    "infer fragment length",
+                    samArgs.inferFragmentLength if isBAM else None,
+                ),
+                ("sam flag exclude", sourceFlagExclude),
+                (
+                    "minimum mapping quality",
+                    samArgs.minMappingQuality if isBAM else None,
+                ),
+                (
+                    "minimum template length",
+                    samArgs.minTemplateLength if isBAM else None,
+                ),
+                ("maximum insert size", samArgs.maxInsertSize if isBAM else None),
+            ),
+            logger_=logger,
+        )
 
 
 def _resolveCenterMBStatus(
@@ -4458,7 +4800,7 @@ def _logMuncEstimationParameters(
                         getattr(
                             observationArgs,
                             "useCountNoiseFloor",
-                            True,
+                            constants.OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR,
                         )
                     )
                     else "disabled"
@@ -4518,6 +4860,7 @@ class _ConsoleLogFilter(logging.Filter):
         verbose: bool,
         verbose2: bool,
         verbosity: str | None = None,
+        progress: str = constants.LOGGING_DEFAULT_PROGRESS,
     ):
         super().__init__()
         if verbosity is None:
@@ -4528,6 +4871,7 @@ class _ConsoleLogFilter(logging.Filter):
             else:
                 verbosity = constants.LOGGING_DEFAULT_VERBOSITY
         self.verbosity = str(verbosity)
+        self.progress = str(progress)
 
     def filter(self, record: logging.LogRecord) -> bool:
         levelRank = _CONSOLE_VERBOSITY_ORDER.get(
@@ -4536,6 +4880,12 @@ class _ConsoleLogFilter(logging.Filter):
         )
         if record.levelno >= logging.WARNING:
             return True
+        if getattr(record, _CONSOLE_PROGRESS_ATTR, False):
+            if self.progress == "off":
+                return False
+            return self.progress == "on" or (
+                levelRank >= _CONSOLE_VERBOSITY_ORDER["normal"]
+            )
         if levelRank >= _CONSOLE_VERBOSITY_ORDER["debug"]:
             return True
         if (
@@ -4563,6 +4913,17 @@ class _ConsoleFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
+        fields = getattr(record, "consenrich_fields", None)
+        if isinstance(fields, Mapping) and "phase depth" in fields:
+            phaseDepth = (
+                "phase_depth="
+                + logging_utils.format_log_value(fields["phase depth"])
+            )
+            message = message.replace(
+                phaseDepth,
+                self._color(phaseDepth, _CONSOLE_CARDINAL_TEXT),
+                1,
+            )
         if getattr(record, _CONSOLE_PHASE_ATTR, False):
             message = self._color(message, _CONSOLE_PHASE_TEXT)
             message = "\n\n" + message
@@ -4610,6 +4971,8 @@ class _JSONLFormatter(logging.Formatter):
             payload["console_milestone"] = True
         if getattr(record, _CONSOLE_VERBOSE_EVENT_ATTR, False):
             payload["console_verbose"] = True
+        if getattr(record, _CONSOLE_PROGRESS_ATTR, False):
+            payload["console_progress"] = True
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         if record.stack_info:
@@ -4655,6 +5018,7 @@ def _configureCliLogging(
     verbose: bool,
     verbose2: bool,
     verbosity: str | None = None,
+    progress: str = constants.LOGGING_DEFAULT_PROGRESS,
     consoleStream=None,
 ) -> Path | None:
     verbosityLabel = (
@@ -4664,12 +5028,16 @@ def _configureCliLogging(
     )
     if verbosityLabel not in _CONSOLE_VERBOSITY_ORDER:
         raise ValueError(f"Unsupported verbosity {verbosityLabel!r}")
+    progressLabel = str(progress)
+    if progressLabel not in constants.LOGGING_PROGRESS_MODES:
+        raise ValueError(f"Unsupported progress mode {progressLabel!r}")
     packageLogger = logging.getLogger("consenrich")
     _removeCliHandlers(packageLogger)
     packageLogger.setLevel(logging.DEBUG)
     packageLogger.propagate = False
 
     consoleTarget = sys.stderr if consoleStream is None else consoleStream
+    consoleIsTTY = bool(getattr(consoleTarget, "isatty", lambda: False)())
     consoleHandler = logging.StreamHandler(consoleTarget)
     setattr(consoleHandler, _CLI_HANDLER_ATTR, True)
     consoleHandler.setLevel(logging.DEBUG)
@@ -4678,10 +5046,11 @@ def _configureCliLogging(
             verbose=bool(verbose),
             verbose2=bool(verbose2),
             verbosity=verbosityLabel,
+            progress=progressLabel,
         )
     )
     consoleColor = (
-        getattr(consoleTarget, "isatty", lambda: False)()
+        consoleIsTTY
         and os.environ.get("TERM", "") != "dumb"
         and "NO_COLOR" not in os.environ
     )
@@ -4785,11 +5154,53 @@ def _buildArgParser() -> argparse.ArgumentParser:
         help="Optional BED blacklist applied to post hoc ROCCO peak export.",
     )
     parser.add_argument(
+        "--match-residual-duration-bp",
+        type=int,
+        default=None,
+        dest="matchResidualDurationBP",
+        help="Positive residual duration in bp used for the ROCCO stationary-bootstrap block length.",
+    )
+    parser.add_argument(
+        "--match-feature-duration-bp",
+        type=int,
+        default=None,
+        dest="matchFeatureDurationBP",
+        help="Positive feature duration in bp used for ROCCO morphology and boundary penalties.",
+    )
+    parser.add_argument(
         "--match-num-bootstrap",
         type=int,
         default=constants.MATCHING_DEFAULT_NUM_BOOTSTRAP,
         dest="matchNumBootstrap",
-        help="Number of dependent wild-bootstrap null draws used for budget calibration.",
+        help="Number of stationary-bootstrap null draws used for budget calibration.",
+    )
+    parser.add_argument(
+        "--match-num-region-replays",
+        type=int,
+        default=constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS,
+        dest="matchNumRegionReplays",
+        help="Number of chromosome-local null candidate replays.",
+    )
+    parser.add_argument(
+        "--match-no-chromosome-budget-shrinkage",
+        action="store_false",
+        default=constants.MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS,
+        dest="matchShrinkChromosomeBudgets",
+        help="Disable shared chromosome-budget shrinkage.",
+    )
+    parser.add_argument(
+        "--match-no-local-bootstrap-radius",
+        action="store_false",
+        default=constants.MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
+        dest="matchUseLocalBootStrapRadius",
+        help="Disable local-radius stationary-bootstrap restart-source sampling.",
+    )
+    parser.add_argument(
+        "--match-no-null-calibration-diagnostics",
+        action="store_false",
+        default=constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS,
+        dest="matchPlotNullCalibrationDiagnostics",
+        help="Disable the ROCCO null-calibration and chromosome-budget diagnostic plot.",
     )
     parser.add_argument(
         "--match-threshold-z",
@@ -4828,12 +5239,12 @@ def _buildArgParser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--match-min-peak-score",
+        "--match-min-mean-signal",
         type=float,
-        default=constants.MATCHING_DEFAULT_MIN_PEAK_SCORE,
-        dest="matchMinPeakScore",
+        default=constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
+        dest="matchMinMeanSignal",
         help=(
-            "Minimum ROCCO signalValue required to keep a peak in the exported result."
+            "Minimum mean signalValue required to keep a peak in the exported result."
         ),
     )
     parser.add_argument(
@@ -4852,11 +5263,18 @@ def _buildArgParser() -> argparse.ArgumentParser:
         help="Weak one-sided Gaussian z-threshold used by broad ROCCO mode.",
     )
     parser.add_argument(
-        "--match-broad-max-gap-bp",
+        "--match-merge-tolerance-bp",
         type=int,
-        default=constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
-        dest="matchBroadMaxGapBP",
-        help="Maximum gap in bp considered for broad ROCCO parent merging.",
+        default=constants.MATCHING_DEFAULT_MERGE_TOLERANCE_BP,
+        dest="matchMergeToleranceBP",
+        help="Maximum separation in bp allowed when forming a broad ROCCO family.",
+    )
+    parser.add_argument(
+        "--match-max-region-bp",
+        type=int,
+        default=constants.MATCHING_DEFAULT_MAX_REGION_BP,
+        dest="matchMaxRegionBP",
+        help="Maximum broad ROCCO family width in bp.",
     )
     parser.add_argument(
         "--match-uncertainty-score-mode",
@@ -4904,7 +5322,10 @@ def _buildArgParser() -> argparse.ArgumentParser:
         choices=constants.LOGGING_PROGRESS_MODES,
         default=None,
         dest="progress",
-        help="Progress display mode. Progress bars are not used by this CLI.",
+        help=(
+            "ROCCO progress lines. `auto` follows console verbosity, `on` forces "
+            "updates, and `off` suppresses them."
+        ),
     )
     parser.add_argument("--verbose", action="store_true", help="Use verbose logging.")
     parser.add_argument(
@@ -4923,6 +5344,7 @@ def _buildArgParser() -> argparse.ArgumentParser:
 def main():
     parser = _buildArgParser()
     args = parser.parse_args()
+    cliVerbose2Set = bool(args.verbose2)
     cliVerbositySet = args.verbosity is not None or args.verbose or args.verbose2
     cliProgressSet = args.progress is not None
     if args.verbosity is not None and (args.verbose or args.verbose2):
@@ -4945,10 +5367,37 @@ def main():
             args.logFile = configLoggingArgs.logFile
     if args.progress is None:
         args.progress = constants.LOGGING_DEFAULT_PROGRESS
+    if cliVerbose2Set and not (cliProgressSet and args.progress == "off"):
+        args.progress = "on"
     args.verbose = args.verbosity in {"verbose", "debug"}
     args.verbose2 = args.verbosity == "debug"
 
     if args.matchBedGraph:
+        if args.matchResidualDurationBP is None:
+            parser.error(
+                "--match-residual-duration-bp is required with --match-bedGraph"
+            )
+        if args.matchFeatureDurationBP is None:
+            parser.error(
+                "--match-feature-duration-bp is required with --match-bedGraph"
+            )
+        if args.matchResidualDurationBP <= 0:
+            parser.error("--match-residual-duration-bp must be positive")
+        if args.matchFeatureDurationBP <= 0:
+            parser.error("--match-feature-duration-bp must be positive")
+        if args.matchNumRegionReplays <= 0:
+            parser.error("--match-num-region-replays must be positive")
+        if args.matchPeakMode in {"broad", "both"}:
+            if args.matchMergeToleranceBP is None:
+                parser.error(
+                    "--match-merge-tolerance-bp is required for broad peak calling"
+                )
+            if args.matchMaxRegionBP is None:
+                parser.error("--match-max-region-bp is required for broad peak calling")
+            if args.matchMergeToleranceBP <= 0:
+                parser.error("--match-merge-tolerance-bp must be positive")
+            if args.matchMaxRegionBP <= 0:
+                parser.error("--match-max-region-bp must be positive")
         if not os.path.exists(args.matchBedGraph):
             raise FileNotFoundError(
                 f"bedGraph file {args.matchBedGraph} couldn't be found."
@@ -4969,6 +5418,7 @@ def main():
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
             verbosity=args.verbosity,
+            progress=args.progress,
         )
         if resolvedLogPath is not None:
             _logCliMilestone("Canonical log: %s", resolvedLogPath)
@@ -4984,30 +5434,36 @@ def main():
             "Running post hoc ROCCO peak caller using state bedGraph %s...",
             args.matchBedGraph,
         )
-        outName = peaks.solveRocco(
+        artifacts = peaks.solveRocco(
             args.matchBedGraph,
+            int(args.matchResidualDurationBP),
+            int(args.matchFeatureDurationBP),
             uncertaintyBedGraphFile=uncertaintyBedGraph,
             numBootstrap=args.matchNumBootstrap,
+            numRegionReplays=args.matchNumRegionReplays,
+            shrinkChromosomeBudgets=args.matchShrinkChromosomeBudgets,
+            useLocalBootStrapRadius=args.matchUseLocalBootStrapRadius,
+            plotNullCalibrationDiagnostics=args.matchPlotNullCalibrationDiagnostics,
             thresholdZ=args.matchThresholdZ,
             nestedRoccoIters=args.matchNestedRoccoIters,
             nestedRoccoBudgetScale=args.matchNestedRoccoBudgetScale,
             exportFilterUncertaintyMultiplier=(
                 args.matchExportFilterUncertaintyMultiplier
             ),
-            minPeakScore=args.matchMinPeakScore,
+            minMeanSignal=args.matchMinMeanSignal,
             peakMode=args.matchPeakMode,
             broadWeakThresholdZ=args.matchBroadWeakThresholdZ,
-            broadMaxGapBP=args.matchBroadMaxGapBP,
+            mergeToleranceBP=args.matchMergeToleranceBP,
+            maxRegionBP=args.matchMaxRegionBP,
             uncertaintyScoreMode=args.matchUncertaintyScoreMode,
             uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
             randSeed=args.matchRandSeed,
-            verbose=bool(args.verbose or args.verbose2),
         )
-        logger.info("Finished post hoc ROCCO peak calling. Written to %s", outName)
+        logger.info("Finished post hoc ROCCO peak calling. Written to %s", artifacts)
         _logCliMilestone(
             "Consenrich post-hoc ROCCO done: output=%s elapsed=%.1fs",
-            outName,
+            artifacts,
             time.perf_counter() - matchStart,
         )
         sys.exit(0)
@@ -5018,6 +5474,7 @@ def main():
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
             verbosity=args.verbosity,
+            progress=args.progress,
         )
         _logCliMilestone(
             "No config file provided, run with `--config <path_to_config.yaml>`"
@@ -5033,6 +5490,7 @@ def main():
             verbose=bool(args.verbose),
             verbose2=bool(args.verbose2),
             verbosity=args.verbosity,
+            progress=args.progress,
         )
         _logCliMilestone("Config file %s does not exist.", args.config)
         _logCliMilestone(
@@ -5051,6 +5509,7 @@ def main():
         verbose=bool(args.verbose),
         verbose2=bool(args.verbose2),
         verbosity=args.verbosity,
+        progress=args.progress,
     )
     if resolvedLogPath is not None:
         _logCliMilestone("Canonical log: %s", resolvedLogPath)
@@ -5058,6 +5517,7 @@ def main():
     cliRunStart = time.perf_counter()
     config = readConfig(args.config)
     experimentName = config["experimentName"]
+    countingPreset = config.get("countingPreset")
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
     correlationLengthPath = _correlationLengthPath(str(experimentName))
     correlationLengthPlotPath = _correlationLengthPlotPath(str(experimentName))
@@ -5075,6 +5535,7 @@ def main():
     samArgs = config["samArgs"]
     matchingArgs = config["matchingArgs"]
     fitArgs = config["fitArgs"]
+    peakCallingEnabled = checkMatchingEnabled(matchingArgs)
     _configureCoreProcessNoiseWarmupDefaults(processArgs)
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     controlSources = _listOrEmpty(getattr(inputArgs, "controlSources", None))
@@ -5260,6 +5721,7 @@ def main():
     )
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
+    dependenceRadiusIntervals_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
     correlationLengthRow_: dict[str, Any] | None = None
     correlationLengthDiagnostics_: dict[str, Any] | None = None
@@ -5283,11 +5745,10 @@ def main():
     ):
         _logCliSubphase("Correlation length plot: %s", correlationLengthPlotPath)
     _logCliSubphase(
-        "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d roccoMetadata=%s",
+        "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d",
         int(outputArgs.maxNonTrackFileBytes),
         outputArgs.precisionDiagnosticDetail,
         int(outputArgs.maxPrecisionDiagnosticRowsPerChromosome),
-        matchingArgs.metadataDetail,
     )
     _logCliSubphase(
         "Run config: experiment=%s version=%s config=%s chromosomes=%d samples=%d",
@@ -5403,7 +5864,11 @@ def main():
             if str(countMode) in singleBinCountModes
         }
     )
-    if bool(smoothToFraglen_) and singleBinActiveCountModes:
+    if (
+        bool(smoothToFraglen_)
+        and singleBinActiveCountModes
+        and countingPreset is None
+    ):
         singleBinDisplayModes = [
             "center/midpoint" if mode == "center" else mode
             for mode in singleBinActiveCountModes
@@ -5448,6 +5913,18 @@ def main():
             controlCountModes,
         )
     ]
+    _warnCountingPresetSourceSemantics(
+        countingPreset,
+        treatmentSources,
+        treatmentBamInputModes,
+        "treatment",
+    )
+    _warnCountingPresetSourceSemantics(
+        countingPreset,
+        controlSources,
+        controlBamInputModes,
+        "control",
+    )
     treatmentNativeCountModes = [
         core._nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
     ]
@@ -5465,7 +5942,7 @@ def main():
     ):
         logger.info(
             "samParams.bamInputMode=auto and samParams.inferFragmentLength omitted: "
-            "single-end BAM sources will be extended by inferred fragment length."
+            "SE BAM input will be extended by xcorr inferred fragment length."
         )
     treatmentAllowLists, treatmentSelectedCellCounts, treatmentNormTempPaths = (
         _prepareFragmentsNormalizationMetadata(treatmentSources)
@@ -5474,7 +5951,6 @@ def main():
         _prepareFragmentsNormalizationMetadata(controlSources)
     )
 
-    peakCallingEnabled = checkMatchingEnabled(matchingArgs)
     if args.verbose:
         logger.info(f"peakCallingEnabled: {peakCallingEnabled}")
     scaleFactors = io_helpers._normalizeScaleFactorList(
@@ -5635,6 +6111,34 @@ def main():
                 characteristicFragmentLengthsControl,
             )
         ]
+
+    if args.verbose and countingPreset is not None:
+        _logResolvedCountingPresetSources(
+            countingPreset,
+            treatmentSources,
+            treatmentBamInputModes,
+            treatmentCountModes,
+            countExtendFrom5pBPTreatment,
+            characteristicFragmentLengthsTreatment,
+            "treatment",
+            normMethod_,
+            smoothToFraglen_,
+            samArgs,
+            scArgs,
+        )
+        _logResolvedCountingPresetSources(
+            countingPreset,
+            controlSources,
+            controlBamInputModes,
+            controlCountModes,
+            countExtendFrom5pBPControl,
+            characteristicFragmentLengthsControl,
+            "control",
+            normMethod_,
+            smoothToFraglen_,
+            samArgs,
+            scArgs,
+        )
 
     try:
         if controlsPresent:
@@ -5933,8 +6437,6 @@ def main():
                 or file_.endswith(".gappedPeak")
                 or file_.endswith(".narrowPeak.json")
                 or file_.endswith(".gappedPeak.json")
-                or file_.endswith(".narrowPeak.nested_rocco_subproblems.jsonl")
-                or file_.endswith(".gappedPeak.nested_rocco_subproblems.jsonl")
             ):
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
@@ -6644,6 +7146,7 @@ def main():
             centerStats = core.centerMBInPlace(
                 chromMat,
                 intervalSizeBP=intervalSizeBP,
+                filterWindowBP=countingArgs.centerMBWindowBP,
                 centerMBMethod=countingArgs.centerMBMethod,
             )
             logger.info(
@@ -7011,17 +7514,16 @@ def main():
         startsArr = np.asarray(starts, dtype=np.int64)
         endsArr = np.asarray(ends, dtype=np.int64)
         valid = (
-            np.isfinite(startsArr)
-            & np.isfinite(endsArr)
-            & (startsArr >= 0)
+            (startsArr >= 0)
             & (endsArr > startsArr)
             & (endsArr <= valuesArr.size)
         )
         out = np.full(startsArr.shape, np.nan, dtype=np.float64)
         if not np.any(valid):
             return out
-        finiteValues = np.where(np.isfinite(valuesArr), valuesArr, 0.0)
-        finiteCounts = np.asarray(np.isfinite(valuesArr), dtype=np.int64)
+        finiteValuesMask = np.isfinite(valuesArr)
+        finiteValues = np.where(finiteValuesMask, valuesArr, 0.0)
+        finiteCounts = np.asarray(finiteValuesMask, dtype=np.int64)
         prefixSum = np.empty(valuesArr.size + 1, dtype=np.float64)
         prefixCount = np.empty(valuesArr.size + 1, dtype=np.int64)
         prefixSum[0] = 0.0
@@ -7064,9 +7566,14 @@ def main():
         cachedMatrixPaths: Mapping[str, str],
     ) -> None:
         nonlocal correlationLengthDiagnostics_
-        nonlocal correlationLengthRow_, dependenceContextBP_, dependenceSpanIntervals_
+        nonlocal correlationLengthRow_, dependenceContextBP_
+        nonlocal dependenceRadiusIntervals_, dependenceSpanIntervals_
 
-        if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
+        if (
+            dependenceRadiusIntervals_ is not None
+            and dependenceSpanIntervals_ is not None
+            and dependenceContextBP_ is not None
+        ):
             return
 
         chromNames: list[str] = []
@@ -7119,6 +7626,7 @@ def main():
         )
         if int(depPoint) != expectedPoint:
             raise RuntimeError("correlation-radius tuple and BP diagnostic disagree")
+        dependenceRadiusIntervals_ = int(depPoint)
         dependenceSpanIntervals_ = int(
             math.ceil(workingSpanBP / float(intervalSizeBP))
         )
@@ -7621,7 +8129,6 @@ def main():
                     processPrecExp=None,
                     ECM_useObsPrecisionReweighting=False,
                     ECM_useProcessPrecisionReweighting=False,
-                    ECM_useAPN=False,
                 )
                 stateSmoothed, stateCovarSmoothed, _lagCov, _postResiduals = (
                     cconsenrich.cbackwardPassLevel(
@@ -7664,7 +8171,6 @@ def main():
                     processPrecExp=None,
                     ECM_useObsPrecisionReweighting=False,
                     ECM_useProcessPrecisionReweighting=False,
-                    ECM_useAPN=False,
                 )
                 stateSmoothed, stateCovarSmoothed, _lagCov, _postResiduals = (
                     cconsenrich.cbackwardPass(
@@ -8203,6 +8709,9 @@ def main():
     if backgroundBlockSizeBP_ < 0 or muncSizingNeedsDependence:
         _ensureSampledDependenceSpan(transformedMatrixCachePaths)
 
+    resolvedResidualDurationBP: int | None = None
+    resolvedFeatureDurationBP: int | None = None
+
     _logCliPhase(
         "MUNC prior setup",
         "chromosomes=%d seed_passes=%d EB=%s",
@@ -8693,7 +9202,6 @@ def main():
         pooledPriorVariance,
     )
 
-    stateDiagnosticsByChromosome: Dict[str, Any] = {}
     stateShrinkageEnabled = bool(
         getattr(
             outputArgs,
@@ -8714,6 +9222,11 @@ def main():
         )
     )
     writeStateShrunkTrack = bool(writeStateShrinkageTracks or useShrunkStateScores)
+    useUncertaintyCalibration = _uncertaintyCalibrationIsRequired(
+        uncertaintyCalibrationArgs.enabled,
+        outputArgs.writeUncertainty,
+        writeStateShrunkTrack,
+    )
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
@@ -8765,8 +9278,8 @@ def main():
     deleteBlockCalibrationCoverageRows: List[Mapping[str, Any]] = []
     runSummaryRows: List[Dict[str, Any]] = []
     segShrinkGenomeRequested = bool(
-        outputArgs.writeUncertainty
-        and uncertaintyCalibrationArgs.enabled
+        useUncertaintyCalibration
+        and len(chromosomePlans) >= 2
         and getattr(
             uncertaintyCalibrationArgs,
             "deleteBlockFactorModel",
@@ -9187,9 +9700,6 @@ def main():
             int(numSamples),
             int(np.ceil(numIntervals / float(blockLenIntervals_))),
         )
-        useUncertaintyCalibration = bool(
-            outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
-        )
         calibrationNeedsBackground = bool(
             useUncertaintyCalibration
             and fitArgs.fitBackground
@@ -9221,9 +9731,13 @@ def main():
             ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
             t_innerIters=fitArgs.t_innerIters,
             ECM_robustTNu=fitArgs.ECM_robustTNu,
+            ECM_processRobustTNu=fitArgs.ECM_processRobustTNu,
             ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
-            ECM_useAPN=fitArgs.ECM_useAPN,
+            ECM_scaleObsPrecisionToMedian=fitArgs.ECM_scaleObsPrecisionToMedian,
+            ECM_scaleProcessPrecisionToMedian=(
+                fitArgs.ECM_scaleProcessPrecisionToMedian
+            ),
             fitBackground=fitArgs.fitBackground,
             useNonnegativeBackground=fitArgs.useNonnegativeBackground,
             backgroundNegativePenaltyMultiplier=(
@@ -9469,11 +9983,11 @@ def main():
             int(procBoundaryHits.get("upper", 0)),
             int(procBoundaryHits.get("total", 0)),
         )
-        stateDiagnosticsByChromosome[chromosome] = {
-            "state_roughness": stateRoughness,
-            "precision_reweighting_boundary_hits": precisionBoundaryHits,
-        }
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
+        if not np.all(np.isfinite(P00_)) or np.any(P00_ < 0.0):
+            raise ArithmeticError(
+                "state covariance diagonal must be finite and nonnegative"
+            )
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
         calibrationResult = None
         calibrationModel = None
@@ -9511,9 +10025,15 @@ def main():
                 ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
                 t_innerIters=fitArgs.t_innerIters,
                 ECM_robustTNu=fitArgs.ECM_robustTNu,
+                ECM_processRobustTNu=fitArgs.ECM_processRobustTNu,
                 ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=fitArgs.ECM_useAPN,
+                ECM_scaleObsPrecisionToMedian=(
+                    fitArgs.ECM_scaleObsPrecisionToMedian
+                ),
+                ECM_scaleProcessPrecisionToMedian=(
+                    fitArgs.ECM_scaleProcessPrecisionToMedian
+                ),
                 fitBackground=fitArgs.fitBackground,
                 useNonnegativeBackground=fitArgs.useNonnegativeBackground,
                 backgroundNegativePenaltyMultiplier=(
@@ -9540,6 +10060,14 @@ def main():
                 f"consenrichOutput_{experimentName}_uncertaintyCalibration"
                 f".v{__version__}"
             )
+            calibrationReplayPath = (
+                os.path.join(
+                    pooledMuncCache.name,
+                    f"chrom_{c_:05d}_delete_block_calibration_replay.npz",
+                )
+                if segShrinkGenomeRequested
+                else None
+            )
             calibrationResult = uncertainty_module.calibrateChromosomeStateUncertainty(
                 matrixData=chromMat,
                 matrixMunc=muncMat,
@@ -9554,6 +10082,7 @@ def main():
                 outPrefix=calibrationPrefix,
                 diagnosticsLogPath=str(diagnosticLogPaths.delete_block_calibration),
                 chromosome=chromosome,
+                calibrationReplayPath=calibrationReplayPath,
             )
             calibrationModel = calibrationResult.model
             deleteBlockFactor = np.asarray(
@@ -9568,42 +10097,45 @@ def main():
                 calibrationResult.calibratedUncertainty,
                 dtype=np.float32,
             )
-            logger.info(
-                "Delete-block state uncertainty calibration applied for %s: "
-                "factorModel=%s deletionProbability=%s deletedObservations=%s "
-                "sdGlobal=%s sdMedian=%s sdMAD=%s",
-                chromosome,
-                str(deleteBlockLogFields.get("delete_block_factor_model") or "NA"),
-                _fmtDiagnosticFloat(
-                    deleteBlockLogFields.get("delete_block_deletion_probability")
-                ),
-                str(
-                    deleteBlockLogFields.get(
-                        "delete_block_deleted_observation_interval_total"
-                    )
-                    or "NA"
-                ),
-                _fmtDiagnosticFloat(
-                    deleteBlockLogFields.get("delete_block_sd_global")
-                ),
-                _fmtDiagnosticFloat(
-                    deleteBlockLogFields.get("delete_block_sd_median")
-                ),
-                _fmtDiagnosticFloat(deleteBlockLogFields.get("delete_block_sd_mad")),
-            )
+            if not segShrinkGenomeRequested:
+                logger.info(
+                    "Delete-block state uncertainty calibration applied for %s: "
+                    "factorModel=%s deletionProbability=%s deletedObservations=%s "
+                    "sdGlobal=%s sdMedian=%s sdMAD=%s",
+                    chromosome,
+                    str(
+                        deleteBlockLogFields.get("delete_block_factor_model") or "NA"
+                    ),
+                    _fmtDiagnosticFloat(
+                        deleteBlockLogFields.get("delete_block_deletion_probability")
+                    ),
+                    str(
+                        deleteBlockLogFields.get(
+                            "delete_block_deleted_observation_interval_total"
+                        )
+                        or "NA"
+                    ),
+                    _fmtDiagnosticFloat(
+                        deleteBlockLogFields.get("delete_block_sd_global")
+                    ),
+                    _fmtDiagnosticFloat(
+                        deleteBlockLogFields.get("delete_block_sd_median")
+                    ),
+                    _fmtDiagnosticFloat(
+                        deleteBlockLogFields.get("delete_block_sd_mad")
+                    ),
+                )
             if segShrinkGenomeRequested:
                 segShrinkDeferredUncertainty.append(
                     {
                         "chromosome": chromosome,
                         "intervals": np.asarray(intervals, dtype=np.int64).copy(),
-                        "fullP": np.asarray(P00_, dtype=np.float64).copy(),
-                        "model": dict(calibrationResult.model),
-                        "factor": deleteBlockFactor.copy(),
-                        "calibrated": np.asarray(
-                            calibrationResult.calibratedUncertainty,
-                            dtype=np.float32,
+                        "fullP": np.maximum(
+                            np.asarray(P00_, dtype=np.float64),
+                            float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
                         ),
-                        "summary": calibrationResult.summary.copy(),
+                        "model": dict(calibrationResult.model),
+                        "calibrationReplayPath": str(calibrationReplayPath),
                         "summaryRowIndex": len(runSummaryRows),
                     }
                 )
@@ -9632,13 +10164,7 @@ def main():
                 )
 
         if writeStateShrunkTrack:
-            shrinkVariance = np.ascontiguousarray(uncertaintyTrack, dtype=np.float32)
-            np.multiply(shrinkVariance, shrinkVariance, out=shrinkVariance)
-            np.maximum(
-                shrinkVariance,
-                np.float32(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-                out=shrinkVariance,
-            )
+            shrinkVariance = _stateShrinkageVariance(uncertaintyTrack)
             stateShrinkItem = {
                 "chromosome": chromosome,
                 "start": int(chromosomeStart),
@@ -9649,6 +10175,7 @@ def main():
             }
             stateShrinkDeferred.append(stateShrinkItem)
             stateShrinkDeferredByChromosome[chromosome] = stateShrinkItem
+            del shrinkVariance
 
         postFitDiagnostics = _summaryMapping(
             runDiagnostics.get("post_process_noise_fit")
@@ -9657,7 +10184,11 @@ def main():
             runDiagnostics.get("process_q_diagnostics")
         )
         observationRTrace = _summaryMapping(runDiagnostics.get("observation_r_trace"))
-        deleteBlockLogFields = _deleteBlockFactorLogFields(calibrationModel)
+        deleteBlockLogFields = (
+            {}
+            if segShrinkGenomeRequested
+            else _deleteBlockFactorLogFields(calibrationModel)
+        )
         _logCliMilestone(
             "Final %s: finalNLL=%s finalForwardNIS=%s "
             "deleteBlockFactorModel=%s deleteBlockSDGlobal=%s "
@@ -9709,7 +10240,7 @@ def main():
             }
         )
 
-        if outputArgs.writeUncertainty:
+        if outputArgs.writeUncertainty and not segShrinkGenomeRequested:
             df["uncertainty"] = uncertaintyTrack
         if stateDiagnosticTrackNames:
             outputTracks = (
@@ -9770,6 +10301,7 @@ def main():
             (col, suffix)
             for col, suffix in bedGraphTracks
             if suffix not in stateShrinkDeferredSuffixes
+            and not (segShrinkGenomeRequested and suffix == "uncertainty")
         ]
         cols_ = ["Chromosome", "Start", "End"] + [
             column for column, _suffix in immediateBedGraphTracks
@@ -9780,11 +10312,7 @@ def main():
         )
 
         writeStart = time.perf_counter()
-        tracksForChromosome = [
-            (col, suffix)
-            for col, suffix in immediateBedGraphTracks
-            if not (segShrinkGenomeRequested and suffix == "uncertainty")
-        ]
+        tracksForChromosome = immediateBedGraphTracks
         for col, suffix in tracksForChromosome:
             bedgraphPath = (
                 f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
@@ -9800,7 +10328,7 @@ def main():
                 header=False,
                 index=False,
                 mode="w" if c_ == 0 else "a",
-                float_format="%.4f",
+                float_format="%.5f",
                 lineterminator="\n",
             )
         chromosomeElapsed = time.perf_counter() - chromosomeStartTime
@@ -9833,6 +10361,22 @@ def main():
             chromosomeElapsed,
             int(len(bedGraphTracks)),
         )
+        if segShrinkGenomeRequested:
+            del calibrationResult, deleteBlockFactor, uncertaintyTrack
+
+    if peakCallingEnabled:
+        _ensureSampledDependenceSpan(transformedMatrixCachePaths)
+        if dependenceSpanIntervals_ is None:
+            raise RuntimeError("correlation working span did not resolve")
+        if dependenceRadiusIntervals_ is None:
+            raise RuntimeError("correlation radius did not resolve")
+        resolvedResidualDurationBP = int(
+            dependenceSpanIntervals_ * intervalSizeBP
+        )
+        #FFR: correlation length is not the ideal estimand for feature size candidates
+        resolvedFeatureDurationBP = int(
+            dependenceRadiusIntervals_ * intervalSizeBP
+        )
 
     _logCliPhase(
         "Outputs",
@@ -9851,129 +10395,231 @@ def main():
             "Uncertainty output: contigs=%d",
             int(len(segShrinkDeferredUncertainty)),
         )
-        finalizedSegShrink = segshrink_module.combinePreparedContigs(
-            segShrinkDeferredUncertainty,
-            positiveFloor=float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        pooledIntervalCount = int(
+            sum(
+                np.asarray(item["fullP"]).size
+                for item in segShrinkDeferredUncertainty
+            )
         )
-        uncertaintyBedGraphPath = (
-            f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
-        )
-        for idx, item in enumerate(finalizedSegShrink):
-            chromosome = str(item["chromosome"])
-            intervals = np.asarray(item["intervals"], dtype=np.int64)
-            calibrated = np.asarray(item["calibrated"], dtype=np.float32)
-            if writeStateShrunkTrack:
-                shrinkItem = stateShrinkDeferredByChromosome.get(chromosome)
-                if shrinkItem is not None:
-                    finalShrinkVariance = np.ascontiguousarray(
-                        calibrated,
-                        dtype=np.float32,
-                    )
-                    np.multiply(
-                        finalShrinkVariance,
-                        finalShrinkVariance,
-                        out=finalShrinkVariance,
-                    )
-                    np.maximum(
-                        finalShrinkVariance,
-                        np.float32(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-                        out=finalShrinkVariance,
-                    )
-                    shrinkItem["variance"] = finalShrinkVariance
-            itemModel = item["model"]
-            itemModel["delete_block_factor_distribution"] = (
-                _deleteBlockFactorDistributionFromArray(item["factor"])
-            )
-            itemDeleteBlockFields = _deleteBlockFactorSummaryFields(itemModel)
-            itemDeleteBlockLogFields = _deleteBlockFactorLogFields(itemModel)
-            dfUncertainty = pd.DataFrame(
-                {
-                    "Chromosome": chromosome,
-                    "Start": intervals,
-                    "End": intervals + intervalSizeBP,
-                    "uncertainty": calibrated,
-                }
-            ).sort_values(by=["Start", "End"], kind="mergesort")
-            dfUncertainty.to_csv(
-                uncertaintyBedGraphPath,
-                sep="\t",
-                header=False,
-                index=False,
-                mode="w" if idx == 0 else "a",
-                float_format="%.4f",
-                lineterminator="\n",
-            )
-            summaryRowIndex = item.get("summaryRowIndex")
-            if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(
-                runSummaryRows
-            ):
-                runSummaryRows[summaryRowIndex].update(itemDeleteBlockFields)
-            logger.info(
-                "deleteBlockFactor.finalized %s factorModel=%s "
-                "deletionProbability=%s deletedObservations=%s "
-                "sdMedian=%s sdMAD=%s sdQ05=%s sdQ95=%s",
-                chromosome,
-                str(
-                    itemDeleteBlockLogFields.get("delete_block_factor_model") or "NA"
-                ),
-                _fmtDiagnosticFloat(
-                    itemDeleteBlockLogFields.get("delete_block_deletion_probability")
-                ),
-                str(
-                    itemDeleteBlockLogFields.get(
-                        "delete_block_deleted_observation_interval_total"
-                    )
-                    or "NA"
-                ),
-                _fmtDiagnosticFloat(
-                    itemDeleteBlockLogFields.get("delete_block_sd_median")
-                ),
-                _fmtDiagnosticFloat(itemDeleteBlockLogFields.get("delete_block_sd_mad")),
-                _fmtDiagnosticFloat(
-                    itemDeleteBlockLogFields.get("delete_block_sd_q05")
-                ),
-                _fmtDiagnosticFloat(
-                    itemDeleteBlockLogFields.get("delete_block_sd_q95")
-                ),
-            )
-            if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
-                _appendMappingDiagnostics(
-                    diagnosticLogPaths.delete_block_calibration,
-                    recordType="model",
-                    event="delete_block_calibration.segShrink.processed_genome_model",
-                    chromosome=chromosome,
-                    values=itemModel,
-                )
-            blockFactors = _deleteBlockBlockFactorValues(item["factor"], itemModel)
-            if blockFactors.size:
-                _mergePrecisionReweightingHistogramSamples(
-                    deleteBlockCalibrationPlotSamples,
-                    pd.DataFrame({"factor": blockFactors}),
-                    sampleSize=getattr(
-                        outputArgs,
-                        "precisionReweightingHistogramSampleSize",
-                        constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
-                    ),
-                    columns=("factor",),
-                )
-            itemSummary = item.get("summary")
-            deleteBlockCalibrationCoverageRows.extend(
-                _deleteBlockCoverageRowsForPlot(
-                    chromosome=chromosome,
-                    calibrationModel=itemModel,
-                    summary=(
-                        itemSummary
-                        if isinstance(itemSummary, pd.DataFrame)
-                        else None
-                    ),
-                )
-            )
+        replayArchiveBytes = [
+            os.path.getsize(os.fspath(item["calibrationReplayPath"]))
+            for item in segShrinkDeferredUncertainty
+        ]
         logger.info(
-            "segShrink processed-genome finalization wrote uncertainty bedGraph for %d contigs: %s",
-            int(len(finalizedSegShrink)),
-            uncertaintyBedGraphPath,
+            "segShrink processed-genome barrier retainedState=O(total_intervals) "
+            "intervals=%d replayBytesTotal=%d replayBytesMax=%d",
+            pooledIntervalCount,
+            int(sum(replayArchiveBytes)),
+            int(max(replayArchiveBytes, default=0)),
         )
+        try:
+            finalizedSegShrink = segshrink_module.combinePreparedContigs(
+                segShrinkDeferredUncertainty,
+                positiveFloor=float(constants.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            )
+        finally:
+            segShrinkDeferredUncertainty.clear()
+        finalizedContigCount = int(len(finalizedSegShrink))
+        uncertaintyBedGraphPath = None
+        if outputArgs.writeUncertainty:
+            uncertaintyBedGraphPath = (
+                f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
+            )
+        try:
+            for idx, item in enumerate(finalizedSegShrink):
+                chromosome = str(item["chromosome"])
+                intervals = np.asarray(item["intervals"], dtype=np.int64)
+                calibrated = np.asarray(item["calibrated"], dtype=np.float32)
+                if writeStateShrunkTrack:
+                    shrinkItem = stateShrinkDeferredByChromosome.get(chromosome)
+                    if shrinkItem is not None:
+                        finalShrinkVariance = _stateShrinkageVariance(calibrated)
+                        shrinkItem["variance"] = finalShrinkVariance
+                        del finalShrinkVariance
+                itemModel = item["model"]
+                itemModel["delete_block_factor_distribution"] = (
+                    _deleteBlockFactorDistributionFromArray(item["factor"])
+                )
+                itemSummary = item["summary"]
+                if not isinstance(itemSummary, pd.DataFrame):
+                    raise RuntimeError("processed-genome calibration summary is not tabular")
+                itemDeleteBlockFields = _deleteBlockFactorSummaryFields(itemModel)
+                itemDeleteBlockLogFields = _deleteBlockFactorLogFields(itemModel)
+                if uncertaintyBedGraphPath is not None:
+                    dfUncertainty = pd.DataFrame(
+                        {
+                            "Chromosome": chromosome,
+                            "Start": intervals,
+                            "End": intervals + intervalSizeBP,
+                            "uncertainty": calibrated,
+                        }
+                    ).sort_values(by=["Start", "End"], kind="mergesort")
+                    dfUncertainty.to_csv(
+                        uncertaintyBedGraphPath,
+                        sep="\t",
+                        header=False,
+                        index=False,
+                        mode="w" if idx == 0 else "a",
+                        float_format="%.5f",
+                        lineterminator="\n",
+                    )
+                    del dfUncertainty
+                summaryRowIndex = item["summaryRowIndex"]
+                if 0 <= summaryRowIndex < len(runSummaryRows):
+                    runSummaryRows[summaryRowIndex].update(itemDeleteBlockFields)
+                if bool(getattr(uncertaintyCalibrationArgs, "writeDiagnostics", True)):
+                    _appendPooledDeleteBlockDiagnostics(
+                        diagnosticLogPaths.delete_block_calibration,
+                        chromosome,
+                        itemSummary,
+                        itemModel,
+                    )
+                targetCalibration = _summaryMapping(
+                    itemModel.get("target_calibration")
+                )
+                selectedTarget = _summaryNumber(
+                    targetCalibration.get("uncertainty_track_scale_target")
+                )
+                if selectedTarget is None:
+                    selectedTarget = _summaryNumber(itemModel.get("global_factor_target"))
+                targetBounds = targetCalibration.get("bounds", ())
+                selectedBound: Mapping[str, Any] = {}
+                if isinstance(targetBounds, Sequence) and not isinstance(
+                    targetBounds, (str, bytes)
+                ):
+                    boundMappings = [
+                        bound for bound in targetBounds if isinstance(bound, Mapping)
+                    ]
+                    if boundMappings:
+                        selectedBound = max(
+                            boundMappings,
+                            key=lambda bound: float(bound.get("target", 0.0)),
+                        )
+                        if selectedTarget is None:
+                            selectedTarget = _summaryNumber(selectedBound.get("target"))
+                targetZ = _summaryNumber(
+                    targetCalibration.get("uncertainty_track_scale_target_z")
+                )
+                targetQ = _summaryNumber(
+                    targetCalibration.get("uncertainty_track_scale_q")
+                )
+                if targetQ is None:
+                    targetQ = _summaryNumber(selectedBound.get("q"))
+                targetBoundAvailable = bool(
+                    targetCalibration.get(
+                        "uncertainty_track_scale_bound_available",
+                        False,
+                    )
+                )
+                targetBoundScope = targetCalibration.get(
+                    "uncertainty_track_scale_bound_scope"
+                )
+                if targetBoundScope is None:
+                    targetBoundScope = selectedBound.get("bound_scope")
+                perturbationRows = itemModel.get("state_uncertainty_coverage", ())
+                selectedCoverage: Mapping[str, Any] = {}
+                if isinstance(perturbationRows, Sequence) and not isinstance(
+                    perturbationRows, (str, bytes)
+                ):
+                    overallRows = [
+                        row
+                        for row in perturbationRows
+                        if isinstance(row, Mapping)
+                        and str(row.get("stratum", "")) == "overall"
+                    ]
+                    if overallRows:
+                        selectedCoverage = (
+                            min(
+                                overallRows,
+                                key=lambda row: abs(
+                                    float(row.get("target", 0.0))
+                                    - float(selectedTarget)
+                                ),
+                            )
+                            if selectedTarget is not None
+                            else max(
+                                overallRows,
+                                key=lambda row: float(row.get("target", 0.0)),
+                            )
+                        )
+                logger.info(
+                    "deleteBlockFactor.finalized %s factorModel=%s "
+                    "deletionProbability=%s deletedObservations=%s "
+                    "sdMedian=%s sdMAD=%s sdQ05=%s sdQ95=%s "
+                    "selectedTarget=%s targetZ=%s targetQ=%s targetBoundAvailable=%s "
+                    "targetBoundScope=%s "
+                    "trackSDScale=%s perturbationCoverageRaw=%s "
+                    "perturbationCoverageFinal=%s perturbationRows=%s",
+                    chromosome,
+                    str(
+                        itemDeleteBlockLogFields.get("delete_block_factor_model") or "NA"
+                    ),
+                    _fmtDiagnosticFloat(
+                        itemDeleteBlockLogFields.get("delete_block_deletion_probability")
+                    ),
+                    str(
+                        itemDeleteBlockLogFields.get(
+                            "delete_block_deleted_observation_interval_total"
+                        )
+                        or "NA"
+                    ),
+                    _fmtDiagnosticFloat(
+                        itemDeleteBlockLogFields.get("delete_block_sd_median")
+                    ),
+                    _fmtDiagnosticFloat(
+                        itemDeleteBlockLogFields.get("delete_block_sd_mad")
+                    ),
+                    _fmtDiagnosticFloat(
+                        itemDeleteBlockLogFields.get("delete_block_sd_q05")
+                    ),
+                    _fmtDiagnosticFloat(
+                        itemDeleteBlockLogFields.get("delete_block_sd_q95")
+                    ),
+                    _fmtDiagnosticFloat(selectedTarget),
+                    _fmtDiagnosticFloat(targetZ),
+                    _fmtDiagnosticFloat(targetQ),
+                    str(targetBoundAvailable),
+                    str(targetBoundScope or "NA"),
+                    _fmtDiagnosticFloat(
+                        targetCalibration.get("uncertainty_track_scale")
+                    ),
+                    _fmtDiagnosticFloat(selectedCoverage.get("coverage_before")),
+                    _fmtDiagnosticFloat(selectedCoverage.get("coverage_after")),
+                    str(_summaryInt(selectedCoverage.get("n")) or "NA"),
+                )
+                blockFactors = _deleteBlockBlockFactorValues(item["factor"], itemModel)
+                if blockFactors.size:
+                    _mergePrecisionReweightingHistogramSamples(
+                        deleteBlockCalibrationPlotSamples,
+                        pd.DataFrame({"factor": blockFactors}),
+                        sampleSize=getattr(
+                            outputArgs,
+                            "precisionReweightingHistogramSampleSize",
+                            constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE,
+                        ),
+                        columns=("factor",),
+                    )
+                deleteBlockCalibrationCoverageRows.extend(
+                    _deleteBlockCoverageRowsForPlot(
+                        chromosome=chromosome,
+                        calibrationModel=itemModel,
+                        summary=itemSummary,
+                    )
+                )
+                item.pop("fullP")
+                item.pop("factor")
+                item.pop("calibrated")
+                del blockFactors, calibrated, intervals
+        finally:
+            finalizedSegShrink.clear()
+        if uncertaintyBedGraphPath is not None:
+            logger.info(
+                "segShrink processed-genome finalization wrote uncertainty bedGraph for %d contigs: %s",
+                finalizedContigCount,
+                uncertaintyBedGraphPath,
+            )
 
+    stateShrinkDeferredByChromosome.clear()
     if writeStateShrunkTrack:
         if not stateShrinkDeferred:
             raise ValueError("state shrinkage requested but no contigs were processed")
@@ -10022,68 +10668,74 @@ def main():
             stateShrinkPrior.metadata
         )
         shrinkOutputTracks = _stateShrinkageOutputTracks(writeStateShrinkageTracks)
-        for idx, item in enumerate(stateShrinkDeferred):
-            chromosome = str(item["chromosome"])
-            intervalCount = int(item["intervals"])
-            intervals = np.arange(
-                int(item["start"]),
-                int(item["start"]) + intervalCount * intervalSizeBP,
-                intervalSizeBP,
-                dtype=np.int64,
-            )
-            stateShrinkageResult = shrinkState.applyStateShrinkagePrior(
-                item["state"],
-                item["variance"],
-                stateShrinkPrior,
-                stateShrinkageSpikeOddsMultiplier=getattr(
-                    outputArgs,
-                    "stateShrinkageSpikeOddsMultiplier",
-                    constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER,
-                ),
-            )
-            stateDiagnosticsByChromosome.setdefault(chromosome, {})[
-                "state_shrinkage"
-            ] = _jsonDiagnosticValue(dict(stateShrinkageResult.metadata))
-            summaryRowIndex = item.get("summaryRowIndex")
-            if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(
-                runSummaryRows
-            ):
-                runSummaryRows[summaryRowIndex].update(
-                    _stateShrinkageSummaryFields(stateShrinkageResult.metadata)
+        try:
+            for idx, item in enumerate(stateShrinkDeferred):
+                chromosome = str(item["chromosome"])
+                intervalCount = int(item["intervals"])
+                intervals = np.arange(
+                    int(item["start"]),
+                    int(item["start"]) + intervalCount * intervalSizeBP,
+                    intervalSizeBP,
+                    dtype=np.int64,
                 )
-            dfShrink = pd.DataFrame(
-                {
-                    "Chromosome": chromosome,
-                    "Start": intervals,
-                    "End": intervals + intervalSizeBP,
-                    "stateShrunk": stateShrinkageResult.shrunkState,
-                    "stateShrunkUncertainty": stateShrinkageResult.posteriorSd,
-                }
-            )
-            if writeStateShrinkageTracks:
-                dfShrink["stateSpikeProp"] = stateShrinkageResult.spikeProp
-            dfShrink = dfShrink.sort_values(
-                by=["Start", "End"],
-                kind="mergesort",
-            )
-            for col, suffix in shrinkOutputTracks:
-                bedgraphPath = (
-                    f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
+                stateShrinkageResult = shrinkState.applyStateShrinkagePrior(
+                    item["state"],
+                    item["variance"],
+                    stateShrinkPrior,
+                    stateShrinkageSpikeOddsMultiplier=getattr(
+                        outputArgs,
+                        "stateShrinkageSpikeOddsMultiplier",
+                        constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_ODDS_MULTIPLIER,
+                    ),
                 )
-                logger.info(
-                    "%s: writing genome-ordered state-shrinkage chunk to: %s",
-                    chromosome,
-                    bedgraphPath,
+                summaryRowIndex = item.get("summaryRowIndex")
+                if isinstance(summaryRowIndex, int) and 0 <= summaryRowIndex < len(
+                    runSummaryRows
+                ):
+                    runSummaryRows[summaryRowIndex].update(
+                        _stateShrinkageSummaryFields(stateShrinkageResult.metadata)
+                    )
+                dfShrink = pd.DataFrame(
+                    {
+                        "Chromosome": chromosome,
+                        "Start": intervals,
+                        "End": intervals + intervalSizeBP,
+                        "stateShrunk": stateShrinkageResult.shrunkState,
+                        "stateShrunkUncertainty": stateShrinkageResult.posteriorSd,
+                    }
                 )
-                dfShrink[["Chromosome", "Start", "End", col]].to_csv(
-                    bedgraphPath,
-                    sep="\t",
-                    header=False,
-                    index=False,
-                    mode="w" if idx == 0 else "a",
-                    float_format="%.4f",
-                    lineterminator="\n",
+                if writeStateShrinkageTracks:
+                    dfShrink["stateSpikeProp"] = stateShrinkageResult.spikeProp
+                dfShrink = dfShrink.sort_values(
+                    by=["Start", "End"],
+                    kind="mergesort",
                 )
+                for col, suffix in shrinkOutputTracks:
+                    bedgraphPath = (
+                        f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
+                    )
+                    logger.info(
+                        "%s: writing genome-ordered state-shrinkage chunk to: %s",
+                        chromosome,
+                        bedgraphPath,
+                    )
+                    dfShrink[["Chromosome", "Start", "End", col]].to_csv(
+                        bedgraphPath,
+                        sep="\t",
+                        header=False,
+                        index=False,
+                        mode="w" if idx == 0 else "a",
+                        float_format="%.5f",
+                        lineterminator="\n",
+                    )
+                item.pop("state")
+                item.pop("variance")
+                del dfShrink, intervals, stateShrinkageResult
+        finally:
+            stateShrinkDeferred.clear()
+            del item, stateShrinkItem
+            if segShrinkGenomeRequested:
+                del shrinkItem
 
     if replicateGainAccumulator is not None:
         gainRows = _replicateGainSummaryRows(
@@ -10217,6 +10869,10 @@ def main():
 
     if peakCallingEnabled:
         try:
+            if resolvedResidualDurationBP is None:
+                raise RuntimeError("correlation working span did not resolve")
+            if resolvedFeatureDurationBP is None:
+                raise RuntimeError("correlation radius did not resolve")
             stateScoreSuffix = "state"
             uncertaintyScoreSuffix = "uncertainty"
             exportSignalSuffix = "stateShrunk" if useShrunkStateScores else "state"
@@ -10256,13 +10912,20 @@ def main():
                     "matchingParams.useShrunkStateScores requires "
                     f"stateShrunk bedGraph {exportSignalBedGraphPath}."
                 )
-            outName, roccoSummary = peaks.solveRocco(
+            artifacts = peaks.solveRocco(
                 stateBedGraphPath,
+                resolvedResidualDurationBP,
+                resolvedFeatureDurationBP,
                 uncertaintyBedGraphFile=uncertaintyBedGraphPath,
                 exportSignalBedGraphFile=exportSignalBedGraphPath,
                 numBootstrap=int(matchingArgs.numBootstrap),
+                numRegionReplays=int(matchingArgs.numRegionReplays),
+                shrinkChromosomeBudgets=matchingArgs.shrinkChromosomeBudgets,
+                useLocalBootStrapRadius=matchingArgs.useLocalBootStrapRadius,
+                plotNullCalibrationDiagnostics=(
+                    outputArgs.plotNullCalibrationDiagnostics
+                ),
                 thresholdZ=float(matchingArgs.thresholdZ),
-                dependenceSpan=matchingArgs.dependenceSpan,
                 gamma=matchingArgs.gamma,
                 selectionPenalty=matchingArgs.selectionPenalty,
                 gammaScale=float(matchingArgs.gammaScale),
@@ -10271,74 +10934,19 @@ def main():
                 exportFilterUncertaintyMultiplier=float(
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
-                minPeakScore=matchingArgs.minPeakScore,
+                minMeanSignal=matchingArgs.minMeanSignal,
                 peakMode=matchingArgs.peakMode,
                 broadWeakThresholdZ=float(matchingArgs.broadWeakThresholdZ),
-                broadMaxGapBP=matchingArgs.broadMaxGapBP,
+                mergeToleranceBP=matchingArgs.mergeToleranceBP,
+                maxRegionBP=matchingArgs.maxRegionBP,
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,
                 randSeed=matchingArgs.randSeed,
-                verbose=bool(args.verbose),
-                metadataDetail=matchingArgs.metadataDetail,
                 maxNonTrackFileBytes=outputArgs.maxNonTrackFileBytes,
-                stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
-                returnSummary=True,
             )
 
-            logger.info("Finished ROCCO peak calling. Written to %s", outName)
-            if bool(outputArgs.cutoffReport):
-                try:
-                    roccoFormatSummaries = roccoSummary.get("per_format", {})
-                    if not isinstance(roccoFormatSummaries, Mapping):
-                        roccoFormatSummaries = {}
-                    roccoNarrowSummary = (
-                        roccoFormatSummaries.get("narrowPeak")
-                        if matchingArgs.peakMode == "both"
-                        else roccoSummary
-                        if matchingArgs.peakMode == "narrow"
-                        else None
-                    )
-                    roccoNarrowPeakPath = roccoSummary.get("narrowPeak_path")
-                    cutoffReportDir = peaks.solveRoccoCutoffReport(
-                        stateBedGraphPath,
-                        uncertaintyBedGraphFile=uncertaintyBedGraphPath,
-                        exportSignalBedGraphFile=exportSignalBedGraphPath,
-                        numBootstrap=int(matchingArgs.numBootstrap),
-                        thresholdZ=float(matchingArgs.thresholdZ),
-                        dependenceSpan=matchingArgs.dependenceSpan,
-                        gamma=matchingArgs.gamma,
-                        selectionPenalty=matchingArgs.selectionPenalty,
-                        gammaScale=float(matchingArgs.gammaScale),
-                        nestedRoccoIters=int(matchingArgs.nestedRoccoIters),
-                        nestedRoccoBudgetScale=float(
-                            matchingArgs.nestedRoccoBudgetScale
-                        ),
-                        exportFilterUncertaintyMultiplier=float(
-                            matchingArgs.exportFilterUncertaintyMultiplier
-                        ),
-                        minPeakScore=matchingArgs.minPeakScore,
-                        uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
-                        uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
-                        blacklistBedFile=genomeArgs.blacklistFile,
-                        randSeed=matchingArgs.randSeed,
-                        baselineNarrowPeakFile=(
-                            None
-                            if roccoNarrowPeakPath is None
-                            else str(roccoNarrowPeakPath)
-                        ),
-                        baselineSummary=roccoNarrowSummary,
-                    )
-                    logger.info(
-                        "Finished ROCCO cutoff report. Written to %s",
-                        cutoffReportDir,
-                    )
-                except Exception as cutoffEx:
-                    logger.warning(
-                        "ROCCO cutoff report raised an exception:\n\n\t%s\n"
-                        "Skipping cutoff-report step...",
-                        cutoffEx,
-                    )
+            _logCliMilestone("ROCCO peak calling done: output=%s", artifacts)
         except Exception as ex_:
             logger.warning(
                 f"ROCCO peak calling raised an exception:\n\n\t{ex_}\n"
