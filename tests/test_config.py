@@ -261,21 +261,6 @@ def _case_readConfigGenericCountTransform(
     assert countingArgs.transformOutputOffset == pytest.approx(-0.1)
     assert countingArgs.transformShape == pytest.approx(0.75)
 
-    legacyYaml = """
-    experimentName: legacyLogTransform
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    countingParams.logOffset: 4.0
-    countingParams.logMult: 1.4426950408889634
-    """
-    legacyPath = writeConfigFile(tmp_path, "config_legacy_transform.yaml", legacyYaml)
-    legacyParsed = readConfig(str(legacyPath))
-    legacyCountingArgs = legacyParsed["countingArgs"]
-
-    assert legacyCountingArgs.transformMethod == "log"
-    assert legacyCountingArgs.transformInputOffset == pytest.approx(4.0)
-    assert legacyCountingArgs.transformOutputScale == pytest.approx(1.4426950408889634)
-
     anscombeYaml = """
     experimentName: anscombeTransform
     inputParams.bamFiles: [smallTest.bam]
@@ -771,10 +756,6 @@ def test_replicateVarianceHeterogeneityWarningPolicy(tmp_path, caplog):
     assert "adjustedPValue=0.01" in strongMessage
     assert f"diagnosticFile={diagnosticPath.resolve()}" in strongMessage
     assert "replicates exhibit blockwise variance heterogeneity" in strongMessage
-    assert (
-        "does not establish that global biological exchangeability is invalid"
-        in strongMessage
-    )
 
 
 def test_replicate_exchangeability_plot_smoke(tmp_path):
@@ -812,10 +793,11 @@ def _case_readConfigDottedAndNestedEquivalent(
     genomeParams.excludeChroms: [chrM]
     countingParams.intervalSizeBP: 50
     countingParams.centerMBMethod: savgol
+    countingParams.centerMBWindowBP: 1000000
     samParams.defaultCountMode: ffp-center
     outputParams.plotOptimizationPath: false
     outputParams.plotCorrelationLength: false
-    outputParams.cutoffReport: true
+    outputParams.plotNullCalibrationDiagnostics: false
     outputParams.writeRunSummary: false
     outputParams.precisionDiagnosticDetail: sampled
     outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
@@ -838,11 +820,13 @@ def _case_readConfigDottedAndNestedEquivalent(
     observationParams.dependenceMinFinitePairCoverage: 0.65
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
-    matchingParams.metadataDetail: full
-    matchingParams.minPeakScore: 7.5
+    matchingParams.numRegionReplays: 17
+    matchingParams.useLocalBootStrapRadius: false
+    matchingParams.minMeanSignal: 7.5
     matchingParams.peakMode: broad
     matchingParams.broadWeakThresholdZ: 1.1
-    matchingParams.broadMaxGapBP: 12000
+    matchingParams.mergeToleranceBP: 12000
+    matchingParams.maxRegionBP: 50000
     loggingParams.verbosity: debug
     loggingParams.progress: off
     loggingParams.logFile: runEvents.jsonl
@@ -861,12 +845,13 @@ def _case_readConfigDottedAndNestedEquivalent(
     countingParams:
       intervalSizeBP: 50
       centerMBMethod: savgol
+      centerMBWindowBP: 1000000
     samParams:
       defaultCountMode: ffp-center
     outputParams:
       plotOptimizationPath: false
       plotCorrelationLength: false
-      cutoffReport: true
+      plotNullCalibrationDiagnostics: false
       writeRunSummary: false
       precisionDiagnosticDetail: sampled
       maxPrecisionDiagnosticRowsPerChromosome: 7
@@ -891,11 +876,13 @@ def _case_readConfigDottedAndNestedEquivalent(
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
-      metadataDetail: full
-      minPeakScore: 7.5
+      numRegionReplays: 17
+      useLocalBootStrapRadius: false
+      minMeanSignal: 7.5
       peakMode: broad
       broadWeakThresholdZ: 1.1
-      broadMaxGapBP: 12000
+      mergeToleranceBP: 12000
+      maxRegionBP: 50000
     loggingParams:
       verbosity: debug
       progress: off
@@ -944,6 +931,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert countingDotted.intervalSizeBP == countingNested.intervalSizeBP
     assert countingDotted.centerMBMethod == "savgol"
     assert countingNested.centerMBMethod == "savgol"
+    assert countingDotted.centerMBWindowBP == 1_000_000
+    assert countingNested.centerMBWindowBP == 1_000_000
 
     observationDotted = configDotted["observationArgs"]
     observationNested = configNested["observationArgs"]
@@ -974,8 +963,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert outputNested.plotOptimizationPath is False
     assert outputDotted.plotCorrelationLength is False
     assert outputNested.plotCorrelationLength is False
-    assert outputDotted.cutoffReport is True
-    assert outputNested.cutoffReport is True
+    assert outputDotted.plotNullCalibrationDiagnostics is False
+    assert outputNested.plotNullCalibrationDiagnostics is False
     assert outputDotted.writeRunSummary is False
     assert outputNested.writeRunSummary is False
     assert outputDotted.precisionDiagnosticDetail == "sampled"
@@ -1000,8 +989,6 @@ def _case_readConfigDottedAndNestedEquivalent(
     samNested = configNested["samArgs"]
     matchingDotted = configDotted["matchingArgs"]
     matchingNested = configNested["matchingArgs"]
-    assert matchingDotted.metadataDetail == "full"
-    assert matchingNested.metadataDetail == "full"
 
     assert type(samDotted) is type(samNested)
     assert type(matchingDotted) is type(matchingNested)
@@ -1027,14 +1014,20 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert matchingNested.uncertaintyScoreMode == "lower_confidence"
     assert matchingDotted.uncertaintyScoreZ == pytest.approx(1.25)
     assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
-    assert matchingDotted.minPeakScore == pytest.approx(7.5)
-    assert matchingNested.minPeakScore == pytest.approx(7.5)
+    assert matchingDotted.numRegionReplays == 17
+    assert matchingNested.numRegionReplays == 17
+    assert matchingDotted.useLocalBootStrapRadius is False
+    assert matchingNested.useLocalBootStrapRadius is False
+    assert matchingDotted.minMeanSignal == pytest.approx(7.5)
+    assert matchingNested.minMeanSignal == pytest.approx(7.5)
     assert matchingDotted.peakMode == "broad"
     assert matchingNested.peakMode == "broad"
     assert matchingDotted.broadWeakThresholdZ == pytest.approx(1.1)
     assert matchingNested.broadWeakThresholdZ == pytest.approx(1.1)
-    assert matchingDotted.broadMaxGapBP == 12000
-    assert matchingNested.broadMaxGapBP == 12000
+    assert matchingDotted.mergeToleranceBP == 12000
+    assert matchingNested.mergeToleranceBP == 12000
+    assert matchingDotted.maxRegionBP == 50000
+    assert matchingNested.maxRegionBP == 50000
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -1339,6 +1332,193 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         is constants.OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG
         is True
     )
+    assert parsed["matchingArgs"].shrinkChromosomeBudgets is True
+
+
+def _case_readConfigCountingPresets(
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    baseConfig = {
+        "experimentName": "countingPresets",
+        "inputParams": {"bamFiles": ["smallTest.bam"]},
+        "genomeParams": {"name": "testGenome"},
+    }
+    baseSnapshot = json.loads(json.dumps(baseConfig))
+    genericParsed = readConfig(baseConfig)
+
+    assert genericParsed["countingPreset"] is None
+    assert genericParsed["samArgs"].bamInputMode == constants.SAM_DEFAULT_BAM_INPUT_MODE
+    assert genericParsed["samArgs"].defaultCountMode == constants.SAM_DEFAULT_COUNT_MODE
+    assert genericParsed["countingArgs"].normMethod == constants.COUNTING_DEFAULT_NORM_METHOD
+    assert baseConfig == baseSnapshot
+
+    expectedRows = {
+        "atac": ("reads", "cutsite", 4, 5, 0, 30, -1, 1000, 3844),
+        "chip-se": ("reads", "coverage", 0, 0, 1, 30, -1, 1000, 3844),
+        "chip-pe": ("fragments", "coverage", 0, 0, 0, 30, 1, 1000, 3844),
+        "dnase": ("auto", "fiveprime", 0, 0, 0, 30, 1, 1000, 3844),
+        "cut-and-run": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
+        "cut-and-tag": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
+    }
+    for countingPreset, expected in expectedRows.items():
+        presetConfig = {**baseConfig, "countingPreset": countingPreset}
+        presetSnapshot = json.loads(json.dumps(presetConfig))
+        parsed = readConfig(presetConfig)
+        samArgs = parsed["samArgs"]
+        resolved = (
+            samArgs.bamInputMode,
+            samArgs.defaultCountMode,
+            samArgs.shiftForward5p,
+            samArgs.shiftReverse5p,
+            samArgs.inferFragmentLength,
+            samArgs.minMappingQuality,
+            samArgs.minTemplateLength,
+            samArgs.maxInsertSize,
+            samArgs.samFlagExclude,
+        )
+        assert resolved == expected, countingPreset
+        assert parsed["countingPreset"] == countingPreset
+        assert parsed["countingArgs"].normMethod == "CPM"
+        assert parsed["scArgs"].defaultCountMode == expected[1]
+        assert parsed["observationArgs"].smoothToFraglen is False
+        assert samArgs.oneReadPerBin == 0
+        assert samArgs.extendFrom5pBP is None
+        assert (
+            parsed["countingArgs"].intervalSizeBP
+            == genericParsed["countingArgs"].intervalSizeBP
+        )
+        assert parsed["countingArgs"].centerMB == genericParsed["countingArgs"].centerMB
+        assert presetConfig == presetSnapshot
+
+    overrideParsed = readConfig(
+        {
+            **baseConfig,
+            "countingPreset": "atac",
+            "inputParams": {
+                "samples": [
+                    {
+                        "path": "smallTest.bam",
+                        "format": "bam",
+                        "countMode": "center",
+                        "bamInputMode": "read1",
+                    }
+                ]
+            },
+            "samParams": {
+                "bamInputMode": "fragments",
+                "defaultCountMode": "coverage",
+                "minMappingQuality": 7,
+                "shiftForward5p": 0,
+            },
+            "countingParams": {"normMethod": "RPKM", "scaleFactors": [0.25]},
+            "scParams": {"defaultCountMode": "center"},
+            "observationParams": {"smoothToFraglen": True},
+        }
+    )
+    overrideSource = overrideParsed["inputArgs"].treatmentSources[0]
+    assert overrideParsed["samArgs"].bamInputMode == "fragments"
+    assert overrideParsed["samArgs"].defaultCountMode == "coverage"
+    assert overrideParsed["samArgs"].minMappingQuality == 7
+    assert overrideParsed["samArgs"].shiftForward5p == 0
+    assert overrideParsed["countingArgs"].normMethod == "RPKM"
+    assert overrideParsed["countingArgs"].scaleFactors == [0.25]
+    assert overrideParsed["scArgs"].defaultCountMode == "center"
+    assert overrideParsed["observationArgs"].smoothToFraglen is True
+    assert overrideSource.bamInputMode == "read1"
+    assert overrideSource.countMode == "center"
+
+    for invalidPreset in ("ATAC", "chip_pe", "", 1):
+        with pytest.raises(ValueError, match="countingPreset"):
+            readConfig({**baseConfig, "countingPreset": invalidPreset})
+    with pytest.raises(ValueError, match="countingPreset: atac"):
+        readConfig({**baseConfig, "configuration": "atac"})
+    with pytest.raises(ValueError, match="Configuration collision"):
+        readConfig(
+            {
+                **baseConfig,
+                "countingPreset": "atac",
+                "samParams": {"defaultCountMode": "coverage"},
+                "samParams.defaultCountMode": "cutsite",
+            }
+        )
+    with pytest.raises(ValueError, match="countingParams.normMethod"):
+        readConfig(
+            {
+                **baseConfig,
+                "countingPreset": "atac",
+                "countingParams": {"normMethod": "unsupported"},
+            }
+        )
+
+    pairedSource = consenrich_core.inputSource(path="paired.bam", sourceKind="BAM")
+    monkeypatch.setattr(
+        consenrich_core,
+        "_isAlignmentSourcePairedEnd",
+        lambda _path: True,
+    )
+    with caplog.at_level(logging.WARNING):
+        consenrich_cli._warnCountingPresetSourceSemantics(
+            "chip-se", [pairedSource, pairedSource], ["reads", "reads"], "treatment"
+        )
+    assert caplog.text.count("mates are extended independently") == 1
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING):
+        consenrich_cli._warnCountingPresetSourceSemantics(
+            "chip-se", [pairedSource], ["fragments"], "treatment"
+        )
+    assert "counts proper templates rather than extending mates independently" in caplog.text
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING):
+        consenrich_cli._warnCountingPresetSourceSemantics(
+            "atac", [pairedSource], ["read1"], "treatment"
+        )
+    assert "proper-pair-filtered paired-end BAM" in caplog.text
+    caplog.clear()
+
+    monkeypatch.setattr(
+        consenrich_core,
+        "_isAlignmentSourcePairedEnd",
+        lambda _path: False,
+    )
+    with caplog.at_level(logging.WARNING):
+        consenrich_cli._warnCountingPresetSourceSemantics(
+            "cut-and-run", [pairedSource], ["fragments"], "treatment"
+        )
+    assert "may yield no proper templates" in caplog.text
+    caplog.clear()
+
+    fragmentsSource = consenrich_core.inputSource(
+        path="sample.fragments.tsv.gz",
+        sourceKind="FRAGMENTS",
+    )
+    with caplog.at_level(logging.WARNING):
+        consenrich_cli._warnCountingPresetSourceSemantics(
+            "atac", [fragmentsSource], ["reads"], "treatment"
+        )
+    assert "BAM shifts, MAPQ, SAM flags, and TLEN filters do not apply" in caplog.text
+
+    with pytest.raises(ValueError, match="normMethod=EGS"):
+        readConfig(
+            {
+                **baseConfig,
+                "countingPreset": "atac",
+                "countingParams": {"normMethod": "EGS"},
+            }
+        )
+    with pytest.raises(ValueError, match="oneReadPerBin=0"):
+        readConfig(
+            {
+                **baseConfig,
+                "countingPreset": "atac",
+                "samParams": {"oneReadPerBin": 1},
+            }
+        )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -1382,6 +1562,7 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "outputParams.stateShrinkageStudentTDF",
         "outputParams.stateShrinkageStudentTQuadratureOrder",
         "outputParams.plotPrecisionReweightingHistograms",
+        "outputParams.plotNullCalibrationDiagnostics",
         "outputParams.precisionReweightingHistogramSampleSize",
         "uncertaintyCalibrationParams.deleteBlockVarianceMode",
         "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
@@ -1416,7 +1597,8 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     )
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_ENABLED is True
     assert constants.OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS is True
-    assert constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE == 200_000
+    assert constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS is True
+    assert constants.OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE == 50_000
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT is None
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_FRACTION == 0.1
     assert constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_SPIKE_PSEUDO_COUNT_MIN == 1.0e-6
@@ -1457,6 +1639,20 @@ def _case_readConfigRejectsUnsupportedCenterMBMethod(
     with pytest.raises(ValueError, match="countingParams.centerMBMethod"):
         readConfig(str(configPath))
 
+    invalidWindowYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    countingParams.centerMBWindowBP: 0
+    """
+    invalidWindowPath = writeConfigFile(
+        tmp_path,
+        "config_bad_center_mb_window.yaml",
+        invalidWindowYaml,
+    )
+    with pytest.raises(ValueError, match="countingParams.centerMBWindowBP"):
+        readConfig(str(invalidWindowPath))
+
 
 def _case_runtime_defaults_are_centralized(
     tmp_path,
@@ -1492,6 +1688,8 @@ def _case_runtime_defaults_are_centralized(
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
         matchingParams.peakMode: broad
+        matchingParams.mergeToleranceBP: 12000
+        matchingParams.maxRegionBP: 50000
         """,
     )
     narrowParsed = readConfig(str(narrowConfigPath))
@@ -1544,6 +1742,23 @@ def _case_runtime_defaults_are_centralized(
         == profile["processParams.processNoiseWarmupOuterPasses"]
     )
     assert parsed["fitArgs"].t_innerIters == profile["fitParams.t_innerIters"]
+    assert (
+        parsed["fitArgs"].ECM_robustTNu
+        == consenrich_core.fitParams().ECM_robustTNu
+        == constants.FIT_DEFAULT_ROBUST_T_NU
+        == 8.0
+    )
+    assert (
+        parsed["fitArgs"].ECM_processRobustTNu
+        == consenrich_core.fitParams().ECM_processRobustTNu
+        == constants.FIT_DEFAULT_PROCESS_ROBUST_T_NU
+        == 3.0
+    )
+    assert (
+        parsed["fitArgs"].fitBackground
+        is constants.FIT_DEFAULT_BACKGROUND
+        is True
+    )
     assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
     assert (
         parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier
@@ -1581,7 +1796,9 @@ def _case_runtime_defaults_are_centralized(
         "dependenceWindowCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
         "dependenceWindowBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
         "dependenceMaxLagBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-        "dependenceWorkingQuantile": 0.75,
+        "dependenceWorkingQuantile": (
+            constants.OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE
+        ),
         "dependenceBootstrapDraws": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
         ),
@@ -1608,9 +1825,8 @@ def _case_runtime_defaults_are_centralized(
     assert (
         parsed["observationArgs"].dependenceAcfPointThreshold
         == profile["observationParams.dependenceAcfPointThreshold"]
-        == pytest.approx(
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
-        )
+        == constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
+        == pytest.approx(0.1)
     )
     assert (
         parsed["observationArgs"].restrictLocalVarianceToSparseBed
@@ -1658,11 +1874,37 @@ def _case_runtime_defaults_are_centralized(
         == profile["observationParams.useCountNoiseFloor"]
     )
     assert (
+        parsed["countingArgs"].logOffset
+        == constants.COUNTING_DEFAULT_LOG_OFFSET
+        == pytest.approx(1.0)
+    )
+    assert parsed["countingArgs"].transformMethod == "log"
+    assert (
+        parsed["countingArgs"].transformInputOffset
+        == parsed["countingArgs"].logOffset
+    )
+    assert (
+        parsed["countingArgs"].transformOutputScale
+        == parsed["countingArgs"].logMult
+        == pytest.approx(1.0 / np.log(2.0))
+    )
+    assert (
         parsed["countingArgs"].centerMB == profile["countingParams.centerMB"]
     )
     assert (
         parsed["countingArgs"].centerMBMethod
         == profile["countingParams.centerMBMethod"]
+        == consenrich_core.countingParams._field_defaults["centerMBMethod"]
+        == constants.COUNTING_DEFAULT_CENTER_MB_METHOD
+        == constants.COUNTING_CENTER_MB_METHOD_SAVGOL
+        == "savgol"
+    )
+    assert (
+        parsed["countingArgs"].centerMBWindowBP
+        == profile["countingParams.centerMBWindowBP"]
+        == consenrich_core.countingParams._field_defaults["centerMBWindowBP"]
+        == constants.COUNTING_DEFAULT_CENTER_MB_WINDOW_BP
+        == 1_000_000
     )
     assert (
         parsed["outputArgs"].saveBackgroundTracks
@@ -1723,11 +1965,6 @@ def _case_runtime_defaults_are_centralized(
         == profile["outputParams.writeReplicateExchangeabilityDiagnostics"]
     )
     assert (
-        parsed["outputArgs"].cutoffReport
-        == profile["outputParams.cutoffReport"]
-    )
-    assert parsed["outputArgs"].cutoffReport is constants.OUTPUT_DEFAULT_CUTOFF_REPORT
-    assert (
         parsed["outputArgs"].writeRunSummary
         is constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
     )
@@ -1740,6 +1977,15 @@ def _case_runtime_defaults_are_centralized(
         is constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
     )
     assert parsed["outputArgs"].plotCorrelationLength is True
+    assert (
+        parsed["outputArgs"].plotNullCalibrationDiagnostics
+        is profile["outputParams.plotNullCalibrationDiagnostics"]
+        is consenrich_core.outputParams._field_defaults[
+            "plotNullCalibrationDiagnostics"
+        ]
+        is constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
+        is True
+    )
     assert (
         parsed["outputArgs"].precisionDiagnosticDetail
         == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
@@ -1756,10 +2002,6 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["loggingArgs"].progress == constants.LOGGING_DEFAULT_PROGRESS
     assert parsed["loggingArgs"].logFile is None
     assert (
-        parsed["matchingArgs"].metadataDetail
-        == constants.MATCHING_DEFAULT_METADATA_DETAIL
-    )
-    assert (
         consenrich_core.outputParams(
             convertToBigWig=parsed["outputArgs"].convertToBigWig,
             roundDigits=parsed["outputArgs"].roundDigits,
@@ -1774,14 +2016,6 @@ def _case_runtime_defaults_are_centralized(
             writeUncertainty=parsed["outputArgs"].writeUncertainty,
         ).saveGains
         == constants.OUTPUT_DEFAULT_SAVE_GAINS
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).cutoffReport
-        == constants.OUTPUT_DEFAULT_CUTOFF_REPORT
     )
     assert (
         consenrich_core.outputParams(
@@ -1810,6 +2044,12 @@ def _case_runtime_defaults_are_centralized(
     assert (
         consenrich_core.fitParams().t_innerIters
         == constants.FIT_DEFAULT_T_INNER_ITERS
+        == 6
+    )
+    assert (
+        consenrich_core.fitParams().fitBackground
+        is constants.FIT_DEFAULT_BACKGROUND
+        is True
     )
     assert parsed["matchingArgs"].exportFilterUncertaintyMultiplier == (
         constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
@@ -1821,8 +2061,23 @@ def _case_runtime_defaults_are_centralized(
         constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     )
     assert (
-        parsed["matchingArgs"].minPeakScore
-        == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
+        parsed["matchingArgs"].numRegionReplays
+        == profile["matchingParams.numRegionReplays"]
+        == constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS
+    )
+    assert (
+        parsed["matchingArgs"].useLocalBootStrapRadius
+        is profile["matchingParams.useLocalBootStrapRadius"]
+        is consenrich_core.matchingParams._field_defaults[
+            "useLocalBootStrapRadius"
+        ]
+        is constants.MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
+        is True
+    )
+    assert (
+        parsed["matchingArgs"].minMeanSignal
+        is profile["matchingParams.minMeanSignal"]
+        is constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL
     )
     assert parsed["matchingArgs"].peakMode == constants.MATCHING_DEFAULT_PEAK_MODE
     assert parsed["matchingArgs"].peakMode == "both"
@@ -1832,10 +2087,41 @@ def _case_runtime_defaults_are_centralized(
         constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
     )
     assert (
-        parsed["matchingArgs"].broadMaxGapBP
-        == constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP
+        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
+        <= constants.MATCHING_DEFAULT_THRESHOLD_Z
+    )
+    assert all(
+        configArgs["matchingArgs"].broadWeakThresholdZ
+        <= configArgs["matchingArgs"].thresholdZ
+        for configArgs in (parsed, narrowParsed, broadParsed)
+    )
+    assert (
+        parsed["matchingArgs"].mergeToleranceBP
+        == profile["matchingParams.mergeToleranceBP"]
+        == constants.MATCHING_DEFAULT_MERGE_TOLERANCE_BP
+        == 12_000
+    )
+    assert (
+        parsed["matchingArgs"].maxRegionBP
+        == profile["matchingParams.maxRegionBP"]
+        == constants.MATCHING_DEFAULT_MAX_REGION_BP
+        == 50_000
     )
     assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
+    assert (
+        parsed["processArgs"].precisionMultiplierMin
+        == profile["processParams.precisionMultiplierMin"]
+        == consenrich_core.processParams().precisionMultiplierMin
+        == constants.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN
+        == pytest.approx(1.0e-4)
+    )
+    assert (
+        parsed["processArgs"].precisionMultiplierMax
+        == profile["processParams.precisionMultiplierMax"]
+        == consenrich_core.processParams().precisionMultiplierMax
+        == constants.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
+        == pytest.approx(10.0)
+    )
     assert (
         consenrich_core.processParams().qSeedPriorLevel
         == constants.PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL
@@ -1856,7 +2142,35 @@ def _case_runtime_defaults_are_centralized(
     )
 
     cliDefaults = consenrich_cli._buildArgParser().parse_args([])
+    assert cliDefaults.matchResidualDurationBP is None
+    assert cliDefaults.matchFeatureDurationBP is None
     assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
+    assert (
+        cliDefaults.matchNumRegionReplays
+        == constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS
+    )
+    assert cliDefaults.matchShrinkChromosomeBudgets is True
+    assert not consenrich_cli._buildArgParser().parse_args(
+        ["--match-no-chromosome-budget-shrinkage"]
+    ).matchShrinkChromosomeBudgets
+    assert cliDefaults.matchUseLocalBootStrapRadius is True
+    assert (
+        consenrich_cli._buildArgParser()
+        .parse_args(["--match-no-local-bootstrap-radius"])
+        .matchUseLocalBootStrapRadius
+        is False
+    )
+    assert (
+        cliDefaults.matchPlotNullCalibrationDiagnostics
+        is constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
+        is True
+    )
+    assert (
+        consenrich_cli._buildArgParser()
+        .parse_args(["--match-no-null-calibration-diagnostics"])
+        .matchPlotNullCalibrationDiagnostics
+        is False
+    )
     assert cliDefaults.matchThresholdZ == constants.MATCHING_DEFAULT_THRESHOLD_Z
     assert (
         cliDefaults.matchNestedRoccoIters
@@ -1875,10 +2189,7 @@ def _case_runtime_defaults_are_centralized(
     assert cliDefaults.matchUncertaintyScoreZ == pytest.approx(
         constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
     )
-    assert (
-        cliDefaults.matchMinPeakScore
-        == constants.MATCHING_DEFAULT_MIN_PEAK_SCORE
-    )
+    assert cliDefaults.matchMinMeanSignal is constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL
     assert cliDefaults.matchPeakMode == constants.MATCHING_DEFAULT_PEAK_MODE
     assert cliDefaults.matchPeakMode == "both"
     cliNarrow = consenrich_cli._buildArgParser().parse_args(
@@ -1896,10 +2207,9 @@ def _case_runtime_defaults_are_centralized(
     assert cliDefaults.matchBroadWeakThresholdZ == pytest.approx(
         constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
     )
-    assert (
-        cliDefaults.matchBroadMaxGapBP
-        == constants.MATCHING_DEFAULT_BROAD_MAX_GAP_BP
-    )
+    assert cliDefaults.matchBroadWeakThresholdZ <= cliDefaults.matchThresholdZ
+    assert cliDefaults.matchMergeToleranceBP == 12_000
+    assert cliDefaults.matchMaxRegionBP == 50_000
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
     assert cliDefaults.verbosity is None
@@ -2119,11 +2429,14 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     outputParams.stateShrinkageStudentTDF: 5
     outputParams.stateShrinkageStudentTQuadratureOrder: 32
     outputParams.writeReplicateExchangeabilityDiagnostics: true
+    outputParams.plotNullCalibrationDiagnostics: false
     outputParams.plotPrecisionReweightingHistograms: false
     outputParams.precisionReweightingHistogramSampleSize: 12345
     uncertaintyCalibrationParams.enabled: false
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.75
+    matchingParams.shrinkChromosomeBudgets: false
+    matchingParams.useLocalBootStrapRadius: false
     """
 
     configPath = writeConfigFile(tmp_path, "config_generic_override.yaml", configYaml)
@@ -2167,11 +2480,50 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["outputArgs"].stateShrinkageStudentTDF == pytest.approx(5.0)
     assert parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder == 32
     assert parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics is True
+    assert parsed["outputArgs"].plotNullCalibrationDiagnostics is False
     assert parsed["outputArgs"].plotPrecisionReweightingHistograms is False
     assert parsed["outputArgs"].precisionReweightingHistogramSampleSize == 12345
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
     assert parsed["matchingArgs"].uncertaintyScoreMode == "lower_confidence"
     assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(1.75)
+    assert parsed["matchingArgs"].shrinkChromosomeBudgets is False
+    assert parsed["matchingArgs"].useLocalBootStrapRadius is False
+
+    for configKey in (
+        "outputParams.plotNullCalibrationDiagnostics",
+        "matchingParams.shrinkChromosomeBudgets",
+        "matchingParams.useLocalBootStrapRadius",
+    ):
+        for value in ("1", "'true'", "null", "[]", "{}"):
+            invalidYaml = configYaml.replace(
+                f"{configKey}: false",
+                f"{configKey}: {value}",
+            )
+            invalidPath = writeConfigFile(tmp_path, "invalid.yaml", invalidYaml)
+            with pytest.raises(ValueError) as error:
+                readConfig(str(invalidPath))
+            assert str(error.value) == f"{configKey} must be boolean"
+
+    for invalidKeyConfig in (
+        {
+            "experimentName": "testExperiment",
+            "inputParams.bamFiles": ["smallTest.bam"],
+            "genomeParams.name": "testGenome",
+            "matchingParams.useLocalBootstrapRadius": False,
+        },
+        {
+            "experimentName": "testExperiment",
+            "inputParams.bamFiles": ["smallTest.bam"],
+            "genomeParams.name": "testGenome",
+            "matchingParams": {"useLocalBootstrapRadius": False},
+        },
+    ):
+        with pytest.raises(ValueError) as error:
+            readConfig(invalidKeyConfig)
+        assert (
+            str(error.value)
+            == "matchingParams.useLocalBootStrapRadius must be boolean"
+        )
 
 
 def _case_readConfigRejectsLowStateShrinkageStudentTDF(
@@ -2367,26 +2719,6 @@ def _case_readConfigRejectsUnknownDefaultConfiguration(
         readConfig(str(configPath))
 
 
-def _case_readConfigObservationTrendRemovesLinearEnvelope(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_trend_defaults.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-    observationArgs = configParsed["observationArgs"]
-    removed = "EB" + "_minLin"
-
-    assert removed not in observationArgs._fields
-
-
 def _case_readConfigDeduplicatesChromosomes(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -2402,27 +2734,6 @@ def _case_readConfigDeduplicatesChromosomes(tmp_path, monkeypatch: pytest.Monkey
     configParsed = readConfig(str(configPath))
 
     assert configParsed["genomeArgs"].chromosomes == ["chr1", "chr2", "chr3"]
-
-
-def _case_readConfigAPNDisablesProcPrecReweight(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    fitParams.ECM_useAPN: true
-    fitParams.ECM_useProcessPrecisionReweighting: true
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_apn.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-
-    assert configParsed["fitArgs"].ECM_useAPN is True
-    assert configParsed["fitArgs"].ECM_useProcessPrecisionReweighting is False
 
 
 def _case_readConfigUsesZeroCenterIdentifiabilityFields(
@@ -2485,6 +2796,7 @@ def _case_readConfigAllowsEMTNuOverride(tmp_path, monkeypatch: pytest.MonkeyPatc
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     fitParams.ECM_robustTNu: 4.0
+    fitParams.ECM_processRobustTNu: 6.0
     """
     parsedOverride = readConfig(
         str(
@@ -2492,6 +2804,22 @@ def _case_readConfigAllowsEMTNuOverride(tmp_path, monkeypatch: pytest.MonkeyPatc
         )
     )
     assert parsedOverride["fitArgs"].ECM_robustTNu == pytest.approx(4.0)
+    assert parsedOverride["fitArgs"].ECM_processRobustTNu == pytest.approx(6.0)
+
+    for rawValue in ("0", ".nan", "true"):
+        invalidYaml = f"""
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        fitParams.ECM_processRobustTNu: {rawValue}
+        """
+        invalidPath = writeConfigFile(
+            tmp_path,
+            f"config_process_tnu_invalid_{rawValue.replace('.', '_')}.yaml",
+            invalidYaml,
+        )
+        with pytest.raises(ValueError, match="ECM_processRobustTNu"):
+            readConfig(str(invalidPath))
 
 
 def _case_readConfigUsesECMAndOuterPassToleranceFields(
@@ -2552,16 +2880,6 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
             )
         )
     )
-    removedStateFields = tuple(
-        "".join(parts)
-        for parts in (
-            ("effective", "InfoRescale"),
-            ("effective", "InfoBlockLengthBP"),
-            ("effective", "InfoBandwidthBP"),
-        )
-    )
-    for removedField in removedStateFields:
-        assert not hasattr(parsedDefault["stateArgs"], removedField)
     defaultArgs = parsedDefault["uncertaintyCalibrationArgs"]
     defaultOutputArgs = parsedDefault["outputArgs"]
     assert defaultArgs.enabled is True
@@ -3449,10 +3767,10 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
             [
                 "track type=bedGraph name=toy",
                 "browser position chr2:1-20",
-                "chr1\t10\t20\t1.5",
-                "chr2\t10\t20\t2.5",
-                "chr1\t0\t10\t1.0",
-                "chr2\t0\t10\t2.0",
+                "chr1\t10\t20\t1e-06",
+                "chr2\t10\t20\t2.50001",
+                "chr1\t0\t10\t1.00001",
+                "chr2\t0\t10\t2.00001",
             ]
         )
         + "\n",
@@ -3463,10 +3781,10 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
     assert unsortedPath.read_text(encoding="utf-8").splitlines() == [
         "track type=bedGraph name=toy",
         "browser position chr2:1-20",
-        "chr2\t0\t10\t2.0000",
-        "chr2\t10\t20\t2.5000",
-        "chr1\t0\t10\t1.0000",
-        "chr1\t10\t20\t1.5000",
+        "chr2\t0\t10\t2.00001",
+        "chr2\t10\t20\t2.50001",
+        "chr1\t0\t10\t1.00001",
+        "chr1\t10\t20\t1e-06",
     ]
 
 
@@ -3622,8 +3940,66 @@ def test_config_worker_and_input_helper_contracts(monkeypatch, contract_case):
     )
 
 
+@pytest.mark.parametrize(
+    "scaleObs,scaleProcess",
+    [(True, False), (False, True)],
+)
+def test_precision_median_scaling_config_options(
+    tmp_path,
+    monkeypatch,
+    scaleObs,
+    scaleProcess,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    defaultPath = writeConfigFile(
+        tmp_path,
+        "config_precision_median_defaults.yaml",
+        """
+        experimentName: precisionMedianDefaults
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        """,
+    )
+    enabledPath = writeConfigFile(
+        tmp_path,
+        "config_precision_median_enabled.yaml",
+        f"""
+        experimentName: precisionMedianEnabled
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        fitParams:
+          ECM_scaleObsPrecisionToMedian: {str(scaleObs).lower()}
+          ECM_scaleProcessPrecisionToMedian: {str(scaleProcess).lower()}
+        """,
+    )
+    defaultFitArgs = readConfig(str(defaultPath))["fitArgs"]
+    enabledFitArgs = readConfig(str(enabledPath))["fitArgs"]
+    profile = constants.DEFAULT_CONFIGURATION_VALUES[
+        constants.GENERIC_DEFAULT_CONFIGURATION
+    ]
+
+    assert constants.FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN is False
+    assert constants.FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN is True
+    for fieldName, defaultValue in (
+        (
+            "ECM_scaleObsPrecisionToMedian",
+            constants.FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN,
+        ),
+        (
+            "ECM_scaleProcessPrecisionToMedian",
+            constants.FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN,
+        ),
+    ):
+        assert getattr(defaultFitArgs, fieldName) is defaultValue
+        assert getattr(consenrich_core.fitParams(), fieldName) is defaultValue
+        assert profile[f"fitParams.{fieldName}"] is defaultValue
+    assert enabledFitArgs.ECM_scaleObsPrecisionToMedian is scaleObs
+    assert enabledFitArgs.ECM_scaleProcessPrecisionToMedian is scaleProcess
+
+
 def test_config_parser_defaults_and_override_contracts(
-    tmp_path, monkeypatch, contract_case
+    tmp_path, monkeypatch, contract_case, caplog
 ):
     for label, func in (
         (
@@ -3694,19 +4070,19 @@ def test_config_parser_defaults_and_override_contracts(
         "canonical uncertainty default keys",
         _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys,
     )
+    contract_case(
+        "assay counting presets",
+        _run_with_monkeypatch,
+        monkeypatch,
+        _case_readConfigCountingPresets,
+        tmp_path,
+        caplog,
+    )
 
 
 def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_case):
     for label, func in (
-        (
-            "observation trend fields",
-            _case_readConfigObservationTrendRemovesLinearEnvelope,
-        ),
         ("chromosome deduplication", _case_readConfigDeduplicatesChromosomes),
-        (
-            "APN disables process precision reweighting",
-            _case_readConfigAPNDisablesProcPrecReweight,
-        ),
         (
             "zero-center identifiability fields",
             _case_readConfigUsesZeroCenterIdentifiabilityFields,
@@ -3804,7 +4180,6 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             "muncTrace": np.asarray([0.4, 0.2], dtype=np.float64),
             "sumGain0": np.asarray([0.1, 0.2], dtype=np.float64),
             "sumGain1": np.asarray([0.3, 0.4], dtype=np.float64),
-            "processQScale": np.asarray([1.1, 0.9], dtype=np.float64),
         },
     }
     precisionFrame = consenrich_cli._precisionDiagnosticsFrame(
@@ -3923,9 +4298,12 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     np.testing.assert_allclose(
         consenrich_cli._deleteBlockBlockFactorValues(
             np.asarray([1.0, 3.0, 5.0], dtype=np.float64),
-            {"fold_refits": {"block_len_intervals": 2}},
+            {
+                "fold_refits": {"block_len_intervals": 2},
+                "target_calibration": {"uncertainty_track_scale": 2.0},
+            },
         ),
-        np.asarray([2.0, 5.0], dtype=np.float64),
+        np.asarray([8.0, 20.0], dtype=np.float64),
     )
 
     with monkeypatch.context() as mp:
@@ -3968,11 +4346,13 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     )
 
     saveCalls = []
+    axisText = {"x": [], "y": [], "title": [], "figure": []}
     fakeMatplotlib = types.ModuleType("matplotlib")
     fakePyplot = types.ModuleType("matplotlib.pyplot")
 
     class FakeFigure:
         def suptitle(self, *args, **kwargs):
+            axisText["figure"].append(args[0])
             return None
 
         def savefig(self, path, dpi=None):
@@ -4006,12 +4386,15 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             return None
 
         def set_title(self, *args, **kwargs):
+            axisText["title"].append(args[0])
             return None
 
         def set_xlabel(self, *args, **kwargs):
+            axisText["x"].append(args[0])
             return None
 
         def set_ylabel(self, *args, **kwargs):
+            axisText["y"].append(args[0])
             return None
 
         def set_xticks(self, *args, **kwargs):
@@ -4143,6 +4526,11 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             is True
         )
     assert saveCalls[-1] == (str(tmp_path / "delete_block_calibration.png"), 400)
+    assert axisText["x"].count("Block RMS SD multiplier") == 2
+    assert axisText["figure"][-1] == "Delete-block perturbation recount"
+    assert "Delete-block perturbation recount" in axisText["title"]
+    assert "Sampled blocks" in axisText["y"]
+    assert "Observed perturbation coverage" in axisText["y"]
     genomeRows = rows + [
         {
             **row,
@@ -4690,80 +5078,6 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     )
 
 
-def test_munc_estimation_log_uses_working_span_label(monkeypatch):
-    logCalls = []
-
-    def fakeLogAsciiBlock(title, rows, **kwargs):
-        logCalls.append((title, tuple(rows)))
-
-    monkeypatch.setattr(consenrich_core, "_logAsciiBlock", fakeLogAsciiBlock)
-    sizing = consenrich_core._resolveMuncRuntimeSizing(
-        intervalSizeBP=50,
-        dependenceSpanIntervals=7,
-        muncTrendBlockSizeBP=None,
-        muncLocalWindowSizeBP=None,
-        muncTrendBlockDependenceMultiplier=2.0,
-        muncLocalWindowDependenceMultiplier=3.0,
-    )
-
-    consenrich_cli._logMuncEstimationParameters(
-        chromosomeCount=1,
-        sampleCount=2,
-        intervalSizeBP=50,
-        sizing=sizing,
-        muncVarianceModel="kalman",
-        samplingIters=100,
-        dependenceContextBP=701,
-        dependenceSpanIntervals=7,
-        trendMultiplier=2.0,
-        localMultiplier=3.0,
-        observationArgs=consenrich_core.observationParams(
-            minR=constants.OBSERVATION_DEFAULT_MIN_R,
-            maxR=constants.OBSERVATION_DEFAULT_MAX_R,
-            samplingIters=constants.OBSERVATION_DEFAULT_SAMPLING_ITERS,
-            EB_use=constants.OBSERVATION_DEFAULT_EB_USE,
-            EB_setNu0=constants.OBSERVATION_DEFAULT_EB_SET_NU0,
-            EB_setNuL=constants.OBSERVATION_DEFAULT_EB_SET_NUL,
-            trendNumBasis=constants.OBSERVATION_DEFAULT_TREND_NUM_BASIS,
-            trendMinObsPerBasis=constants.OBSERVATION_DEFAULT_TREND_MIN_OBS_PER_BASIS,
-            trendMinEdf=constants.OBSERVATION_DEFAULT_TREND_MIN_EDF,
-            trendMaxEdf=constants.OBSERVATION_DEFAULT_TREND_MAX_EDF,
-            trendLambdaMin=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MIN,
-            trendLambdaMax=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MAX,
-            trendLambdaGridSize=constants.OBSERVATION_DEFAULT_TREND_LAMBDA_GRID_SIZE,
-            numNearest=constants.OBSERVATION_DEFAULT_NUM_NEAREST,
-            sparseSupportScaleBP=constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP,
-            sparseSupportPrior=constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
-            pad=constants.OBSERVATION_DEFAULT_PAD,
-        ),
-        sparseBedEnabled=False,
-        varianceFloor=0.01,
-        varianceCap=10.0,
-        trendNumBasis=25,
-        trendMinObsPerBasis=50.0,
-        trendMinEdf=2.0,
-        trendMaxEdf=10.0,
-        trendLambdaMin=1.0e-6,
-        trendLambdaMax=1.0e6,
-        trendLambdaGridSize=101,
-        pooledPairCount=12,
-        seedPassCount=3,
-    )
-
-    assert len(logCalls) == 1
-    title, rows = logCalls[0]
-    rowMap = dict(rows)
-    assert title == "MUNC estimation parameters"
-    assert rowMap["MUNC dependence working span"] == 7
-    assert rowMap["MUNC trend block source"] == "dependence working span"
-    assert rowMap["MUNC local window source"] == "dependence working span"
-    assert rowMap["trend dependence span multiplier"] == pytest.approx(2.0)
-    assert rowMap["local dependence span multiplier"] == pytest.approx(3.0)
-    assert "MUNC dependence span" not in rowMap
-    assert "trend span multiplier" not in rowMap
-    assert "local span multiplier" not in rowMap
-
-
 def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):
     class ColorStream(io.StringIO):
         def isatty(self):
@@ -4804,7 +5118,7 @@ def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):
 
     consoleText = stream.getvalue()
     assert "\033[1;38;2;0;48;96m" in consoleText
-    assert "\033[38;2;191;87;0m" in consoleText
+    assert "\033[38;2;140;21;21m" in consoleText
     assert "\033[1;38;2;128;24;96m" in consoleText
     assert "\n\n" in consoleText
     assert "  - " in consoleText

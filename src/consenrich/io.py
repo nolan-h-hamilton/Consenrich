@@ -950,7 +950,9 @@ def _sortBedGraphInPlace(
     df = pd.DataFrame(
         recordRows,
         columns=["chromosome", "start", "end", "value"],
-    ).astype(
+    )
+    df["_valueText"] = df["value"]
+    df = df.astype(
         {
             "chromosome": str,
             "start": np.int64,
@@ -983,12 +985,12 @@ def _sortBedGraphInPlace(
     with open(bedgraphPath, "w", encoding="utf-8") as handle:
         for headerLine in headerLines:
             handle.write(f"{headerLine}\n")
+        df["value"] = df.pop("_valueText")
         df.to_csv(
             handle,
             sep="\t",
             header=False,
             index=False,
-            float_format="%.4f",
             lineterminator="\n",
         )
 

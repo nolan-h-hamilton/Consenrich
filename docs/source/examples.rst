@@ -70,6 +70,7 @@ the BAM files:
   :name: demoHistoneChIPSeq.yaml
 
   experimentName: demoHistoneChIPSeq
+  countingPreset: chip-se
 
   genomeParams:
     name: hg38
@@ -130,6 +131,7 @@ current package version, the principal output files are:
   demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.gappedPeak
+  consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak.nullCalibration.png
 
 .. _atac-demo:
 
@@ -160,6 +162,7 @@ Save the following as ``atacDemo.yaml``:
   :name: atacDemo.yaml
 
   experimentName: atacDemo
+  countingPreset: atac
 
   genomeParams:
     name: hg38
@@ -247,6 +250,7 @@ Save the following as ``bigH3K4me1Demo.yaml``:
   :name: bigH3K4me1Demo.yaml
 
   experimentName: bigH3K4me1Demo
+  countingPreset: chip-se
 
   genomeParams:
     name: hg38

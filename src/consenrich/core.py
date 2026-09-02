@@ -36,6 +36,7 @@ from .constants import (
     COUNTING_DEFAULT_LOG_MULT,
     COUNTING_DEFAULT_LOG_OFFSET,
     COUNTING_DEFAULT_CENTER_MB,
+    COUNTING_DEFAULT_CENTER_MB_WINDOW_BP,
     COUNTING_DEFAULT_CENTER_MB_METHOD,
     COUNTING_CENTER_MB_METHOD_MEDFILT,
     COUNTING_CENTER_MB_METHOD_SAVGOL,
@@ -57,19 +58,24 @@ from .constants import (
     FIT_DEFAULT_MIN_OUTER_ITERS,
     FIT_DEFAULT_OUTER_ITERS,
     FIT_DEFAULT_OUTER_NLL_RTOL,
+    FIT_DEFAULT_PROCESS_ROBUST_T_NU,
     FIT_DEFAULT_ROBUST_T_NU,
+    FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN,
+    FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN,
     FIT_DEFAULT_T_INNER_ITERS,
-    FIT_DEFAULT_USE_APN,
     FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
     FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
     INPUT_DEFAULT_ROLE,
-    MATCHING_DEFAULT_METADATA_DETAIL,
-    MATCHING_DEFAULT_MIN_PEAK_SCORE,
-    MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
     MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
+    MATCHING_DEFAULT_MAX_REGION_BP,
+    MATCHING_DEFAULT_MERGE_TOLERANCE_BP,
+    MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
+    MATCHING_DEFAULT_NUM_REGION_REPLAYS,
     MATCHING_DEFAULT_PEAK_MODE,
+    MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS,
+    MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
@@ -126,11 +132,11 @@ from .constants import (
     OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
     OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
-    OUTPUT_DEFAULT_CUTOFF_REPORT,
     OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG,
     OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME,
     OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
+    OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS,
     OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL,
@@ -278,6 +284,7 @@ _QINIT_PRECISION_CAP_QUANTILE = 0.95
 _QINIT_PRECISION_CAP_MULTIPLIER = 20.0
 _QINIT_PRIOR_LOG_SD = math.log(4.0)
 _QINIT_DEFAULT_T_NU = 8.0
+_LOG_PHASE_DEPTH_TOTAL = 4
 
 
 def _logEvent(
@@ -307,7 +314,8 @@ def _logAsciiBlock(
 ) -> None:
     indentLevel = max(0, int(indentLevel))
     if indentLevel:
-        rows = (("phase depth", int(indentLevel)), *tuple(rows))
+        phaseDepthTotal = max(_LOG_PHASE_DEPTH_TOTAL, indentLevel)
+        rows = (("phase depth", f"{indentLevel}/{phaseDepthTotal}"), *tuple(rows))
     _logEvent(title, rows, logger_=logger_, level=level, stacklevel=3)
 
 
@@ -323,8 +331,8 @@ class processParams(NamedTuple):
         state and pads public state arrays for compatibility.
     :type stateModel: str
     :param minQ: Lower floor for calibrated base process-noise diagonal entries.
-        The same floor is used for process-noise calibration bounds, warm-start
-        conditioning, and adaptive process-noise bounds.
+        The same floor is used for process-noise calibration bounds and warm-start
+        conditioning.
     :type minQ: float
     :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
@@ -971,6 +979,7 @@ class countingParams(NamedTuple):
     transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE
     centerMB: bool | None = COUNTING_DEFAULT_CENTER_MB
     centerMBMethod: str | None = COUNTING_DEFAULT_CENTER_MB_METHOD
+    centerMBWindowBP: int | None = COUNTING_DEFAULT_CENTER_MB_WINDOW_BP
 
 
 class scParams(NamedTuple):
@@ -1002,7 +1011,7 @@ class matchingParams(NamedTuple):
     :type enabled: bool
     :param randSeed: Random seed used for bootstrap calibration and any stochastic tie-breaking.
     :type randSeed: Optional[int]
-    :param numBootstrap: Number of dependent wild-bootstrap null draws used for budget calibration.
+    :param numBootstrap: Number of stationary-bootstrap null draws used for budget calibration.
     :type numBootstrap: Optional[int]
     :param thresholdZ: One-sided null tail threshold on the ROCCO score, on a Gaussian ``z`` scale.
     :type thresholdZ: Optional[float]
@@ -1056,21 +1065,23 @@ class matchingParams(NamedTuple):
     randSeed: Optional[int]
     numBootstrap: Optional[int]
     thresholdZ: Optional[float]
-    dependenceSpan: Optional[int]
     gamma: Optional[float]
     selectionPenalty: Optional[float]
     gammaScale: Optional[float]
     nestedRoccoIters: Optional[int]
     nestedRoccoBudgetScale: Optional[float]
     exportFilterUncertaintyMultiplier: Optional[float]
+    numRegionReplays: int = MATCHING_DEFAULT_NUM_REGION_REPLAYS
     uncertaintyScoreMode: str = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
     uncertaintyScoreZ: float = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
-    metadataDetail: str = MATCHING_DEFAULT_METADATA_DETAIL
-    minPeakScore: Optional[float] = MATCHING_DEFAULT_MIN_PEAK_SCORE
+    minMeanSignal: Optional[float] = MATCHING_DEFAULT_MIN_MEAN_SIGNAL
     useShrunkStateScores: bool = MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES
     peakMode: str = MATCHING_DEFAULT_PEAK_MODE
     broadWeakThresholdZ: float = MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
-    broadMaxGapBP: Optional[int] = MATCHING_DEFAULT_BROAD_MAX_GAP_BP
+    mergeToleranceBP: Optional[int] = MATCHING_DEFAULT_MERGE_TOLERANCE_BP
+    maxRegionBP: Optional[int] = MATCHING_DEFAULT_MAX_REGION_BP
+    shrinkChromosomeBudgets: bool = MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS
+    useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
 
 
 class outputParams(NamedTuple):
@@ -1113,7 +1124,7 @@ class outputParams(NamedTuple):
         bedGraph and optional bigWig outputs. Supported names include ``slope``,
         ``baseQLevel``, ``baseQTrend``, ``preKappaQLevel``,
         ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``,
-        ``processQScale``, ``muncTrace``, ``sumGain0``, and ``sumGain1``.
+        ``muncTrace``, ``sumGain0``, and ``sumGain1``.
     :type diagnosticTracks: tuple[str, ...]
     :param writeRunSummary: If True, write one high-level run summary TSV.
     :type writeRunSummary: bool
@@ -1157,7 +1168,6 @@ class outputParams(NamedTuple):
     writeReplicateExchangeabilityDiagnostics: bool = (
         OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
     )
-    cutoffReport: bool = OUTPUT_DEFAULT_CUTOFF_REPORT
     writeRunSummary: bool = OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
     precisionDiagnosticDetail: str = OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
     maxPrecisionDiagnosticRowsPerChromosome: int = (
@@ -1179,6 +1189,9 @@ class outputParams(NamedTuple):
         OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE
     )
     deleteBedGraphsAfterBigWig: bool = OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG
+    plotNullCalibrationDiagnostics: bool = (
+        OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
+    )
 
 
 class loggingParams(NamedTuple):
@@ -1218,11 +1231,6 @@ class fitParams(NamedTuple):
     :type ECM_useObsPrecisionReweighting: bool
     :param ECM_useProcessPrecisionReweighting: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
     :type ECM_useProcessPrecisionReweighting: bool
-    :param ECM_useAPN: If True, use the adaptive-process-noise (APN)
-      D-statistic update during filtering. This option disables
-      ``ECM_useProcessPrecisionReweighting`` and technically voids guarantees
-      of monotonic descent.
-    :type ECM_useAPN: bool
     :param fitBackground: If True, estimate the shared low-frequency background
       track \(g_{[i]}\) in the outer loop. If False, keep \(g_{[i]} \equiv 0\).
     :type fitBackground: bool
@@ -1262,13 +1270,13 @@ class fitParams(NamedTuple):
     ECM_fixedBackgroundRtol: float | None = FIT_DEFAULT_FIXED_BACKGROUND_RTOL
     t_innerIters: int | None = FIT_DEFAULT_T_INNER_ITERS
     ECM_robustTNu: float | None = FIT_DEFAULT_ROBUST_T_NU
+    ECM_processRobustTNu: float | None = FIT_DEFAULT_PROCESS_ROBUST_T_NU
     ECM_useObsPrecisionReweighting: bool | None = (
         FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING
     )
     ECM_useProcessPrecisionReweighting: bool | None = (
         FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING
     )
-    ECM_useAPN: bool | None = FIT_DEFAULT_USE_APN
     ECM_zeroCenterBackground: bool | None = FIT_DEFAULT_ZERO_CENTER_BACKGROUND
     ECM_outerIters: int | None = FIT_DEFAULT_OUTER_ITERS
     ECM_minOuterIters: int | None = FIT_DEFAULT_MIN_OUTER_ITERS
@@ -1282,6 +1290,12 @@ class fitParams(NamedTuple):
     useNonnegativeBackground: bool | None = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
     backgroundNegativePenaltyMultiplier: float | None = (
         FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    )
+    ECM_scaleObsPrecisionToMedian: bool | None = (
+        FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN
+    )
+    ECM_scaleProcessPrecisionToMedian: bool | None = (
+        FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN
     )
 
 
@@ -2235,10 +2249,10 @@ def _processKappaConvexityLowerBound(
 ) -> float:
     if robustTNu is None:
         raise ValueError(
-            "`fitParams.ECM_robustTNu` must be positive and finite when "
+            "`fitParams.ECM_processRobustTNu` must be positive and finite when "
             "`processParams.precisionMultiplierMin` is negative."
         )
-    nu = _checkFinitePositive("ECM_robustTNu", robustTNu)
+    nu = _checkFinitePositive("fitParams.ECM_processRobustTNu", robustTNu)
     stateDim_ = int(stateDim)
     if stateDim_ <= 0:
         raise ValueError("state dimension must be positive")
@@ -2271,7 +2285,7 @@ def _checkProcessPrecisionMultiplierBounds(
         logger.info(
             "processParams.precisionMultiplierMin=auto resolved to %.6g "
             "using strict convexity-preserving bound %.6g "
-            "(ECM_robustTNu=%.6g, stateDim=%d, precisionMultiplierMax=%.6g)",
+            "(ECM_processRobustTNu=%.6g, stateDim=%d, precisionMultiplierMax=%.6g)",
             float(minValue_),
             float(convexityMin),
             float(robustTNu),
@@ -2377,11 +2391,8 @@ def _processKappaSummary(
 
 def _processQPolicy(
     *,
-    useAPN: bool,
     processPrecisionEffective: bool,
 ) -> str:
-    if bool(useAPN):
-        return "adaptive_process_noise"
     if bool(processPrecisionEffective):
         return "student_t_kappa"
     return "base"
@@ -2423,7 +2434,6 @@ def _processQTrackArrays(
     intervalCount: int,
     stateModel: str,
     processPrecExp: np.ndarray | None,
-    processQScale: np.ndarray | None,
     pNoiseForward: np.ndarray | None,
     procPrecisionMultiplierMin: float,
     procPrecisionMultiplierMax: float,
@@ -2440,24 +2450,12 @@ def _processQTrackArrays(
         raise ValueError("matrixQ0 shape does not match stateModel")
     baseQ = q0[:stateDim, :stateDim]
 
-    qScale = np.ones(intervalCount_, dtype=np.float64)
-    if processQScale is not None:
-        qScale = np.asarray(processQScale, dtype=np.float64).reshape(-1)
-        if qScale.shape != (intervalCount_,):
-            raise ValueError("processQScale length must match interval count")
-        if not np.all(np.isfinite(qScale)):
-            raise ValueError("processQScale contains non-finite values")
-        qScale = np.maximum(qScale, np.finfo(np.float64).tiny)
-        if intervalCount_:
-            qScale = qScale.copy()
-            qScale[0] = 1.0
-
     baseQLevel = np.full(intervalCount_, float(baseQ[0, 0]), dtype=np.float64)
     baseQTrend = np.zeros(intervalCount_, dtype=np.float64)
     if stateDim == 2:
         baseQTrend.fill(float(baseQ[1, 1]))
-    preKappaQLevel = baseQLevel * qScale
-    preKappaQTrend = baseQTrend * qScale
+    preKappaQLevel = baseQLevel.copy()
+    preKappaQTrend = baseQTrend.copy()
     effectiveQLevel = preKappaQLevel.copy()
     effectiveQTrend = preKappaQTrend.copy()
 
@@ -2466,7 +2464,7 @@ def _processQTrackArrays(
     if bool(returnFullQ):
         preKappaQ = np.empty((intervalCount_, stateDim, stateDim), dtype=np.float64)
         if intervalCount_:
-            preKappaQ[:, :, :] = baseQ[None, :, :] * qScale[:, None, None]
+            preKappaQ[:, :, :] = baseQ[None, :, :]
         effectiveQ = preKappaQ.copy()
 
     if processPrecExp is not None:
@@ -2511,7 +2509,6 @@ def _processQTrackArrays(
         "preKappaQTrend": preKappaQTrend,
         "effectiveQLevel": effectiveQLevel,
         "effectiveQTrend": effectiveQTrend,
-        "processQScale": qScale,
     }
     if bool(returnFullQ):
         tracks["preKappaQ"] = preKappaQ
@@ -2525,9 +2522,7 @@ def _processQDiagnosticsMetadata(
     intervalCount: int,
     stateModel: str,
     processPrecExp: np.ndarray | None,
-    processQScale: np.ndarray | None,
     pNoiseForward: np.ndarray | None,
-    useAPN: bool,
     processPrecisionRequested: bool,
     processPrecisionEffective: bool,
     procPrecisionMultiplierMin: float,
@@ -2538,7 +2533,6 @@ def _processQDiagnosticsMetadata(
         intervalCount=int(intervalCount),
         stateModel=stateModel,
         processPrecExp=processPrecExp,
-        processQScale=processQScale,
         pNoiseForward=pNoiseForward,
         procPrecisionMultiplierMin=float(procPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(procPrecisionMultiplierMax),
@@ -2559,15 +2553,10 @@ def _processQDiagnosticsMetadata(
     )
     return {
         "policy": _processQPolicy(
-            useAPN=bool(useAPN),
             processPrecisionEffective=bool(processPrecisionEffective),
         ),
-        "apn_enabled": bool(useAPN),
         "process_precision_reweighting_requested": bool(processPrecisionRequested),
         "process_precision_reweighting_effective": bool(processPrecisionEffective),
-        "process_precision_reweighting_disabled_by_apn": bool(
-            processPrecisionRequested and useAPN and not processPrecisionEffective
-        ),
         "baseQLevel": metadataFloat(baseLevel),
         "baseQTrend": metadataFloat(baseTrend),
         "preKappaQLevel": preLevelSummary,
@@ -2575,7 +2564,6 @@ def _processQDiagnosticsMetadata(
         "effectiveQLevel": levelSummary,
         "effectiveQTrend": trendSummary,
         "effectiveQTrace": qTraceSummary,
-        "processQScale": _metadataTrackSummary(qTracks["processQScale"]),
         "effectiveQLevelMedian": levelSummary["median"],
         "effectiveQTrendMedian": trendSummary["median"],
         "effectiveQTraceMedian": qTraceSummary["median"],
@@ -2715,6 +2703,28 @@ def _coerceOptionalVector(
     return np.ascontiguousarray(arr, dtype=np.float32)
 
 
+def _scalePrecisionWarmStartToMedian(
+    name: str,
+    values: np.ndarray,
+    *,
+    activeStart: int,
+    lower: float,
+    upper: float,
+) -> np.ndarray:
+    scaled = np.asarray(values, dtype=np.float64).copy()
+    active = scaled[int(activeStart) :]
+    invalidIndices = np.flatnonzero(active <= 0.0)
+    if invalidIndices.size:
+        invalidIndex = int(activeStart) + int(invalidIndices[0])
+        raise ValueError(f"`{name}` entry {invalidIndex} must be positive")
+    if active.size:
+        active /= float(np.median(active))
+        np.clip(active, float(lower), float(upper), out=active)
+    if activeStart:
+        scaled[: int(activeStart)] = 1.0
+    return np.ascontiguousarray(scaled, dtype=np.float32)
+
+
 def _coerceOptionalProcessNoiseMatrix(value: np.ndarray | None) -> np.ndarray | None:
     if value is None:
         return None
@@ -2839,9 +2849,20 @@ def _estimateBackgroundWarmStart(
         observationPrecision,
         intervalCount,
     )
-    warmInvVarMatrix = 1.0 / np.maximum(
+    warmActive = np.isfinite(matrixMuncArr) & (
+        matrixMuncArr
+        < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
+    )
+    warmVariance = np.maximum(
         matrixMuncArr + float(pad),
         np.float32(1.0e-8),
+    )
+    warmInvVarMatrix = np.zeros_like(warmVariance, dtype=np.float32)
+    np.divide(
+        np.float32(1.0),
+        warmVariance,
+        out=warmInvVarMatrix,
+        where=warmActive,
     )
     if observationPrecisionArr is not None:
         warmObsPrecision = np.clip(
@@ -2854,7 +2875,11 @@ def _estimateBackgroundWarmStart(
         )
         warmInvVarMatrix *= warmObsPrecision
 
-    warmResidualMatrix = np.asarray(matrixDataArr, dtype=np.float32)
+    warmResidualMatrix = np.where(
+        warmActive,
+        matrixDataArr,
+        np.float32(0.0),
+    ).astype(np.float32, copy=False)
     if useNonnegativeBackground:
         background = solveZeroCenteredBackground(
             residualMatrix=warmResidualMatrix,
@@ -3151,7 +3176,6 @@ def _staticProcessNoiseCalibrationDiagnostics(
         "globalScale": 1.0,
         "windowCount": 0,
         "validTransitionCount": 0,
-        "qScaleClampFraction": 0.0,
     }
     diagnostics.update(boundary)
     diagnostics.update(dict(support))
@@ -3231,18 +3255,17 @@ def _runFixedBackgroundECMPhase(
     t_innerItersLocal: int,
     pad: float,
     ECM_robustTNu: float,
+    ECM_processRobustTNu: float,
     ECM_useObsPrecisionReweighting: bool,
     useProcPrecLocal: bool,
-    useAPNLocal: bool,
+    ECM_scaleObsPrecisionToMedian: bool,
+    ECM_scaleProcessPrecisionToMedian: bool,
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
     processPrecisionMultiplierMin: float,
     processPrecisionMultiplierMax: float,
-    minQ: float,
-    maxQForAPN: float,
     lambdaExpLocal: np.ndarray | None,
     processPrecExpLocal: np.ndarray | None,
-    processQScaleLocal: np.ndarray | None,
     trackOptimizationPath: bool,
     logIterations: bool,
     stateModelMode: str,
@@ -3267,19 +3290,24 @@ def _runFixedBackgroundECMPhase(
         t_innerIters=int(t_innerItersLocal),
         pad=float(pad),
         ECM_robustTNu=float(ECM_robustTNu),
+        ECM_processRobustTNu=float(ECM_processRobustTNu),
         returnIntermediates=True,
         ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
         ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
-        ECM_useAPN=bool(useAPNLocal),
+        ECM_scaleObsPrecisionToMedian=bool(ECM_scaleObsPrecisionToMedian),
+        ECM_scaleProcessPrecisionToMedian=bool(ECM_scaleProcessPrecisionToMedian),
+        obsPrecisionWarmStartIsMedianScaled=bool(
+            ECM_scaleObsPrecisionToMedian
+        ),
+        processPrecisionWarmStartIsMedianScaled=bool(
+            ECM_scaleProcessPrecisionToMedian
+        ),
         obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
         obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
         procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-        APN_minQ=float(minQ),
-        APN_maxQ=float(maxQForAPN),
         lambdaExpInit=lambdaExpLocal,
         processPrecExpInit=processPrecExpLocal,
-        processQScale=processQScaleLocal,
         trackOptimizationPath=bool(trackOptimizationPath),
         logIterations=bool(logIterations),
     )
@@ -3877,10 +3905,16 @@ def runConsenrich(
     ECM_fixedBackgroundIters: int = 50,
     ECM_fixedBackgroundRtol: float = 1.0e-4,
     t_innerIters: int = FIT_DEFAULT_T_INNER_ITERS,
-    ECM_robustTNu: float = 8.0,
-    ECM_useObsPrecisionReweighting: bool = True,
+    ECM_robustTNu: float = FIT_DEFAULT_ROBUST_T_NU,
+    ECM_processRobustTNu: float = FIT_DEFAULT_PROCESS_ROBUST_T_NU,
+    ECM_useObsPrecisionReweighting: bool = (
+        FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING
+    ),
     ECM_useProcessPrecisionReweighting: bool = True,
-    ECM_useAPN: bool = False,
+    ECM_scaleObsPrecisionToMedian: bool = FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN,
+    ECM_scaleProcessPrecisionToMedian: bool = (
+        FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN
+    ),
     ECM_zeroCenterBackground: bool = False,
     ECM_outerIters: int = 3,
     ECM_minOuterIters: int | None = None,
@@ -3971,11 +4005,32 @@ def runConsenrich(
             raise ValueError("intervalSizeBP must be positive when provided")
 
     requestedProcessPrecisionReweighting = bool(ECM_useProcessPrecisionReweighting)
-    ECM_useAPN = bool(ECM_useAPN)
-    if ECM_useAPN:
-        ECM_useProcessPrecisionReweighting = False
+    if bool(ECM_scaleObsPrecisionToMedian) and not bool(
+        ECM_useObsPrecisionReweighting
+    ):
+        raise ValueError(
+            "ECM_scaleObsPrecisionToMedian requires "
+            "ECM_useObsPrecisionReweighting=True"
+        )
+    if bool(ECM_scaleProcessPrecisionToMedian) and not bool(
+        ECM_useProcessPrecisionReweighting
+    ):
+        raise ValueError(
+            "ECM_scaleProcessPrecisionToMedian requires "
+            "ECM_useProcessPrecisionReweighting=True"
+        )
     stateModelMode = _normalizeStateModel(stateModel)
     stateDim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
+    if ECM_processRobustTNu is None or isinstance(
+        ECM_processRobustTNu, (bool, np.bool_)
+    ):
+        raise ValueError(
+            "`fitParams.ECM_processRobustTNu` must be positive and finite"
+        )
+    ECM_processRobustTNu = _checkFinitePositive(
+        "fitParams.ECM_processRobustTNu",
+        ECM_processRobustTNu,
+    )
     (
         observationPrecisionMultiplierMin,
         observationPrecisionMultiplierMax,
@@ -3990,9 +4045,24 @@ def runConsenrich(
     ) = _checkProcessPrecisionMultiplierBounds(
         minValue=processPrecisionMultiplierMin,
         maxValue=processPrecisionMultiplierMax,
-        robustTNu=ECM_robustTNu,
+        robustTNu=ECM_processRobustTNu,
         stateDim=int(stateDim),
     )
+    if bool(ECM_scaleObsPrecisionToMedian) and not (
+        observationPrecisionMultiplierMin <= 1.0
+        <= observationPrecisionMultiplierMax
+    ):
+        raise ValueError(
+            "observation precision multiplier bounds must contain 1 when "
+            "ECM_scaleObsPrecisionToMedian=True"
+        )
+    if bool(ECM_scaleProcessPrecisionToMedian) and not (
+        processPrecisionMultiplierMin <= 1.0 <= processPrecisionMultiplierMax
+    ):
+        raise ValueError(
+            "process precision multiplier bounds must contain 1 when "
+            "ECM_scaleProcessPrecisionToMedian=True"
+        )
     initialBackgroundArr = _coerceOptionalVector(
         "initialBackground",
         initialBackground,
@@ -4004,34 +4074,52 @@ def runConsenrich(
         intervalCount,
     )
     if initialObservationPrecisionArr is not None:
-        initialObservationPrecisionArr = np.ascontiguousarray(
-            np.clip(
+        if bool(ECM_scaleObsPrecisionToMedian):
+            initialObservationPrecisionArr = _scalePrecisionWarmStartToMedian(
+                "initialObservationPrecision",
                 initialObservationPrecisionArr,
-                float(observationPrecisionMultiplierMin),
-                float(observationPrecisionMultiplierMax),
-            ),
-            dtype=np.float32,
-        )
+                activeStart=0,
+                lower=observationPrecisionMultiplierMin,
+                upper=observationPrecisionMultiplierMax,
+            )
+        else:
+            initialObservationPrecisionArr = np.ascontiguousarray(
+                np.clip(
+                    initialObservationPrecisionArr,
+                    float(observationPrecisionMultiplierMin),
+                    float(observationPrecisionMultiplierMax),
+                ),
+                dtype=np.float32,
+            )
     initialProcessPrecisionArr = _coerceOptionalVector(
         "initialProcessPrecision",
         initialProcessPrecision,
         intervalCount,
     )
     if initialProcessPrecisionArr is not None:
-        initialProcessPrecisionArr = np.ascontiguousarray(
-            np.clip(
+        if bool(ECM_scaleProcessPrecisionToMedian):
+            initialProcessPrecisionArr = _scalePrecisionWarmStartToMedian(
+                "initialProcessPrecision",
                 initialProcessPrecisionArr,
-                float(processPrecisionMultiplierMin),
-                float(processPrecisionMultiplierMax),
-            ),
-            dtype=np.float32,
-        )
+                activeStart=1,
+                lower=processPrecisionMultiplierMin,
+                upper=processPrecisionMultiplierMax,
+            )
+        else:
+            initialProcessPrecisionArr = np.ascontiguousarray(
+                np.clip(
+                    initialProcessPrecisionArr,
+                    float(processPrecisionMultiplierMin),
+                    float(processPrecisionMultiplierMax),
+                ),
+                dtype=np.float32,
+            )
     initialProcessQArr = _coerceOptionalProcessNoiseMatrix(initialProcessQ)
     minQ = _checkFinitePositive("minQ", minQ)
     maxQ = float(maxQ)
     if np.isnan(maxQ):
         raise ValueError("`maxQ` must not be NaN")
-    maxQForAPN = np.inf if maxQ < 0.0 else max(maxQ, minQ)
+    resolvedMaxQ = np.inf if maxQ < 0.0 else max(maxQ, minQ)
     processNoiseCalibrationMode = _normalizeProcessNoiseCalibrationMode(
         processNoiseCalibration
     )
@@ -4044,8 +4132,8 @@ def runConsenrich(
         raise ValueError("`minQ` must not exceed the fixed process Q")
     if (
         useFixedProcessQ
-        and np.isfinite(maxQForAPN)
-        and float(maxQForAPN) < fixedProcessQ
+        and np.isfinite(resolvedMaxQ)
+        and float(resolvedMaxQ) < fixedProcessQ
     ):
         raise ValueError("`maxQ` must be negative or at least the fixed process Q")
     qCalibrationSupport = _processNoiseCalibrationSupport(matrixData, matrixMunc, pad)
@@ -4124,6 +4212,8 @@ def runConsenrich(
             ("outer passes", int(ECM_outerIters)),
             ("state model", stateModelMode),
             ("process noise calibration", processNoiseCalibrationPolicy),
+            ("observation Student-t df", float(ECM_robustTNu)),
+            ("process Student-t df", float(ECM_processRobustTNu)),
             (
                 "process active observations",
                 int(qCalibrationSupport["activeObservationCount"]),
@@ -4170,7 +4260,7 @@ def runConsenrich(
     _warnIfProcessKappaMinAllowsProfiledNonconvexity(
         kappaMin=float(processPrecisionMultiplierMin),
         kappaMax=float(processPrecisionMultiplierMax),
-        robustTNu=ECM_robustTNu,
+        robustTNu=ECM_processRobustTNu,
         stateDim=int(stateDim),
         processReweightingEnabled=bool(ECM_useProcessPrecisionReweighting),
     )
@@ -4212,9 +4302,7 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
-        processQScaleLocal: np.ndarray | None,
         useProcPrecReweightLocal: bool,
-        useAPNLocal: bool,
     ):
         stateForward = np.empty((intervalCount, stateDim), dtype=np.float32)
         stateCovarForward = np.empty(
@@ -4246,16 +4334,12 @@ def runConsenrich(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
-                ECM_useAPN=bool(useAPNLocal),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
             )
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
                 cconsenrich.cbackwardPassLevel(
@@ -4293,16 +4377,12 @@ def runConsenrich(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
-                ECM_useAPN=bool(useAPNLocal),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -4342,9 +4422,7 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
-        processQScaleLocal: np.ndarray | None,
         useProcPrecReweightLocal: bool,
-        useAPNLocal: bool,
         storeNLLInD: bool = False,
     ) -> float | tuple[float, np.ndarray]:
         if stateModelMode == STATE_MODEL_LEVEL:
@@ -4366,16 +4444,12 @@ def runConsenrich(
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
-                ECM_useAPN=bool(useAPNLocal),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
             )
         else:
             _phiHat, _unused, _vectorD, sumNLL = cconsenrich.cforwardPass(
@@ -4400,16 +4474,12 @@ def runConsenrich(
                 storeNLLInD=bool(storeNLLInD),
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                processQScale=processQScaleLocal,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
-                ECM_useAPN=bool(useAPNLocal),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
             )
         if storeNLLInD:
             return float(sumNLL), np.asarray(_vectorD, dtype=np.float64).copy()
@@ -4424,9 +4494,7 @@ def runConsenrich(
         background: np.ndarray,
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
-        processQScaleLocal: np.ndarray | None,
         useProcPrecReweightLocal: bool,
-        useAPNLocal: bool,
     ) -> dict[str, float]:
         def _backgroundNegativePenaltyForObjective(
             backgroundLocal: np.ndarray,
@@ -4472,22 +4540,12 @@ def runConsenrich(
             matrixFLocal=matrixFLocal,
             matrixQ0Local=matrixQ0Local,
             lambdaExp=lambdaExp,
-            processPrecExp=(
-                processPrecExp
-                if bool(useProcPrecReweightLocal) and not bool(useAPNLocal)
-                else None
-            ),
-            processQScaleLocal=processQScaleLocal,
+            processPrecExp=(processPrecExp if bool(useProcPrecReweightLocal) else None),
             useProcPrecReweightLocal=useProcPrecReweightLocal,
-            useAPNLocal=useAPNLocal,
         )
         obsPenalty, procPenalty = _robustPrecisionPenalty(
             lambdaExp=lambdaExp if bool(ECM_useObsPrecisionReweighting) else None,
-            processPrecExp=(
-                processPrecExp
-                if bool(useProcPrecReweightLocal) and not bool(useAPNLocal)
-                else None
-            ),
+            processPrecExp=(processPrecExp if bool(useProcPrecReweightLocal) else None),
             robustTNu=float(ECM_robustTNu),
         )
         objectiveWeightTrack = np.zeros(intervalCount, dtype=np.float64)
@@ -4616,7 +4674,6 @@ def runConsenrich(
         initialBackgroundLocal: np.ndarray | None = None,
         initialLambdaLocal: np.ndarray | None = None,
         initialProcessPrecLocal: np.ndarray | None = None,
-        processQScaleLocal: np.ndarray | None = None,
         phaseLabel: str = "fit",
         phaseIndentLevel: int = 0,
         logAlternatingECMIterations: bool = False,
@@ -4624,10 +4681,7 @@ def runConsenrich(
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
         fitBackgroundLocal = bool(fitBackground)
-        useAPNLocal = bool(ECM_useAPN)
         useProcPrecLocal = bool(ECM_useProcessPrecisionReweighting)
-        if useAPNLocal:
-            useProcPrecLocal = False
 
         currentBackground = (
             np.zeros(nLocal, dtype=np.float32)
@@ -4645,19 +4699,8 @@ def runConsenrich(
             np.ascontiguousarray(initialProcessPrecLocal, dtype=np.float32).copy()
             if initialProcessPrecLocal is not None
             and bool(useProcPrecLocal)
-            and not bool(useAPNLocal)
             else None
         )
-        processQScaleLocal = (
-            None
-            if processQScaleLocal is None
-            else np.ascontiguousarray(processQScaleLocal, dtype=np.float32).reshape(-1)
-        )
-        if processQScaleLocal is not None and processQScaleLocal.shape[0] != nLocal:
-            raise ValueError("processQScale length must match interval count")
-        if processQScaleLocal is not None and nLocal:
-            processQScaleLocal = processQScaleLocal.copy()
-            processQScaleLocal[0] = 1.0
         backgroundPrepassApplied = False
         backgroundPrepassSource = ""
         if fitBackgroundLocal and initialBackgroundLocal is None:
@@ -4773,9 +4816,7 @@ def runConsenrich(
                 background=currentBackground,
                 lambdaExp=lambdaExpLocal,
                 processPrecExp=processPrecExpLocal,
-                processQScaleLocal=processQScaleLocal,
                 useProcPrecReweightLocal=useProcPrecLocal,
-                useAPNLocal=useAPNLocal,
             )
 
             currentForwardNLL = float(lastObjectiveDiagnosticsLocal["forward_nll"])
@@ -4886,7 +4927,6 @@ def runConsenrich(
                     ("ECM max iterations", int(ecmItersLocal)),
                     ("ECM rtol", float(ecmRtolLocal)),
                     ("background model fit", bool(fitBackgroundLocal)),
-                    ("APN enabled", bool(useAPNLocal)),
                     ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
                     ("proc precision weights", bool(useProcPrecLocal)),
                 ),
@@ -4908,9 +4948,15 @@ def runConsenrich(
                 t_innerItersLocal=int(t_innerIters),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
+                ECM_processRobustTNu=float(ECM_processRobustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 useProcPrecLocal=bool(useProcPrecLocal),
-                useAPNLocal=bool(useAPNLocal),
+                ECM_scaleObsPrecisionToMedian=bool(
+                    ECM_scaleObsPrecisionToMedian
+                ),
+                ECM_scaleProcessPrecisionToMedian=bool(
+                    ECM_scaleProcessPrecisionToMedian
+                ),
                 observationPrecisionMultiplierMin=float(
                     observationPrecisionMultiplierMin
                 ),
@@ -4919,11 +4965,8 @@ def runConsenrich(
                 ),
                 processPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 processPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                minQ=float(minQ),
-                maxQForAPN=float(maxQForAPN),
                 lambdaExpLocal=lambdaExpLocal,
                 processPrecExpLocal=processPrecExpLocal,
-                processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
                 logIterations=ecmLogIterations,
                 stateModelMode=stateModelMode,
@@ -5061,7 +5104,22 @@ def runConsenrich(
                 )
                 break
 
-            invVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
+            backgroundActive = np.isfinite(currentMunc) & (
+                currentMunc
+                < 0.5
+                * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
+            )
+            backgroundVariance = np.maximum(
+                currentMunc + float(pad),
+                np.float32(1.0e-8),
+            )
+            invVarMatrix = np.zeros_like(backgroundVariance, dtype=np.float32)
+            np.divide(
+                np.float32(1.0),
+                backgroundVariance,
+                out=invVarMatrix,
+                where=backgroundActive,
+            )
             if lambdaExpLocal is not None:
                 obsPrecision = np.clip(
                     np.asarray(lambdaExpLocal, dtype=np.float32).reshape(
@@ -5071,9 +5129,12 @@ def runConsenrich(
                     float(observationPrecisionMultiplierMax),
                 )
                 invVarMatrix *= obsPrecision
-            residualMatrix = np.asarray(matrixDataLocal, dtype=np.float32) - np.asarray(
-                stateSmoothedLocal[:, 0][None, :], dtype=np.float32
-            )
+            residualMatrix = np.where(
+                backgroundActive,
+                np.asarray(matrixDataLocal, dtype=np.float32)
+                - np.asarray(stateSmoothedLocal[:, 0][None, :], dtype=np.float32),
+                np.float32(0.0),
+            ).astype(np.float32, copy=False)
             backgroundWeightTrack = np.sum(invVarMatrix, axis=0, dtype=np.float64)
             backgroundRhsTrack = np.einsum(
                 "ij,ij->j",
@@ -5393,7 +5454,6 @@ def runConsenrich(
                     ("ECM max iterations", int(ecmItersLocal)),
                     ("ECM rtol", float(ecmRtolLocal)),
                     ("background model fit", False),
-                    ("APN enabled", bool(useAPNLocal)),
                     ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
                     ("proc precision weights", bool(useProcPrecLocal)),
                 ),
@@ -5414,9 +5474,15 @@ def runConsenrich(
                 t_innerItersLocal=int(t_innerIters),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
+                ECM_processRobustTNu=float(ECM_processRobustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 useProcPrecLocal=bool(useProcPrecLocal),
-                useAPNLocal=bool(useAPNLocal),
+                ECM_scaleObsPrecisionToMedian=bool(
+                    ECM_scaleObsPrecisionToMedian
+                ),
+                ECM_scaleProcessPrecisionToMedian=bool(
+                    ECM_scaleProcessPrecisionToMedian
+                ),
                 observationPrecisionMultiplierMin=float(
                     observationPrecisionMultiplierMin
                 ),
@@ -5425,11 +5491,8 @@ def runConsenrich(
                 ),
                 processPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 processPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                minQ=float(minQ),
-                maxQForAPN=float(maxQForAPN),
                 lambdaExpLocal=lambdaExpLocal,
                 processPrecExpLocal=processPrecExpLocal,
-                processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
                 logIterations=False,
                 stateModelMode=stateModelMode,
@@ -5587,16 +5650,13 @@ def runConsenrich(
             matrixQ0Local=matrixQ0Local,
             lambdaExp=lambdaExpLocal,
             processPrecExp=processPrecExpLocal,
-            processQScaleLocal=processQScaleLocal,
             useProcPrecReweightLocal=useProcPrecLocal,
-            useAPNLocal=useAPNLocal,
         )
         return {
             "matrixMunc": currentMunc,
             "background": currentBackground,
             "lambdaExp": lambdaExpLocal,
             "processPrecExp": processPrecExpLocal,
-            "processQScale": processQScaleLocal,
             "stateForward": np.asarray(stateForwardLocal, dtype=np.float32),
             "stateCovarForward": np.asarray(stateCovarForwardLocal, dtype=np.float32),
             "pNoiseForward": np.asarray(pNoiseForwardLocal, dtype=np.float32),
@@ -5685,7 +5745,6 @@ def runConsenrich(
     )
     processNoiseCalibrationInfo: dict[str, Any] | None = None
 
-    processQScaleFinal = np.ones(intervalCount, dtype=np.float32)
     if initialProcessQArr is not None:
         processNoiseCalibrationInfo = _staticProcessNoiseCalibrationDiagnostics(
             processNoisePolicy=PROCESS_NOISE_CALIBRATION_FIXED,
@@ -5730,11 +5789,8 @@ def runConsenrich(
         raise RuntimeError("process-noise calibration did not produce diagnostics")
     processNoiseCalibrationInfo.update(qCalibrationSupport)
     processNoiseCalibrationInfo["resolvedMinQ"] = float(minQ)
-    processNoiseCalibrationInfo["resolvedMaxQ"] = float(maxQForAPN)
+    processNoiseCalibrationInfo["resolvedMaxQ"] = float(resolvedMaxQ)
     processNoiseCalibrationInfo["transitionCount"] = float(max(intervalCount - 1, 0))
-    processNoiseCalibrationInfo["processQScaleSummary"] = _metadataTrackSummary(
-        processQScaleFinal
-    )
     _logEvent(
         "process_noise.calibration",
         (
@@ -5751,16 +5807,8 @@ def runConsenrich(
             ),
             ("windows", int(processNoiseCalibrationInfo.get("windowCount", 0))),
             (
-                "qscale_clamp_fraction",
-                processNoiseCalibrationInfo.get("qScaleClampFraction", 0.0),
-            ),
-            (
                 "base_q_clamp_changed",
                 bool(processNoiseCalibrationInfo.get("baseQClampChanged", False)),
-            ),
-            (
-                "qscale_decomp_max_log_error",
-                processNoiseCalibrationInfo.get("qScaleDecompositionMaxLogError", 0.0),
             ),
         ),
     )
@@ -5783,7 +5831,6 @@ def runConsenrich(
             ("background model fit", bool(fitBackground)),
             ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
             ("proc precision weights", bool(ECM_useProcessPrecisionReweighting)),
-            ("APN enabled", bool(ECM_useAPN)),
         ),
         indentLevel=logIndentLevel + 1,
         level=logCoreBlockLevel,
@@ -5808,7 +5855,6 @@ def runConsenrich(
         initialBackgroundLocal=initialBackgroundArr,
         initialLambdaLocal=initialObservationPrecisionArr,
         initialProcessPrecLocal=initialProcessPrecisionArr,
-        processQScaleLocal=processQScaleFinal,
         phaseLabel=fitPhaseLabel,
         phaseIndentLevel=logIndentLevel + 1,
         logAlternatingECMIterations=bool(logMainAlternatingECMIterations),
@@ -5855,21 +5901,18 @@ def runConsenrich(
             if bool(ECM_useProcessPrecisionReweighting)
             else None
         ),
-        processQScale=fitFinal.get("processQScale"),
         pNoiseForward=np.asarray(fitFinal["pNoiseForward"], dtype=np.float32),
-        useAPN=bool(ECM_useAPN),
         processPrecisionRequested=bool(requestedProcessPrecisionReweighting),
         processPrecisionEffective=bool(ECM_useProcessPrecisionReweighting),
         procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
     )
     logger.info(
-        "processQ.finalPolicy runLabel=%s policy=%s APN=%s procPrecisionRequested=%s "
+        "processQ.finalPolicy runLabel=%s policy=%s procPrecisionRequested=%s "
         "procPrecisionEffective=%s baseQLevel=%s baseQTrend=%s "
         "effectiveQLevelMedian=%s effectiveQTrendMedian=%s",
         logRunLabel,
         str(processQDiagnostics["policy"]),
-        str(bool(processQDiagnostics["apn_enabled"])).lower(),
         str(
             bool(processQDiagnostics["process_precision_reweighting_requested"])
         ).lower(),
@@ -5973,7 +6016,7 @@ def runConsenrich(
             observationPrecisionMax=float(observationPrecisionMultiplierMax),
             processPrecision=(
                 fitFinal.get("processPrecExp")
-                if bool(ECM_useProcessPrecisionReweighting) and not bool(ECM_useAPN)
+                if bool(ECM_useProcessPrecisionReweighting)
                 else None
             ),
             processPrecisionMin=float(processPrecisionMultiplierMin),
@@ -5982,18 +6025,20 @@ def runConsenrich(
         "process_noise_calibration": processNoiseCalibrationMetadata,
         "post_process_noise_fit": _fitDiagnosticsMetadata(fitFinal),
         "optimization_path_tracked": bool(trackOptimizationPath),
+        "observation_robust_t_nu": metadataFloat(ECM_robustTNu),
+        "process_robust_t_nu": metadataFloat(ECM_processRobustTNu),
+        "scale_obs_precision_to_median": bool(
+            ECM_scaleObsPrecisionToMedian
+        ),
+        "scale_process_precision_to_median": bool(
+            ECM_scaleProcessPrecisionToMedian
+        ),
         "process_precision_reweighting_requested": bool(
             requestedProcessPrecisionReweighting
         ),
         "process_precision_reweighting_effective": bool(
             ECM_useProcessPrecisionReweighting
         ),
-        "process_precision_reweighting_disabled_by_apn": bool(
-            requestedProcessPrecisionReweighting
-            and ECM_useAPN
-            and not ECM_useProcessPrecisionReweighting
-        ),
-        "adaptive_process_noise_effective": bool(ECM_useAPN),
         "process_q_policy": processQDiagnostics["policy"],
         "process_q_diagnostics": processQDiagnostics,
         "observation_r_trace": observationRTraceSummary,
@@ -6057,13 +6102,9 @@ def runConsenrich(
                 ),
                 processPrecExp=(
                     fitFinal.get("processPrecExp")
-                    if (
-                        bool(ECM_useProcessPrecisionReweighting)
-                        and not bool(ECM_useAPN)
-                    )
+                    if bool(ECM_useProcessPrecisionReweighting)
                     else None
                 ),
-                processQScale=fitFinal.get("processQScale"),
                 pNoiseForward=np.asarray(fitFinal["pNoiseForward"], dtype=np.float32),
                 pad=float(pad),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
@@ -6076,17 +6117,19 @@ def runConsenrich(
                 {
                     "precision_track_diagnostics": True,
                     "state_model": stateModelMode,
-                    "ECM_useAPN": bool(ECM_useAPN),
+                    "observation_robust_t_nu": float(ECM_robustTNu),
+                    "process_robust_t_nu": float(ECM_processRobustTNu),
+                    "scale_obs_precision_to_median": bool(
+                        ECM_scaleObsPrecisionToMedian
+                    ),
+                    "scale_process_precision_to_median": bool(
+                        ECM_scaleProcessPrecisionToMedian
+                    ),
                     "process_precision_reweighting_requested": bool(
                         requestedProcessPrecisionReweighting
                     ),
                     "process_precision_reweighting_effective": bool(
                         ECM_useProcessPrecisionReweighting
-                    ),
-                    "process_precision_reweighting_disabled_by_apn": bool(
-                        requestedProcessPrecisionReweighting
-                        and ECM_useAPN
-                        and not ECM_useProcessPrecisionReweighting
                     ),
                     "process_q_policy": processQDiagnostics["policy"],
                     "process_q_diagnostics": processQDiagnostics,
@@ -6144,7 +6187,7 @@ def runConsenrich(
 
 def getPrimaryState(
     stateVectors: np.ndarray,
-    roundPrecision: int = 4,
+    roundPrecision: int = 5,
     stateLowerBound: Optional[float] = None,
     stateUpperBound: Optional[float] = None,
     boundState: bool = False,
@@ -7593,7 +7636,7 @@ def centerMBInPlace(
     values: npt.NDArray[np.floating],
     *,
     intervalSizeBP: int,
-    filterWindowBP: int = 1_250_000,
+    filterWindowBP: int = COUNTING_DEFAULT_CENTER_MB_WINDOW_BP,
     centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD,
 ) -> dict[str, Any]:
     arr = np.asarray(values)
@@ -7741,7 +7784,6 @@ def _perIntervalOutputDiagnosticTracks(
     stateModel: str,
     lambdaExp: np.ndarray | None,
     processPrecExp: np.ndarray | None,
-    processQScale: np.ndarray | None,
     pNoiseForward: np.ndarray | None,
     pad: float,
     obsPrecisionMultiplierMin: float,
@@ -7803,7 +7845,6 @@ def _perIntervalOutputDiagnosticTracks(
         intervalCount=intervalCount,
         stateModel=stateModelMode,
         processPrecExp=processPrecExp,
-        processQScale=processQScale,
         pNoiseForward=pNoiseForward,
         procPrecisionMultiplierMin=float(procPrecisionMultiplierMin),
         procPrecisionMultiplierMax=float(procPrecisionMultiplierMax),
@@ -7817,7 +7858,6 @@ def _perIntervalOutputDiagnosticTracks(
     sumGain1 = np.zeros(intervalCount, dtype=np.float64)
     previousCovar = np.eye(stateDim, dtype=np.float64) * float(stateCovarInit)
     baseQ = q0[:stateDim, :stateDim]
-    qScale = qTracks["processQScale"]
     procPrecision = None
     if processPrecExp is not None:
         procPrecision = np.asarray(processPrecExp, dtype=np.float64).reshape(-1)
@@ -7840,9 +7880,9 @@ def _perIntervalOutputDiagnosticTracks(
             if np.all(np.isfinite(pNoiseEff)):
                 qEff[:, :] = pNoiseEff
             else:
-                qEff[:, :] = baseQ * float(qScale[k])
+                qEff[:, :] = baseQ
         else:
-            qEff[:, :] = baseQ * float(qScale[k])
+            qEff[:, :] = baseQ
             if procPrecision is not None:
                 qEff[:, :] /= float(procPrecision[k])
         if stateDim == 2:
@@ -7871,7 +7911,6 @@ def _perIntervalOutputDiagnosticTracks(
         "preKappaQTrend": preKappaQTrend.astype(np.float32, copy=False),
         "effectiveQLevel": effectiveQLevel.astype(np.float32, copy=False),
         "effectiveQTrend": effectiveQTrend.astype(np.float32, copy=False),
-        "processQScale": qTracks["processQScale"].astype(np.float32, copy=False),
         "muncTrace": muncTrace.astype(np.float32, copy=False),
         "sumGain0": sumGain0.astype(np.float32, copy=False),
         "sumGain1": sumGain1.astype(np.float32, copy=False),
@@ -8162,9 +8201,7 @@ def solveZeroCenteredBackground(
     )
     scaleDenominator = meanPositivePrecision
     spectralScaleRatio = float(
-        1.0
-        + (4.0 * float(lamFirst) + 16.0 * float(lamSecond))
-        / scaleDenominator
+        1.0 + (4.0 * float(lamFirst) + 16.0 * float(lamSecond)) / scaleDenominator
     )
     if (
         not np.isfinite(scaleDenominator)

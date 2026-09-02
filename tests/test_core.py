@@ -8,7 +8,6 @@ import logging
 import math
 import os
 import tempfile
-from types import SimpleNamespace
 from typing import Tuple, List, Optional
 from pathlib import Path
 
@@ -36,25 +35,25 @@ FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 def test_roughness_ldl_guardrails(caplog):
     assert constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP == 100_000
-    assert constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP == 150_000
+    assert constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP == 125_000
     assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
         171,
         0,
         50,
         16.0,
-    ) == 2737
+    ) == 2499
     assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
         200,
         0,
         50,
         16.0,
-    ) == 2999
+    ) == 2499
     assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
         None,
         20_000,
         50,
         16.0,
-    ) == 2999
+    ) == 2499
 
     residualMatrix = np.ones((1, 64), dtype=np.float32)
     invVarMatrix = np.full((1, 64), 8.53348, dtype=np.float32)
@@ -296,6 +295,14 @@ def test_dependence_span_rank_weighted_sampling_contract():
 
 
 def test_process_precision_auto_min_rejects_too_small_max():
+    assert core._processKappaConvexityLowerBound(
+        robustTNu=4.0,
+        stateDim=2,
+    ) == pytest.approx(0.7501)
+    assert core._processKappaConvexityLowerBound(
+        robustTNu=16.0,
+        stateDim=2,
+    ) == pytest.approx(0.5626)
     with pytest.raises(ValueError, match="auto .*convexity-preserving lower bound"):
         core._checkProcessPrecisionMultiplierBounds(
             minValue=-1.0,
@@ -391,8 +398,6 @@ def test_munc_count_model_variance_is_lower_bound():
     assert combined[1] == pytest.approx(0.20)
     assert combined[2] == pytest.approx(0.03)
 
-
-_REMOVED_EM_PREFIX = "E" + "M" + "_"
 
 
 def _emaReference(x: np.ndarray, alpha: float) -> np.ndarray:
@@ -747,7 +752,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
                 randSeed=1,
                 numBootstrap=0,
                 thresholdZ=3.0,
-                dependenceSpan=None,
                 gamma=0.25,
                 selectionPenalty=None,
                 gammaScale=1.0,
@@ -981,7 +985,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
         fakeMuncSmoothDenseLocalEvidence,
         raising=False,
     )
-
     runtimeCases = (
         ("ebOff", False, True, True),
         ("ebOn", True, True, True),
@@ -1294,11 +1297,36 @@ def test_core_fixed_process_q_respects_q_bounds(qKwargs, expectedMessage):
         core.runConsenrich(matrixData, matrixMunc, **kwargs)
 
 
-def test_run_consenrich_passes_t_inner_iters_to_fixed_background_ecm(monkeypatch):
-    capturedInnerIters = []
+@pytest.mark.parametrize(
+    "scaleObs,scaleProcess",
+    [(True, False), (False, True)],
+)
+def test_run_consenrich_passes_precision_options_to_fixed_background_ecm(
+    monkeypatch,
+    scaleObs,
+    scaleProcess,
+):
+    capturedKwargs = []
+    capturedWarmStarts = []
 
     def fakeCFixedBackgroundECM(**kwargs):
-        capturedInnerIters.append(kwargs["t_innerIters"])
+        capturedKwargs.append(
+            (
+                kwargs["t_innerIters"],
+                kwargs["ECM_scaleObsPrecisionToMedian"],
+                kwargs["ECM_scaleProcessPrecisionToMedian"],
+                kwargs["obsPrecisionWarmStartIsMedianScaled"],
+                kwargs["processPrecisionWarmStartIsMedianScaled"],
+                kwargs["ECM_robustTNu"],
+                kwargs["ECM_processRobustTNu"],
+            )
+        )
+        capturedWarmStarts.append(
+            (
+                np.asarray(kwargs["lambdaExpInit"], dtype=np.float32).copy(),
+                np.asarray(kwargs["processPrecExpInit"], dtype=np.float32).copy(),
+            )
+        )
         matrixData = np.asarray(kwargs["matrixData"], dtype=np.float32)
         trackCount, intervalCount = matrixData.shape
         stateDim = 2
@@ -1309,12 +1337,16 @@ def test_run_consenrich_passes_t_inner_iters_to_fixed_background_ecm(monkeypatch
             np.zeros((intervalCount, stateDim, stateDim), dtype=np.float32),
             np.zeros((intervalCount - 1, stateDim, stateDim), dtype=np.float32),
             np.zeros((intervalCount, trackCount), dtype=np.float32),
-            None,
-            None,
+            np.ones(intervalCount, dtype=np.float32),
+            np.ones(intervalCount, dtype=np.float32),
             {"converged": True},
         )
 
     monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", fakeCFixedBackgroundECM)
+    initialLambda = np.asarray([0.1, 0.2, 0.4, 0.8, 1.6], dtype=np.float32)
+    initialKappa = np.asarray([999.0, 0.1, 0.2, 0.4, 4.0], dtype=np.float32)
+    initialLambdaCopy = initialLambda.copy()
+    initialKappaCopy = initialKappa.copy()
 
     runKwargs = {
         "deltaF": 0.1,
@@ -1329,8 +1361,17 @@ def test_run_consenrich_passes_t_inner_iters_to_fixed_background_ecm(monkeypatch
         "ECM_fixedBackgroundIters": 1,
         "ECM_outerIters": 1,
         "ECM_minOuterIters": 1,
-        "ECM_useObsPrecisionReweighting": False,
-        "ECM_useProcessPrecisionReweighting": False,
+        "ECM_robustTNu": 5.0,
+        "ECM_processRobustTNu": 11.0,
+        "ECM_useObsPrecisionReweighting": True,
+        "ECM_useProcessPrecisionReweighting": True,
+        "processPrecisionMultiplierMin": 1.0e-4,
+        "processPrecisionMultiplierMax": 10.0,
+        "ECM_scaleObsPrecisionToMedian": scaleObs,
+        "ECM_scaleProcessPrecisionToMedian": scaleProcess,
+        "initialObservationPrecision": initialLambda,
+        "initialProcessPrecision": initialKappa,
+        "returnPrecisionDiagnostics": True,
         "fitBackground": False,
         "processNoiseCalibration": core.PROCESS_NOISE_CALIBRATION_FIXED,
     }
@@ -1342,14 +1383,99 @@ def test_run_consenrich_passes_t_inner_iters_to_fixed_background_ecm(monkeypatch
             t_innerIters=1.5,
         )
 
-    core.runConsenrich(
+    out = core.runConsenrich(
         np.zeros((2, 5), dtype=np.float32),
         np.ones((2, 5), dtype=np.float32),
         **runKwargs,
         t_innerIters=4,
     )
 
-    assert capturedInnerIters == [4]
+    assert capturedKwargs == [
+        (4, scaleObs, scaleProcess, scaleObs, scaleProcess, 5.0, 11.0)
+    ]
+    lambdaWarmStart, kappaWarmStart = capturedWarmStarts[0]
+    if scaleObs:
+        np.testing.assert_allclose(
+            lambdaWarmStart,
+            [0.25, 0.5, 1.0, 2.0, 4.0],
+        )
+    if scaleProcess:
+        np.testing.assert_allclose(
+            kappaWarmStart,
+            [1.0, 1.0 / 3.0, 2.0 / 3.0, 4.0 / 3.0, 10.0],
+            rtol=2.0e-6,
+        )
+    np.testing.assert_array_equal(initialLambda, initialLambdaCopy)
+    np.testing.assert_array_equal(initialKappa, initialKappaCopy)
+    precisionDiagnostics = out[-1]
+    assert precisionDiagnostics["scale_obs_precision_to_median"] is scaleObs
+    assert precisionDiagnostics["scale_process_precision_to_median"] is scaleProcess
+    assert precisionDiagnostics["observation_robust_t_nu"] == pytest.approx(5.0)
+    assert precisionDiagnostics["process_robust_t_nu"] == pytest.approx(11.0)
+
+
+@pytest.mark.parametrize(
+    "precisionKwargs,kernelPrecisionKwargs",
+    [
+        (
+            {
+                "ECM_useObsPrecisionReweighting": True,
+                "ECM_scaleObsPrecisionToMedian": True,
+                "observationPrecisionMultiplierMin": 1.1,
+                "observationPrecisionMultiplierMax": 2.0,
+            },
+            {
+                "ECM_useObsPrecisionReweighting": True,
+                "ECM_scaleObsPrecisionToMedian": True,
+                "obsPrecisionMultiplierMin": 1.1,
+                "obsPrecisionMultiplierMax": 2.0,
+            },
+        ),
+        (
+            {
+                "ECM_scaleProcessPrecisionToMedian": True,
+                "processPrecisionMultiplierMin": 0.2,
+                "processPrecisionMultiplierMax": 0.9,
+            },
+            {
+                "ECM_scaleProcessPrecisionToMedian": True,
+                "procPrecisionMultiplierMin": 0.2,
+                "procPrecisionMultiplierMax": 0.9,
+            },
+        ),
+    ],
+)
+def test_run_consenrich_requires_median_scaling_bounds_to_contain_one(
+    precisionKwargs,
+    kernelPrecisionKwargs,
+):
+    with pytest.raises(ValueError, match="bounds must contain 1"):
+        core.runConsenrich(
+            np.zeros((1, 6), dtype=np.float32),
+            np.ones((1, 6), dtype=np.float32),
+            deltaF=0.1,
+            minQ=1.0e-4,
+            maxQ=0.5,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            boundState=False,
+            stateLowerBound=0.0,
+            stateUpperBound=0.0,
+            blockLenIntervals=3,
+            **precisionKwargs,
+        )
+    with pytest.raises(ValueError, match="bounds must contain 1"):
+        cconsenrich.cfixedBackgroundECMLevel(
+            matrixData=np.zeros((1, 5), dtype=np.float32),
+            matrixPluginMuncInit=np.ones((1, 5), dtype=np.float32),
+            matrixQ0=np.asarray([[0.1]], dtype=np.float32),
+            intervalToBlockMap=np.zeros(5, dtype=np.int32),
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            logIterations=False,
+            **kernelPrecisionKwargs,
+        )
 
 
 @pytest.mark.correctness
@@ -2024,7 +2150,7 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def _caseCenterMBAppliesMedianFilterInPlace():
+def test_core_center_mb_applies_default_savgol_filter_in_place(monkeypatch):
     cases = (
         (
             np.array(
@@ -2034,13 +2160,13 @@ def _caseCenterMBAppliesMedianFilterInPlace():
                 ],
                 dtype=np.float32,
             ),
-            25,
-            40_001,
+            100_000,
+            5,
         ),
         (
             np.array([2.0, 8.0, 1.0, 6.0], dtype=np.float64),
-            500_000,
-            3,
+            50_000,
+            11,
         ),
     )
     for tracks, intervalSizeBP, expectedWindow in cases:
@@ -2049,6 +2175,7 @@ def _caseCenterMBAppliesMedianFilterInPlace():
         stats_ = core.centerMBInPlace(
             tracks,
             intervalSizeBP=intervalSizeBP,
+            filterWindowBP=500_000,
             centerMBMethod="medfilt",
         )
 
@@ -2078,6 +2205,31 @@ def _caseCenterMBAppliesMedianFilterInPlace():
         np.testing.assert_allclose(centeredTracks, expectedCentered)
         assert not np.allclose(centeredTracks, originalTracks)
 
+    medianCalls = []
+
+    def captureMedianFilter(track, *, size, mode):
+        medianCalls.append((track.copy(), size, mode))
+        return np.zeros_like(track)
+
+    productionBinTracks = np.array(
+        [[1.0, 3.0, 2.0], [5.0, 4.0, 6.0]],
+        dtype=np.float32,
+    )
+    with monkeypatch.context() as mp:
+        mp.setattr(core.ndimage, "median_filter", captureMedianFilter)
+        core.centerMBInPlace(
+            productionBinTracks,
+            intervalSizeBP=50,
+            filterWindowBP=500_000,
+            centerMBMethod="medfilt",
+        )
+
+    assert len(medianCalls) == 2
+    assert all(size == 10_001 for _, size, _ in medianCalls)
+    assert all(mode == "nearest" for _, _, mode in medianCalls)
+    np.testing.assert_array_equal(medianCalls[0][0], [1.0, 3.0, 2.0])
+    np.testing.assert_array_equal(medianCalls[1][0], [5.0, 4.0, 6.0])
+
     savgolTracks = np.array(
         [
             [1.0, 4.0, 12.0, 5.0, 2.0],
@@ -2088,12 +2240,11 @@ def _caseCenterMBAppliesMedianFilterInPlace():
     savgolOriginal = savgolTracks.copy()
     savgolStats = core.centerMBInPlace(
         savgolTracks,
-        intervalSizeBP=500_000,
-        centerMBMethod="savgol",
+        intervalSizeBP=250_000,
     )
     savgolFilter = spySig.savgol_filter(
         savgolOriginal,
-        window_length=3,
+        window_length=5,
         polyorder=0,
         mode="nearest",
         axis=1,
@@ -2113,7 +2264,11 @@ def _caseCenterMBAppliesMedianFilterInPlace():
     assert savgolStats["stdTrackValAfterCenterMB"] == pytest.approx(
         float(np.std(savgolOriginal - savgolFilter))
     )
-    np.testing.assert_allclose(savgolTracks, savgolOriginal - savgolFilter)
+    np.testing.assert_allclose(
+        savgolTracks,
+        savgolOriginal - savgolFilter,
+        atol=8.0 * np.finfo(np.float64).eps,
+    )
 
     with pytest.raises(ValueError, match="centerMBMethod"):
         core.centerMBInPlace(
@@ -2209,14 +2364,17 @@ def _caseMatchExistingBedGraph():
         uncertaintyFrame.to_csv(
             uncertaintyBedGraphPath, sep="\t", header=False, index=False
         )
-        outputPath = peaks.solveRocco(
-            stateBedGraphFile=str(stateBedGraphPath),
+        artifacts = peaks.solveRocco(
+            str(stateBedGraphPath),
+            100,
+            500,
             uncertaintyBedGraphFile=str(uncertaintyBedGraphPath),
             peakMode="narrow",
             numBootstrap=32,
             thresholdZ=2.0,
             randSeed=42,
         )
+        outputPath = artifacts.narrowPeak
         assert outputPath is not None
         assert os.path.isfile(outputPath)
         with open(outputPath, "r") as fileHandle:
@@ -2655,7 +2813,6 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         lambdaExp=lambdaExp,
         processPrecExp=processPrecExp,
-        processQScale=np.asarray([9.0, 2.0, 3.0], dtype=np.float32),
         pNoiseForward=None,
         pad=0.1,
         obsPrecisionMultiplierMin=0.25,
@@ -2664,26 +2821,23 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
         procPrecisionMultiplierMax=4.0,
     )
 
-    np.testing.assert_allclose(tracks["preKappaQLevel"], [0.2, 0.4, 0.6])
-    np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.1, 0.15])
-    np.testing.assert_allclose(tracks["effectiveQLevel"], [0.2, 0.2, 0.15])
-    np.testing.assert_allclose(tracks["effectiveQTrend"], [0.05, 0.05, 0.0375])
-    np.testing.assert_allclose(tracks["processQScale"], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(tracks["preKappaQLevel"], [0.2, 0.2, 0.2])
+    np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.05, 0.05])
+    np.testing.assert_allclose(tracks["effectiveQLevel"], [0.2, 0.1, 0.05])
+    np.testing.assert_allclose(tracks["effectiveQTrend"], [0.05, 0.025, 0.0125])
     qMeta = core._processQDiagnosticsMetadata(
         matrixQ0=matrixQ0,
         intervalCount=3,
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         processPrecExp=processPrecExp,
-        processQScale=np.asarray([9.0, 2.0, 3.0], dtype=np.float32),
         pNoiseForward=None,
-        useAPN=False,
         processPrecisionRequested=True,
         processPrecisionEffective=True,
         procPrecisionMultiplierMin=0.25,
         procPrecisionMultiplierMax=4.0,
     )
-    assert qMeta["effectiveQTraceMin"] == pytest.approx(0.1875)
-    assert qMeta["effectiveQTraceMedian"] == pytest.approx(0.25)
+    assert qMeta["effectiveQTraceMin"] == pytest.approx(0.0625)
+    assert qMeta["effectiveQTraceMedian"] == pytest.approx(0.125)
     assert qMeta["effectiveQTraceMax"] == pytest.approx(0.25)
     expectedTrace = np.sum(
         (matrixMunc.astype(np.float64) + 0.1) / lambdaExp[None, :],
@@ -2744,7 +2898,6 @@ def _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback():
         ECM_robustTNu=8.0,
         ECM_useObsPrecisionReweighting=True,
         ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
         returnIntermediates=True,
         returnDiagnostics=True,
         t_innerIters=5,
@@ -2809,7 +2962,6 @@ def _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback():
         ECM_robustTNu=8.0,
         ECM_useObsPrecisionReweighting=True,
         ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
         returnIntermediates=True,
         returnDiagnostics=True,
         t_innerIters=5,
@@ -2871,6 +3023,7 @@ def _caseObservationPrecisionIsIntervalLevelOnly():
         ECM_fixedBackgroundRtol=0.0,
         ECM_useObsPrecisionReweighting=True,
         ECM_useProcessPrecisionReweighting=False,
+        ECM_scaleProcessPrecisionToMedian=False,
         returnIntermediates=True,
         t_innerIters=1,
     )
@@ -2908,7 +3061,7 @@ def _caseObservationPrecisionIsIntervalLevelOnly():
         )
 
 
-def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
+def _checkCFixedBackgroundPrecisionUpdates(levelOnly, scaleObs, scaleProcess):
     n = 8
     m = 2
     grid = np.linspace(-0.5, 0.8, n, dtype=np.float32)
@@ -2933,8 +3086,11 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
         ]
     ).astype(np.float32)
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
-    nu = 5.0
+    observationNu = 5.0
+    processNu = 11.0
     pad = 0.01
+    multiplierMin = 0.97
+    multiplierMax = 1.03
 
     if levelOnly:
         matrixQ0 = np.asarray([[0.04]], dtype=np.float32)
@@ -2949,13 +3105,16 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
             ECM_fixedBackgroundIters=1,
             ECM_fixedBackgroundRtol=0.0,
             pad=pad,
-            ECM_robustTNu=nu,
-            obsPrecisionMultiplierMin=0.1,
-            obsPrecisionMultiplierMax=10.0,
-            procPrecisionMultiplierMin=0.1,
-            procPrecisionMultiplierMax=10.0,
+            ECM_robustTNu=observationNu,
+            ECM_processRobustTNu=processNu,
+            obsPrecisionMultiplierMin=multiplierMin,
+            obsPrecisionMultiplierMax=multiplierMax,
+            procPrecisionMultiplierMin=multiplierMin,
+            procPrecisionMultiplierMax=multiplierMax,
             ECM_useObsPrecisionReweighting=True,
             ECM_useProcessPrecisionReweighting=True,
+            ECM_scaleObsPrecisionToMedian=scaleObs,
+            ECM_scaleProcessPrecisionToMedian=scaleProcess,
             returnIntermediates=True,
             returnDiagnostics=True,
             t_innerIters=1,
@@ -2984,13 +3143,16 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
             ECM_fixedBackgroundIters=1,
             ECM_fixedBackgroundRtol=0.0,
             pad=pad,
-            ECM_robustTNu=nu,
-            obsPrecisionMultiplierMin=0.1,
-            obsPrecisionMultiplierMax=10.0,
-            procPrecisionMultiplierMin=0.1,
-            procPrecisionMultiplierMax=10.0,
+            ECM_robustTNu=observationNu,
+            ECM_processRobustTNu=processNu,
+            obsPrecisionMultiplierMin=multiplierMin,
+            obsPrecisionMultiplierMax=multiplierMax,
+            procPrecisionMultiplierMin=multiplierMin,
+            procPrecisionMultiplierMax=multiplierMax,
             ECM_useObsPrecisionReweighting=True,
             ECM_useProcessPrecisionReweighting=True,
+            ECM_scaleObsPrecisionToMedian=scaleObs,
+            ECM_scaleProcessPrecisionToMedian=scaleProcess,
             returnIntermediates=True,
             returnDiagnostics=True,
             t_innerIters=1,
@@ -3012,27 +3174,31 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
             obsU2 += (
                 (float(matrixData[j, k]) - float(stateSmoothed[k, 0])) ** 2 + p00
             ) / (float(matrixMunc[j, k]) + pad)
-        expectedLambda.append((nu + m) / (nu + obsU2))
-    expectedLambda = np.clip(expectedLambda, 0.1, 10.0)
+        expectedLambda.append(
+            (observationNu + m) / (observationNu + obsU2)
+        )
+    expectedLambda = np.asarray(expectedLambda, dtype=np.float64)
+    if scaleObs:
+        expectedLambda /= np.median(expectedLambda)
+    expectedLambda = np.clip(expectedLambda, multiplierMin, multiplierMax)
 
-    expectedProcess = [1.0]
+    expectedProcess = []
     qInv = np.linalg.inv(np.asarray(matrixQ0[:stateDim, :stateDim], dtype=np.float64))
     f = np.asarray(matrixF[:stateDim, :stateDim], dtype=np.float64)
     for k in range(n - 1):
         x = stateSmoothed[k, :stateDim]
         y = stateSmoothed[k + 1, :stateDim]
-        covX = stateCovarSmoothed[k, :stateDim, :stateDim]
-        covY = stateCovarSmoothed[k + 1, :stateDim, :stateDim]
-        cross = lagCovSmoothed[k, :stateDim, :stateDim]
-        exx = covX + np.outer(x, x)
-        eyy = covY + np.outer(y, y)
-        exy = cross + np.outer(x, y)
-        innovationMoment = eyy - (exy.T @ f.T) - (f @ exy) + (f @ exx @ f.T)
-        diagonal = np.diag_indices(stateDim)
-        innovationMoment[diagonal] = np.maximum(innovationMoment[diagonal], 0.0)
-        delta = float(np.sum(qInv * innovationMoment.T))
-        expectedProcess.append((nu + stateDim) / (nu + max(delta, 0.0)))
-    expectedProcess = np.clip(expectedProcess, 0.1, 10.0)
+        innovation = y - (f @ x)
+        delta = float(innovation @ qInv @ innovation)
+        expectedProcess.append(
+            (processNu + stateDim) / (processNu + max(delta, 0.0))
+        )
+    expectedProcess = np.asarray(expectedProcess, dtype=np.float64)
+    if scaleProcess:
+        expectedProcess /= np.median(expectedProcess)
+    expectedProcess = np.concatenate(
+        ([1.0], np.clip(expectedProcess, multiplierMin, multiplierMax))
+    )
 
     np.testing.assert_allclose(lambdaExp, expectedLambda, rtol=2.0e-6, atol=2.0e-6)
     np.testing.assert_allclose(
@@ -3041,6 +3207,11 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
         rtol=2.0e-6,
         atol=2.0e-6,
     )
+    assert out[8]["scale_obs_precision_to_median"] is scaleObs
+    assert out[8]["scale_process_precision_to_median"] is scaleProcess
+
+    if scaleObs or scaleProcess:
+        return
 
     if levelOnly:
         disabled = cconsenrich.cfixedBackgroundECMLevel(
@@ -3054,6 +3225,7 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
             ECM_fixedBackgroundIters=1,
             ECM_useObsPrecisionReweighting=False,
             ECM_useProcessPrecisionReweighting=False,
+            ECM_scaleProcessPrecisionToMedian=False,
             returnIntermediates=True,
             t_innerIters=1,
             logIterations=False,
@@ -3071,6 +3243,7 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
             ECM_fixedBackgroundIters=1,
             ECM_useObsPrecisionReweighting=False,
             ECM_useProcessPrecisionReweighting=False,
+            ECM_scaleProcessPrecisionToMedian=False,
             returnIntermediates=True,
             t_innerIters=1,
             logIterations=False,
@@ -3080,9 +3253,97 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly):
 
 
 @pytest.mark.correctness
-def _caseCFixedBackgroundPrecisionUpdatesMatchStudentTEquations():
-    _checkCFixedBackgroundPrecisionUpdates(True)
-    _checkCFixedBackgroundPrecisionUpdates(False)
+@pytest.mark.parametrize("levelOnly", [True, False])
+@pytest.mark.parametrize(
+    "scaleObs,scaleProcess",
+    [(False, False), (True, False), (False, True)],
+)
+def test_cfixed_background_precision_updates_match_student_t_equations(
+    levelOnly,
+    scaleObs,
+    scaleProcess,
+):
+    _checkCFixedBackgroundPrecisionUpdates(levelOnly, scaleObs, scaleProcess)
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("levelOnly", [True, False])
+def test_cfixed_background_precision_median_scaling_applies_to_warm_starts(
+    levelOnly,
+):
+    intervalCount = 5
+    kernel = cconsenrich.cfixedBackgroundECMLevel
+    modelKwargs = {
+        "matrixQ0": np.asarray([[0.1]], dtype=np.float32),
+    }
+    if not levelOnly:
+        kernel = cconsenrich.cfixedBackgroundECM
+        modelKwargs = {
+            "matrixF": np.eye(2, dtype=np.float32),
+            "matrixQ0": np.diag([0.1, 0.05]).astype(np.float32),
+        }
+    kernelKwargs = dict(
+        matrixData=np.zeros((1, intervalCount), dtype=np.float32),
+        matrixPluginMuncInit=np.ones((1, intervalCount), dtype=np.float32),
+        intervalToBlockMap=np.zeros(intervalCount, dtype=np.int32),
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        obsPrecisionMultiplierMin=0.2,
+        obsPrecisionMultiplierMax=5.0,
+        procPrecisionMultiplierMin=0.2,
+        procPrecisionMultiplierMax=5.0,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_processRobustTNu=6.0,
+        ECM_scaleObsPrecisionToMedian=True,
+        ECM_scaleProcessPrecisionToMedian=True,
+        returnIntermediates=True,
+        logIterations=False,
+    )
+    kernelKwargs.update(modelKwargs)
+    out = kernel(
+        **kernelKwargs,
+        lambdaExpInit=np.asarray([0.5, 1.0, 2.0, 4.0, 8.0], dtype=np.float32),
+        processPrecExpInit=np.asarray(
+            [999.0, 0.01, 0.01, 1.0, 2.0],
+            dtype=np.float32,
+        ),
+    )
+
+    assert out[0] == 0
+    np.testing.assert_allclose(out[6], [0.25, 0.5, 1.0, 2.0, 4.0])
+    np.testing.assert_allclose(
+        out[7],
+        [1.0, 0.2, 0.2, 1.980198, 3.960396],
+        rtol=2.0e-6,
+    )
+    preparedLambda = np.asarray([0.2, 0.2, 1.5, 3.0, 5.0], dtype=np.float32)
+    preparedOut = kernel(
+        **kernelKwargs,
+        lambdaExpInit=preparedLambda,
+        processPrecExpInit=np.asarray(out[7], dtype=np.float32),
+        obsPrecisionWarmStartIsMedianScaled=True,
+        processPrecisionWarmStartIsMedianScaled=True,
+    )
+    np.testing.assert_array_equal(preparedOut[6], preparedLambda)
+    np.testing.assert_array_equal(preparedOut[7], out[7])
+
+    pointwiseSeedKwargs = dict(kernelKwargs)
+    pointwiseSeedKwargs["matrixData"] = np.asarray(
+        [[0.0, 0.0, 2.0, 2.0, 2.0]],
+        dtype=np.float32,
+    )
+    pointwiseSeedOut = kernel(**pointwiseSeedKwargs)
+    samplingVariance = 2.0 * (1.0 + 1.0e-4)
+    transitionStatistic = (4.0 - samplingVariance) / 0.1
+    rawFlatPrecision = 7.0 / 6.0
+    rawJumpPrecision = 7.0 / (6.0 + transitionStatistic)
+    np.testing.assert_allclose(
+        pointwiseSeedOut[7],
+        [1.0, 1.0, rawJumpPrecision / rawFlatPrecision, 1.0, 1.0],
+        rtol=2.0e-6,
+    )
 
 
 @pytest.mark.correctness
@@ -3144,21 +3405,6 @@ def _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
     assert summary["process"]["total"] == 4
     assert summary["process"]["lower"] == 2
     assert summary["process"]["upper"] == 1
-
-
-@pytest.mark.correctness
-def _caseFitParamsDropsProcBlockScaleOptions():
-    removedFields = {
-        _REMOVED_EM_PREFIX + "scaleToMedian",
-        _REMOVED_EM_PREFIX + "alphaEMA",
-        _REMOVED_EM_PREFIX + "scaleLOW",
-        _REMOVED_EM_PREFIX + "scaleHIGH",
-        _REMOVED_EM_PREFIX + "useProcBlockScale",
-        _REMOVED_EM_PREFIX + "useReplicateScale",
-        _REMOVED_EM_PREFIX + "repScaleLOW",
-        _REMOVED_EM_PREFIX + "repScaleHIGH",
-    }
-    assert removedFields.isdisjoint(core.fitParams._fields)
 
 
 @pytest.mark.correctness
@@ -3316,7 +3562,6 @@ def _caseLevelForwardBackwardMatchesPythonReference():
         returnNLL=True,
         ECM_useObsPrecisionReweighting=False,
         ECM_useProcessPrecisionReweighting=False,
-        ECM_useAPN=False,
     )
     stateSmoothed, covSmoothed, lagCovSmoothed, residuals = (
         cconsenrich.cbackwardPassLevel(
@@ -3392,10 +3637,7 @@ def _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers():
         "obsPrecisionMultiplierMax": 4.0,
         "procPrecisionMultiplierMin": 0.25,
         "procPrecisionMultiplierMax": 4.0,
-        "processQScale": np.asarray(
-            [1.00, 0.70, 1.80, 0.55, 1.20, 2.40, 0.90],
-            dtype=np.float32,
-        ),
+        "ECM_useObsPrecisionReweighting": True,
     }
     levelStore = {
         "stateForward": np.empty((n, 1), dtype=np.float32),
@@ -4049,6 +4291,7 @@ def _caseRunConsenrichOuterPassSmoke():
         ECM_fixedBackgroundIters=3,
         ECM_outerIters=2,
         processNoiseWarmupECMIters=1,
+        ECM_useObsPrecisionReweighting=True,
         trackOptimizationPath=True,
         returnPrecisionDiagnostics=True,
         returnDiagnostics=True,
@@ -4078,7 +4321,6 @@ def _caseRunConsenrichOuterPassSmoke():
         "muncTrace",
         "preKappaQLevel",
         "preKappaQTrend",
-        "processQScale",
         "sumGain0",
         "sumGain1",
     )
@@ -4199,10 +4441,6 @@ def _caseRunConsenrichOuterPassSmoke():
         np.diag([expectedLevelQ, expectedTrendQ]),
         rtol=5.0e-6,
     )
-    assert "processQScaleSummary" in qInfo
-    assert "processQScale" not in qInfo
-
-
 @pytest.mark.correctness
 def _caseRunConsenrichLevelStateModelSmoke():
     rng = np.random.default_rng(100)
@@ -4236,7 +4474,6 @@ def _caseRunConsenrichLevelStateModelSmoke():
         ECM_outerIters=1,
         ECM_minOuterIters=1,
         ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
         processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
@@ -4268,7 +4505,7 @@ def _caseRunConsenrichLevelStateModelSmoke():
     )
     np.testing.assert_array_equal(
         core.getPrimaryState(stateSmoothed),
-        np.round(stateSmoothed[:, 0].astype(np.float32), decimals=4),
+        np.round(stateSmoothed[:, 0].astype(np.float32), decimals=5),
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
@@ -4301,12 +4538,7 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
     def _spyECM(*args, **kwargs):
         result = originalECM(*args, **kwargs)
-        ecmModes.append(
-            (
-                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
-                bool(kwargs.get("ECM_useAPN")),
-            )
-        )
+        ecmModes.append(bool(kwargs.get("ECM_useProcessPrecisionReweighting")))
         return result
 
     monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
@@ -4331,14 +4563,13 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
         blockLenIntervals=8,
         ECM_fixedBackgroundIters=2,
         ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=False,
         fitBackground=False,
         initialProcessQ=initialQ,
         returnDiagnostics=True,
     )
 
     diagnostics = out[-1]
-    assert ecmModes == [(True, False)]
+    assert ecmModes == [True]
     qInfo = diagnostics["process_noise_calibration"]
     assert qInfo["processNoiseCalibrationStatus"] == "skipped"
     assert qInfo["processNoiseCalibrationReason"] == "initial_process_q"
@@ -4387,7 +4618,6 @@ def _caseRunConsenrichFixedDiagonalUsesDataQ(monkeypatch):
         ecmCalls.append(
             {
                 "matrixQ0": np.asarray(kwargs["matrixQ0"], dtype=np.float64).copy(),
-                "useAPN": bool(kwargs["ECM_useAPN"]),
                 "useProcPrec": bool(kwargs["ECM_useProcessPrecisionReweighting"]),
             }
         )
@@ -4432,7 +4662,11 @@ def _caseRunConsenrichFixedDiagonalUsesDataQ(monkeypatch):
     assert seedCall["minQ"] == pytest.approx(1.0e-6)
     assert seedCall["maxQ"] == pytest.approx(1.0)
     assert seedCall["deltaF"] == pytest.approx(0.2)
-    assert seedCall["robustTNu"] == pytest.approx(8.0)
+    assert (
+        seedCall["robustTNu"]
+        == constants.FIT_DEFAULT_ROBUST_T_NU
+        == pytest.approx(8.0)
+    )
     assert seedCall["qSeedPriorLevel"] == pytest.approx(7.0e-6)
     assert len(ecmCalls) == 1
     np.testing.assert_allclose(
@@ -4441,7 +4675,6 @@ def _caseRunConsenrichFixedDiagonalUsesDataQ(monkeypatch):
         rtol=0.0,
         atol=1.0e-10,
     )
-    assert ecmCalls[0]["useAPN"] is False
     assert ecmCalls[0]["useProcPrec"] is True
     assert "process_noise_warmup_fit" not in runDiagnostics
     assert qInfo["processNoisePolicy"] == "fixedDiagonal"
@@ -4456,7 +4689,6 @@ def _caseRunConsenrichFixedDiagonalUsesDataQ(monkeypatch):
         atol=1.0e-10,
     )
     outputTracks = precisionDiagnostics["outputTracks"]
-    np.testing.assert_allclose(outputTracks["processQScale"], np.ones(n))
     np.testing.assert_allclose(outputTracks["baseQLevel"], seedQ[0, 0])
     np.testing.assert_allclose(outputTracks["baseQTrend"], seedQ[1, 1])
     np.testing.assert_allclose(outputTracks["preKappaQLevel"], seedQ[0, 0])
@@ -5264,31 +5496,6 @@ def _caseCheckStateUncertaintyCoverageOverallAndStrata():
 
 
 @pytest.mark.correctness
-def _caseLinearEnvelopeParameterIsAbsent():
-    removed = "EB" + "_minLin"
-    assert removed not in core.observationParams._fields
-
-    with pytest.raises(TypeError):
-        core.fitPSplineLogVarianceTrend(
-            np.array([0.0, 1.0, 2.0, 3.0]),
-            np.array([1.0, 1.1, 1.0, 1.2]),
-            **{removed: 10.0},
-        )
-
-
-@pytest.mark.correctness
-def _caseMonotonePoolingSourceSymbolsAbsent():
-    removed = "P" + "AVA"
-    sourcePaths = [
-        Path(core.__file__),
-        Path(core.__file__).parent / "cconsenrich.pyx",
-    ]
-
-    for sourcePath in sourcePaths:
-        assert removed not in sourcePath.read_text(encoding="utf-8")
-
-
-@pytest.mark.correctness
 def _caseEBPriorStrengthBoundaryIsUsable():
     assert core._coerceEBPriorStrength(4.0) == pytest.approx(4.0)
     assert core._coerceEBPriorStrength(4) == pytest.approx(4.0)
@@ -6045,108 +6252,6 @@ def _caseMuncSizingAndVarianceModels():
     assert dependenceSizing.dependenceSpanIntervals == 17
     assert dependenceSizing.trendBlockIntervals == 26
     assert dependenceSizing.localWindowIntervals == 43
-
-
-@pytest.mark.correctness
-def _caseRunConsenrichAPNSmoke():
-    rng = np.random.default_rng(123)
-    n = 48
-    m = 3
-    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
-    signalTrack = np.sin(grid).astype(np.float32)
-    matrixData = np.vstack(
-        [
-            signalTrack + 0.08 * rng.normal(size=n) - 0.03,
-            signalTrack + 0.08 * rng.normal(size=n),
-            signalTrack + 0.08 * rng.normal(size=n) + 0.02,
-        ]
-    ).astype(np.float32)
-    matrixMunc = np.full((m, n), 0.15, dtype=np.float32)
-
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=1.0e-6,
-        maxQ=0.5,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=8,
-        ECM_fixedBackgroundIters=2,
-        ECM_outerIters=1,
-        ECM_useProcessPrecisionReweighting=True,
-        ECM_useAPN=True,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-    )
-
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
-    assert stateSmoothed.shape == (n, 2)
-    assert stateCovarSmoothed.shape == (n, 2, 2)
-    assert postFitResiduals.shape == (n, m)
-    assert NIS.shape == (n,)
-    assert np.all(np.isfinite(NIS))
-
-
-@pytest.mark.correctness
-def _caseRunConsenrichAlwaysRunsECMWithAPN(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    rng = np.random.default_rng(321)
-    n = 40
-    m = 3
-    signalTrack = np.cos(np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32))
-    matrixData = np.vstack(
-        [
-            signalTrack + 0.05 * rng.normal(size=n) - 0.02,
-            signalTrack + 0.05 * rng.normal(size=n),
-            signalTrack + 0.05 * rng.normal(size=n) + 0.01,
-        ]
-    ).astype(np.float32)
-    matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
-
-    originalECM = cconsenrich.cfixedBackgroundECM
-    calls = []
-
-    def _spyECM(*args, **kwargs):
-        result = originalECM(*args, **kwargs)
-        calls.append(
-            (
-                bool(kwargs.get("ECM_useAPN")),
-                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
-            )
-        )
-        return result
-
-    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
-
-    out = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=1.0e-6,
-        maxQ=0.5,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=8,
-        ECM_useAPN=True,
-        ECM_useProcessPrecisionReweighting=True,
-        processNoiseCalibration=core.PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL,
-    )
-
-    assert calls
-    assert calls[-1] == (True, False)
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
-    assert stateSmoothed.shape == (n, 2)
-    assert stateCovarSmoothed.shape == (n, 2, 2)
-    assert postFitResiduals.shape == (n, m)
-    assert NIS.shape == (n,)
-    assert np.all(np.isfinite(stateSmoothed))
 
 
 @pytest.mark.correctness
@@ -7043,6 +7148,29 @@ def _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
     expected[17] = 1.0
     assert np.allclose(counts[0], expected)
 
+    shiftedCounts = core.readSegments(
+        sources=[core.inputSource(path=str(bamPath), sourceKind="BAM")],
+        chromosome="chr1",
+        start=0,
+        end=300,
+        intervalSizeBP=1,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="reads",
+        defaultCountMode="cutsite",
+        shiftForward5p=4,
+        shiftReverse5p=5,
+        inferFragmentLength=0,
+    )
+
+    shiftedExpected = np.zeros(300, dtype=np.float32)
+    shiftedExpected[104] = 1.0
+    shiftedExpected[174] = 1.0
+    assert np.allclose(shiftedCounts[0], shiftedExpected)
+
 
 @pytest.mark.correctness
 def _caseReadSegmentsBamFFPMatchesSingleEndFivePrime(tmp_path):
@@ -7344,6 +7472,22 @@ def _caseNormalizationDenominatorMatchesBamFilters(tmp_path):
         "filtered-normalization.synthetic.bam",
         [
             {
+                "name": "max-bound",
+                "start": 0,
+                "flag": 1123,
+                "next_reference_id": 0,
+                "next_start": 980,
+                "template_length": 1000,
+            },
+            {
+                "name": "above-max",
+                "start": 20,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 980,
+                "template_length": 1001,
+            },
+            {
                 "name": "good",
                 "start": 100,
                 "flag": 99,
@@ -7409,6 +7553,54 @@ def _caseNormalizationDenominatorMatchesBamFilters(tmp_path):
                 "next_start": 600,
                 "template_length": -40,
             },
+            {
+                "name": "below-min",
+                "start": 700,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 701,
+                "template_length": 9,
+            },
+            {
+                "name": "below-min",
+                "start": 701,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 700,
+                "template_length": -9,
+            },
+            {
+                "name": "min-bound",
+                "start": 730,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 740,
+                "template_length": 10,
+            },
+            {
+                "name": "min-bound",
+                "start": 740,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 730,
+                "template_length": -10,
+            },
+            {
+                "name": "max-bound",
+                "start": 980,
+                "flag": 1171,
+                "next_reference_id": 0,
+                "next_start": 0,
+                "template_length": -1000,
+            },
+            {
+                "name": "above-max",
+                "start": 980,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 20,
+                "template_length": -1001,
+            },
         ],
     )
 
@@ -7426,6 +7618,22 @@ def _caseNormalizationDenominatorMatchesBamFilters(tmp_path):
     )
 
     assert scaleFactor == pytest.approx(1_000_000.0)
+
+    cutScaleFactor = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=2820,
+        minMappingQuality=20,
+        minTemplateLength=10,
+        maxInsertSize=1000,
+        readLength=20,
+    )
+
+    assert cutScaleFactor == pytest.approx(1_000_000.0 / 5.0)
 
 
 @pytest.mark.correctness
@@ -7600,10 +7808,8 @@ def test_core_em_loop_contracts(monkeypatch, contract_case):
             "outer-pass minimum iterations",
             _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance,
         ),
-        ("ECM always runs with APN", _caseRunConsenrichAlwaysRunsECMWithAPN),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)
-    contract_case("APN smoke", _caseRunConsenrichAPNSmoke)
     contract_case("level state-model smoke", _caseRunConsenrichLevelStateModelSmoke)
 
 

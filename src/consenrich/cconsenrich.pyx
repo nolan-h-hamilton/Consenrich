@@ -14,9 +14,11 @@ import numpy as np
 from . import misc_util
 from scipy import ndimage, signal
 cimport numpy as cnp
+from cpython.pycapsule cimport PyCapsule_GetPointer, PyCapsule_IsValid
 from libc.stdint cimport int8_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, erf, isnan, lgamma, NAN, INFINITY
+from numpy.random cimport bitgen_t
+from libc.math cimport isfinite, fabs, fma, hypot, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, erf, isnan, lgamma, nextafterf, NAN, INFINITY
 from libc.float cimport DBL_MIN
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
@@ -98,46 +100,164 @@ ctypedef fused real_t:
 # inline/helpers
 # ===============
 
-cdef object _coerceProcessQScale(
-    object processQScale,
-    Py_ssize_t intervalCount,
-):
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] scaleArr
-    cdef cnp.float32_t[::1] scaleView
-    cdef Py_ssize_t scaleLen
-    cdef Py_ssize_t i
-    cdef Py_ssize_t invalidIndex = -1
-    cdef bint firstIsOne = True
-    cdef double value
-
-    scaleArr = np.ascontiguousarray(processQScale, dtype=np.float32).reshape(-1)
-    scaleLen = scaleArr.shape[0]
-    if scaleLen != intervalCount:
-        raise ValueError("processQScale length must match intervalCount")
-
-    scaleView = scaleArr
-    with nogil:
-        for i in range(scaleLen):
-            value = <double>scaleView[i]
-            if (not isfinite(value)) or value <= 0.0:
-                invalidIndex = i
-                break
-        if scaleLen > 0 and fabs((<double>scaleView[0]) - 1.0) > 1.0e-6:
-            firstIsOne = False
-    if invalidIndex >= 0:
-        raise ValueError("processQScale must contain only positive finite values")
-    if not firstIsOne:
-        raise ValueError("processQScale[0] must be 1.0")
-    return scaleArr
-
-
-
 cdef inline double _clampMultiplierValue(double value, double lower, double upper) noexcept nogil:
     if value < lower:
         return lower
     if value > upper:
         return upper
     return value
+
+
+cdef inline bint _projectCovariance2x2(
+    double* cov00,
+    double* cov01,
+    double* cov11,
+) noexcept nogil:
+    cdef double a = cov00[0]
+    cdef double b = cov01[0]
+    cdef double c = cov11[0]
+    cdef double halfTrace
+    cdef double radius
+    cdef double eigLarge
+    cdef double eigSmall
+    cdef double gap
+    cdef double multiplier
+
+    if not isfinite(a) or not isfinite(b) or not isfinite(c):
+        return False
+
+    halfTrace = 0.5 * (a + c)
+    radius = hypot(0.5 * (a - c), b)
+    eigLarge = halfTrace + radius
+    eigSmall = halfTrace - radius
+    if eigSmall >= 0.0:
+        return True
+    if eigLarge < 0.0:
+        return False
+    if eigLarge == 0.0:
+        if eigSmall < 0.0:
+            return False
+        cov00[0] = 0.0
+        cov01[0] = 0.0
+        cov11[0] = 0.0
+        return True
+
+    gap = eigLarge - eigSmall
+    multiplier = eigLarge / gap
+    cov00[0] = multiplier * (a - eigSmall)
+    cov01[0] = multiplier * b
+    cov11[0] = multiplier * (c - eigSmall)
+    return True
+
+
+cdef inline bint _storeCovariance2x2F32(
+    double cov00,
+    double cov01,
+    double cov11,
+    cnp.float32_t* destination,
+) noexcept nogil:
+    cdef cnp.float32_t stored00 = <cnp.float32_t>cov00
+    cdef cnp.float32_t stored01 = <cnp.float32_t>cov01
+    cdef cnp.float32_t stored11 = <cnp.float32_t>cov11
+    cdef cnp.float32_t storedAbs
+    cdef double diagonalProduct
+    cdef double offDiagonalSquare
+    cdef double maxOffDiagonal
+
+    if (
+        not isfinite(<double>stored00)
+        or not isfinite(<double>stored01)
+        or not isfinite(<double>stored11)
+        or stored00 < 0.0
+        or stored11 < 0.0
+    ):
+        return False
+
+    diagonalProduct = (<double>stored00) * (<double>stored11)
+    offDiagonalSquare = (<double>stored01) * (<double>stored01)
+    if offDiagonalSquare > diagonalProduct:
+        maxOffDiagonal = sqrt(diagonalProduct)
+        storedAbs = <cnp.float32_t>maxOffDiagonal
+        if (<double>storedAbs) * (<double>storedAbs) > diagonalProduct:
+            storedAbs = nextafterf(storedAbs, <cnp.float32_t>0.0)
+        if stored01 < 0.0:
+            stored01 = -storedAbs
+        else:
+            stored01 = storedAbs
+
+    destination[0] = stored00
+    destination[1] = stored01
+    destination[2] = stored01
+    destination[3] = stored11
+    return True
+
+
+cdef inline bint _inverseSymmetricPSD2x2(
+    double cov00,
+    double cov01,
+    double cov11,
+    double* inv00,
+    double* inv01,
+    double* inv11,
+) noexcept nogil:
+    cdef double halfTrace
+    cdef double radius
+    cdef double eigLarge
+    cdef double eigSmall
+    cdef double eigGap
+    cdef double pivot
+    cdef double factor
+    cdef double schur
+    cdef double invSchur
+    cdef double denominator
+
+    if not isfinite(cov00) or not isfinite(cov01) or not isfinite(cov11):
+        return False
+
+    halfTrace = 0.5 * (cov00 + cov11)
+    radius = hypot(0.5 * (cov00 - cov11), cov01)
+    eigLarge = halfTrace + radius
+    eigSmall = halfTrace - radius
+    if eigLarge < 0.0:
+        return False
+    if eigLarge == 0.0:
+        if eigSmall < 0.0:
+            return False
+        inv00[0] = 0.0
+        inv01[0] = 0.0
+        inv11[0] = 0.0
+        return True
+
+    if eigSmall > 64.0 * 2.2204460492503131e-16 * eigLarge:
+        if cov00 >= cov11:
+            pivot = cov00
+            factor = cov01 / pivot
+            schur = fma(-factor, cov01, cov11)
+            if schur > 0.0:
+                invSchur = 1.0 / schur
+                inv00[0] = (1.0 / pivot) + factor * factor * invSchur
+                inv01[0] = -factor * invSchur
+                inv11[0] = invSchur
+                return True
+        else:
+            pivot = cov11
+            factor = cov01 / pivot
+            schur = fma(-factor, cov01, cov00)
+            if schur > 0.0:
+                invSchur = 1.0 / schur
+                inv00[0] = invSchur
+                inv01[0] = -factor * invSchur
+                inv11[0] = (1.0 / pivot) + factor * factor * invSchur
+                return True
+
+    eigGap = eigLarge - eigSmall
+    if eigGap <= 0.0:
+        return False
+    denominator = eigGap * eigLarge
+    inv00[0] = (cov00 - eigSmall) / denominator
+    inv01[0] = cov01 / denominator
+    inv11[0] = (cov11 - eigSmall) / denominator
+    return True
 
 
 cdef inline void _validateMultiplierBounds(
@@ -149,6 +269,37 @@ cdef inline void _validateMultiplierBounds(
         if isObservation:
             raise ValueError("observation precision multiplier bounds must satisfy 0 < min <= max")
         raise ValueError("process precision multiplier bounds must satisfy 0 < min <= max")
+
+
+cdef inline void _validateMedianScaling(
+    bint enabled,
+    bint reweightingEnabled,
+    double lower,
+    double upper,
+    bint isObservation,
+) except *:
+    if not enabled:
+        return
+    if not reweightingEnabled:
+        if isObservation:
+            raise ValueError(
+                "ECM_scaleObsPrecisionToMedian requires "
+                "ECM_useObsPrecisionReweighting=True"
+            )
+        raise ValueError(
+            "ECM_scaleProcessPrecisionToMedian requires active process "
+            "precision reweighting"
+        )
+    if not (lower <= 1.0 and 1.0 <= upper):
+        if isObservation:
+            raise ValueError(
+                "observation precision multiplier bounds must contain 1 when "
+                "ECM_scaleObsPrecisionToMedian=True"
+            )
+        raise ValueError(
+            "process precision multiplier bounds must contain 1 when "
+            "ECM_scaleProcessPrecisionToMedian=True"
+        )
 
 
 cdef int _parseTransformMode(object mode) except -1:
@@ -286,6 +437,7 @@ ctypedef struct LevelTrendForwardLoopResult:
     double sumDStat
     double sumNLL
     Py_ssize_t invalidBlockIndex
+    Py_ssize_t invalidCovarianceIndex
 
 
 cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
@@ -294,7 +446,6 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     const cnp.int32_t* blockMapPtr,
     const cnp.float32_t* lambdaExpPtr,
     const cnp.float32_t* processPrecExpPtr,
-    const cnp.float32_t* processQScalePtr,
     cnp.float32_t* dStatPtr,
     cnp.float32_t* stateForwardPtr,
     cnp.float32_t* stateCovarForwardPtr,
@@ -313,22 +464,14 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     double qBase01,
     double qBase10,
     double qBase11,
-    double qDiagBase,
     double log2PI,
     double wMin,
     double wMax,
     double procPrecMin,
     double procPrecMax,
-    double apnMinQ,
-    double apnMaxQ,
-    double apnThresh,
-    double apnScaleCoef,
-    double apnPC,
     bint doStore,
     bint useLambda,
     bint useProcPrec,
-    bint useProcessQScale,
-    bint useAPN,
     bint returnNLL,
     bint storeNLLInD,
 ) noexcept nogil:
@@ -337,6 +480,7 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     cdef Py_ssize_t j
     cdef Py_ssize_t idx
     cdef Py_ssize_t blockId
+    cdef Py_ssize_t activeTrackCount
     cdef double state0 = <double><cnp.float32_t>stateInitValue
     cdef double state1 = 0.0
     cdef double cov00 = <double><cnp.float32_t>stateCovarInitValue
@@ -349,10 +493,8 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     cdef double Q01
     cdef double Q10
     cdef double Q11
-    cdef double qScale
     cdef double procPrec
     cdef double obsPrec
-    cdef double apnScale = 1.0
     cdef double tmp00
     cdef double tmp01
     cdef double tmp10
@@ -378,12 +520,12 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     cdef double new00
     cdef double new01
     cdef double new11
-    cdef double procNoiseValue
-    cdef double adaptiveMult
+    cdef double baseVariance
 
     result.sumDStat = 0.0
     result.sumNLL = 0.0
     result.invalidBlockIndex = -1
+    result.invalidCovarianceIndex = -1
 
     for k in range(intervalCount):
         blockId = <Py_ssize_t>blockMapPtr[k]
@@ -405,14 +547,10 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
         state0 = <double><cnp.float32_t>xPred0
         state1 = <double><cnp.float32_t>xPred1
 
-        if useProcessQScale:
-            qScale = <double>processQScalePtr[k]
-        else:
-            qScale = apnScale
-        Q00 = (qScale / procPrec) * qBase00
-        Q01 = (qScale / procPrec) * qBase01
-        Q10 = (qScale / procPrec) * qBase10
-        Q11 = (qScale / procPrec) * qBase11
+        Q00 = qBase00 / procPrec
+        Q01 = qBase01 / procPrec
+        Q10 = qBase10 / procPrec
+        Q11 = qBase11 / procPrec
 
         tmp00 = F00 * cov00 + F01 * cov10
         tmp01 = F00 * cov01 + F01 * cov11
@@ -424,10 +562,10 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
         pred10 = tmp10 * F00 + tmp11 * F01 + Q10
         pred11 = tmp10 * F10 + tmp11 * F11 + Q11
 
-        cov00 = <double><cnp.float32_t>pred00
-        cov01 = <double><cnp.float32_t>pred01
-        cov10 = <double><cnp.float32_t>pred10
-        cov11 = <double><cnp.float32_t>pred11
+        cov00 = pred00
+        cov01 = 0.5 * (pred01 + pred10)
+        cov10 = cov01
+        cov11 = pred11
 
         if useLambda:
             obsPrec = _clampMultiplierValue(<double>lambdaExpPtr[k], wMin, wMax)
@@ -439,13 +577,18 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
         sumInvRInnov2 = 0.0
         sumLogR = 0.0
         intervalNLL = 0.0
+        activeTrackCount = 0
 
         for j in range(trackCount):
             idx = j * intervalCount + k
+            baseVariance = <double>muncPtr[idx]
+            if baseVariance >= __MASKED_OBSERVATION_VARIANCE_CUTOFF:
+                continue
+            activeTrackCount += 1
             _accumulateObservationValue(
                 <double>dataPtr[idx],
                 state0,
-                <double>muncPtr[idx],
+                baseVariance,
                 padValue,
                 obsPrec,
                 returnNLL,
@@ -463,14 +606,16 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
 
         if returnNLL:
             intervalNLL = 0.5 * (
-                sumLogR + log(innovScale) + quadForm + (<double>trackCount) * log2PI
+                sumLogR + log(innovScale) + quadForm + (<double>activeTrackCount) * log2PI
             )
             result.sumNLL += intervalNLL
 
         if returnNLL and storeNLLInD:
             statValue = intervalNLL
+        elif activeTrackCount > 0:
+            statValue = quadForm / (<double>activeTrackCount)
         else:
-            statValue = quadForm / (<double>trackCount)
+            statValue = 0.0
         dStatPtr[k] = <cnp.float32_t>statValue
         result.sumDStat += <double>dStatPtr[k]
 
@@ -489,42 +634,35 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
             (IKH10 * IKH10 * cov00) + 2.0 * IKH10 * cov10 + cov11
         ) + (gainH * (cov10 * cov10))
 
-        cov00 = <double><cnp.float32_t>new00
-        cov01 = <double><cnp.float32_t>new01
+        cov00 = new00
+        cov01 = new01
         cov10 = cov01
-        cov11 = <double><cnp.float32_t>new11
+        cov11 = new11
+        if not _projectCovariance2x2(&cov00, &cov01, &cov11):
+            result.invalidCovarianceIndex = k
+            return result
+        cov10 = cov01
 
         if doStore:
             stateForwardPtr[k * 2] = <cnp.float32_t>state0
             stateForwardPtr[k * 2 + 1] = <cnp.float32_t>state1
-            stateCovarForwardPtr[k * 4] = <cnp.float32_t>cov00
-            stateCovarForwardPtr[k * 4 + 1] = <cnp.float32_t>cov01
-            stateCovarForwardPtr[k * 4 + 2] = <cnp.float32_t>cov10
-            stateCovarForwardPtr[k * 4 + 3] = <cnp.float32_t>cov11
+            if not _storeCovariance2x2F32(
+                cov00,
+                cov01,
+                cov11,
+                stateCovarForwardPtr + k * 4,
+            ):
+                result.invalidCovarianceIndex = k
+                return result
             if k > 0:
-                pNoiseForwardPtr[(k - 1) * 4] = <cnp.float32_t>Q00
-                pNoiseForwardPtr[(k - 1) * 4 + 1] = <cnp.float32_t>Q01
-                pNoiseForwardPtr[(k - 1) * 4 + 2] = <cnp.float32_t>Q10
-                pNoiseForwardPtr[(k - 1) * 4 + 3] = <cnp.float32_t>Q11
-
-        if useAPN and (not useProcessQScale):
-            procNoiseValue = 0.5 * (Q00 + Q11)
-            if dStatPtr[k] > apnThresh and procNoiseValue < apnMaxQ:
-                adaptiveMult = sqrt(
-                    apnScaleCoef * ((<double>dStatPtr[k]) - apnThresh) + apnPC
-                )
-                apnScale *= adaptiveMult
-            elif dStatPtr[k] <= apnThresh and procNoiseValue > apnMinQ:
-                adaptiveMult = 1.0 / sqrt(
-                    apnScaleCoef * (apnThresh - (<double>dStatPtr[k])) + apnPC
-                )
-                apnScale *= adaptiveMult
-
-            procNoiseValue = apnScale * qDiagBase
-            if procNoiseValue < apnMinQ:
-                apnScale = apnMinQ / qDiagBase
-            elif procNoiseValue > apnMaxQ:
-                apnScale = apnMaxQ / qDiagBase
+                if not _storeCovariance2x2F32(
+                    Q00,
+                    0.5 * (Q01 + Q10),
+                    Q11,
+                    pNoiseForwardPtr + (k - 1) * 4,
+                ):
+                    result.invalidCovarianceIndex = k
+                    return result
 
     return result
 
@@ -541,7 +679,6 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     const cnp.int32_t* blockMapPtr,
     const cnp.float32_t* lambdaExpPtr,
     const cnp.float32_t* processPrecExpPtr,
-    const cnp.float32_t* processQScalePtr,
     cnp.float32_t* dStatPtr,
     cnp.float32_t* stateForwardPtr,
     cnp.float32_t* stateCovarForwardPtr,
@@ -558,16 +695,9 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     double wMax,
     double procPrecMin,
     double procPrecMax,
-    double apnMinQ,
-    double apnMaxQ,
-    double apnThresh,
-    double apnScaleCoef,
-    double apnPC,
     bint doStore,
     bint useLambda,
     bint useProcPrec,
-    bint useProcessQScale,
-    bint useAPN,
     bint returnNLL,
     bint storeNLLInD,
 ) noexcept nogil:
@@ -576,6 +706,7 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     cdef Py_ssize_t j
     cdef Py_ssize_t idx
     cdef Py_ssize_t blockId
+    cdef Py_ssize_t activeTrackCount
     cdef double stateValue = stateInitValue
     cdef double stateVar = stateCovarInitValue
     cdef double Q
@@ -595,10 +726,7 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     cdef double newVar
     cdef double obsPrec
     cdef double procPrec
-    cdef double qScale
-    cdef double procNoiseValue
-    cdef double adaptiveMult
-    cdef double apnScale = 1.0
+    cdef double baseVariance
 
     result.sumDStat = 0.0
     result.sumNLL = 0.0
@@ -619,11 +747,7 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
         else:
             procPrec = 1.0
 
-        if useProcessQScale:
-            qScale = <double>processQScalePtr[k]
-        else:
-            qScale = apnScale
-        Q = (qScale / procPrec) * q0
+        Q = q0 / procPrec
         stateVar += Q
 
         if useLambda:
@@ -636,13 +760,18 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
         sumInvRInnov2 = 0.0
         sumLogR = 0.0
         intervalNLL = 0.0
+        activeTrackCount = 0
 
         for j in range(trackCount):
             idx = j * intervalCount + k
+            baseVariance = <double>muncPtr[idx]
+            if baseVariance >= __MASKED_OBSERVATION_VARIANCE_CUTOFF:
+                continue
+            activeTrackCount += 1
             _accumulateObservationValue(
                 <double>dataPtr[idx],
                 stateValue,
-                <double>muncPtr[idx],
+                baseVariance,
                 padValue,
                 obsPrec,
                 returnNLL,
@@ -659,14 +788,16 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
             quadForm = 0.0
         if returnNLL:
             intervalNLL = 0.5 * (
-                sumLogR + log(innovScale) + quadForm + (<double>trackCount) * log2PI
+                sumLogR + log(innovScale) + quadForm + (<double>activeTrackCount) * log2PI
             )
             result.sumNLL += intervalNLL
 
         if returnNLL and storeNLLInD:
             statValue = intervalNLL
+        elif activeTrackCount > 0:
+            statValue = quadForm / (<double>activeTrackCount)
         else:
-            statValue = quadForm / (<double>trackCount)
+            statValue = 0.0
         dStatPtr[k] = <cnp.float32_t>statValue
         result.sumDStat += <double>dStatPtr[k]
 
@@ -684,25 +815,6 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
             stateCovarForwardPtr[k] = <cnp.float32_t>stateVar
             if k > 0:
                 pNoiseForwardPtr[k - 1] = <cnp.float32_t>Q
-
-        if useAPN and (not useProcessQScale):
-            procNoiseValue = apnScale * q0
-            if dStatPtr[k] > apnThresh and procNoiseValue < apnMaxQ:
-                adaptiveMult = sqrt(
-                    apnScaleCoef * ((<double>dStatPtr[k]) - apnThresh) + apnPC
-                )
-                apnScale *= adaptiveMult
-            elif dStatPtr[k] <= apnThresh and procNoiseValue > apnMinQ:
-                adaptiveMult = 1.0 / sqrt(
-                    apnScaleCoef * (apnThresh - (<double>dStatPtr[k])) + apnPC
-                )
-                apnScale *= adaptiveMult
-
-            procNoiseValue = apnScale * q0
-            if procNoiseValue < apnMinQ:
-                apnScale = apnMinQ / q0
-            elif procNoiseValue > apnMaxQ:
-                apnScale = apnMaxQ / q0
 
     return result
 
@@ -1231,6 +1343,184 @@ cdef inline double _linearQuantileInplaceF64(double* values, Py_ssize_t n, doubl
     return lowVal + frac * (highVal - lowVal)
 
 
+cdef void _initializeProcessPrecisionFromPointwiseChanges(
+    cnp.float32_t[:, ::1] data,
+    cnp.float32_t[:, ::1] munc,
+    cnp.int32_t[::1] intervalToBlock,
+    Py_ssize_t blockCount,
+    cnp.float32_t[:, ::1] matrixQ0,
+    double pad,
+    double robustTNu,
+    cnp.float32_t[::1] processPrecision,
+) except *:
+    cdef Py_ssize_t trackCount = data.shape[0]
+    cdef Py_ssize_t intervalCount = data.shape[1]
+    cdef Py_ssize_t trackIndex
+    cdef Py_ssize_t intervalIndex
+    cdef Py_ssize_t blockIndex
+    cdef double leftVariance
+    cdef double rightVariance
+    cdef double leftWeight
+    cdef double rightWeight
+    cdef double leftWeightSum
+    cdef double rightWeightSum
+    cdef double leftWeightedLevel
+    cdef double rightWeightedLevel
+    cdef double leftPointwiseLevel
+    cdef double rightPointwiseLevel
+    cdef double pointwiseChange
+    cdef double samplingVariance
+    cdef double transitionStatistic
+    cdef double qLevel
+
+    if munc.shape[0] != trackCount or munc.shape[1] != intervalCount:
+        raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
+    if processPrecision.shape[0] != intervalCount:
+        raise ValueError("process precision length must match intervalCount")
+    if intervalCount <= 0:
+        return
+    processPrecision[0] = <cnp.float32_t>1.0
+    if trackCount <= 0:
+        return
+    if intervalToBlock.shape[0] < intervalCount:
+        raise ValueError("intervalToBlockMap length must match intervalCount")
+    if blockCount <= 0:
+        raise ValueError("blockCount must be positive")
+    if matrixQ0.shape[0] < 1 or matrixQ0.shape[1] < 1 or matrixQ0[0, 0] <= 0.0:
+        raise ValueError("matrixQ0[0, 0] must be positive")
+    qLevel = <double>matrixQ0[0, 0]
+
+    with nogil:
+        for intervalIndex in range(intervalCount - 1):
+            blockIndex = <Py_ssize_t>intervalToBlock[intervalIndex]
+            if blockIndex < 0 or blockIndex >= blockCount:
+                processPrecision[intervalIndex + 1] = <cnp.float32_t>1.0
+                continue
+            leftWeightSum = 0.0
+            rightWeightSum = 0.0
+            leftWeightedLevel = 0.0
+            rightWeightedLevel = 0.0
+            for trackIndex in range(trackCount):
+                if (
+                    (<double>munc[trackIndex, intervalIndex])
+                    < __MASKED_OBSERVATION_VARIANCE_CUTOFF
+                ):
+                    leftVariance = (
+                        (<double>munc[trackIndex, intervalIndex]) + pad
+                    )
+                    if leftVariance < 1.0e-12:
+                        leftVariance = 1.0e-12
+                    leftWeight = 1.0 / leftVariance
+                    leftWeightSum += leftWeight
+                    leftWeightedLevel += (
+                        leftWeight * <double>data[trackIndex, intervalIndex]
+                    )
+                if (
+                    (<double>munc[trackIndex, intervalIndex + 1])
+                    < __MASKED_OBSERVATION_VARIANCE_CUTOFF
+                ):
+                    rightVariance = (
+                        (<double>munc[trackIndex, intervalIndex + 1]) + pad
+                    )
+                    if rightVariance < 1.0e-12:
+                        rightVariance = 1.0e-12
+                    rightWeight = 1.0 / rightVariance
+                    rightWeightSum += rightWeight
+                    rightWeightedLevel += (
+                        rightWeight * <double>data[trackIndex, intervalIndex + 1]
+                    )
+            if leftWeightSum <= 0.0 or rightWeightSum <= 0.0:
+                processPrecision[intervalIndex + 1] = <cnp.float32_t>1.0
+                continue
+            leftPointwiseLevel = leftWeightedLevel / leftWeightSum
+            rightPointwiseLevel = rightWeightedLevel / rightWeightSum
+            pointwiseChange = rightPointwiseLevel - leftPointwiseLevel
+            samplingVariance = (1.0 / leftWeightSum) + (1.0 / rightWeightSum)
+            transitionStatistic = (
+                pointwiseChange * pointwiseChange - samplingVariance
+            )
+            if transitionStatistic < 0.0:
+                transitionStatistic = 0.0
+            transitionStatistic /= qLevel
+            processPrecision[intervalIndex + 1] = <cnp.float32_t>(
+                (robustTNu + 1.0)
+                / (robustTNu + transitionStatistic)
+            )
+
+
+cdef void _scalePrecisionMultipliersToMedian(
+    cnp.float32_t[::1] multipliers,
+    Py_ssize_t start,
+    Py_ssize_t stop,
+    double lower,
+    double upper,
+    double[::1] workspace,
+) except *:
+    cdef Py_ssize_t count = stop - start
+    cdef Py_ssize_t index
+    cdef Py_ssize_t invalidIndex = -1
+    cdef double value
+    cdef double median = 1.0
+
+    if count <= 0:
+        return
+    with nogil:
+        for index in range(count):
+            value = <double>multipliers[start + index]
+            if not isfinite(value) or value <= 0.0:
+                invalidIndex = start + index
+                break
+            workspace[index] = value
+        if invalidIndex < 0:
+            median = _linearQuantileInplaceF64(&workspace[0], count, 0.5)
+    if invalidIndex >= 0:
+        raise ValueError(
+            f"precision multiplier at index {invalidIndex} must be positive and finite"
+        )
+    if not isfinite(median) or median <= 0.0:
+        raise ValueError("precision multiplier median must be positive and finite")
+    with nogil:
+        for index in range(start, stop):
+            multipliers[index] = <cnp.float32_t>_clampMultiplierValue(
+                (<double>multipliers[index]) / median,
+                lower,
+                upper,
+            )
+
+
+cdef void _validateMedianScaledPrecisionWarmStart(
+    cnp.float32_t[::1] multipliers,
+    Py_ssize_t start,
+    Py_ssize_t stop,
+    double lower,
+    double upper,
+) except *:
+    cdef Py_ssize_t index
+    cdef Py_ssize_t invalidIndex = -1
+    cdef Py_ssize_t boundIndex = -1
+    cdef double value
+    cdef double effectiveLower = <double><cnp.float32_t>lower
+    cdef double effectiveUpper = <double><cnp.float32_t>upper
+
+    with nogil:
+        for index in range(start, stop):
+            value = <double>multipliers[index]
+            if not isfinite(value) or value <= 0.0:
+                invalidIndex = index
+                break
+            if value < effectiveLower or value > effectiveUpper:
+                boundIndex = index
+                break
+    if invalidIndex >= 0:
+        raise ValueError(
+            f"precision multiplier at index {invalidIndex} must be positive and finite"
+        )
+    if boundIndex >= 0:
+        raise ValueError(
+            f"median-scaled precision multiplier at index {boundIndex} is outside its bounds"
+        )
+
+
 cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) noexcept nogil:
     # CALLERS: `_medianCopy_F32`
 
@@ -1498,8 +1788,6 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef Py_ssize_t targetPairIndex
     cdef Py_ssize_t j
     cdef Py_ssize_t k
-    cdef double obsLeft
-    cdef double obsRight
     cdef double rd
     cdef double rawPrecision
     cdef double precision
@@ -1507,7 +1795,6 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     cdef double qPrecision
     cdef double cap = NAN
     cdef double capFraction = 0.0
-    cdef double diff
     cdef double loc
     cdef double signalLevel
     cdef double sumP
@@ -1528,8 +1815,6 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
     dataArr = np.ascontiguousarray(matrixData, dtype=np.float64)
     obsArr = np.ascontiguousarray(obsVar, dtype=np.float64)
     activeArr = np.ascontiguousarray(activeObservation, dtype=np.uint8)
-    if dataArr.ndim != 2:
-        raise ValueError("matrixData must be a 2D array")
     if obsArr.shape[0] != dataArr.shape[0] or obsArr.shape[1] != dataArr.shape[1]:
         raise ValueError("obsVar shape must match matrixData")
     if activeArr.shape[0] != dataArr.shape[0] or activeArr.shape[1] != dataArr.shape[1]:
@@ -1577,24 +1862,6 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
             k = _qSeedSampleIndex(scanIndex, maxTransitionCount, transitionScanCount)
             for j in range(trackCount):
                 if activeView[j, k] != 0 and activeView[j, k + 1] != 0:
-                    if (not isfinite(dataView[j, k])) or (not isfinite(dataView[j, k + 1])):
-                        raise ValueError("active matrixData values must be finite")
-                    obsLeft = obsView[j, k]
-                    obsRight = obsView[j, k + 1]
-                    if (
-                        (not isfinite(obsLeft))
-                        or (not isfinite(obsRight))
-                        or obsLeft <= 0.0
-                        or obsRight <= 0.0
-                    ):
-                        raise ValueError("active obsVar values must be positive finite")
-                    diff = dataView[j, k + 1] - dataView[j, k]
-                    rd = obsLeft + obsRight
-                    if (not isfinite(diff)) or (not isfinite(rd)) or rd <= 0.0:
-                        raise ValueError("active transition values must be finite")
-                    rawPrecision = 1.0 / rd
-                    if (not isfinite(rawPrecision)) or rawPrecision <= 0.0:
-                        raise ValueError("active transition precision must be positive finite")
                     pairCount += 1
         precisionSampleCount = pairCount
         if precisionSampleCount > precisionSampleCap:
@@ -1627,24 +1894,9 @@ cpdef tuple cEstimateSameTrackProcessNoiseTransitions(
         for k in range(maxTransitionCount):
             for j in range(trackCount):
                 if activeView[j, k] != 0 and activeView[j, k + 1] != 0:
-                    if (not isfinite(dataView[j, k])) or (not isfinite(dataView[j, k + 1])):
-                        raise ValueError("active matrixData values must be finite")
-                    obsLeft = obsView[j, k]
-                    obsRight = obsView[j, k + 1]
-                    if (
-                        (not isfinite(obsLeft))
-                        or (not isfinite(obsRight))
-                        or obsLeft <= 0.0
-                        or obsRight <= 0.0
-                    ):
-                        raise ValueError("active obsVar values must be positive finite")
-                    diff = dataView[j, k + 1] - dataView[j, k]
-                    rd = obsLeft + obsRight
-                    if (not isfinite(diff)) or (not isfinite(rd)) or rd <= 0.0:
-                        raise ValueError("active transition values must be finite")
-                    rawPrecision = 1.0 / rd
-                    if (not isfinite(rawPrecision)) or rawPrecision <= 0.0:
-                        raise ValueError("active transition precision must be positive finite")
+                    rawPrecision = 1.0 / (
+                        obsView[j, k] + obsView[j, k + 1]
+                    )
                     rawPrecisionView[pairCount] = rawPrecision
                     pairCount += 1
         sampledPairCount = pairCount
@@ -1834,8 +2086,6 @@ cpdef tuple cEstimatePooledProcessNoiseTransitions(
     dataArr = np.ascontiguousarray(matrixData, dtype=np.float64)
     obsArr = np.ascontiguousarray(obsVar, dtype=np.float64)
     activeArr = np.ascontiguousarray(activeObservation, dtype=np.uint8)
-    if dataArr.ndim != 2:
-        raise ValueError("matrixData must be a 2D array")
     if obsArr.shape[0] != dataArr.shape[0] or obsArr.shape[1] != dataArr.shape[1]:
         raise ValueError("obsVar shape must match matrixData")
     if activeArr.shape[0] != dataArr.shape[0] or activeArr.shape[1] != dataArr.shape[1]:
@@ -1862,8 +2112,6 @@ cpdef tuple cEstimatePooledProcessNoiseTransitions(
             if activeView[j, i] != 0:
                 value = dataView[j, i]
                 obs = obsView[j, i]
-                if (not isfinite(value)) or (not isfinite(obs)) or obs <= 0.0:
-                    raise ValueError("active pooled observations must be finite with positive variance")
                 weight = 1.0 / obs
                 weightSum += weight
                 weightedSum += value * weight
@@ -2231,28 +2479,20 @@ cpdef tuple cEBPriorStrengthCandidateIdx(
     cdef double globalValue
     cdef double noiseValue
 
-    localArr = np.ascontiguousarray(
-        np.asarray(localModelVariances, dtype=np.float64).ravel()
-    )
-    globalArr = np.ascontiguousarray(
-        np.asarray(globalModelVariances, dtype=np.float64).ravel()
-    )
+    localArr = np.ascontiguousarray(localModelVariances, dtype=np.float64).reshape(-1)
+    globalArr = np.ascontiguousarray(globalModelVariances, dtype=np.float64).reshape(-1)
     if localArr.shape[0] != globalArr.shape[0]:
         raise ValueError("localModelVariances and globalModelVariances must have the same shape")
     n = localArr.shape[0]
     localView = localArr
     globalView = globalArr
     if useNoise:
-        noiseArr = np.ascontiguousarray(
-            np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
-        )
+        noiseArr = np.ascontiguousarray(localLogVarianceNoise, dtype=np.float64).reshape(-1)
         if noiseArr.shape[0] != n:
             raise ValueError("localLogVarianceNoise must match localModelVariances")
         noiseView = noiseArr
     if useMask:
-        maskArr = np.ascontiguousarray(
-            np.asarray(candidateMask, dtype=np.uint8).ravel()
-        )
+        maskArr = np.ascontiguousarray(candidateMask, dtype=np.uint8).reshape(-1)
         if maskArr.shape[0] != n:
             raise ValueError("candidateMask must match localModelVariances")
         maskView = maskArr
@@ -2352,34 +2592,22 @@ cpdef tuple cEBPooledPriorStrengthCandidateIdx(
     if usePooledThin and not (hasSample and hasChromosome and hasStart):
         raise ValueError("sampleIndex, chromosomeIndex, and blockStarts must be provided together")
 
-    localArr = np.ascontiguousarray(
-        np.asarray(localModelVariances, dtype=np.float64).ravel()
-    )
-    globalArr = np.ascontiguousarray(
-        np.asarray(globalModelVariances, dtype=np.float64).ravel()
-    )
+    localArr = np.ascontiguousarray(localModelVariances, dtype=np.float64).reshape(-1)
+    globalArr = np.ascontiguousarray(globalModelVariances, dtype=np.float64).reshape(-1)
     if localArr.shape[0] != globalArr.shape[0]:
         raise ValueError("localModelVariances and globalModelVariances must have the same shape")
     n = localArr.shape[0]
     localView = localArr
     globalView = globalArr
     if useNoise:
-        noiseArr = np.ascontiguousarray(
-            np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
-        )
+        noiseArr = np.ascontiguousarray(localLogVarianceNoise, dtype=np.float64).reshape(-1)
         if noiseArr.shape[0] != n:
             raise ValueError("localLogVarianceNoise must match localModelVariances")
         noiseView = noiseArr
     if usePooledThin:
-        sampleArr = np.ascontiguousarray(
-            np.asarray(sampleIndex, dtype=np.int64).ravel()
-        )
-        chromosomeArr = np.ascontiguousarray(
-            np.asarray(chromosomeIndex, dtype=np.int64).ravel()
-        )
-        startArr = np.ascontiguousarray(
-            np.asarray(blockStarts, dtype=np.int64).ravel()
-        )
+        sampleArr = np.ascontiguousarray(sampleIndex, dtype=np.int64).reshape(-1)
+        chromosomeArr = np.ascontiguousarray(chromosomeIndex, dtype=np.int64).reshape(-1)
+        startArr = np.ascontiguousarray(blockStarts, dtype=np.int64).reshape(-1)
         if sampleArr.shape[0] != n or chromosomeArr.shape[0] != n or startArr.shape[0] != n:
             raise ValueError("sampleIndex, chromosomeIndex, and blockStarts must match localModelVariances")
         sampleView = sampleArr
@@ -2487,27 +2715,19 @@ cpdef tuple cEBPriorStrengthLogRatiosFromCandidateIdx(
     cdef double globalValue
     cdef double noiseValue
 
-    localArr = np.ascontiguousarray(
-        np.asarray(localModelVariances, dtype=np.float64).ravel()
-    )
-    globalArr = np.ascontiguousarray(
-        np.asarray(globalModelVariances, dtype=np.float64).ravel()
-    )
+    localArr = np.ascontiguousarray(localModelVariances, dtype=np.float64).reshape(-1)
+    globalArr = np.ascontiguousarray(globalModelVariances, dtype=np.float64).reshape(-1)
     if localArr.shape[0] != globalArr.shape[0]:
         raise ValueError("localModelVariances and globalModelVariances must have the same shape")
     n = localArr.shape[0]
     localView = localArr
     globalView = globalArr
     if useNoise:
-        noiseArr = np.ascontiguousarray(
-            np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
-        )
+        noiseArr = np.ascontiguousarray(localLogVarianceNoise, dtype=np.float64).reshape(-1)
         if noiseArr.shape[0] != n:
             raise ValueError("localLogVarianceNoise must match localModelVariances")
         noiseView = noiseArr
-    candidateArr = np.ascontiguousarray(
-        np.asarray(candidateIdx, dtype=np.intp).ravel()
-    )
+    candidateArr = np.ascontiguousarray(candidateIdx, dtype=np.intp).reshape(-1)
     candidateCount = candidateArr.shape[0]
     candidateView = candidateArr
     logRatioArr = np.empty(candidateCount, dtype=np.float64)
@@ -2748,10 +2968,7 @@ cdef list _dependenceUniqueRows(list matrices, int rowCount):
 
 
 cdef object _dependenceKMQuantile(object values, object censored, double quantile):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valueArray = np.ascontiguousarray(
-        np.asarray(values, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] valueArray = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
     cdef object censorArray = np.asarray(censored, dtype=np.bool_).ravel()
     cdef object order
     cdef object sortedValues
@@ -6414,17 +6631,10 @@ cpdef tuple cforwardPass(
     object processPrecExp=None,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
-    bint ECM_useAPN=False,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
-    float procPrecisionMultiplierMin=0.25,
-    float procPrecisionMultiplierMax=4.0,
-    float APN_minQ=1.0e-4,
-    float APN_maxQ=1000.0,
-    float APN_dStatThresh=5.0,
-    float APN_dStatScale=10.0,
-    float APN_dStatPC=2.0,
-    object processQScale=None,
+    float procPrecisionMultiplierMin=0.0001,
+    float procPrecisionMultiplierMax=10.0,
 ):
     r"""Run the forward pass (filter) for state estimation
 
@@ -6448,12 +6658,9 @@ cpdef tuple cforwardPass(
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
     cdef bint useLambda = (ECM_useObsPrecisionReweighting and (lambdaExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processQScaleArr
-    cdef bint useProcessQScale = (processQScale is not None)
     cdef bint useProcPrec = (
         ECM_useProcessPrecisionReweighting
         and (processPrecExp is not None)
-        and ((not ECM_useAPN) or useProcessQScale)
     )
     cdef cnp.float32_t* dataPtr = <cnp.float32_t*>matrixData.data
     cdef cnp.float32_t* muncPtr = <cnp.float32_t*>matrixPluginMuncInit.data
@@ -6461,7 +6668,6 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t* dStatPtr = <cnp.float32_t*>NULL
     cdef cnp.float32_t* lambdaExpPtr = <cnp.float32_t*>NULL
     cdef cnp.float32_t* processPrecExpPtr = <cnp.float32_t*>NULL
-    cdef cnp.float32_t* processQScalePtr = <cnp.float32_t*>NULL
     cdef cnp.float32_t* stateForwardPtr = <cnp.float32_t*>NULL
     cdef cnp.float32_t* stateCovarForwardPtr = <cnp.float32_t*>NULL
     cdef cnp.float32_t* pNoiseForwardPtr = <cnp.float32_t*>NULL
@@ -6473,12 +6679,6 @@ cpdef tuple cforwardPass(
     cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double procPrecMin = <double>procPrecisionMultiplierMin
     cdef double procPrecMax = <double>procPrecisionMultiplierMax
-    cdef double qDiagBase
-    cdef double apnMinQ = <double>APN_minQ
-    cdef double apnMaxQ = <double>APN_maxQ
-    cdef double apnThresh = <double>APN_dStatThresh
-    cdef double apnScaleCoef = <double>APN_dStatScale
-    cdef double apnPC = <double>APN_dStatPC
 
     cdef double LOG2PI = log(6.2831853071795864769)
 
@@ -6487,9 +6687,6 @@ cpdef tuple cforwardPass(
 
     if useProcPrec:
         processPrecExpArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> processPrecExp
-
-    if useProcessQScale:
-        processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
 
     if intervalCount <= 0 or trackCount <= 0:
         if vectorD is None:
@@ -6525,9 +6722,6 @@ cpdef tuple cforwardPass(
         if processPrecExpArr.shape[0] != intervalCount:
             raise ValueError("processPrecExp length must match intervalCount")
         processPrecExpPtr = <cnp.float32_t*>processPrecExpArr.data
-
-    if useProcessQScale:
-        processQScalePtr = <cnp.float32_t*>processQScaleArr.data
 
     if vectorD is None:
         dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
@@ -6571,10 +6765,6 @@ cpdef tuple cforwardPass(
     qBase01 = <double>matrixQ0[0, 1]
     qBase10 = <double>matrixQ0[1, 0]
     qBase11 = <double>matrixQ0[1, 1]
-    qDiagBase = 0.5 * (qBase00 + qBase11)
-    if qDiagBase <= 1.0e-12:
-        ECM_useAPN = False
-
     with nogil:
         loopResult = _levelTrendForwardPassLoop(
             dataPtr,
@@ -6582,7 +6772,6 @@ cpdef tuple cforwardPass(
             blockMapPtr,
             lambdaExpPtr,
             processPrecExpPtr,
-            processQScalePtr,
             dStatPtr,
             stateForwardPtr,
             stateCovarForwardPtr,
@@ -6601,28 +6790,22 @@ cpdef tuple cforwardPass(
             qBase01,
             qBase10,
             qBase11,
-            qDiagBase,
             LOG2PI,
             wMin,
             wMax,
             procPrecMin,
             procPrecMax,
-            apnMinQ,
-            apnMaxQ,
-            apnThresh,
-            apnScaleCoef,
-            apnPC,
             doStore,
             useLambda,
             useProcPrec,
-            useProcessQScale,
-            ECM_useAPN,
             returnNLL,
             storeNLLInD,
         )
 
     if loopResult.invalidBlockIndex >= 0:
         raise ValueError("intervalToBlockMap has out-of-range block id")
+    if loopResult.invalidCovarianceIndex >= 0:
+        raise ArithmeticError("state covariance became non-finite")
 
     phiHat = <float>(loopResult.sumDStat / (<double>intervalCount))
 
@@ -6690,7 +6873,6 @@ cpdef tuple cbackwardPass(
     cdef double Q00, Q01, Q10, Q11
     cdef double PPred00, PPred01, PPred10, PPred11
     cdef double Pf00, Pf01, Pf10, Pf11
-    cdef double detPred
     cdef double invPred00, invPred01, invPred10, invPred11
     cdef double cross00, cross01, cross10, cross11
     cdef double J00, J01, J10, J11
@@ -6701,6 +6883,8 @@ cpdef tuple cbackwardPass(
     cdef double Ps00, Ps01, Ps11
     cdef double C00, C01, C10, C11
     cdef double JD00, JD01, JD10, JD11
+    cdef Py_ssize_t invalidCovarianceIndex = -1
+    cdef cnp.float32_t* stateCovarSmoothedPtr = NULL
 
     cdef double innov
 
@@ -6726,6 +6910,7 @@ cpdef tuple cbackwardPass(
 
     stateSmoothedView = stateSmoothedArr
     stateCovarSmoothedView = stateCovarSmoothedArr
+    stateCovarSmoothedPtr = <cnp.float32_t*>stateCovarSmoothedArr.data
     lagCovSmoothedView = lagCovSmoothedArr
     postFitResidualsView = postFitResidualsArr
 
@@ -6737,6 +6922,15 @@ cpdef tuple cbackwardPass(
     if intervalCount <= 0:
         return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
 
+    Ps00 = <double>stateCovarForwardView[intervalCount - 1, 0, 0]
+    Ps01 = 0.5 * (
+        (<double>stateCovarForwardView[intervalCount - 1, 0, 1])
+        + (<double>stateCovarForwardView[intervalCount - 1, 1, 0])
+    )
+    Ps11 = <double>stateCovarForwardView[intervalCount - 1, 1, 1]
+    if not _projectCovariance2x2(&Ps00, &Ps01, &Ps11):
+        raise ArithmeticError("state covariance is not positive semidefinite")
+
     with nogil:
         # ========================================================
         # initialize with the final forward pass estimates at k = intervalCount - 1
@@ -6744,27 +6938,39 @@ cpdef tuple cbackwardPass(
         stateSmoothedView[intervalCount - 1, 0] = stateForwardView[intervalCount - 1, 0]
         stateSmoothedView[intervalCount - 1, 1] = stateForwardView[intervalCount - 1, 1]
 
-        stateCovarSmoothedView[intervalCount - 1, 0, 0] = stateCovarForwardView[intervalCount - 1, 0, 0]
-        stateCovarSmoothedView[intervalCount - 1, 0, 1] = stateCovarForwardView[intervalCount - 1, 0, 1]
-        stateCovarSmoothedView[intervalCount - 1, 1, 0] = stateCovarForwardView[intervalCount - 1, 1, 0]
-        stateCovarSmoothedView[intervalCount - 1, 1, 1] = stateCovarForwardView[intervalCount - 1, 1, 1]
+        if not _storeCovariance2x2F32(
+            Ps00,
+            Ps01,
+            Ps11,
+            stateCovarSmoothedPtr + (intervalCount - 1) * 4,
+        ):
+            invalidCovarianceIndex = intervalCount - 1
 
-        for j in range(trackCount):
-            postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
-                (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
-            )
+        if invalidCovarianceIndex < 0:
+            for j in range(trackCount):
+                postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
+                    (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
+                )
 
         #  `k = intervalCount - 2`...`k=0`
         for k in range(intervalCount - 2, -1, -1):
+            if invalidCovarianceIndex >= 0:
+                break
             Pf00 = <double>stateCovarForwardView[k, 0, 0]
-            Pf01 = <double>stateCovarForwardView[k, 0, 1]
-            Pf10 = <double>stateCovarForwardView[k, 1, 0]
+            Pf01 = 0.5 * (
+                (<double>stateCovarForwardView[k, 0, 1])
+                + (<double>stateCovarForwardView[k, 1, 0])
+            )
+            Pf10 = Pf01
             Pf11 = <double>stateCovarForwardView[k, 1, 1]
             xPred0 = F00*(<double>stateForwardView[k, 0]) + F01*(<double>stateForwardView[k, 1])
             xPred1 = F10*(<double>stateForwardView[k, 0]) + F11*(<double>stateForwardView[k, 1])
             Q00 = <double>pNoiseForwardView[k, 0, 0]
-            Q01 = <double>pNoiseForwardView[k, 0, 1]
-            Q10 = <double>pNoiseForwardView[k, 1, 0]
+            Q01 = 0.5 * (
+                (<double>pNoiseForwardView[k, 0, 1])
+                + (<double>pNoiseForwardView[k, 1, 0])
+            )
+            Q10 = Q01
             Q11 = <double>pNoiseForwardView[k, 1, 1]
             cross00 = F00*Pf00 + F01*Pf10
             cross01 = F00*Pf01 + F01*Pf11
@@ -6776,12 +6982,19 @@ cpdef tuple cbackwardPass(
             PPred10 = cross10*F00 + cross11*F01 + Q10
             PPred11 = cross10*F10 + cross11*F11 + Q11
 
-            # 2x2 inverse for PPred
-            detPred = (PPred00*PPred11) - (PPred01*PPred10)
-            invPred00 = PPred11 / detPred
-            invPred01 = -PPred01 / detPred
-            invPred10 = -PPred10 / detPred
-            invPred11 = PPred00 / detPred
+            PPred01 = 0.5 * (PPred01 + PPred10)
+            PPred10 = PPred01
+            if not _inverseSymmetricPSD2x2(
+                PPred00,
+                PPred01,
+                PPred11,
+                &invPred00,
+                &invPred01,
+                &invPred11,
+            ):
+                invalidCovarianceIndex = k
+                break
+            invPred10 = invPred01
 
             # J[k] = P[k|k] F^T inv(PPred[k+1|k])
             cross00 = Pf00*F00 + Pf01*F01
@@ -6816,10 +7029,17 @@ cpdef tuple cbackwardPass(
             Ps00 = Pf00 + (J00*corr00 + J01*corr10)
             Ps01 = Pf01 + (J00*corr01 + J01*corr11)
             Ps11 = Pf11 + (J10*corr01 + J11*corr11)
-            stateCovarSmoothedView[k, 0, 0] = <cnp.float32_t>Ps00
-            stateCovarSmoothedView[k, 0, 1] = <cnp.float32_t>Ps01
-            stateCovarSmoothedView[k, 1, 0] = <cnp.float32_t>Ps01
-            stateCovarSmoothedView[k, 1, 1] = <cnp.float32_t>Ps11
+            if not _projectCovariance2x2(&Ps00, &Ps01, &Ps11):
+                invalidCovarianceIndex = k
+                break
+            if not _storeCovariance2x2F32(
+                Ps00,
+                Ps01,
+                Ps11,
+                stateCovarSmoothedPtr + k * 4,
+            ):
+                invalidCovarianceIndex = k
+                break
 
             # C[k] = P[k|k] F^T + J[k] (PS[k+1] - PPred[k+1|k])
             C00 = Pf00*F00 + Pf01*F01
@@ -6847,6 +7067,9 @@ cpdef tuple cbackwardPass(
                 innov = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                 postFitResidualsView[k, j] = <cnp.float32_t>innov
 
+    if invalidCovarianceIndex >= 0:
+        raise ArithmeticError("predicted covariance is not positive semidefinite")
+
     return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
 
 
@@ -6870,17 +7093,10 @@ cpdef tuple cforwardPassLevel(
     object processPrecExp=None,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
-    bint ECM_useAPN=False,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
-    float procPrecisionMultiplierMin=0.25,
-    float procPrecisionMultiplierMax=4.0,
-    float APN_minQ=1.0e-4,
-    float APN_maxQ=1000.0,
-    float APN_dStatThresh=5.0,
-    float APN_dStatScale=10.0,
-    float APN_dStatPC=2.0,
-    object processQScale=None,
+    float procPrecisionMultiplierMin=0.0001,
+    float procPrecisionMultiplierMax=10.0,
 ):
     r"""Run the scalar level-only forward pass."""
 
@@ -6894,19 +7110,15 @@ cpdef tuple cforwardPassLevel(
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
     cdef bint useLambda = (ECM_useObsPrecisionReweighting and (lambdaExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processQScaleArr
-    cdef bint useProcessQScale = (processQScale is not None)
     cdef bint useProcPrec = (
         ECM_useProcessPrecisionReweighting
         and (processPrecExp is not None)
-        and ((not ECM_useAPN) or useProcessQScale)
     )
     cdef const cnp.float32_t* dataPtr = NULL
     cdef const cnp.float32_t* muncPtr = NULL
     cdef const cnp.int32_t* blockMapPtr = NULL
     cdef const cnp.float32_t* lambdaExpPtr = NULL
     cdef const cnp.float32_t* processPrecExpPtr = NULL
-    cdef const cnp.float32_t* processQScalePtr = NULL
     cdef cnp.float32_t* dStatPtr = NULL
     cdef cnp.float32_t* stateForwardPtr = NULL
     cdef cnp.float32_t* stateCovarForwardPtr = NULL
@@ -6919,11 +7131,6 @@ cpdef tuple cforwardPassLevel(
     cdef double procPrecMin = <double>procPrecisionMultiplierMin
     cdef double procPrecMax = <double>procPrecisionMultiplierMax
     cdef double phiHat = 1.0
-    cdef double apnMinQ = <double>APN_minQ
-    cdef double apnMaxQ = <double>APN_maxQ
-    cdef double apnThresh = <double>APN_dStatThresh
-    cdef double apnScaleCoef = <double>APN_dStatScale
-    cdef double apnPC = <double>APN_dStatPC
     cdef double LOG2PI = log(6.2831853071795864769)
 
     if intervalCount <= 0 or trackCount <= 0:
@@ -6959,9 +7166,6 @@ cpdef tuple cforwardPassLevel(
         if processPrecExpArr.shape[0] != intervalCount:
             raise ValueError("processPrecExp length must match intervalCount")
         processPrecExpPtr = <const cnp.float32_t*>processPrecExpArr.data
-    if useProcessQScale:
-        processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
-        processQScalePtr = <const cnp.float32_t*>processQScaleArr.data
     if vectorD is None:
         dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
     else:
@@ -6994,9 +7198,6 @@ cpdef tuple cforwardPassLevel(
         stateCovarForwardPtr = <cnp.float32_t*>stateCovarForwardArr.data
         pNoiseForwardPtr = <cnp.float32_t*>pNoiseForwardArr.data
 
-    if q0 <= 1.0e-12:
-        ECM_useAPN = False
-
     dataPtr = <const cnp.float32_t*>matrixData.data
     muncPtr = <const cnp.float32_t*>matrixPluginMuncInit.data
     blockMapPtr = <const cnp.int32_t*>intervalToBlockMap.data
@@ -7009,7 +7210,6 @@ cpdef tuple cforwardPassLevel(
             blockMapPtr,
             lambdaExpPtr,
             processPrecExpPtr,
-            processQScalePtr,
             dStatPtr,
             stateForwardPtr,
             stateCovarForwardPtr,
@@ -7026,16 +7226,9 @@ cpdef tuple cforwardPassLevel(
             wMax,
             procPrecMin,
             procPrecMax,
-            apnMinQ,
-            apnMaxQ,
-            apnThresh,
-            apnScaleCoef,
-            apnPC,
             doStore,
             useLambda,
             useProcPrec,
-            useProcessQScale,
-            ECM_useAPN,
             returnNLL,
             storeNLLInD,
         )
@@ -7164,16 +7357,10 @@ cpdef tuple cfixedBackgroundECMLevel(
     float ECM_robustTNu=8.0,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
-    float procPrecisionMultiplierMin=0.25,
-    float procPrecisionMultiplierMax=4.0,
+    float procPrecisionMultiplierMin=0.0001,
+    float procPrecisionMultiplierMax=10.0,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
-    bint ECM_useAPN=False,
-    float APN_minQ=1.0e-4,
-    float APN_maxQ=1000.0,
-    float APN_dStatThresh=5.0,
-    float APN_dStatScale=10.0,
-    float APN_dStatPC=2.0,
     Py_ssize_t t_innerIters=5,
     bint returnIntermediates=False,
     bint returnDiagnostics=False,
@@ -7181,7 +7368,11 @@ cpdef tuple cfixedBackgroundECMLevel(
     object processPrecExpInit=None,
     bint trackOptimizationPath=False,
     bint logIterations=True,
-    object processQScale=None,
+    bint ECM_scaleObsPrecisionToMedian=False,
+    bint ECM_scaleProcessPrecisionToMedian=True,
+    bint obsPrecisionWarmStartIsMedianScaled=False,
+    bint processPrecisionWarmStartIsMedianScaled=False,
+    float ECM_processRobustTNu=8.0,
 ):
     r"""Run fixed-background ECM for the scalar level-only process model."""
 
@@ -7189,6 +7380,7 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef Py_ssize_t intervalCount = matrixData.shape[1]
     cdef Py_ssize_t i, k, j, inner
     cdef Py_ssize_t b
+    cdef Py_ssize_t activeTrackCount
     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
     cdef cnp.float32_t[:, ::1] dataView = matrixData
     cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
@@ -7199,10 +7391,9 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef cnp.float32_t[::1] lambdaExpView
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
-    cdef object processQScaleArg = None
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processQScaleArr
-    cdef cnp.float32_t[::1] processQScaleView
-    cdef bint useProcessQScale = (processQScale is not None)
+    cdef bint processPrecisionActive = ECM_useProcessPrecisionReweighting
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] medianWorkspaceArr
+    cdef double[::1] medianWorkspaceView
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward = np.empty((intervalCount, 1), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward = np.empty((intervalCount, 1, 1), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] pNoiseForward = np.empty((intervalCount, 1, 1), dtype=np.float32)
@@ -7233,7 +7424,6 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef double p00k
     cdef double Rkj
     cdef double x0, y0
-    cdef double Pk, Pk1, Ck_k1
     cdef double delta
     cdef double obsU2
     cdef double w
@@ -7243,11 +7433,33 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef double kappaMin_ = <double>procPrecisionMultiplierMin
     cdef double kappaMax_ = <double>procPrecisionMultiplierMax
     cdef double dState = 1.0
-    cdef double procNu = ECM_robustTNu
+    cdef double procNu = ECM_processRobustTNu
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
     cdef bint iterationConverged = False
     cdef object optimizationPath = None
+
+    _validateMultiplierBounds(wMin, wMax, True)
+    _validateMultiplierBounds(kappaMin_, kappaMax_, False)
+    if not isfinite(procNu) or procNu <= 0.0:
+        raise ValueError("ECM_processRobustTNu must be positive and finite")
+    _validateMedianScaling(
+        ECM_scaleObsPrecisionToMedian,
+        ECM_useObsPrecisionReweighting,
+        wMin,
+        wMax,
+        True,
+    )
+    _validateMedianScaling(
+        ECM_scaleProcessPrecisionToMedian,
+        processPrecisionActive,
+        kappaMin_,
+        kappaMax_,
+        False,
+    )
+    if ECM_scaleObsPrecisionToMedian or ECM_scaleProcessPrecisionToMedian:
+        medianWorkspaceArr = np.empty(max(intervalCount, 1), dtype=np.float64)
+        medianWorkspaceView = medianWorkspaceArr
 
     if trackOptimizationPath:
         optimizationPath = []
@@ -7261,27 +7473,72 @@ cpdef tuple cfixedBackgroundECMLevel(
                 raise ValueError("lambdaExpInit length must match intervalCount")
             if not np.all(np.isfinite(lambdaExpArr)):
                 raise ValueError("lambdaExpInit must contain only finite values")
-            np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
+            if not ECM_scaleObsPrecisionToMedian:
+                np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
         lambdaExp = lambdaExpArr
         lambdaExpView = lambdaExpArr
+        if ECM_scaleObsPrecisionToMedian:
+            if obsPrecisionWarmStartIsMedianScaled:
+                _validateMedianScaledPrecisionWarmStart(
+                    lambdaExpView,
+                    0,
+                    intervalCount,
+                    wMin,
+                    wMax,
+                )
+            else:
+                _scalePrecisionMultipliersToMedian(
+                    lambdaExpView,
+                    0,
+                    intervalCount,
+                    wMin,
+                    wMax,
+                    medianWorkspaceView,
+                )
 
-    if ECM_useProcessPrecisionReweighting and ((not ECM_useAPN) or useProcessQScale):
+    if processPrecisionActive:
         if processPrecExpInit is None:
             processPrecExpArr = np.ones(intervalCount, dtype=np.float32)
+            _initializeProcessPrecisionFromPointwiseChanges(
+                dataView,
+                muncMatView,
+                blockMapView,
+                blockCount,
+                q0View,
+                <double>pad,
+                <double>procNu,
+                processPrecExpArr,
+            )
         else:
             processPrecExpArr = np.array(processPrecExpInit, dtype=np.float32, copy=True, order="C").reshape(-1)
             if processPrecExpArr.shape[0] != intervalCount:
                 raise ValueError("processPrecExpInit length must match intervalCount")
             if not np.all(np.isfinite(processPrecExpArr)):
                 raise ValueError("processPrecExpInit must contain only finite values")
+        if not ECM_scaleProcessPrecisionToMedian:
             np.clip(processPrecExpArr, procPrecisionMultiplierMin, procPrecisionMultiplierMax, out=processPrecExpArr)
         processPrecExp = processPrecExpArr
         processPrecExpView = processPrecExpArr
-
-    if useProcessQScale:
-        processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
-        processQScaleView = processQScaleArr
-        processQScaleArg = processQScaleArr
+        if ECM_scaleProcessPrecisionToMedian:
+            if intervalCount > 0:
+                processPrecExpView[0] = <cnp.float32_t>1.0
+            if processPrecisionWarmStartIsMedianScaled and processPrecExpInit is not None:
+                _validateMedianScaledPrecisionWarmStart(
+                    processPrecExpView,
+                    1,
+                    intervalCount,
+                    kappaMin_,
+                    kappaMax_,
+                )
+            else:
+                _scalePrecisionMultipliersToMedian(
+                    processPrecExpView,
+                    1,
+                    intervalCount,
+                    kappaMin_,
+                    kappaMax_,
+                    medianWorkspaceView,
+                )
 
     if intervalCount <= 5:
         if intervalCount <= 0 or trackCount <= 0:
@@ -7293,8 +7550,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
             if q0 <= 0.0:
                 raise ValueError("matrixQ0[0, 0] must be positive")
-            _validateMultiplierBounds(wMin, wMax, True)
-            _validateMultiplierBounds(kappaMin_, kappaMax_, False)
             if intervalToBlockMap.shape[0] < intervalCount:
                 raise ValueError("intervalToBlockMap length must match intervalCount")
 
@@ -7318,17 +7573,10 @@ cpdef tuple cfixedBackgroundECMLevel(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPassLevel(
                 matrixData=matrixData,
@@ -7361,17 +7609,10 @@ cpdef tuple cfixedBackgroundECMLevel(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )[3])
         previousNLL = currentNLL
         diagnostics = {
@@ -7388,6 +7629,12 @@ cpdef tuple cfixedBackgroundECMLevel(
             "final_abs_rel_change": None,
             "final_rel_improvement": None,
             "nll_increase_count": int(0),
+            "scale_obs_precision_to_median": bool(
+                ECM_scaleObsPrecisionToMedian
+            ),
+            "scale_process_precision_to_median": bool(
+                ECM_scaleProcessPrecisionToMedian
+            ),
         }
         if trackOptimizationPath:
             diagnostics["optimization_path"] = optimizationPath
@@ -7413,8 +7660,6 @@ cpdef tuple cfixedBackgroundECMLevel(
         raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
     if q0 <= 0.0:
         raise ValueError("matrixQ0[0, 0] must be positive")
-    _validateMultiplierBounds(wMin, wMax, True)
-    _validateMultiplierBounds(kappaMin_, kappaMax_, False)
     if intervalToBlockMap.shape[0] < intervalCount:
         raise ValueError("intervalToBlockMap length must match intervalCount")
 
@@ -7446,17 +7691,10 @@ cpdef tuple cfixedBackgroundECMLevel(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPassLevel(
@@ -7482,21 +7720,33 @@ cpdef tuple cfixedBackgroundECMLevel(
                         if p00k < 0.0:
                             p00k = 0.0
                         obsU2 = 0.0
+                        activeTrackCount = 0
                         for j in range(trackCount):
-                            muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                            muncPlusPad = <double>muncMatView[j, k]
+                            if muncPlusPad >= __MASKED_OBSERVATION_VARIANCE_CUTOFF:
+                                continue
+                            activeTrackCount += 1
+                            muncPlusPad += <double>pad
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
                             Rkj = muncPlusPad
                             res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                             obsU2 += (res * res + p00k) / Rkj
-                        w = ((<double>ECM_robustTNu) + (<double>trackCount)) / ((<double>ECM_robustTNu) + obsU2)
-                        if w < wMin:
-                            w = wMin
-                        elif w > wMax:
-                            w = wMax
+                        w = ((<double>ECM_robustTNu) + (<double>activeTrackCount)) / ((<double>ECM_robustTNu) + obsU2)
+                        if not ECM_scaleObsPrecisionToMedian:
+                            w = _clampMultiplierValue(w, wMin, wMax)
                         lambdaExpView[k] = <cnp.float32_t>w
+                if ECM_scaleObsPrecisionToMedian:
+                    _scalePrecisionMultipliersToMedian(
+                        lambdaExpView,
+                        0,
+                        intervalCount,
+                        wMin,
+                        wMax,
+                        medianWorkspaceView,
+                    )
 
-            if ECM_useProcessPrecisionReweighting and ((not ECM_useAPN) or useProcessQScale):
+            if processPrecisionActive:
                 processPrecExpView[0] = <cnp.float32_t>1.0
                 for k in range(intervalCount - 1):
                     b = <Py_ssize_t>blockMapView[k]
@@ -7505,20 +7755,28 @@ cpdef tuple cfixedBackgroundECMLevel(
                         continue
                     x0 = <double>stateSmoothedView[k, 0]
                     y0 = <double>stateSmoothedView[k + 1, 0]
-                    Pk = <double>stateCovarSmoothedView[k, 0, 0]
-                    Pk1 = <double>stateCovarSmoothedView[k + 1, 0, 0]
-                    Ck_k1 = <double>lagCovSmoothedView[k, 0, 0]
-                    delta = ((Pk1 + y0 * y0) - (2.0 * (Ck_k1 + x0 * y0)) + (Pk + x0 * x0)) * q0Inv
-                    if useProcessQScale:
-                        delta = delta / (<double>processQScaleView[k + 1])
+                    # note, precision reweighting is through the forward-backward mean transition only
+                    # (i.e., does not consider lag-covariance or P_i). See Aravkin '13
+                    delta = ((y0 - x0) * (y0 - x0)) * q0Inv
                     if delta < 0.0:
                         delta = 0.0
                     kappa_ = ((<double>procNu) + dState) / ((<double>procNu) + delta)
-                    if kappa_ < kappaMin_:
-                        kappa_ = kappaMin_
-                    elif kappa_ > kappaMax_:
-                        kappa_ = kappaMax_
+                    if not ECM_scaleProcessPrecisionToMedian:
+                        kappa_ = _clampMultiplierValue(
+                            kappa_,
+                            kappaMin_,
+                            kappaMax_,
+                        )
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
+                if ECM_scaleProcessPrecisionToMedian:
+                    _scalePrecisionMultipliersToMedian(
+                        processPrecExpView,
+                        1,
+                        intervalCount,
+                        kappaMin_,
+                        kappaMax_,
+                        medianWorkspaceView,
+                    )
 
         currentNLL = (<double>cforwardPassLevel(
             matrixData=matrixData,
@@ -7540,17 +7798,10 @@ cpdef tuple cfixedBackgroundECMLevel(
             processPrecExp=processPrecExp,
             ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-            ECM_useAPN=ECM_useAPN,
             obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
             obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
             procPrecisionMultiplierMin=procPrecisionMultiplierMin,
             procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-            APN_minQ=APN_minQ,
-            APN_maxQ=APN_maxQ,
-            APN_dStatThresh=APN_dStatThresh,
-            APN_dStatScale=APN_dStatScale,
-            APN_dStatPC=APN_dStatPC,
-            processQScale=processQScaleArg,
         )[3])
 
         hasPreviousNLL = hasInitialNLL
@@ -7636,6 +7887,10 @@ cpdef tuple cfixedBackgroundECMLevel(
         "final_abs_rel_change": float(absRelChange) if hasInitialNLL else None,
         "final_rel_improvement": float(relImprovement) if hasInitialNLL else None,
         "nll_increase_count": int(nllIncreaseCount),
+        "scale_obs_precision_to_median": bool(ECM_scaleObsPrecisionToMedian),
+        "scale_process_precision_to_median": bool(
+            ECM_scaleProcessPrecisionToMedian
+        ),
     }
     if trackOptimizationPath:
         diagnostics["optimization_path"] = optimizationPath
@@ -7672,16 +7927,10 @@ cpdef tuple cfixedBackgroundECM(
     float ECM_robustTNu=8.0,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
-    float procPrecisionMultiplierMin=0.25,
-    float procPrecisionMultiplierMax=4.0,
+    float procPrecisionMultiplierMin=0.0001,
+    float procPrecisionMultiplierMax=10.0,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
-    bint ECM_useAPN=False,
-    float APN_minQ=1.0e-4,
-    float APN_maxQ=1000.0,
-    float APN_dStatThresh=5.0,
-    float APN_dStatScale=10.0,
-    float APN_dStatPC=2.0,
     Py_ssize_t t_innerIters=5,
     bint returnIntermediates=False,
     bint returnDiagnostics=False,
@@ -7689,7 +7938,11 @@ cpdef tuple cfixedBackgroundECM(
     object processPrecExpInit=None,
     bint trackOptimizationPath=False,
     bint logIterations=True,
-    object processQScale=None,
+    bint ECM_scaleObsPrecisionToMedian=False,
+    bint ECM_scaleProcessPrecisionToMedian=True,
+    bint obsPrecisionWarmStartIsMedianScaled=False,
+    bint processPrecisionWarmStartIsMedianScaled=False,
+    float ECM_processRobustTNu=8.0,
 ):
     r"""Run the fixed-background Consenrich ECM loop with iteratively updated observation and process noise covariances.
 
@@ -7878,6 +8131,7 @@ cpdef tuple cfixedBackgroundECM(
     cdef Py_ssize_t intervalCount = matrixData.shape[1]
     cdef Py_ssize_t i, k, j, inner
     cdef Py_ssize_t b
+    cdef Py_ssize_t activeTrackCount
     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
     cdef cnp.float32_t[:, ::1] dataView = matrixData
     cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
@@ -7887,14 +8141,43 @@ cpdef tuple cfixedBackgroundECM(
     # Allocate latent precision multipliers only if enabled
     cdef object lambdaExp = None
     cdef object processPrecExp = None
-    cdef object processQScaleArg = None
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
     cdef cnp.float32_t[::1] lambdaExpView
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processQScaleArr
-    cdef cnp.float32_t[::1] processQScaleView
-    cdef bint useProcessQScale = (processQScale is not None)
+    cdef bint processPrecisionActive = ECM_useProcessPrecisionReweighting
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] medianWorkspaceArr
+    cdef double[::1] medianWorkspaceView
+
+    _validateMultiplierBounds(
+        <double>obsPrecisionMultiplierMin,
+        <double>obsPrecisionMultiplierMax,
+        True,
+    )
+    _validateMultiplierBounds(
+        <double>procPrecisionMultiplierMin,
+        <double>procPrecisionMultiplierMax,
+        False,
+    )
+    if not isfinite(ECM_processRobustTNu) or ECM_processRobustTNu <= 0.0:
+        raise ValueError("ECM_processRobustTNu must be positive and finite")
+    _validateMedianScaling(
+        ECM_scaleObsPrecisionToMedian,
+        ECM_useObsPrecisionReweighting,
+        <double>obsPrecisionMultiplierMin,
+        <double>obsPrecisionMultiplierMax,
+        True,
+    )
+    _validateMedianScaling(
+        ECM_scaleProcessPrecisionToMedian,
+        processPrecisionActive,
+        <double>procPrecisionMultiplierMin,
+        <double>procPrecisionMultiplierMax,
+        False,
+    )
+    if ECM_scaleObsPrecisionToMedian or ECM_scaleProcessPrecisionToMedian:
+        medianWorkspaceArr = np.empty(max(intervalCount, 1), dtype=np.float64)
+        medianWorkspaceView = medianWorkspaceArr
 
     if ECM_useObsPrecisionReweighting:
         if lambdaExpInit is None:
@@ -7905,27 +8188,72 @@ cpdef tuple cfixedBackgroundECM(
                 raise ValueError("lambdaExpInit length must match intervalCount")
             if not np.all(np.isfinite(lambdaExpArr)):
                 raise ValueError("lambdaExpInit must contain only finite values")
-            np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
+            if not ECM_scaleObsPrecisionToMedian:
+                np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
         lambdaExp = lambdaExpArr
         lambdaExpView = lambdaExpArr
+        if ECM_scaleObsPrecisionToMedian:
+            if obsPrecisionWarmStartIsMedianScaled:
+                _validateMedianScaledPrecisionWarmStart(
+                    lambdaExpView,
+                    0,
+                    intervalCount,
+                    <double>obsPrecisionMultiplierMin,
+                    <double>obsPrecisionMultiplierMax,
+                )
+            else:
+                _scalePrecisionMultipliersToMedian(
+                    lambdaExpView,
+                    0,
+                    intervalCount,
+                    <double>obsPrecisionMultiplierMin,
+                    <double>obsPrecisionMultiplierMax,
+                    medianWorkspaceView,
+                )
 
-    if ECM_useProcessPrecisionReweighting and ((not ECM_useAPN) or useProcessQScale):
+    if processPrecisionActive:
         if processPrecExpInit is None:
             processPrecExpArr = np.ones(intervalCount, dtype=np.float32)
+            _initializeProcessPrecisionFromPointwiseChanges(
+                dataView,
+                muncMatView,
+                blockMapView,
+                blockCount,
+                q0View,
+                <double>pad,
+                <double>ECM_processRobustTNu,
+                processPrecExpArr,
+            )
         else:
             processPrecExpArr = np.array(processPrecExpInit, dtype=np.float32, copy=True, order="C").reshape(-1)
             if processPrecExpArr.shape[0] != intervalCount:
                 raise ValueError("processPrecExpInit length must match intervalCount")
             if not np.all(np.isfinite(processPrecExpArr)):
                 raise ValueError("processPrecExpInit must contain only finite values")
+        if not ECM_scaleProcessPrecisionToMedian:
             np.clip(processPrecExpArr, procPrecisionMultiplierMin, procPrecisionMultiplierMax, out=processPrecExpArr)
         processPrecExp = processPrecExpArr
         processPrecExpView = processPrecExpArr
-
-    if useProcessQScale:
-        processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
-        processQScaleView = processQScaleArr
-        processQScaleArg = processQScaleArr
+        if ECM_scaleProcessPrecisionToMedian:
+            if intervalCount > 0:
+                processPrecExpView[0] = <cnp.float32_t>1.0
+            if processPrecisionWarmStartIsMedianScaled and processPrecExpInit is not None:
+                _validateMedianScaledPrecisionWarmStart(
+                    processPrecExpView,
+                    1,
+                    intervalCount,
+                    <double>procPrecisionMultiplierMin,
+                    <double>procPrecisionMultiplierMax,
+                )
+            else:
+                _scalePrecisionMultipliersToMedian(
+                    processPrecExpView,
+                    1,
+                    intervalCount,
+                    <double>procPrecisionMultiplierMin,
+                    <double>procPrecisionMultiplierMax,
+                    medianWorkspaceView,
+                )
 
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward = np.empty((intervalCount, 2), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
@@ -7952,9 +8280,6 @@ cpdef tuple cfixedBackgroundECM(
     cdef double q0Inv01
     cdef double q0Inv10
     cdef double q0Inv11
-    cdef MAT2 F
-    cdef MAT2 Ft
-    cdef MAT2 Q0inv
     cdef double previousNLL = 1.0e16
     cdef double currentNLL = 0.0
     cdef double initialNLL = 0.0
@@ -7973,8 +8298,7 @@ cpdef tuple cfixedBackgroundECM(
     cdef double p00k
     cdef double Rkj
     cdef double x0, x1, y0, y1
-    cdef MAT2 Pk, Pk1, Ck_k1
-    cdef MAT2 expec_xx, expec_yy, expec_xy, expec_yx, expec_ww
+    cdef double r0, r1
     cdef double delta
     cdef double u2
     cdef double w
@@ -7986,7 +8310,7 @@ cpdef tuple cfixedBackgroundECM(
     cdef double kappaMax_ = <double>procPrecisionMultiplierMax
     cdef double dState = 2.0
     cdef double tmpVal
-    cdef double procNu = ECM_robustTNu
+    cdef double procNu = ECM_processRobustTNu
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
     cdef bint iterationConverged = False
@@ -8001,8 +8325,6 @@ cpdef tuple cfixedBackgroundECM(
         else:
             if blockCount <= 0:
                 raise ValueError("blockCount must be positive")
-            _validateMultiplierBounds(wMin, wMax, True)
-            _validateMultiplierBounds(kappaMin_, kappaMax_, False)
             if intervalToBlockMap.shape[0] < intervalCount:
                 raise ValueError("intervalToBlockMap length must match intervalCount")
             if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
@@ -8034,17 +8356,10 @@ cpdef tuple cfixedBackgroundECM(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
                 matrixData=matrixData,
@@ -8082,17 +8397,10 @@ cpdef tuple cfixedBackgroundECM(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )[3])
         previousNLL = currentNLL
         diagnostics = {
@@ -8109,6 +8417,12 @@ cpdef tuple cfixedBackgroundECM(
             "final_abs_rel_change": None,
             "final_rel_improvement": None,
             "nll_increase_count": int(0),
+            "scale_obs_precision_to_median": bool(
+                ECM_scaleObsPrecisionToMedian
+            ),
+            "scale_process_precision_to_median": bool(
+                ECM_scaleProcessPrecisionToMedian
+            ),
         }
         if trackOptimizationPath:
             diagnostics["optimization_path"] = optimizationPath
@@ -8130,8 +8444,6 @@ cpdef tuple cfixedBackgroundECM(
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
-    _validateMultiplierBounds(wMin, wMax, True)
-    _validateMultiplierBounds(kappaMin_, kappaMax_, False)
     if intervalToBlockMap.shape[0] < intervalCount:
         raise ValueError("intervalToBlockMap length must match intervalCount")
     if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
@@ -8143,10 +8455,6 @@ cpdef tuple cfixedBackgroundECM(
     q0Inv01 = -q0_01 / detQ0
     q0Inv10 = -q0_10 / detQ0
     q0Inv11 = q0_00 / detQ0
-
-    F = MAT2_make(f00, f01, f10, f11)
-    Ft = MAT2_transpose(F)
-    Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
 
     for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
@@ -8178,17 +8486,10 @@ cpdef tuple cfixedBackgroundECM(
                 processPrecExp=processPrecExp,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
                 procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-                APN_minQ=APN_minQ,
-                APN_maxQ=APN_maxQ,
-                APN_dStatThresh=APN_dStatThresh,
-                APN_dStatScale=APN_dStatScale,
-                APN_dStatPC=APN_dStatPC,
-                processQScale=processQScaleArg,
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
@@ -8220,8 +8521,13 @@ cpdef tuple cfixedBackgroundECM(
                             p00k = 0.0
 
                         obsU2 = 0.0
+                        activeTrackCount = 0
                         for j in range(trackCount):
-                            muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                            muncPlusPad = <double>muncMatView[j, k]
+                            if muncPlusPad >= __MASKED_OBSERVATION_VARIANCE_CUTOFF:
+                                continue
+                            activeTrackCount += 1
+                            muncPlusPad += <double>pad
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
                             Rkj = muncPlusPad
@@ -8230,18 +8536,25 @@ cpdef tuple cfixedBackgroundECM(
                             tmpVal = (res*res + p00k)
                             obsU2 += tmpVal / Rkj
 
-                        w = ((<double>ECM_robustTNu) + (<double>trackCount)) / ((<double>ECM_robustTNu) + obsU2)
-                        if w < wMin:
-                            w = wMin
-                        elif w > wMax:
-                            w = wMax
+                        w = ((<double>ECM_robustTNu) + (<double>activeTrackCount)) / ((<double>ECM_robustTNu) + obsU2)
+                        if not ECM_scaleObsPrecisionToMedian:
+                            w = _clampMultiplierValue(w, wMin, wMax)
 
                         lambdaExpView[k] = <cnp.float32_t>w
+                if ECM_scaleObsPrecisionToMedian:
+                    _scalePrecisionMultipliersToMedian(
+                        lambdaExpView,
+                        0,
+                        intervalCount,
+                        wMin,
+                        wMax,
+                        medianWorkspaceView,
+                    )
 
             # -----------------------------
             # update process precision multipliers kappa_ and store in processPrecExp
             # -----------------------------
-            if ECM_useProcessPrecisionReweighting and ((not ECM_useAPN) or useProcessQScale):
+            if processPrecisionActive:
                 processPrecExpView[0] = <cnp.float32_t>1.0
                 for k in range(intervalCount - 1):
                     b = <Py_ssize_t>blockMapView[k]
@@ -8254,48 +8567,34 @@ cpdef tuple cfixedBackgroundECM(
                     y0 = <double>stateSmoothedView[k + 1, 0]
                     y1 = <double>stateSmoothedView[k + 1, 1]
 
-                    Pk = MAT2_make(
-                        <double>stateCovarSmoothedView[k, 0, 0],
-                        <double>stateCovarSmoothedView[k, 0, 1],
-                        <double>stateCovarSmoothedView[k, 1, 0],
-                        <double>stateCovarSmoothedView[k, 1, 1],
+                    r0 = y0 - ((f00 * x0) + (f01 * x1))
+                    r1 = y1 - ((f10 * x0) + (f11 * x1))
+                    # note, precision reweighting is through the forward-backward mean transition only
+                    # (i.e., does not consider lag-covariance or P_i). See Aravkin '13
+                    delta = (
+                        r0 * ((q0Inv00 * r0) + (q0Inv01 * r1))
+                        + r1 * ((q0Inv10 * r0) + (q0Inv11 * r1))
                     )
-
-                    Pk1 = MAT2_make(
-                        <double>stateCovarSmoothedView[k + 1, 0, 0],
-                        <double>stateCovarSmoothedView[k + 1, 0, 1],
-                        <double>stateCovarSmoothedView[k + 1, 1, 0],
-                        <double>stateCovarSmoothedView[k + 1, 1, 1],
-                    )
-
-                    Ck_k1 = MAT2_make(
-                        <double>lagCovSmoothedView[k, 0, 0],
-                        <double>lagCovSmoothedView[k, 0, 1],
-                        <double>lagCovSmoothedView[k, 1, 0],
-                        <double>lagCovSmoothedView[k, 1, 1],
-                    )
-
-                    expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
-                    expec_yy = MAT2_add(Pk1, MAT2_outer(y0, y1))
-                    expec_xy = MAT2_add(Ck_k1, MAT2_make(x0*y0, x0*y1, x1*y0, x1*y1))
-                    expec_yx = MAT2_transpose(expec_xy)
-                    expec_ww = expec_yy
-                    expec_ww = MAT2_sub(expec_ww, MAT2_mul(expec_yx, Ft))
-                    expec_ww = MAT2_sub(expec_ww, MAT2_mul(F, expec_xy))
-                    expec_ww = MAT2_add(expec_ww, MAT2_mul(MAT2_mul(F, expec_xx), Ft))
-                    expec_ww = MAT2_clipDiagNonneg(expec_ww)
-                    delta = MAT2_traceProd(Q0inv, expec_ww)
-                    if useProcessQScale:
-                        delta = delta / (<double>processQScaleView[k + 1])
                     if delta < 0.0:
                         delta = 0.0
 
                     kappa_ = ((<double>procNu) + dState) / ((<double>procNu) + delta)
-                    if kappa_ < kappaMin_:
-                        kappa_ = kappaMin_
-                    elif kappa_ > kappaMax_:
-                        kappa_ = kappaMax_
+                    if not ECM_scaleProcessPrecisionToMedian:
+                        kappa_ = _clampMultiplierValue(
+                            kappa_,
+                            kappaMin_,
+                            kappaMax_,
+                        )
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
+                if ECM_scaleProcessPrecisionToMedian:
+                    _scalePrecisionMultipliersToMedian(
+                        processPrecExpView,
+                        1,
+                        intervalCount,
+                        kappaMin_,
+                        kappaMax_,
+                        medianWorkspaceView,
+                    )
 
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
@@ -8321,17 +8620,10 @@ cpdef tuple cfixedBackgroundECM(
             processPrecExp=processPrecExp,
             ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
-            ECM_useAPN=ECM_useAPN,
             obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
             obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
             procPrecisionMultiplierMin=procPrecisionMultiplierMin,
             procPrecisionMultiplierMax=procPrecisionMultiplierMax,
-            APN_minQ=APN_minQ,
-            APN_maxQ=APN_maxQ,
-            APN_dStatThresh=APN_dStatThresh,
-            APN_dStatScale=APN_dStatScale,
-            APN_dStatPC=APN_dStatPC,
-            processQScale=processQScaleArg,
         )[3])
 
         hasPreviousNLL = hasInitialNLL
@@ -8420,6 +8712,10 @@ cpdef tuple cfixedBackgroundECM(
         "final_abs_rel_change": float(absRelChange) if hasInitialNLL else None,
         "final_rel_improvement": float(relImprovement) if hasInitialNLL else None,
         "nll_increase_count": int(nllIncreaseCount),
+        "scale_obs_precision_to_median": bool(ECM_scaleObsPrecisionToMedian),
+        "scale_process_precision_to_median": bool(
+            ECM_scaleProcessPrecisionToMedian
+        ),
     }
     if trackOptimizationPath:
         diagnostics["optimization_path"] = optimizationPath
@@ -8721,14 +9017,8 @@ cpdef tuple csolvePenalizedChainROCCO(
     object switchCosts,
     double selectionPenalty,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(
-        np.asarray(scores, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] switchCostsArr = np.ascontiguousarray(
-        np.asarray(switchCosts, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(scores, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] switchCostsArr = np.ascontiguousarray(switchCosts, dtype=np.float64).reshape(-1)
     if scoresArr.size == 0:
         raise ValueError("`scores` cannot be empty")
     if not np.all(np.isfinite(scoresArr)):
@@ -8850,14 +9140,8 @@ cpdef tuple ccalibrateSelectionPenaltyROCCO(
     int targetCount,
     int maxIter=60,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(
-        np.asarray(scores, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] switchCostsArr = np.ascontiguousarray(
-        np.asarray(switchCosts, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(scores, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] switchCostsArr = np.ascontiguousarray(switchCosts, dtype=np.float64).reshape(-1)
     if scoresArr.size == 0:
         raise ValueError("`scores` cannot be empty")
     if not np.all(np.isfinite(scoresArr)):
@@ -8881,10 +9165,7 @@ cpdef tuple csolveChromROCCOExact(
     object selectionPenalty=None,
     int maxIter=60,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(
-        np.asarray(scores, dtype=np.float64).ravel(),
-        dtype=np.float64,
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] scoresArr = np.ascontiguousarray(scores, dtype=np.float64).reshape(-1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] switchCostsArr
     cdef double[::1] scoresView
     cdef double[::1] switchCostsView
@@ -9076,7 +9357,7 @@ def cTransformCountVarianceFloor(
             raise ValueError("rawNoiseMass must match normalizedCounts shape")
         if np.any(np.isfinite(rawNoise2) & (rawNoise2 < 0.0)):
             raise ValueError("rawNoiseMass must be nonnegative where finite")
-    scales = np.ascontiguousarray(np.asarray(scaleFactors, dtype=np.float64).reshape(-1), dtype=np.float64)
+    scales = np.ascontiguousarray(scaleFactors, dtype=np.float64).reshape(-1)
     if scales.shape[0] == 1 and m != 1:
         scales = np.ascontiguousarray(np.full(m, float(scales[0]), dtype=np.float64), dtype=np.float64)
     if scales.shape[0] != m:
@@ -9096,8 +9377,6 @@ def cTransformCountVarianceFloor(
                 if count < 0.0:
                     count = 0.0
                 rawCount = count / sf
-                if rawCount < 0.0:
-                    rawCount = 0.0
                 if hasRawNoise:
                     rawNoiseValue = <double>rawNoise2[i, j]
                     if not isfinite(rawNoiseValue):
@@ -9129,7 +9408,7 @@ def cTransformCountVarianceFloor(
 
 def cMovingAverageSame(object values, int window):
     r"""Same-length moving average using cumulative sums."""
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
     cdef Py_ssize_t n = x.shape[0]
     cdef Py_ssize_t w = max(int(window), 1)
     cdef Py_ssize_t leftPad, rightPad, paddedN, i
@@ -9165,7 +9444,7 @@ def cEstimateEffectiveSampleSize(
     int windowIntervals=0,
 ):
     r"""Positive-autocorrelation effective sample size scan."""
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
     cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr
     cdef cnp.uint8_t[::1] activeView = None
     cdef Py_ssize_t n = x.shape[0]
@@ -9209,7 +9488,7 @@ def cEstimateEffectiveSampleSize(
             tau = 1.0
         return float(n / tau), float(tau), int(lagsUsed)
     if useActiveMask:
-        activeArr = np.ascontiguousarray(np.asarray(activeMask, dtype=np.uint8).reshape(-1), dtype=np.uint8)
+        activeArr = np.ascontiguousarray(activeMask, dtype=np.uint8).reshape(-1)
         if activeArr.shape[0] != n:
             raise ValueError("activeMask length must match values length")
         activeView = activeArr
@@ -9278,157 +9557,265 @@ def cEstimateEffectiveSampleSize(
         tau = <double>windowIntervals_
     return float(activeCount / tau), float(tau), int(lagsUsed)
 
-# Additional ROCCO/DWB helper kernels added during the runtime cleanup pass.
+cdef inline uint64_t _stationaryBootstrapBoundedIndex(
+    bitgen_t* bitGenerator,
+    uint64_t bound,
+) noexcept nogil:
+    cdef uint64_t threshold = (<uint64_t>0 - bound) % bound
+    cdef uint64_t value
 
-cdef int _dwbKernelCodeRefactor(object kernel) except -1:
-    cdef str name = str(kernel).strip().lower().replace("-", "_")
-    if name == "bartlett" or name == "triangle" or name == "triangular":
-        return 0
-    if name == "parzen":
-        return 1
-    if name == "qs" or name == "quadratic_spectral" or name == "quadraticspectral":
-        return 2
-    raise ValueError(f"Unknown DWB kernel: {kernel}")
-
-
-cdef inline int _dwbMaxLagRefactor(int bandwidth, int kernelCode) noexcept nogil:
-    cdef int bw = bandwidth if bandwidth >= 2 else 2
-    cdef int lag
-    if kernelCode == 2:
-        lag = 8 * bw
-        if lag < 32:
-            lag = 32
-        return lag
-    return bw
+    while True:
+        value = bitGenerator.next_uint64(bitGenerator.state)
+        if value >= threshold:
+            return value % bound
 
 
-cdef inline double _dwbKernelValueRefactor(int kernelCode, long lag, int bandwidth) noexcept nogil:
-    cdef double bw = <double>(bandwidth if bandwidth >= 1 else 1)
-    cdef double ax = fabs(<double>lag) / bw
-    cdef double y
-    if kernelCode == 0:
-        if ax <= 1.0:
-            return 1.0 - ax
-        return 0.0
-    if kernelCode == 1:
-        if ax <= 0.5:
-            return 1.0 - 6.0 * ax * ax + 6.0 * ax * ax * ax
-        if ax <= 1.0:
-            return 2.0 * (1.0 - ax) * (1.0 - ax) * (1.0 - ax)
-        return 0.0
-    if ax < 1.0e-12:
-        return 1.0
-    y = (6.0 * __PI_DOUBLE * ax) / 5.0
-    return (25.0 / (12.0 * __PI_DOUBLE * __PI_DOUBLE * ax * ax)) * ((sin(y) / fmax(y, 1.0e-12)) - cos(y))
+cdef inline Py_ssize_t _stationaryBootstrapSegmentIndex(
+    const int64_t* segmentOffsetsPtr,
+    Py_ssize_t segmentCount,
+    Py_ssize_t templateIndex,
+) noexcept nogil:
+    cdef Py_ssize_t lower = 0
+    cdef Py_ssize_t upper = segmentCount
+    cdef Py_ssize_t middle
 
-
-cpdef object cGenerateDWBMultipliersFromNoise(object noise, int bandwidth, object kernel="bartlett"):
-    """Generate standardized dependent wild-bootstrap multipliers from supplied Gaussian noise."""
-    cdef int bw = bandwidth if bandwidth >= 2 else 2
-    cdef int kernelCode = _dwbKernelCodeRefactor(kernel)
-    cdef int maxLag = _dwbMaxLagRefactor(bw, kernelCode)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] noiseArr = np.ascontiguousarray(
-        np.asarray(noise, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef Py_ssize_t n = noiseArr.shape[0] - 2 * maxLag
-    cdef Py_ssize_t weightCount = 2 * maxLag + 1
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weights
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
-    cdef double[::1] noiseView
-    cdef double[::1] weightView
-    cdef double[::1] outView
-    cdef Py_ssize_t i, j
-    cdef long lag
-    cdef double normSq = 0.0
-    cdef double norm, value, meanValue = 0.0, varSum = 0.0, sd
-    if n <= 0:
-        raise ValueError("noise length is too short for the requested DWB bandwidth")
-    weights = np.empty(weightCount, dtype=np.float64)
-    out = np.empty(n, dtype=np.float64)
-    noiseView = noiseArr
-    weightView = weights
-    outView = out
-    with nogil:
-        for j in range(weightCount):
-            lag = <long>j - <long>maxLag
-            value = _dwbKernelValueRefactor(kernelCode, lag, bw)
-            weightView[j] = value
-            normSq += value * value
-        norm = sqrt(fmax(normSq, 2.2250738585072014e-308))
-        for j in range(weightCount):
-            weightView[j] = weightView[j] / norm
-        for i in range(n):
-            value = 0.0
-            for j in range(weightCount):
-                value += noiseView[i + j] * weightView[j]
-            outView[i] = value
-            meanValue += value
-        meanValue = meanValue / <double>n
-        if n >= 2:
-            for i in range(n):
-                value = outView[i] - meanValue
-                varSum += value * value
-            sd = sqrt(varSum / <double>(n - 1))
+    while lower < upper:
+        middle = lower + (upper - lower) // 2
+        if templateIndex < segmentOffsetsPtr[middle + 1]:
+            upper = middle
         else:
-            sd = 0.0
-        if (not isfinite(sd)) or sd <= 2.2250738585072014e-308:
-            for i in range(n):
-                outView[i] = 1.0
-        else:
-            for i in range(n):
-                outView[i] = (outView[i] - meanValue) / sd
-    return out
+            lower = middle + 1
+    return lower
 
 
-cpdef object cApplyStationaryNullDWB(object template, object multipliers):
-    """Apply DWB multipliers to a template and subtract the draw mean."""
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] templateArr = np.ascontiguousarray(
-        np.asarray(template, dtype=np.float64).reshape(-1), dtype=np.float64
+cdef inline Py_ssize_t _stationaryBootstrapLocalIndex(
+    bitgen_t* bitGenerator,
+    Py_ssize_t outputIndex,
+    Py_ssize_t segmentStart,
+    Py_ssize_t segmentStop,
+    Py_ssize_t radius,
+) noexcept nogil:
+    cdef Py_ssize_t leftRadius = outputIndex - segmentStart
+    cdef Py_ssize_t rightRadius = segmentStop - outputIndex - 1
+    cdef Py_ssize_t lower
+    cdef Py_ssize_t upper
+
+    if leftRadius > radius:
+        leftRadius = radius
+    if rightRadius > radius:
+        rightRadius = radius
+    lower = outputIndex - leftRadius
+    upper = outputIndex + rightRadius + 1
+    return lower + <Py_ssize_t>_stationaryBootstrapBoundedIndex(
+        bitGenerator,
+        <uint64_t>(upper - lower),
     )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] multArr = np.ascontiguousarray(
-        np.asarray(multipliers, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef Py_ssize_t n = templateArr.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
-    cdef double[::1] templateView
-    cdef double[::1] multView
-    cdef double[::1] outView
+
+
+cdef void _stationaryNullBootstrapKernel(
+    const double* templatePtr,
+    const int64_t* segmentOffsetsPtr,
+    const double* coverageWeightsPtr,
+    double* outPtr,
+    Py_ssize_t n,
+    Py_ssize_t segmentCount,
+    double meanBlockLength,
+    double restartProbability,
+    Py_ssize_t maxLocalRadiusIntervals,
+    bitgen_t* bitGenerator,
+) noexcept nogil:
     cdef Py_ssize_t i
-    cdef double meanValue = 0.0
-    if multArr.shape[0] != n:
-        raise ValueError("template and multipliers must have the same length")
-    out = np.empty(n, dtype=np.float64)
-    templateView = templateArr
-    multView = multArr
-    outView = out
-    with nogil:
-        for i in range(n):
-            outView[i] = templateView[i] * multView[i]
-            meanValue += outView[i]
-        if n > 0:
-            meanValue = meanValue / <double>n
-            for i in range(n):
-                outView[i] = outView[i] - meanValue
-    return out
+    cdef Py_ssize_t outputSegment
+    cdef Py_ssize_t outputStart
+    cdef Py_ssize_t outputStop
+    cdef Py_ssize_t sourceSegment
+    cdef Py_ssize_t sourceStart
+    cdef Py_ssize_t sourceStop
+    cdef Py_ssize_t templateIndex
+    cdef Py_ssize_t segmentLength
+    cdef Py_ssize_t localRadius
+    cdef bint useLocalRadius = maxLocalRadiusIntervals >= 0
+    cdef double localRadiusValue
+    cdef double coverageTotal = 0.0
+    cdef double drawWeightedSum = 0.0
+    cdef double drawMean
+
+    for outputSegment in range(segmentCount):
+        outputStart = segmentOffsetsPtr[outputSegment]
+        outputStop = segmentOffsetsPtr[outputSegment + 1]
+        if useLocalRadius:
+            sourceStart = outputStart
+            sourceStop = outputStop
+            segmentLength = outputStop - outputStart
+            if segmentLength <= 1:
+                localRadius = 0
+            elif meanBlockLength >= <double>segmentLength:
+                localRadius = segmentLength - 1
+            else:
+                localRadiusValue = ceil(
+                    sqrt(meanBlockLength * <double>segmentLength)
+                )
+                if localRadiusValue >= <double>(segmentLength - 1):
+                    localRadius = segmentLength - 1
+                else:
+                    localRadius = <Py_ssize_t>localRadiusValue
+            if localRadius > maxLocalRadiusIntervals:
+                localRadius = maxLocalRadiusIntervals
+            templateIndex = _stationaryBootstrapLocalIndex(
+                bitGenerator,
+                outputStart,
+                sourceStart,
+                sourceStop,
+                localRadius,
+            )
+        else:
+            templateIndex = <Py_ssize_t>_stationaryBootstrapBoundedIndex(
+                bitGenerator,
+                <uint64_t>n,
+            )
+            sourceSegment = _stationaryBootstrapSegmentIndex(
+                segmentOffsetsPtr,
+                segmentCount,
+                templateIndex,
+            )
+            sourceStart = segmentOffsetsPtr[sourceSegment]
+            sourceStop = segmentOffsetsPtr[sourceSegment + 1]
+        outPtr[outputStart] = templatePtr[templateIndex]
+        drawWeightedSum += coverageWeightsPtr[outputStart] * outPtr[outputStart]
+        coverageTotal += coverageWeightsPtr[outputStart]
+        for i in range(outputStart + 1, outputStop):
+            if bitGenerator.next_double(bitGenerator.state) < restartProbability:
+                if useLocalRadius:
+                    templateIndex = _stationaryBootstrapLocalIndex(
+                        bitGenerator,
+                        i,
+                        sourceStart,
+                        sourceStop,
+                        localRadius,
+                    )
+                else:
+                    templateIndex = <Py_ssize_t>_stationaryBootstrapBoundedIndex(
+                        bitGenerator,
+                        <uint64_t>n,
+                    )
+                    sourceSegment = _stationaryBootstrapSegmentIndex(
+                        segmentOffsetsPtr,
+                        segmentCount,
+                        templateIndex,
+                    )
+                    sourceStart = segmentOffsetsPtr[sourceSegment]
+                    sourceStop = segmentOffsetsPtr[sourceSegment + 1]
+            else:
+                templateIndex += 1
+                if templateIndex == sourceStop:
+                    templateIndex = sourceStart
+            outPtr[i] = templatePtr[templateIndex]
+            drawWeightedSum += coverageWeightsPtr[i] * outPtr[i]
+            coverageTotal += coverageWeightsPtr[i]
+
+    drawMean = drawWeightedSum / coverageTotal
+    for i in range(n):
+        outPtr[i] -= drawMean
 
 
-cpdef object cStationaryNullDWBDraw(object template, int bandwidth, object rng, object kernel="bartlett"):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] templateArr = np.ascontiguousarray(
-        np.asarray(template, dtype=np.float64).reshape(-1), dtype=np.float64
+cpdef object cStationaryNullBootstrapDraw(
+    object template,
+    object segmentOffsets,
+    object coverageWeights,
+    double meanBlockLength,
+    object rng,
+    Py_ssize_t maxLocalRadiusIntervals=-1,
+):
+    cdef object templateObject = np.asarray(template, dtype=np.float64)
+    cdef object segmentOffsetsObject = np.asarray(segmentOffsets, dtype=np.int64)
+    cdef object coverageWeightsObject = np.asarray(coverageWeights, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] templateArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] segmentOffsetsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] coverageWeightsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
+    cdef const double[::1] templateView
+    cdef const int64_t[::1] segmentOffsetsView
+    cdef const double[::1] coverageWeightsView
+    cdef double[::1] outView
+    cdef Py_ssize_t n
+    cdef Py_ssize_t segmentCount
+    cdef Py_ssize_t i
+    cdef double restartProbability
+    cdef object bitGeneratorObject
+    cdef object capsule
+    cdef bitgen_t* bitGenerator
+
+    if templateObject.ndim != 1:
+        raise ValueError("template must be one-dimensional")
+    if segmentOffsetsObject.ndim != 1:
+        raise ValueError("segmentOffsets must be one-dimensional")
+    if coverageWeightsObject.ndim != 1:
+        raise ValueError("coverageWeights must be one-dimensional")
+    templateArr = np.ascontiguousarray(templateObject, dtype=np.float64)
+    segmentOffsetsArr = np.ascontiguousarray(segmentOffsetsObject, dtype=np.int64)
+    coverageWeightsArr = np.ascontiguousarray(
+        coverageWeightsObject,
+        dtype=np.float64,
     )
-    cdef int bw = bandwidth if bandwidth >= 2 else 2
-    cdef int kernelCode = _dwbKernelCodeRefactor(kernel)
-    cdef int maxLag = _dwbMaxLagRefactor(bw, kernelCode)
-    cdef object noise = rng.standard_normal(int(templateArr.shape[0] + 2 * maxLag))
-    cdef object multipliers = cGenerateDWBMultipliersFromNoise(noise, bw, kernel)
-    return cApplyStationaryNullDWB(templateArr, multipliers)
+    n = templateArr.shape[0]
+    if n == 0:
+        raise ValueError("template must be non-empty")
+    if coverageWeightsArr.shape[0] != n:
+        raise ValueError("template and coverageWeights must have the same length")
+    if segmentOffsetsArr.shape[0] < 2:
+        raise ValueError("segmentOffsets must define at least one segment")
+    segmentCount = segmentOffsetsArr.shape[0] - 1
+    templateView = templateArr
+    segmentOffsetsView = segmentOffsetsArr
+    coverageWeightsView = coverageWeightsArr
+    if segmentOffsetsView[0] != 0 or segmentOffsetsView[segmentCount] != n:
+        raise ValueError("segmentOffsets must have 0 and template length as endpoints")
+    for i in range(segmentCount):
+        if segmentOffsetsView[i] >= segmentOffsetsView[i + 1]:
+            raise ValueError("segmentOffsets must be strictly increasing")
+    for i in range(n):
+        if not isfinite(templateView[i]):
+            raise ValueError("template values must be finite")
+        if not isfinite(coverageWeightsView[i]) or coverageWeightsView[i] <= 0.0:
+            raise ValueError("coverageWeights must be finite and positive")
+    if not isfinite(meanBlockLength) or meanBlockLength < 1.0:
+        raise ValueError("meanBlockLength must be finite and at least 1")
+    if maxLocalRadiusIntervals < -1:
+        raise ValueError("maxLocalRadiusIntervals must be -1 or non-negative")
+    if not isinstance(rng, np.random.Generator):
+        raise TypeError("rng must be a numpy.random.Generator")
+
+    bitGeneratorObject = rng.bit_generator
+    capsule = bitGeneratorObject.capsule
+    if not PyCapsule_IsValid(capsule, "BitGenerator"):
+        raise ValueError("rng has an invalid BitGenerator capsule")
+    bitGenerator = <bitgen_t*>PyCapsule_GetPointer(capsule, "BitGenerator")
+    if bitGenerator == NULL:
+        raise ValueError("rng has an invalid BitGenerator capsule")
+
+    restartProbability = 1.0 / meanBlockLength
+    out = np.empty(n, dtype=np.float64)
+    outView = out
+    with bitGeneratorObject.lock:
+        with nogil:
+            _stationaryNullBootstrapKernel(
+                &templateView[0],
+                &segmentOffsetsView[0],
+                &coverageWeightsView[0],
+                &outView[0],
+                n,
+                segmentCount,
+                meanBlockLength,
+                restartProbability,
+                maxLocalRadiusIntervals,
+                bitGenerator,
+            )
+    return out
 
 
 cpdef tuple cBooleanRunBounds(object above, int maxGapBins=0):
     """Return start/end arrays for true-runs, optionally bridging small false gaps."""
-    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] arr = np.ascontiguousarray(
-        np.asarray(above, dtype=np.uint8).reshape(-1), dtype=np.uint8
-    )
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] arr = np.ascontiguousarray(above, dtype=np.uint8).reshape(-1)
     cdef Py_ssize_t n = arr.shape[0]
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] starts = np.empty(n, dtype=np.int64)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] ends = np.empty(n, dtype=np.int64)
@@ -9466,18 +9853,10 @@ def cMultiscaleCandidateSegmentStats(
     int maxGapBins=0,
     int maxSegmentsPerView=0,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scoreArr = np.ascontiguousarray(
-        np.asarray(scores, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] scaleArr = np.ascontiguousarray(
-        np.asarray(scales, dtype=np.int64).reshape(-1), dtype=np.int64
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] thresholdArr = np.ascontiguousarray(
-        np.asarray(thresholds, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nullScaleArr = np.ascontiguousarray(
-        np.asarray(nullScales, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scoreArr = np.ascontiguousarray(scores, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] scaleArr = np.ascontiguousarray(scales, dtype=np.int64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] thresholdArr = np.ascontiguousarray(thresholds, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] nullScaleArr = np.ascontiguousarray(nullScales, dtype=np.float64).reshape(-1)
     if thresholdArr.shape[0] != nullScaleArr.shape[0]:
         raise ValueError("thresholds and nullScales must have the same length")
 
@@ -9676,7 +10055,7 @@ def cbackgroundWeightedStats(object residualMatrix, object invVarMatrix):
     r"""Column-wise background sufficient statistics with a nogil inner loop."""
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] residualArr = np.ascontiguousarray(residualMatrix, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] invArr = np.ascontiguousarray(invVarMatrix, dtype=np.float32)
-    if residualArr.ndim != 2 or invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
+    if invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
         raise ValueError("residualMatrix and invVarMatrix must have identical 2D shapes")
     cdef Py_ssize_t m = residualArr.shape[0]
     cdef Py_ssize_t n = residualArr.shape[1]
@@ -9700,7 +10079,7 @@ def cbackgroundWeightedStats(object residualMatrix, object invVarMatrix):
 def cbackgroundWeightedStatsWithSupport(object residualMatrix, object invVarMatrix):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] residualArr = np.ascontiguousarray(residualMatrix, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] invArr = np.ascontiguousarray(invVarMatrix, dtype=np.float32)
-    if residualArr.ndim != 2 or invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
+    if invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
         raise ValueError("residualMatrix and invVarMatrix must have identical 2D shapes")
     cdef Py_ssize_t m = residualArr.shape[0]
     cdef Py_ssize_t n = residualArr.shape[1]
@@ -9729,7 +10108,7 @@ def cmovingAverageSame(object values, int window):
     # Preserve the original NumPy centering for small windows, and use the Cython
     # cumulative-sum kernel for large windows where Python overhead dominated.
     cdef int window_ = max(int(window), 1)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
     if window_ <= 1 or x.shape[0] <= 1:
         return np.asarray(x, dtype=np.float64).copy()
     if window_ > x.shape[0]:
@@ -9741,7 +10120,7 @@ def cmovingAverageSame(object values, int window):
 
 def cbooleanRunBounds(object above, int maxGapBins=0):
     r"""Run bounds for boolean threshold tracks, optionally bridging short gaps."""
-    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] flagsArr = np.ascontiguousarray(np.asarray(above, dtype=np.uint8).reshape(-1), dtype=np.uint8)
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] flagsArr = np.ascontiguousarray(above, dtype=np.uint8).reshape(-1)
     cdef Py_ssize_t n = flagsArr.shape[0]
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] startsArr = np.empty(n, dtype=np.int64)
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] endsArr = np.empty(n, dtype=np.int64)
@@ -9794,12 +10173,8 @@ cpdef tuple cstateShrinkInitialSums(
     double nullZ,
     int blockSize=1,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
-        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
-        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(state, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(variance, dtype=np.float64).reshape(-1)
     cdef Py_ssize_t n = xArr.shape[0]
     if vArr.shape[0] != n:
         raise ValueError("state and variance must have the same length")
@@ -9927,12 +10302,8 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
     object logSlabPrior,
     int blockSize=1,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
-        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
-        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(state, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(variance, dtype=np.float64).reshape(-1)
     cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
     cdef object logSlabPriorObj = np.asarray(logSlabPrior, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr
@@ -10134,12 +10505,8 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
     object slabVariance,
     object logSlabPrior,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(
-        np.asarray(state, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(
-        np.asarray(variance, dtype=np.float64).reshape(-1), dtype=np.float64
-    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] xArr = np.ascontiguousarray(state, dtype=np.float64).reshape(-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] vArr = np.ascontiguousarray(variance, dtype=np.float64).reshape(-1)
     cdef object tauObj = np.asarray(slabVariance, dtype=np.float64)
     cdef object logSlabPriorObj = np.asarray(logSlabPrior, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] tauArr

@@ -89,6 +89,7 @@ COUNTING_SUPPORTED_TRANSFORM_METHODS: Final[StrTuple] = (
     "identity",
 )
 COUNTING_DEFAULT_CENTER_MB: Final[bool] = True
+COUNTING_DEFAULT_CENTER_MB_WINDOW_BP: Final[int] = 1_000_000
 COUNTING_CENTER_MB_METHOD_MEDFILT: Final[str] = "medfilt"
 COUNTING_CENTER_MB_METHOD_SAVGOL: Final[str] = "savgol"
 COUNTING_SUPPORTED_CENTER_MB_METHODS: Final[StrTuple] = (
@@ -109,6 +110,110 @@ SC_SUPPORTED_COUNT_MODES: Final[StrTuple] = (
     "midpoint",
     COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
 )
+
+SUPPORTED_COUNTING_PRESETS: Final[StrTuple] = (
+    "atac",
+    "chip-se",
+    "chip-pe",
+    "dnase",
+    "cut-and-run",
+    "cut-and-tag",
+)
+COUNTING_PRESET_VALUES: Final[ConfigurationProfileMap] = {
+    "atac": {
+        "samParams.samFlagExclude": 3844,
+        "samParams.minMappingQuality": 30,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "reads",
+        "samParams.defaultCountMode": "cutsite",
+        "samParams.shiftForward5p": 4,
+        "samParams.shiftReverse5p": 5,
+        "samParams.extendFrom5pBP": None,
+        "samParams.inferFragmentLength": 0,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "cutsite",
+        "observationParams.smoothToFraglen": False,
+    },
+    "chip-se": {
+        "samParams.samFlagExclude": 3844,
+        "samParams.minMappingQuality": 30,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "reads",
+        "samParams.defaultCountMode": "coverage",
+        "samParams.shiftForward5p": 0,
+        "samParams.shiftReverse5p": 0,
+        "samParams.extendFrom5pBP": None,
+        "samParams.maxInsertSize": 1000,
+        "samParams.inferFragmentLength": 1,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "coverage",
+        "observationParams.smoothToFraglen": False,
+    },
+    "chip-pe": {
+        "samParams.samFlagExclude": 3844,
+        "samParams.minMappingQuality": 30,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "fragments",
+        "samParams.defaultCountMode": "coverage",
+        "samParams.shiftForward5p": 0,
+        "samParams.shiftReverse5p": 0,
+        "samParams.extendFrom5pBP": None,
+        "samParams.maxInsertSize": 1000,
+        "samParams.inferFragmentLength": 0,
+        "samParams.minTemplateLength": 1,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "coverage",
+        "observationParams.smoothToFraglen": False,
+    },
+    "dnase": {
+        "samParams.samFlagExclude": 3844,
+        "samParams.minMappingQuality": 30,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "auto",
+        "samParams.defaultCountMode": "fiveprime",
+        "samParams.shiftForward5p": 0,
+        "samParams.shiftReverse5p": 0,
+        "samParams.extendFrom5pBP": None,
+        "samParams.maxInsertSize": 1000,
+        "samParams.inferFragmentLength": 0,
+        "samParams.minTemplateLength": 1,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "fiveprime",
+        "observationParams.smoothToFraglen": False,
+    },
+    "cut-and-run": {
+        "samParams.samFlagExclude": 2820,
+        "samParams.minMappingQuality": 20,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "fragments",
+        "samParams.defaultCountMode": "coverage",
+        "samParams.shiftForward5p": 0,
+        "samParams.shiftReverse5p": 0,
+        "samParams.extendFrom5pBP": None,
+        "samParams.maxInsertSize": 1000,
+        "samParams.inferFragmentLength": 0,
+        "samParams.minTemplateLength": 10,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "coverage",
+        "observationParams.smoothToFraglen": False,
+    },
+    "cut-and-tag": {
+        "samParams.samFlagExclude": 2820,
+        "samParams.minMappingQuality": 20,
+        "samParams.oneReadPerBin": 0,
+        "samParams.bamInputMode": "fragments",
+        "samParams.defaultCountMode": "coverage",
+        "samParams.shiftForward5p": 0,
+        "samParams.shiftReverse5p": 0,
+        "samParams.extendFrom5pBP": None,
+        "samParams.maxInsertSize": 1000,
+        "samParams.inferFragmentLength": 0,
+        "samParams.minTemplateLength": 10,
+        "countingParams.normMethod": "CPM",
+        "scParams.defaultCountMode": "coverage",
+        "observationParams.smoothToFraglen": False,
+    },
+}
 
 GENERIC_DEFAULT_CONFIGURATION: Final[str] = "generic"
 SUPPORTED_DEFAULT_CONFIGURATIONS: Final[StrTuple] = (GENERIC_DEFAULT_CONFIGURATION,)
@@ -144,13 +249,13 @@ STATE_DEFAULT_LOWER_BOUND: Final[float] = 0.0
 STATE_DEFAULT_UPPER_BOUND: Final[float] = 10000.0
 
 PROCESS_DEFAULT_DELTA_F: Final[float] = 1.0
-PROCESS_DEFAULT_MIN_Q: Final[float] = 1.0e-6
+PROCESS_DEFAULT_MIN_Q: Final[float] = 1.0e-4
 PROCESS_DEFAULT_MAX_Q: Final[float] = 1000.0
-PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL: Final[float] = 1.0e-5
+PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL: Final[float] = 1.0e-2
 PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = (
-    5.0e-3  # if < 0, triggers smallest convexity-preserving bound
+    1.0e-4  # if < 0, triggers smallest convexity-preserving bound
 )
-PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 5.0e3
+PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 10.0
 PROCESS_DEFAULT_STATE_MODEL: Final[str] = STATE_MODEL_LEVEL_TREND
 PROCESS_NOISE_CALIBRATION_FIXED_DIAGONAL: Final[str] = "fixedDiagonal"
 PROCESS_NOISE_CALIBRATION_FIXED: Final[str] = "fixed"
@@ -172,15 +277,15 @@ MUNC_SUPPORTED_VARIANCE_MODELS: Final[StrTuple] = (MUNC_VARIANCE_MODEL_KALMAN,)
 OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL: Final[str] = MUNC_VARIANCE_MODEL_KALMAN
 OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP: Final[int | None] = None
-OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN: Final[bool] = True
+OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN: Final[bool] = False
 OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT: Final[int] = 256
 OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP: Final[int] = 100_000
 OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP: Final[int] = 50_000
-OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE: Final[float] = 0.75
+OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE: Final[float] = 0.9
 OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS: Final[int] = 500
-OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT: Final[int] = 10
+OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT: Final[int] = 32
 OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD: Final[float] = 0.1
-OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP: Final[int] = 250
+OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP: Final[int] = 500
 OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP: Final[int] = 500
 OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS: Final[int] = 200
 OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE: Final[float] = 0.5
@@ -245,8 +350,8 @@ OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED: Final[bool] = False
 OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP: Final[float] = -1.0
 OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR: Final[float] = 1.0
 OBSERVATION_DEFAULT_PAD: Final[float] = 1.0e-4
-OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = 0.25
-OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 4.0
+OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = 0.1
+OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 10.0
 OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE: Final[bool] = True
 MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE: Final[str] = "perReplicateAdditive"
 MUNC_SUPPORTED_COVARIATE_MODES: Final[StrTuple] = (
@@ -265,11 +370,13 @@ OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES: Final[StrTuple] = MUNC_COVARIATE_FE
 
 FIT_DEFAULT_FIXED_BACKGROUND_ITERS: Final[int] = 50
 FIT_DEFAULT_FIXED_BACKGROUND_RTOL: Final[float] = 1.0e-6
-FIT_DEFAULT_T_INNER_ITERS: Final[int] = 5
+FIT_DEFAULT_T_INNER_ITERS: Final[int] = 6
 FIT_DEFAULT_ROBUST_T_NU: Final[float] = 8.0
-FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING: Final[bool] = False
+FIT_DEFAULT_PROCESS_ROBUST_T_NU: Final[float] = 3.0
+FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING: Final[bool] = True
 FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING: Final[bool] = True
-FIT_DEFAULT_USE_APN: Final[bool] = False
+FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN: Final[bool] = False
+FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN: Final[bool] = True
 FIT_DEFAULT_BACKGROUND: Final[bool] = True
 FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND: Final[bool] = True
 FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER: Final[float] = 1.0
@@ -280,7 +387,7 @@ FIT_DEFAULT_BACKGROUND_SHIFT_RTOL: Final[float] = 5.0e-3
 FIT_DEFAULT_OUTER_NLL_RTOL: Final[float] = 5.0e-5
 FIT_DEFAULT_BACKGROUND_SMOOTHNESS: Final[float] = 128.0
 FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER: Final[float] = 16.0
-FIT_BACKGROUND_LENGTH_SCALE_CAP_BP: Final[int] = 150_000
+FIT_BACKGROUND_LENGTH_SCALE_CAP_BP: Final[int] = 125_000
 
 OUTPUT_DEFAULT_ROUND_DIGITS: Final[int] = 3
 OUTPUT_DEFAULT_WRITE_UNCERTAINTY: Final[bool] = True
@@ -317,9 +424,9 @@ OUTPUT_DEFAULT_SAVE_GAINS: Final[bool] = True
 OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH: Final[bool] = False
 OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH: Final[bool] = True
+OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS: Final[bool] = True
-OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE: Final[int] = 200_000
-OUTPUT_DEFAULT_CUTOFF_REPORT: Final[bool] = False
+OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE: Final[int] = 50_000
 OUTPUT_DEFAULT_WRITE_RUN_SUMMARY: Final[bool] = True
 OUTPUT_PRECISION_DIAGNOSTIC_DETAILS: Final[StrTuple] = ("summary", "sampled", "full")
 OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL: Final[str] = "summary"
@@ -331,7 +438,6 @@ OUTPUT_DIAGNOSTIC_TRACK_NAMES: Final[StrTuple] = (
     "preKappaQTrend",
     "effectiveQLevel",
     "effectiveQTrend",
-    "processQScale",
     "muncTrace",
     "sumGain0",
     "sumGain1",
@@ -492,26 +598,25 @@ UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS: Final[bool] = False
 
 MATCHING_DEFAULT_ENABLED: Final[bool] = True
 MATCHING_DEFAULT_RAND_SEED: Final[int] = 42
-MATCHING_DEFAULT_NUM_BOOTSTRAP: Final[int] = 128
+MATCHING_DEFAULT_NUM_BOOTSTRAP: Final[int] = 64
+MATCHING_DEFAULT_NUM_REGION_REPLAYS: Final[int] = 64
 MATCHING_DEFAULT_THRESHOLD_Z: Final[float] = 2.0
-MATCHING_DEFAULT_DEPENDENCE_SPAN: Final[int | None] = None
 MATCHING_DEFAULT_GAMMA: Final[float] = 0.25
 MATCHING_DEFAULT_SELECTION_PENALTY: Final[float | None] = None
 MATCHING_DEFAULT_GAMMA_SCALE: Final[float] = 0.5
 MATCHING_DEFAULT_NESTED_ROCCO_ITERS: Final[int] = 3
 MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE: Final[float] = 0.75
 MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER: Final[float] = 2.0
-MATCHING_DEFAULT_MIN_PEAK_SCORE: Final[float | None] = 0.1
+MATCHING_DEFAULT_MIN_MEAN_SIGNAL: Final[float | None] = None
 MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES: Final[bool] = True
+MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS: Final[bool] = True
+MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS: Final[bool] = True
 MATCHING_PEAK_MODES: Final[StrTuple] = ("narrow", "broad", "both")
 MATCHING_DEFAULT_PEAK_MODE: Final[str] = "both"
 MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z: Final[float] = 1.2816
-MATCHING_DEFAULT_BROAD_MAX_GAP_BP: Final[int | None] = None
-MATCHING_DEFAULT_BROAD_MIN_PEAK_BP: Final[int] = 1000
+MATCHING_DEFAULT_MERGE_TOLERANCE_BP: Final[int] = 12_000
+MATCHING_DEFAULT_MAX_REGION_BP: Final[int] = 50_000
 MATCHING_DEFAULT_BROAD_PARENT_GAMMA_MULTIPLIER: Final[float] = 2.0
-MATCHING_DEFAULT_BROAD_BRIDGE_DIP_PENALTY_FRACTION: Final[float] = 0.5
-MATCHING_METADATA_DETAILS: Final[StrTuple] = ("compact", "full")
-MATCHING_DEFAULT_METADATA_DETAIL: Final[str] = "compact"
 MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES: Final[StrTuple] = (
     "state",
     "lower_confidence",
@@ -521,12 +626,9 @@ MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z: Final[float] = 1.0
 
 ROCCO_BUDGET_MIN: Final[float] = 0.001
 ROCCO_BUDGET_MAX: Final[float] = 0.25
-ROCCO_NULL_QUANTILE: Final[float] = 0.9
 ROCCO_THRESHOLD_Z_DEFAULT: Final[float] = MATCHING_DEFAULT_THRESHOLD_Z
 ROCCO_NUM_BOOTSTRAP_DEFAULT: Final[int] = MATCHING_DEFAULT_NUM_BOOTSTRAP
-ROCCO_BUDGET_Z_GRID: Final[FloatTuple] = (1.5, 2.0, 2.5, 3.0)
 ROCCO_MAX_ITER_DEFAULT: Final[int] = 60
-ROCCO_MIN_PEAK_BP: Final[int] = 200
 NESTED_ROCCO_ITERS_DEFAULT: Final[int] = MATCHING_DEFAULT_NESTED_ROCCO_ITERS
 NESTED_ROCCO_JACCARD_DEFAULT: Final[float] = 0.999
 NESTED_ROCCO_MIN_PARENT_STEPS: Final[int] = 5
@@ -534,28 +636,20 @@ NESTED_ROCCO_MIN_CHILD_STEPS: Final[int] = NESTED_ROCCO_MIN_PARENT_STEPS
 NESTED_ROCCO_BUDGET_SCALE_DEFAULT: Final[float] = (
     MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE
 )
-NESTED_ROCCO_SUBTASK_MAX_ITER: Final[int] = 5
 EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER: Final[float] = (
     MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
 )
-MASSIVE_SUBPEAK_CLEANUP_DEFAULT: Final[bool] = True
-MASSIVE_SUBPEAK_MIN_BP: Final[int] = 7500
-MASSIVE_SUBPEAK_WIDTH_ALPHA: Final[float] = 0.1
-MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE: Final[float] = 0.95
-MASSIVE_SUBPEAK_MAX_FRACTION: Final[float] = 0.005
-MASSIVE_SUBPEAK_MIN_LOG_GAP: Final[float] = 0.10
-MASSIVE_SUBPEAK_MIN_PEAKS: Final[int] = 25
-MASSIVE_SUBPEAK_SPLIT_QUANTILE: Final[float] = 0.25
-MASSIVE_SUBPEAK_SPLIT_Z: Final[float] = 2.0
-MASSIVE_SUBPEAK_MAX_DEPTH: Final[int] = 8
-MASSIVE_SUBPEAK_MIN_CHILD_BP: Final[int] = 250
-MASSIVE_SUBPEAK_MIN_CHILD_FRACTION: Final[float] = 0.05
-
 DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
     GENERIC_DEFAULT_CONFIGURATION: {
         "fitParams.ECM_fixedBackgroundIters": FIT_DEFAULT_FIXED_BACKGROUND_ITERS,
         "fitParams.ECM_fixedBackgroundRtol": FIT_DEFAULT_FIXED_BACKGROUND_RTOL,
         "fitParams.t_innerIters": FIT_DEFAULT_T_INNER_ITERS,
+        "fitParams.ECM_scaleObsPrecisionToMedian": (
+            FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN
+        ),
+        "fitParams.ECM_scaleProcessPrecisionToMedian": (
+            FIT_DEFAULT_SCALE_PROCESS_PRECISION_TO_MEDIAN
+        ),
         "fitParams.ECM_outerIters": FIT_DEFAULT_OUTER_ITERS,
         "fitParams.ECM_minOuterIters": FIT_DEFAULT_MIN_OUTER_ITERS,
         "fitParams.ECM_backgroundShiftRtol": FIT_DEFAULT_BACKGROUND_SHIFT_RTOL,
@@ -714,6 +808,7 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
             OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
         ),
         "countingParams.centerMB": COUNTING_DEFAULT_CENTER_MB,
+        "countingParams.centerMBWindowBP": COUNTING_DEFAULT_CENTER_MB_WINDOW_BP,
         "countingParams.centerMBMethod": COUNTING_DEFAULT_CENTER_MB_METHOD,
         "outputParams.deleteBedGraphsAfterBigWig": (
             OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG
@@ -741,22 +836,33 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
             OUTPUT_DEFAULT_STATE_SHRINKAGE_STUDENT_T_QUADRATURE_ORDER
         ),
         "matchingParams.useShrunkStateScores": MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
+        "matchingParams.shrinkChromosomeBudgets": (
+            MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS
+        ),
+        "matchingParams.useLocalBootStrapRadius": (
+            MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
+        ),
+        "matchingParams.numRegionReplays": MATCHING_DEFAULT_NUM_REGION_REPLAYS,
+        "matchingParams.minMeanSignal": MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
         "matchingParams.peakMode": MATCHING_DEFAULT_PEAK_MODE,
         "matchingParams.broadWeakThresholdZ": MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
-        "matchingParams.broadMaxGapBP": MATCHING_DEFAULT_BROAD_MAX_GAP_BP,
+        "matchingParams.mergeToleranceBP": MATCHING_DEFAULT_MERGE_TOLERANCE_BP,
+        "matchingParams.maxRegionBP": MATCHING_DEFAULT_MAX_REGION_BP,
         "outputParams.saveBackgroundTracks": OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
         "outputParams.saveGains": OUTPUT_DEFAULT_SAVE_GAINS,
         "outputParams.writeReplicateExchangeabilityDiagnostics": (
             OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
         ),
         "outputParams.plotCorrelationLength": (OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH),
+        "outputParams.plotNullCalibrationDiagnostics": (
+            OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
+        ),
         "outputParams.plotPrecisionReweightingHistograms": (
             OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS
         ),
         "outputParams.precisionReweightingHistogramSampleSize": (
             OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE
         ),
-        "outputParams.cutoffReport": OUTPUT_DEFAULT_CUTOFF_REPORT,
         "outputParams.writeRunSummary": OUTPUT_DEFAULT_WRITE_RUN_SUMMARY,
         "outputParams.precisionDiagnosticDetail": (
             OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
