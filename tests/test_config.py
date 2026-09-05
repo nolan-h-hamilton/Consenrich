@@ -4839,9 +4839,9 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         "fullSampleMedianRadiusBP": 400.0,
         "lowerBP": 300.0,
         "upperBP": 550.0,
-        "workingSpanBP": 800.0,
+        "workingSpanBP": 1500.0,
         "fullSampleWorkingSpanBP": 800.0,
-        "workingQuantile": 0.95,
+        "workingQuantile": 0.9,
         "chromosomesUsed": ["chr1", "chr2", "chr3", "chr4"],
         "candidateWindowCount": 24,
         "evaluatedCandidateWindowCount": 21,
@@ -4912,11 +4912,13 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     row = consenrich_cli._correlationLengthRow(
         intervalSizeBP=50,
         pointIntervals=8,
-        contextBP=801,
+        contextBP=3001,
         details=details,
     )
     assert row["correlation_length_bp"] == pytest.approx(400.0)
-    assert row["working_span_bp"] == pytest.approx(800.0)
+    assert row["working_span_bp"] == pytest.approx(1500.0)
+    assert row["full_sample_working_span_bp"] == pytest.approx(800.0)
+    assert row["context_bp"] == 3001
     assert row["random_seed"] == 1729
     assert row["evaluated_candidate_window_count"] == 21
     assert row["survival_band_region_lower"] == pytest.approx(0.25)
@@ -4952,6 +4954,8 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
 
     logCalls = []
     saveCalls = []
+    lineCalls = []
+    histogramCalls = []
 
     def fakeLogFileWritten(loggerArg, *, event, path, fields):
         logCalls.append((event, path, tuple(fields)))
@@ -4975,13 +4979,13 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         transAxes = object()
 
         def axvline(self, *args, **kwargs):
-            return None
+            lineCalls.append((args[0], kwargs["label"]))
 
         def axvspan(self, *args, **kwargs):
             return None
 
         def hist(self, *args, **kwargs):
-            return None
+            histogramCalls.append((list(args[0]), kwargs["label"]))
 
         def fill_between(self, *args, **kwargs):
             return None
@@ -5054,6 +5058,14 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         )
 
     assert saveCalls == [(str(plotPath), 400)]
+    assert lineCalls == [
+        (400.0, "KM median radius"),
+        (800.0, "KM Q90"),
+        (1500.0, "working span (1,500 bp floor)"),
+    ]
+    assert histogramCalls[-1] == (
+        details["bootstrapWorkingSpanBP"], "bootstrap Q90"
+    )
     assert logCalls == [
         (
             "artifact.correlation_length_plot",

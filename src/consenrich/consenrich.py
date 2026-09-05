@@ -2657,6 +2657,9 @@ def _plotCorrelationLengthInference(
     lowerBP = numberValue("lower_bp", "lowerBP")
     upperBP = numberValue("upper_bp", "upperBP")
     workingSpanBP = numberValue("working_span_bp", "workingSpanBP")
+    fullSampleWorkingSpanBP = numberValue(
+        "full_sample_working_span_bp", "fullSampleWorkingSpanBP"
+    )
     workingQuantile = numberValue("working_quantile", "workingQuantile")
     survivalBandRegionLower = numberValue("survivalBandRegionLower")
     survivalBandRegionUpper = numberValue("survivalBandRegionUpper")
@@ -2705,6 +2708,8 @@ def _plotCorrelationLengthInference(
         or upperBP <= 0.0
         or workingSpanBP is None
         or workingSpanBP <= 0.0
+        or fullSampleWorkingSpanBP is None
+        or fullSampleWorkingSpanBP <= 0.0
         or survivalBandRegionLower is None
         or survivalBandRegionUpper is None
         or survivalBandRegionLower < 0.0
@@ -2833,12 +2838,23 @@ def _plotCorrelationLengthInference(
         label="KM median radius",
     )
     kmAx.axvline(
-        float(workingSpanBP),
+        float(fullSampleWorkingSpanBP),
         color=darkBlack,
         linewidth=1.4,
         linestyle=":",
-        label=f"KM Q{100.0 * float(workingQuantile or 0.0):.0f} working span",
+        label=f"KM Q{100.0 * float(workingQuantile or 0.0):.0f}",
     )
+    if float(workingSpanBP) > float(fullSampleWorkingSpanBP):
+        kmAx.axvline(
+            float(workingSpanBP),
+            color=darkBlack,
+            linewidth=1.4,
+            linestyle="-.",
+            label=(
+                "working span "
+                f"({constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP:,} bp floor)"
+            ),
+        )
     kmAx.set_ylim(0.0, 1.03)
     kmAx.set_title("Kaplan–Meier Survival", color=darkBlack)
     kmAx.set_xlabel("radius (bp)", color=darkBlack)
@@ -2862,7 +2878,7 @@ def _plotCorrelationLengthInference(
         alpha=0.58,
         edgecolor=darkBlack,
         linewidth=0.35,
-        label="bootstrap working span",
+        label=f"bootstrap Q{100.0 * float(workingQuantile or 0.0):.0f}",
     )
     bootstrapAx.set_title("Dependent Bootstrap", color=darkBlack)
     bootstrapAx.set_xlabel("radius or span (bp)", color=darkBlack)
@@ -7614,13 +7630,20 @@ def main():
         )
         depDiagnostics = dict(depDiagnostics)
         workingSpanBP = float(depDiagnostics["workingSpanBP"])
+        fullSampleWorkingSpanBP = float(depDiagnostics["fullSampleWorkingSpanBP"])
         if not math.isclose(
             workingSpanBP,
-            float(depDiagnostics["fullSampleWorkingSpanBP"]),
+            max(
+                float(constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP),
+                fullSampleWorkingSpanBP,
+            ),
             rel_tol=0.0,
             abs_tol=1.0e-9,
         ):
-            raise RuntimeError("workingSpanBP must equal the full-sample KM quantile")
+            raise RuntimeError(
+                "workingSpanBP must equal the full-sample KM quantile "
+                "with the minimum working-span bound applied"
+            )
         expectedPoint = int(
             math.ceil(float(depDiagnostics["estimateBP"]) / float(intervalSizeBP))
         )
@@ -7746,7 +7769,7 @@ def main():
         workingQuantile = float(depDiagnostics["workingQuantile"])
         maxLagBP = float(depDiagnostics["maxLagBP"])
         censorThreshold = 1.0 - workingQuantile
-        maxLagFraction = workingSpanBP / maxLagBP
+        maxLagFraction = fullSampleWorkingSpanBP / maxLagBP
         if (
             censorFraction >= censorThreshold
             or maxLagFraction >= 0.8
@@ -7754,13 +7777,13 @@ def main():
             logger.warning(
                 "dependence working span has weak upper-tail support: "
                 "censorFraction=%.6g censorThreshold=%.6g "
-                "workingQuantile=%.6g workingSpanBP=%.6g maxLagBP=%.6g "
+                "workingQuantile=%.6g fullSampleWorkingSpanBP=%.6g maxLagBP=%.6g "
                 "maxLagFraction=%.6g. Tail-derived span inference may be "
                 "weakly supported.",
                 censorFraction,
                 censorThreshold,
                 workingQuantile,
-                workingSpanBP,
+                fullSampleWorkingSpanBP,
                 maxLagBP,
                 maxLagFraction,
             )

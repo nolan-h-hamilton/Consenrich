@@ -11,7 +11,7 @@ import hashlib
 import numbers
 import os
 import numpy as np
-from . import misc_util
+from . import constants, misc_util
 from scipy import ndimage, signal
 cimport numpy as cnp
 from cpython.pycapsule cimport PyCapsule_GetPointer, PyCapsule_IsValid
@@ -4178,7 +4178,10 @@ cpdef tuple cchooseDependenceSpan(
         )
 
     estimateBP = float(fullMedian)
-    workingSpanBP = float(fullWorkingSpan)
+    workingSpanBP = max(
+        float(constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP),
+        float(fullWorkingSpan),
+    )
     bandCriticalValue = float(
         np.quantile(np.asarray(bootstrapDistances, dtype=np.float64), 0.95)
     )
@@ -9030,6 +9033,180 @@ cpdef tuple csolvePenalizedChainROCCO(
     return _solvePenalizedChainROCCO_F64(scoresArr, switchCostsArr, selectionPenalty)
 
 
+cdef inline void _updateParentConditionedState(
+    double* values,
+    cnp.intp_t* counts,
+    int32_t* backState,
+    Py_ssize_t newState,
+    double value,
+    Py_ssize_t count,
+    Py_ssize_t sourceState,
+) noexcept nogil:
+    if value > values[newState] + 1.0e-12 or (
+        fabs(value - values[newState]) <= 1.0e-12 and count < counts[newState]
+    ):
+        values[newState] = value
+        counts[newState] = count
+        backState[newState] = sourceState
+
+
+cpdef object cSolveParentConditionedSubpeaks(
+    object scores,
+    object boundaryCosts,
+    double selectionPenalty,
+    object minRunBins,
+    object requiredIndex=None,
+    double runPenalty=0.0,
+):
+    cdef object scoresArr = np.asarray(scores, dtype=np.float64)
+    cdef object costsArr = np.asarray(boundaryCosts, dtype=np.float64)
+    cdef const double[:] scoresView
+    cdef const double[:] costsView
+    cdef cnp.ndarray valueBuffersArr
+    cdef cnp.ndarray countBuffersArr
+    cdef cnp.ndarray backStateArr
+    cdef cnp.ndarray maskArr
+    cdef double[:, ::1] valueBuffersView
+    cdef cnp.intp_t[:, ::1] countBuffersView
+    cdef int32_t[:, ::1] backStateView
+    cdef cnp.npy_bool[::1] maskView
+    cdef double* prevValues
+    cdef double* newValues
+    cdef double* valueSwap
+    cdef cnp.intp_t* prevCounts
+    cdef cnp.intp_t* newCounts
+    cdef cnp.intp_t* countSwap
+    cdef int32_t* backRow
+    cdef Py_ssize_t n
+    cdef Py_ssize_t minRunBins_
+    cdef Py_ssize_t numStates
+    cdef Py_ssize_t largeCount
+    cdef Py_ssize_t requiredBin = -1
+    cdef Py_ssize_t maxSize = np.iinfo(np.intp).max
+    cdef Py_ssize_t maxBackState = np.iinfo(np.int32).max
+    cdef Py_ssize_t i, state, sourceState
+    cdef object requiredBinValue
+    cdef double adjustedScore, transitionCost, closedValue, bestValue
+
+    if scoresArr.ndim != 1:
+        raise ValueError("`scores` must be one-dimensional")
+    if costsArr.ndim != 1:
+        raise ValueError("`boundaryCosts` must be one-dimensional")
+    n = scoresArr.shape[0]
+    if n == maxSize:
+        raise OverflowError("`scores` is too large for subpeak DP storage")
+    if costsArr.shape[0] != n + 1:
+        raise ValueError("`boundaryCosts` must have length len(scores) + 1")
+    if requiredIndex is not None:
+        requiredBinValue = int(requiredIndex)
+        if requiredBinValue < 0 or requiredBinValue >= n:
+            raise ValueError("`requiredIndex` is outside `scores`")
+        requiredBin = requiredBinValue
+    minRunBins_ = min(max(int(minRunBins), 1), n)
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    numStates = minRunBins_ + 1
+    if (
+        minRunBins_ > maxBackState
+        or numStates > maxSize // (2 * sizeof(double))
+        or n > maxSize // sizeof(int32_t) // numStates
+    ):
+        raise OverflowError("subpeak DP storage exceeds the addressable size")
+    largeCount = n + 1
+    scoresView = scoresArr
+    costsView = costsArr
+    valueBuffersArr = np.empty((2, numStates), dtype=np.float64)
+    countBuffersArr = np.empty((2, numStates), dtype=np.intp)
+    backStateArr = np.full((n, numStates), -1, dtype=np.int32)
+    maskArr = np.zeros(n, dtype=bool)
+    valueBuffersView = valueBuffersArr
+    countBuffersView = countBuffersArr
+    backStateView = backStateArr
+    maskView = maskArr
+    prevValues = &valueBuffersView[0, 0]
+    newValues = &valueBuffersView[1, 0]
+    prevCounts = &countBuffersView[0, 0]
+    newCounts = &countBuffersView[1, 0]
+
+    with nogil:
+        for state in range(numStates):
+            prevValues[state] = -INFINITY
+            prevCounts[state] = largeCount
+        prevValues[0] = 0.0
+        prevCounts[0] = 0
+        for i in range(n):
+            adjustedScore = scoresView[i] - selectionPenalty
+            transitionCost = costsView[i]
+            backRow = &backStateView[i, 0]
+            for state in range(numStates):
+                newValues[state] = -INFINITY
+                newCounts[state] = largeCount
+
+            if i != requiredBin:
+                if isfinite(prevValues[0]):
+                    _updateParentConditionedState(
+                        newValues, newCounts, backRow,
+                        0, prevValues[0], prevCounts[0], 0,
+                    )
+                if isfinite(prevValues[minRunBins_]):
+                    _updateParentConditionedState(
+                        newValues, newCounts, backRow,
+                        0, prevValues[minRunBins_] - transitionCost,
+                        prevCounts[minRunBins_], minRunBins_,
+                    )
+
+            if isfinite(prevValues[0]):
+                _updateParentConditionedState(
+                    newValues, newCounts, backRow,
+                    1,
+                    prevValues[0] - transitionCost - runPenalty + adjustedScore,
+                    prevCounts[0] + 1, 0,
+                )
+            for state in range(1, minRunBins_):
+                if isfinite(prevValues[state]):
+                    _updateParentConditionedState(
+                        newValues, newCounts, backRow,
+                        state + 1, prevValues[state] + adjustedScore,
+                        prevCounts[state] + 1, state,
+                    )
+            if isfinite(prevValues[minRunBins_]):
+                _updateParentConditionedState(
+                    newValues, newCounts, backRow,
+                    minRunBins_, prevValues[minRunBins_] + adjustedScore,
+                    prevCounts[minRunBins_] + 1, minRunBins_,
+                )
+
+            valueSwap = prevValues
+            prevValues = newValues
+            newValues = valueSwap
+            countSwap = prevCounts
+            prevCounts = newCounts
+            newCounts = countSwap
+
+        bestValue = prevValues[0]
+        closedValue = prevValues[minRunBins_] - costsView[n]
+        state = 0
+        if closedValue > bestValue or (
+            closedValue == bestValue and prevCounts[minRunBins_] < prevCounts[0]
+        ):
+            bestValue = closedValue
+            state = minRunBins_
+
+    if not isfinite(bestValue):
+        raise RuntimeError("parent-conditioned subpeak DP found no feasible path")
+    with nogil:
+        for i in range(n - 1, -1, -1):
+            if state > 0:
+                maskView[i] = True
+            sourceState = backStateView[i, state]
+            if sourceState < 0:
+                break
+            state = sourceState
+    if sourceState < 0:
+        raise RuntimeError("parent-conditioned subpeak DP found an incomplete path")
+    return maskArr
+
+
 cdef tuple _calibrateSelectionPenaltyROCCO_F64(
     double[::1] scoresView,
     double[::1] switchCostsView,
@@ -9811,6 +9988,34 @@ cpdef object cStationaryNullBootstrapDraw(
                 bitGenerator,
             )
     return out
+
+
+def cSelectedCoordinateRunBounds(
+    const cnp.npy_bool[:] mask not None,
+    const int64_t[:] intervals not None,
+    const int64_t[:] ends not None):
+    r"""Fast finder: runs of selected genomic intervals"""
+
+    cdef Py_ssize_t n = mask.shape[0]
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t runStart
+    cdef list runs = []
+    if intervals.shape[0] != n or ends.shape[0] != n:
+        raise ValueError("`intervals`, `ends`, and `mask` must match length")
+    while i < n:
+        if mask[i] == 0:
+            i += 1
+            continue
+        runStart = i
+        while (
+            i + 1 < n
+            and mask[i + 1] != 0
+            and ends[i] == intervals[i + 1]
+        ):
+            i += 1
+        runs.append((runStart, i))
+        i += 1
+    return runs
 
 
 cpdef tuple cBooleanRunBounds(object above, int maxGapBins=0):

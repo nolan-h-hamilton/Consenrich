@@ -65,8 +65,198 @@ def _caseBroadMergePolicyContracts():
         if detail is not None:
             assert details[detail[0]] == detail[1]
 
+    empty, emptyDetails = peaks._mergeBroadRunsByObjective(
+        [],
+        np.zeros(3),
+        np.arange(3, dtype=np.int64) * 10,
+        np.arange(1, 4, dtype=np.int64) * 10,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=0.0,
+        mergeToleranceBP=10,
+        maxRegionBP=30,
+        blacklistByChrom={},
+    )
+    assert empty == [] and emptyDetails["retained_utility"] == 0.0
+
+    starts = np.arange(3, dtype=np.int64) * 10
+    ends = starts + 10
+    exactWidth, _ = peaks._mergeBroadRunsByObjective(
+        [(0, 0), (2, 2)],
+        np.asarray([1.0, 0.2, 1.0]),
+        starts,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=0.0,
+        mergeToleranceBP=10,
+        maxRegionBP=30,
+        blacklistByChrom={"chr1": np.asarray([(20, 30)], dtype=np.int64)},
+    )
+    assert exactWidth == [(0, 2)]
+    zeroGain, zeroDetails = peaks._mergeBroadRunsByObjective(
+        [(0, 0), (2, 2)],
+        np.asarray([1.0, 0.0, 1.0]),
+        starts,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=0.0,
+        mergeToleranceBP=10,
+        maxRegionBP=30,
+        blacklistByChrom={},
+    )
+    assert zeroGain == [(0, 0), (2, 2)]
+    assert zeroDetails["num_gaps_blocked_by_gain"] == 1
+    singleton, _ = peaks._mergeBroadRunsByObjective(
+        [(1, 1)],
+        np.ones(3),
+        starts,
+        ends,
+        "chr1",
+        selectionPenalty=0.0,
+        boundaryCost=0.0,
+        mergeToleranceBP=10,
+        maxRegionBP=10,
+        blacklistByChrom={},
+    )
+    assert singleton == [(1, 1)]
+    with pytest.raises(ValueError, match="ordered and disjoint"):
+        peaks._mergeBroadRunsByObjective(
+            [(2, 2), (0, 0)],
+            np.ones(3),
+            starts,
+            ends,
+            "chr1",
+            selectionPenalty=0.0,
+            boundaryCost=0.0,
+            mergeToleranceBP=10,
+            maxRegionBP=30,
+            blacklistByChrom={},
+        )
+
+    def canonicalPartition(runs, edgeGains, intervals, ends, maxRegionBP):
+        runCount = len(runs)
+        edgePrefix = np.empty(runCount, dtype=np.float64)
+        edgePrefix[0] = 0.0
+        for index, gain in enumerate(edgeGains, start=1):
+            edgePrefix[index] = float(edgePrefix[index - 1] + gain)
+        utilities = np.full(runCount + 1, -np.inf)
+        groups = np.full(runCount + 1, runCount + 1, dtype=np.int64)
+        predecessors = np.full(runCount + 1, -1, dtype=np.int64)
+        utilities[0] = 0.0
+        groups[0] = 0
+        for stop in range(1, runCount + 1):
+            feasible = [
+                start
+                for start in range(stop)
+                if int(ends[runs[stop - 1][1]])
+                - int(intervals[runs[start][0]])
+                <= maxRegionBP
+            ]
+            predecessor = max(
+                feasible,
+                key=lambda start: (
+                    float(utilities[start] - edgePrefix[start]),
+                    -int(groups[start]),
+                    -start,
+                ),
+            )
+            utilities[stop] = float(
+                edgePrefix[stop - 1]
+                + float(utilities[predecessor] - edgePrefix[predecessor])
+            )
+            groups[stop] = int(groups[predecessor] + 1)
+            predecessors[stop] = predecessor
+        partition = []
+        stop = runCount
+        while stop > 0:
+            start = int(predecessors[stop])
+            partition.append((runs[start][0], runs[stop - 1][1]))
+            stop = start
+        return list(reversed(partition)), float(utilities[runCount])
+
+    rng = np.random.default_rng(835)
+    for runCount in range(1, 9):
+        for _ in range(32):
+            size = 2 * runCount - 1
+            widths = rng.integers(2, 12, size=size, dtype=np.int64)
+            gaps = rng.integers(0, 4, size=max(size - 1, 0), dtype=np.int64)
+            intervals = np.empty(size, dtype=np.int64)
+            ends = np.empty(size, dtype=np.int64)
+            cursor = 0
+            for index in range(size):
+                intervals[index] = cursor
+                ends[index] = cursor + int(widths[index])
+                if index + 1 < size:
+                    cursor = int(ends[index] + gaps[index])
+            runs = [(2 * index, 2 * index) for index in range(runCount)]
+            gapScores = rng.choice(
+                np.asarray([0.1, 0.2, 0.3]),
+                size=max(runCount - 1, 0),
+            )
+            scores = np.zeros(size, dtype=np.float64)
+            scores[1::2] = gapScores
+            minimumWidth = max(
+                int(ends[end] - intervals[start]) for start, end in runs
+            )
+            chromosomeWidth = int(ends[-1] - intervals[0])
+            maxRegionBP = int(rng.integers(minimumWidth, chromosomeWidth + 1))
+            expectedRuns, expectedUtility = canonicalPartition(
+                runs,
+                gapScores,
+                intervals,
+                ends,
+                maxRegionBP,
+            )
+            merged, details = peaks._mergeBroadRunsByObjective(
+                runs,
+                scores,
+                intervals,
+                ends,
+                "chrRandom",
+                selectionPenalty=0.0,
+                boundaryCost=0.0,
+                mergeToleranceBP=chromosomeWidth,
+                maxRegionBP=maxRegionBP,
+                blacklistByChrom={},
+            )
+            assert merged == expectedRuns
+            assert details["retained_utility"] == expectedUtility
+
+    runCount = 8
+    intervals = np.arange(2 * runCount - 1, dtype=np.int64) * 10
+    ends = intervals + 10
+    runs = [(2 * index, 2 * index) for index in range(runCount)]
+    equalGains = np.full(runCount - 1, 0.2)
+    scores = np.zeros(intervals.size)
+    scores[1::2] = equalGains
+    expectedRuns, expectedUtility = canonicalPartition(
+        runs,
+        equalGains,
+        intervals,
+        ends,
+        50,
+    )
+    merged, details = peaks._mergeBroadRunsByObjective(
+        runs,
+        scores,
+        intervals,
+        ends,
+        "chrTied",
+        selectionPenalty=0.0,
+        boundaryCost=0.0,
+        mergeToleranceBP=10,
+        maxRegionBP=50,
+        blacklistByChrom={},
+    )
+    assert merged == expectedRuns
+    assert details["retained_utility"] == expectedUtility
+
 
 def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
+    caplog.clear()
+    caplog.set_level(logging.INFO, logger=peaks.__name__)
     state = 0.2 * np.sin(np.linspace(0.0, 30.0, 1_000))
     state[20:70], state[35:40] = 6.0, 15.0
     state[105:145], state[118:123] = 5.0, 12.0
@@ -80,14 +270,36 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
     narrowPath = tmp_path / "combined.narrowPeak"
     metadataPath = tmp_path / "combined.json"
     plotCalls = []
+    replayDrawCalls = []
+    candidateScanCalls = []
+    nativeDraw = peaks.cconsenrich.cStationaryNullBootstrapDraw
+    candidateScan = peaks._multiscaleCandidateSegments
 
     def capturePlot(rows, path, *, dpi=400):
         plotCalls.append((tuple(rows), str(path), dpi))
         Path(path).write_bytes(b"png")
         return True
 
+    def captureReplayDraw(*args):
+        replayDrawCalls.append(args[5])
+        return nativeDraw(*args)
+
+    def captureCandidateScan(*args, **kwargs):
+        candidateScanCalls.append(1)
+        return candidateScan(*args, **kwargs)
+
     with monkeypatch.context() as patch:
         patch.setattr(peaks, "_plotROCCONullCalibrationDiagnostics", capturePlot)
+        patch.setattr(
+            peaks.cconsenrich,
+            "cStationaryNullBootstrapDraw",
+            captureReplayDraw,
+        )
+        patch.setattr(
+            peaks,
+            "_multiscaleCandidateSegments",
+            captureCandidateScan,
+        )
         artifacts = peaks.solveRocco(
             str(statePath),
             500,
@@ -106,6 +318,15 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
             outPath=str(narrowPath),
             metaPath=str(metadataPath),
         )
+    assert len(replayDrawCalls) == 8 + 2
+    assert len(candidateScanCalls) == 2 + 1
+    replayMessages = [
+        message for message in caplog.messages if "candidate replay" in message
+    ]
+    assert replayMessages == [
+        "ROCCO [1/1 chr1]: candidate replay 1/2",
+        "ROCCO [1/1 chr1]: candidate replay 2/2",
+    ]
     diagnosticPath = Path(f"{narrowPath}.nullCalibration.png")
     assert isinstance(artifacts, consenrich.peakArtifacts)
     assert artifacts == consenrich.peakArtifacts(
@@ -178,6 +399,11 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
         "narrow": ("chromosome", "stationaryBootstrapCandidateReplay"),
         "broad": ("chromosome", "stationaryBootstrapCandidateReplay"),
     }
+    assert metadata["chromosomes"]["chr1"]["narrow"][
+        "replayNullCandidateCounts"
+    ] == metadata["chromosomes"]["chr1"]["broad"][
+        "replayNullCandidateCounts"
+    ]
 
 
 def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
@@ -259,8 +485,16 @@ def _caseReplayFDRModeratePanelsStaySubquadratic():
     replayQ = peaks._replayFDRQValues
     rng = np.random.default_rng(271)
     observed = rng.gamma(shape=2.5, scale=1.0, size=6000)
-    nullDraws = [rng.gamma(shape=2.2, scale=1.0, size=3000) for _ in range(32)]
-    pValues = empiricalP(observed, nullDraws)
+    nullDraws = [
+        np.sort(rng.gamma(shape=2.2, scale=1.0, size=3000))
+        for _ in range(32)
+    ]
+    for draw in nullDraws:
+        draw.setflags(write=False)
+    pooledNull = np.sort(np.concatenate(nullDraws))
+    pooledNull.setflags(write=False)
+    nullCopies = tuple(draw.copy() for draw in nullDraws)
+    pValues = empiricalP(observed, pooledNull)
     qValues = np.maximum(replayQ(observed, nullDraws), pValues)
     assert pValues.shape == qValues.shape == observed.shape
     assert np.all((0.0 <= pValues) & (pValues <= qValues) & (qValues <= 1.0))
@@ -268,6 +502,655 @@ def _caseReplayFDRModeratePanelsStaySubquadratic():
     order = np.argsort(-observed, kind="mergesort")
     assert np.all(np.diff(pValues[order]) >= -1.0e-12)
     assert np.all(np.diff(qValues[order]) >= -1.0e-12)
+    for draw, expected in zip(nullDraws, nullCopies):
+        np.testing.assert_array_equal(draw, expected)
+        assert not draw.flags.writeable
+
+    tiedObserved = np.asarray([3.0, 1.0, 3.0, 0.0])
+    tiedNullDraws = (
+        np.asarray([0.0, 1.0, 2.0, 3.0]),
+        np.asarray([1.0, 1.0, 3.0]),
+    )
+    tiedPooledNull = np.sort(np.concatenate(tiedNullDraws))
+    expectedP = np.asarray(
+        [
+            (1.0 + np.count_nonzero(tiedPooledNull >= statistic))
+            / float(tiedPooledNull.size + 1)
+            for statistic in tiedObserved
+        ]
+    )
+    order = np.argsort(-tiedObserved, kind="mergesort")
+    rawFDR = np.ones(tiedObserved.size)
+    for rank, index in enumerate(order):
+        statistic = tiedObserved[index]
+        observedCount = np.count_nonzero(tiedObserved >= statistic)
+        expectedNullCount = np.mean(
+            [np.count_nonzero(draw >= statistic) for draw in tiedNullDraws]
+        )
+        rawFDR[rank] = np.clip(
+            (expectedNullCount + 1.0 / 3.0) / observedCount,
+            0.0,
+            1.0,
+        )
+    expectedQ = np.ones(tiedObserved.size)
+    expectedQ[order] = np.minimum.accumulate(rawFDR[::-1])[::-1]
+    np.testing.assert_array_equal(
+        empiricalP(tiedObserved, tiedPooledNull),
+        expectedP,
+    )
+    np.testing.assert_array_equal(
+        replayQ(tiedObserved, tiedNullDraws),
+        expectedQ,
+    )
+    assert empiricalP([], tiedPooledNull).size == 0
+    assert replayQ([], tiedNullDraws).size == 0
+    np.testing.assert_array_equal(empiricalP(tiedObserved, []), np.ones(4))
+
+
+def _caseCoordinateRunNativeContracts():
+    nativeRuns = peaks.cconsenrich.cSelectedCoordinateRunBounds
+    rng = np.random.default_rng(28041)
+    for size in (0, 1, 2, 9, 64):
+        for panel in range(8):
+            widths = rng.integers(1, 12, size=size, dtype=np.int64)
+            gaps = rng.integers(0, 3, size=size, dtype=np.int64)
+            starts = np.cumsum(widths + gaps, dtype=np.int64) - widths
+            ends = starts + widths
+            mask = rng.random(size) < (panel / 7.0)
+            for stride in (1, 2, -1):
+                maskView, startsView, endsView = (
+                    array[::stride] for array in (mask, starts, ends)
+                )
+                connected = (
+                    maskView[:-1]
+                    & maskView[1:]
+                    & (endsView[:-1] == startsView[1:])
+                )
+                expected = list(zip(
+                    np.flatnonzero(maskView & ~np.r_[False, connected][:maskView.size]),
+                    np.flatnonzero(maskView & ~np.r_[connected, False][:maskView.size]),
+                ))
+                copies = tuple(array.copy() for array in (maskView, startsView, endsView))
+                for array in (maskView, startsView, endsView):
+                    array.setflags(write=False)
+                assert nativeRuns(maskView, startsView, endsView) == expected
+                assert peaks._selectedCoordinateRunBounds(maskView, startsView, endsView) == expected
+                for array, copy in zip((maskView, startsView, endsView), copies):
+                    np.testing.assert_array_equal(array, copy)
+
+    starts = np.asarray([-(2**63), -(2**63) + 1, 2**63 - 3, 2**63 - 2], dtype=np.int64)
+    ends = starts + 1
+    mask = np.ones(4, dtype=bool)
+    assert nativeRuns(mask, starts, ends) == [(0, 1), (2, 3)]
+    assert peaks._selectedCoordinateRunBounds(
+        [1, 1, 0, 1], [[0, 2], [4, 6]], [[2, 4], [6, 8]]
+    ) == [(0, 1), (3, 3)]
+    for function in (nativeRuns, peaks._selectedCoordinateRunBounds):
+        for args in ((mask, starts[:-1], ends), (mask, starts, ends[:-1])):
+            with pytest.raises(ValueError, match="match length"):
+                function(*args)
+        with pytest.raises(ValueError):
+            function(mask.reshape(2, 2), starts, ends)
+    for args in (
+        (mask, starts.reshape(2, 2), ends),
+        (mask, starts, ends.astype(np.int32)),
+        (None, starts, ends),
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            nativeRuns(*args)
+
+
+def _caseSubpeakDPNativeContracts():
+    nativeSolve = peaks.cconsenrich.cSolveParentConditionedSubpeaks
+    rng = np.random.default_rng(88104)
+    cases = []
+    for size in range(9):
+        for panel in range(6):
+            scores = rng.normal((-2.0, 0.0, 2.0)[panel % 3], 0.4, size)
+            costs = rng.uniform(0.0, 0.5, size + 1)
+            selectionPenalty = (-0.2, 0.0, 0.3)[panel % 3]
+            runPenalty = (-0.1, 0.0, 0.4)[panel // 2]
+            requiredIndex = None if size == 0 or panel < 3 else (0, size // 2, size - 1)[panel - 3]
+            for minRunBins in {-2, 1, 2, size, size + 3}:
+                minimum = min(max(minRunBins, 1), size)
+                candidates = []
+                for encoded in range(1 << size):
+                    mask = ((encoded >> np.arange(size)) & 1).astype(bool)
+                    edges = np.flatnonzero(np.diff(np.r_[False, mask, False]))
+                    if np.any(edges[1::2] - edges[::2] < minimum):
+                        continue
+                    if requiredIndex is not None and not mask[requiredIndex]:
+                        continue
+                    boundaryPenalty = sum(float(costs[index]) for index in edges)
+                    objective = float(np.sum(scores[mask]) - boundaryPenalty - runPenalty * (edges.size // 2))
+                    candidates.append((objective - selectionPenalty * int(mask.sum()), -int(mask.sum()), -encoded, mask))
+                expected = max(candidates, key=lambda item: item[:3])[3]
+                cases.append((scores, costs, selectionPenalty, minRunBins, requiredIndex, runPenalty, expected))
+
+    randomCaseCount = len(cases)
+    for scores, minimum, requiredIndex, expected in (
+        ([0.0], 1, None, [False]),
+        ([5.0e-13], 1, None, [True]),
+        ([5.0e-13, -1.0], 1, None, [False, False]),
+        ([2.0e-12, -1.0], 1, None, [True, False]),
+        ([-2.0, -2.0, -2.0], 2, 1, [True, True, False]),
+        ([1.0, -1.0, 1.0], 1, None, [True, False, True]),
+    ):
+        cases.append((np.asarray(scores), np.zeros(len(scores) + 1), 0.0, minimum, requiredIndex, 0.0, np.asarray(expected)))
+
+    for caseIndex, (scores, costs, selectionPenalty, minimum, requiredIndex, runPenalty, expected) in enumerate(cases):
+        scoreStorage = np.repeat(scores, 2)
+        costStorage = np.repeat(costs, 2)
+        scores = scoreStorage[::2]
+        costs = costStorage[::2]
+        reverse = caseIndex < randomCaseCount and caseIndex % 2
+        if reverse:
+            scores = scores[::-1]
+            costs = costs[::-1]
+            expected = expected[::-1]
+            requiredIndex = None if requiredIndex is None else scores.size - 1 - requiredIndex
+        scores.setflags(write=False)
+        costs.setflags(write=False)
+        args = (scores, costs, selectionPenalty, minimum, requiredIndex, runPenalty)
+        actual, objective, details = peaks._solveParentConditionedSubpeaks(*args)
+        np.testing.assert_array_equal(actual, expected)
+        np.testing.assert_array_equal(nativeSolve(*args), expected)
+        assert actual.dtype == np.bool_ and actual.shape == scores.shape
+        edges = np.flatnonzero(np.diff(np.r_[False, expected, False]))
+        boundaryPenalty = 0.0
+        for index in edges:
+            boundaryPenalty += float(costs[index])
+        runCount = edges.size // 2
+        runPenaltyTotal = float(runPenalty * runCount)
+        selectedCount = int(expected.sum())
+        expectedObjective = float(np.sum(scores[expected]) - boundaryPenalty - runPenaltyTotal)
+        assert objective == expectedObjective
+        assert details == {
+            "mode": "parent_conditioned_min_run_dp",
+            "penalized_objective": float(expectedObjective - selectionPenalty * selectedCount),
+            "selected_count": selectedCount,
+            "selected_fraction": float(selectedCount / max(scores.size, 1)),
+            "selection_penalty": selectionPenalty,
+            "run_penalty": runPenalty,
+            "run_penalty_total": runPenaltyTotal,
+            "boundary_cost_min": float(np.min(costs)),
+            "boundary_cost_max": float(np.max(costs)),
+            "boundary_penalty": boundaryPenalty,
+            "min_run_bins": min(max(minimum, 1), scores.size),
+            "num_runs": runCount,
+            "required_index": requiredIndex,
+            "required_selected": True,
+            "required_fallback_window": False,
+        }
+        np.testing.assert_array_equal(scoreStorage[::2], scores[::(-1 if reverse else 1)])
+        np.testing.assert_array_equal(costStorage[::2], costs[::(-1 if reverse else 1)])
+
+    for function in (nativeSolve, peaks._solveParentConditionedSubpeaks):
+        for scores, costs, requiredIndex, message in (
+            (np.ones((2, 2)), np.ones(5), None, "one-dimensional"),
+            (np.ones(2), np.ones(2), None, "length"),
+            (np.ones(2), np.ones(4), None, "length"),
+            (np.ones(2), np.ones(3), -1, "requiredIndex"),
+            (np.ones(2), np.ones(3), 2, "requiredIndex"),
+            (np.empty(0), np.ones(1), 0, "requiredIndex"),
+        ):
+            with pytest.raises(ValueError, match=message):
+                function(scores, costs, 0.0, 1, requiredIndex)
+        with pytest.raises(RuntimeError, match="no feasible path"):
+            function(np.asarray([-np.inf]), np.zeros(2), 0.0, 1, 0)
+        result = function([2.0, 2.0], [0.0, 0.0, 0.0], 0.0, 10**100)
+        np.testing.assert_array_equal(result if function is nativeSolve else result[0], [True, True])
+    with pytest.raises(ValueError, match="one-dimensional"):
+        nativeSolve(np.ones(3), np.ones((2, 2)), 0.0, 1)
+    flattened = peaks._solveParentConditionedSubpeaks(np.ones(3), np.zeros((2, 2)), 0.0, 1)
+    np.testing.assert_array_equal(flattened[0], [True, True, True])
+
+
+def _caseRegionalSignalPrefixAndRunSweeps():
+    intervals = np.asarray([0, 8, 31, 38, 75, 89, 130], dtype=np.int64)
+    ends = np.asarray([5, 19, 35, 47, 82, 103, 133], dtype=np.int64)
+    widths = ends - intervals
+    signalValues = np.asarray(
+        [1.25, -4.0, 9.5, 2.75, -1.5, 6.25, 3.0],
+        dtype=np.float64,
+    )
+    signalPrefix = peaks._buildRegionalSignalPrefix(widths, signalValues)
+    maxAbsSignal = float(np.max(np.abs(signalValues)))
+    for startIdx, endIdx in ((0, 0), (3, 3), (0, 6), (1, 4), (4, 6)):
+        startBP = int(intervals[startIdx])
+        endBP = int(ends[endIdx])
+        overlap = np.maximum(
+            np.minimum(ends, endBP) - np.maximum(intervals, startBP),
+            0,
+        ).astype(np.float64)
+        expected = float(np.dot(overlap, signalValues) / np.sum(overlap))
+        np.testing.assert_allclose(
+            peaks._regionalMeanSignal(signalPrefix, startIdx, endIdx),
+            expected,
+            rtol=1.0e-10,
+            atol=1.0e-12 * max(1.0, maxAbsSignal),
+        )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        peaks._buildRegionalSignalPrefix(widths, np.r_[signalValues[:-1], np.nan])
+    with pytest.raises(ValueError, match="positive"):
+        peaks._buildRegionalSignalPrefix(np.r_[widths[:-1], 0], signalValues)
+    hugePrefix = peaks._buildRegionalSignalPrefix(
+        np.asarray([2**53, 1], dtype=np.int64),
+        np.asarray([1.0, 2.0]),
+    )
+    assert peaks._regionalMeanSignal(hugePrefix, 1, 1) == 2.0
+    with pytest.raises(ValueError, match="indices"):
+        peaks._regionalMeanSignal(signalPrefix, 2, signalValues.size)
+
+    rng = np.random.default_rng(1741)
+    for _ in range(64):
+        size = int(rng.integers(4, 48))
+        randomWidths = rng.integers(1, 13, size=size, dtype=np.int64)
+        randomGaps = rng.integers(0, 4, size=size - 1, dtype=np.int64)
+        randomStarts = np.empty(size, dtype=np.int64)
+        randomEnds = np.empty(size, dtype=np.int64)
+        cursor = 0
+        for index in range(size):
+            randomStarts[index] = cursor
+            randomEnds[index] = cursor + int(randomWidths[index])
+            if index + 1 < size:
+                cursor = int(randomEnds[index] + randomGaps[index])
+        candidateRuns = peaks._selectedCoordinateRunBounds(
+            rng.integers(0, 2, size=size, dtype=np.uint8),
+            randomStarts,
+            randomEnds,
+        )
+        referenceRuns = peaks._selectedCoordinateRunBounds(
+            rng.integers(0, 2, size=size, dtype=np.uint8),
+            randomStarts,
+            randomEnds,
+        )
+        expected = [
+            candidateRun
+            for candidateRun in candidateRuns
+            if any(
+                int(randomEnds[candidateRun[1]])
+                >= int(randomStarts[referenceRun[0]])
+                and int(randomStarts[candidateRun[0]])
+                <= int(randomEnds[referenceRun[1]])
+                for referenceRun in referenceRuns
+            )
+        ]
+        assert peaks._runsTouchingReferenceRuns(
+            candidateRuns,
+            referenceRuns,
+            randomStarts,
+            randomEnds,
+        ) == expected
+
+    touchingStarts = np.asarray([0, 10, 21], dtype=np.int64)
+    touchingEnds = np.asarray([10, 20, 31], dtype=np.int64)
+    assert peaks._runsTouchingReferenceRuns(
+        [(0, 0), (2, 2)],
+        [(1, 1)],
+        touchingStarts,
+        touchingEnds,
+    ) == [(0, 0)]
+    assert peaks._runsTouchingReferenceRuns(
+        [],
+        [(1, 1)],
+        touchingStarts,
+        touchingEnds,
+    ) == []
+    with pytest.raises(ValueError, match="ordered and disjoint"):
+        peaks._runsTouchingReferenceRuns(
+            [(2, 2), (0, 0)],
+            [(1, 1)],
+            touchingStarts,
+            touchingEnds,
+        )
+
+
+def _caseBroadRecordSweepContracts():
+    intervals = np.asarray(
+        [0, 5, 12, 16, 27, 50, 56, 64, 80, 100],
+        dtype=np.int64,
+    )
+    ends = np.asarray(
+        [5, 12, 16, 27, 30, 56, 64, 69, 89, 104],
+        dtype=np.int64,
+    )
+    signalValues = np.arange(1.0, 11.0)
+    scores = np.linspace(-1.0, 2.0, signalValues.size)
+    signalPrefix = peaks._buildRegionalSignalPrefix(
+        ends - intervals,
+        signalValues,
+    )
+    parentRuns = [(0, 4), (5, 9)]
+    supportRuns = [(0, 4), (5, 9)]
+    blockRuns = [(1, 6), (7, 7), (8, 8)]
+    records = peaks._broadRecordsFromRuns(
+        "chrSweep",
+        intervals,
+        ends,
+        signalValues,
+        scores,
+        parentRuns,
+        supportRuns,
+        blockRuns,
+        signalPrefix,
+    )
+
+    literalRecords = []
+    for parentStart, parentEnd in parentRuns:
+        overlappingSupport = [
+            (start, end)
+            for start, end in supportRuns
+            if end >= parentStart and start <= parentEnd
+        ]
+        startBP = int(intervals[overlappingSupport[0][0]])
+        endBP = int(ends[overlappingSupport[-1][1]])
+        firstIdx = min(start for start, _end in overlappingSupport)
+        lastIdx = max(end for _start, end in overlappingSupport)
+        blockCoordinates = sorted(
+            (
+                int(intervals[max(start, parentStart)]),
+                int(ends[min(end, parentEnd)]),
+            )
+            for start, end in blockRuns
+            if end >= parentStart and start <= parentEnd
+        )
+        mergedBlocks = []
+        for blockStart, blockEnd in blockCoordinates:
+            if mergedBlocks and blockStart <= mergedBlocks[-1][1]:
+                mergedBlocks[-1] = (
+                    mergedBlocks[-1][0],
+                    max(mergedBlocks[-1][1], blockEnd),
+                )
+            else:
+                mergedBlocks.append((blockStart, blockEnd))
+        if len(mergedBlocks) <= 1:
+            mergedBlocks = [(startBP, endBP)]
+        else:
+            mergedBlocks[0] = (startBP, mergedBlocks[0][1])
+            mergedBlocks[-1] = (mergedBlocks[-1][0], endBP)
+        summitIdx = int(
+            firstIdx + np.argmax(signalValues[firstIdx : lastIdx + 1])
+        )
+        literalRecords.append(
+            peaks._peakRecord(
+                "chrSweep",
+                startBP,
+                endBP,
+                int(
+                    intervals[summitIdx]
+                    + (int(ends[summitIdx]) - int(intervals[summitIdx])) // 2
+                ),
+                "broad",
+                float(np.mean(scores[firstIdx : lastIdx + 1])),
+                float(
+                    np.average(
+                        signalValues[firstIdx : lastIdx + 1],
+                        weights=(ends - intervals)[firstIdx : lastIdx + 1],
+                    )
+                ),
+                1.0,
+                1.0,
+                tuple(mergedBlocks),
+            )
+        )
+    for record, expectedRecord in zip(records, literalRecords):
+        assert record._replace(signalValue=0.0) == expectedRecord._replace(
+            signalValue=0.0
+        )
+        assert record.signalValue == pytest.approx(
+            expectedRecord.signalValue,
+            rel=1.0e-10,
+            abs=1.0e-12 * max(1.0, abs(expectedRecord.signalValue)),
+        )
+
+    assert [(record.startBP, record.endBP) for record in records] == [
+        (0, 30),
+        (50, 104),
+    ]
+    assert [record.blocks for record in records] == [
+        ((0, 30),),
+        ((50, 69), (80, 104)),
+    ]
+    assert [record.summitBP for record in records] == [28, 102]
+    for record, (startIdx, endIdx) in zip(records, ((0, 4), (5, 9))):
+        expectedSignal = np.average(
+            signalValues[startIdx : endIdx + 1],
+            weights=(ends - intervals)[startIdx : endIdx + 1],
+        )
+        assert record.signalValue == pytest.approx(expectedSignal)
+        assert record.rawScore == pytest.approx(
+            np.mean(scores[startIdx : endIdx + 1])
+        )
+
+    assert peaks._broadRecordsFromRuns(
+        "chrSweep",
+        intervals,
+        ends,
+        signalValues,
+        scores,
+        [],
+        [],
+        [],
+        signalPrefix,
+    ) == []
+    with pytest.raises(RuntimeError, match="no support"):
+        peaks._broadRecordsFromRuns(
+            "chrSweep",
+            intervals,
+            ends,
+            signalValues,
+            scores,
+            [(0, 1)],
+            [(3, 4)],
+            [],
+            signalPrefix,
+        )
+    with pytest.raises(ValueError, match="ordered and disjoint"):
+        peaks._broadRecordsFromRuns(
+            "chrSweep",
+            intervals,
+            ends,
+            signalValues,
+            scores,
+            [(5, 9), (0, 4)],
+            [(0, 4), (5, 9)],
+            [],
+            signalPrefix,
+        )
+
+
+def _caseSharedCandidateReplayContracts(monkeypatch):
+    scores = np.asarray([-2.0, 0.5, 2.0, -1.0, 1.5, 3.0])
+    intervals = np.arange(scores.size, dtype=np.int64) * 100
+    ends = intervals + 100
+    thresholdViews = {
+        "primary": {
+            "threshold_z": 1.0,
+            "threshold": 0.25,
+            "null_center": 0.0,
+            "null_scale": 1.0,
+        }
+    }
+    prepared = {
+        "template": np.asarray([-2.0, -1.0, -0.5, 0.5, 1.0, 2.0]),
+        "threshold_views": thresholdViews,
+        "null_calibration": {
+            "bootstrap_method": "stationary_bootstrap",
+            "bootstrap_block_length": 2,
+            "use_local_bootstrap_radius": False,
+            "max_local_radius_intervals": -1,
+            "random_seed": 41,
+            "segment_offsets": np.asarray([0, scores.size], dtype=np.int64),
+            "coverage_weights": np.ones(scores.size, dtype=np.float64),
+        },
+    }
+    nativeDraw = peaks.cconsenrich.cStationaryNullBootstrapDraw
+    candidateScan = peaks._multiscaleCandidateSegments
+    drawCalls = []
+    candidateScanCalls = []
+
+    def captureDraw(*args):
+        drawCalls.append(args[5])
+        return nativeDraw(*args)
+
+    def captureCandidateScan(*args, **kwargs):
+        candidateScanCalls.append(1)
+        return candidateScan(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            peaks.cconsenrich,
+            "cStationaryNullBootstrapDraw",
+            captureDraw,
+        )
+        patch.setattr(
+            peaks,
+            "_multiscaleCandidateSegments",
+            captureCandidateScan,
+        )
+        replayData = peaks._buildCandidateReplayData(
+            scores,
+            prepared,
+            featureSpanBins=3,
+            numRegionReplays=4,
+        )
+    assert drawCalls == [-1] * 4
+    assert len(candidateScanCalls) == 4 + 1
+    assert len(replayData.nullStatsByDraw) == 4
+    assert replayData.nullCandidateCounts == tuple(
+        draw.size for draw in replayData.nullStatsByDraw
+    )
+    assert not replayData.pooledNullStats.flags.writeable
+    assert all(
+        not draw.flags.writeable and np.all(np.diff(draw) >= 0.0)
+        for draw in replayData.nullStatsByDraw
+    )
+    assert np.all(np.diff(replayData.pooledNullStats) >= 0.0)
+    replayCopies = tuple(draw.copy() for draw in replayData.nullStatsByDraw)
+    pooledCopy = replayData.pooledNullStats.copy()
+
+    narrowRecord = peaks._peakRecord(
+        "chrReplay", 0, 200, 50, "narrow", 2.0, 1.0, 1.0, 1.0, ((0, 200),)
+    )
+    broadRecord = peaks._peakRecord(
+        "chrReplay", 200, 600, 550, "broad", 1.5, 1.0, 1.0, 1.0,
+        ((200, 400), (500, 600)),
+    )
+    narrowFirst = peaks._scorePeakRecords(
+        [narrowRecord], scores, replayData, intervals, ends
+    )
+    broadSecond = peaks._scorePeakRecords(
+        [broadRecord], scores, replayData, intervals, ends
+    )
+    broadFirst = peaks._scorePeakRecords(
+        [broadRecord], scores, replayData, intervals, ends
+    )
+    narrowSecond = peaks._scorePeakRecords(
+        [narrowRecord], scores, replayData, intervals, ends
+    )
+    assert narrowFirst == narrowSecond
+    assert broadFirst == broadSecond
+    for draw, expected in zip(replayData.nullStatsByDraw, replayCopies):
+        np.testing.assert_array_equal(draw, expected)
+        assert not draw.flags.writeable
+    np.testing.assert_array_equal(replayData.pooledNullStats, pooledCopy)
+    assert not replayData.pooledNullStats.flags.writeable
+
+    emptyNull = np.asarray([], dtype=np.float64)
+    emptyNull.setflags(write=False)
+    emptyReplay = peaks._candidateReplayData(
+        thresholdViews,
+        (),
+        (emptyNull,),
+        emptyNull,
+        (0,),
+    )
+    duplicateScores = peaks._scorePeakRecords(
+        [narrowRecord, narrowRecord],
+        scores,
+        emptyReplay,
+        intervals,
+        ends,
+    )
+    assert [(record.pValue, record.qValue) for record in duplicateScores] == [
+        (1.0, 1.0),
+        (1.0, 1.0),
+    ]
+
+    familyScores = np.asarray([1.0, 4.0, 2.0, 3.0, 0.5])
+    familyIntervals = np.arange(familyScores.size, dtype=np.int64) * 10
+    familyEnds = familyIntervals + 10
+    familyViews = {
+        "primary": {
+            "threshold_z": 0.0,
+            "threshold": 0.0,
+            "null_center": 0.0,
+            "null_scale": 1.0,
+        }
+    }
+    familyNullDraws = (
+        np.asarray([0.5, 1.5, 2.5, 3.5, 4.5]),
+        np.asarray([1.0, 2.0, 3.0, 4.0]),
+    )
+    for draw in familyNullDraws:
+        draw.setflags(write=False)
+    familyPooledNull = np.sort(np.concatenate(familyNullDraws))
+    familyPooledNull.setflags(write=False)
+    familyReplay = peaks._candidateReplayData(
+        familyViews,
+        (((0, 4), 5.0),),
+        familyNullDraws,
+        familyPooledNull,
+        (5, 4),
+    )
+    familyNarrowRecords = [
+        peaks._peakRecord(
+            "chrFamily", 0, 10, 5, "narrow", 1.0, 1.0, 1.0, 1.0,
+            ((0, 10),),
+        ),
+        peaks._peakRecord(
+            "chrFamily", 30, 40, 35, "narrow", 3.0, 3.0, 1.0, 1.0,
+            ((30, 40),),
+        ),
+    ]
+    familyBroadRecords = [
+        peaks._peakRecord(
+            "chrFamily", 10, 30, 15, "broad", 4.0, 3.0, 1.0, 1.0,
+            ((10, 30),),
+        )
+    ]
+    scoredNarrow = peaks._scorePeakRecords(
+        familyNarrowRecords,
+        familyScores,
+        familyReplay,
+        familyIntervals,
+        familyEnds,
+    )
+    scoredBroad = peaks._scorePeakRecords(
+        familyBroadRecords,
+        familyScores,
+        familyReplay,
+        familyIntervals,
+        familyEnds,
+    )
+    assert [(record.pValue, record.qValue) for record in scoredNarrow] == [
+        (0.9, 1.0),
+        (0.5, 1.0),
+    ]
+    assert [(record.pValue, record.qValue) for record in scoredBroad] == [
+        (0.2, (0.5 + 1.0 / 3.0) / 2.0)
+    ]
+    pooledFamilyScores = peaks._scorePeakRecords(
+        familyNarrowRecords + familyBroadRecords,
+        familyScores,
+        familyReplay,
+        familyIntervals,
+        familyEnds,
+    )
+    assert pooledFamilyScores[1].qValue == pytest.approx(7.0 / 9.0)
+    assert pooledFamilyScores[1].qValue != scoredNarrow[1].qValue
 
 
 def _caseStationaryBootstrapNativeContracts():
@@ -456,12 +1339,9 @@ def _caseReflectedTemplateAndMeanOccupancy(monkeypatch):
     assert peaks._estimateBudgetForPreparedROCCOScore(prepared) == pytest.approx(
         expectedMetrics["signed_tail_excess"]
     )
-    peaks._scorePeakRecords(
-        (),
+    peaks._buildCandidateReplayData(
         scoreTrack,
         prepared,
-        np.arange(scoreTrack.size, dtype=np.int64),
-        np.arange(1, scoreTrack.size + 1, dtype=np.int64),
         featureSpanBins=3,
         numRegionReplays=2,
     )
@@ -475,12 +1355,9 @@ def _caseReflectedTemplateAndMeanOccupancy(monkeypatch):
             "max_local_radius_intervals": -1,
         },
     }
-    peaks._scorePeakRecords(
-        (),
+    peaks._buildCandidateReplayData(
         scoreTrack,
         disabledPrepared,
-        np.arange(scoreTrack.size, dtype=np.int64),
-        np.arange(1, scoreTrack.size + 1, dtype=np.int64),
         featureSpanBins=3,
         numRegionReplays=2,
     )
@@ -644,7 +1521,11 @@ def _caseSharedSeedAndSpoolCleanup(tmp_path, monkeypatch, caplog):
         patch.setattr(peaks, "_prepareROCCOScoreAndNull", captureSeed)
         patch.setattr(peaks.cconsenrich, "cStationaryNullBootstrapDraw", captureDraw)
         patch.setattr(peaks, "solveChromROCCO", captureSolve)
-        patch.setattr(peaks, "_scorePeakRecords", lambda records, *args, **kwargs: (list(records), ()))
+        patch.setattr(
+            peaks,
+            "_scorePeakRecords",
+            lambda records, *args, **kwargs: list(records),
+        )
         jointPath = tmp_path / "joint.narrowPeak"
         soloPath = tmp_path / "solo.narrowPeak"
         jointArtifacts = peaks.solveRocco(
@@ -658,7 +1539,13 @@ def _caseSharedSeedAndSpoolCleanup(tmp_path, monkeypatch, caplog):
         assert not Path(f"{jointPath}.nullCalibration.png").exists()
         assert not Path(f"{soloPath}.nullCalibration.png").exists()
         assert seedCalls == [73, 73, 73]
-        assert drawCalls == [20_000] * (3 * sharedArgs["numBootstrap"])
+        assert drawCalls == [20_000] * (
+            3
+            * (
+                sharedArgs["numBootstrap"]
+                + sharedArgs["numRegionReplays"]
+            )
+        )
         jointChr22 = [line for line in jointPath.read_text().splitlines() if line.startswith("chr22\t")]
         assert jointChr22 and jointChr22 == soloPath.read_text().splitlines()
         assert all(mappedCalls) and not tuple(spoolRoot.iterdir())
@@ -708,6 +1595,19 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
     contract_case("reflected template and mean occupancy", _caseReflectedTemplateAndMeanOccupancy, monkeypatch)
     contract_case("track-tail variance and chromosome shrinkage", _caseTrackTailVarianceAndChromosomeShrinkage)
     contract_case("candidate replay p and q", _caseReplayFDRModeratePanelsStaySubquadratic)
+    contract_case(
+        "coordinate run native contracts",
+        _caseCoordinateRunNativeContracts,
+    )
+    contract_case(
+        "regional signal prefix and run sweeps",
+        _caseRegionalSignalPrefixAndRunSweeps,
+    )
+    contract_case(
+        "shared candidate replay",
+        _caseSharedCandidateReplayContracts,
+        monkeypatch,
+    )
 
 
 def test_rocco_bedgraph_solver_contracts(
@@ -740,7 +1640,9 @@ def test_rocco_null_calibration_diagnostic_panel(tmp_path, monkeypatch, contract
 
 
 def test_rocco_subpeak_policy_contracts(contract_case):
+    contract_case("subpeak DP native contracts", _caseSubpeakDPNativeContracts)
     contract_case("broad merge policy", _caseBroadMergePolicyContracts)
+    contract_case("broad record sweep", _caseBroadRecordSweepContracts)
 
 
 def test_rocco_matching_enabled_contract(contract_case):

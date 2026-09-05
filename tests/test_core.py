@@ -191,6 +191,7 @@ def test_dependence_span_rank_weighted_sampling_contract():
     estimatorArgs = {
         "windowBP": windowBins,
         "maxLagBP": 24,
+        "workingQuantile": constants.OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
         "bootstrapDraws": 20,
         "randSeed": 21,
         "minWindowCount": 20,
@@ -207,6 +208,35 @@ def test_dependence_span_rank_weighted_sampling_contract():
         **estimatorArgs,
     )
     details = result[3]
+    assert constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP == 1500
+    assert details["workingQuantile"] == 0.9
+    assert details["fullSampleWorkingSpanBP"] < 1500.0
+    assert details["workingSpanBP"] == 1500.0
+    assert result[:3] == (5, 5, 5)
+    for intervalSizeBP in (50, 500):
+        scaledArgs = dict(estimatorArgs)
+        for key in (
+            "windowBP", "maxLagBP", "acfSmoothingBP", "crossingPersistenceBP"
+        ):
+            scaledArgs[key] *= intervalSizeBP
+        scaledResult = cconsenrich.cchooseDependenceSpan(
+            ["chr11"], [matrix], intervalSizeBP, **scaledArgs
+        )
+        scaledDetails = scaledResult[3]
+        assert scaledResult[:3] == result[:3]
+        for key in (
+            "estimateBP", "lowerBP", "upperBP", "fullSampleMedianRadiusBP",
+            "fullSampleWorkingSpanBP", "bootstrapMedianRadiusBP",
+            "bootstrapWorkingSpanBP",
+        ):
+            np.testing.assert_allclose(
+                np.asarray(scaledDetails[key]) / intervalSizeBP, details[key],
+                rtol=1.0e-12,
+            )
+        assert scaledDetails["workingSpanBP"] == max(
+            1500.0, scaledDetails["fullSampleWorkingSpanBP"]
+        )
+    assert scaledDetails["workingSpanBP"] > 1500.0
 
     candidateMatrix = matrix.reshape(candidateCount, windowBins).astype(np.float64)
     scores = np.sum(np.maximum(candidateMatrix, 0.0), axis=1)

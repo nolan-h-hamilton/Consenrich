@@ -9,6 +9,7 @@ import math
 import os
 import tempfile
 import time
+from collections import deque
 from pathlib import Path
 from typing import (
     Any,
@@ -116,6 +117,20 @@ class _peakRecord(NamedTuple):
     pValue: float
     qValue: float
     blocks: tuple[tuple[int, int], ...]
+
+
+class _regionalSignalPrefix(NamedTuple):
+    coveredBPPrefix: np.ndarray
+    centeredSignalMassPrefix: np.ndarray
+    signalAnchor: float
+
+
+class _candidateReplayData(NamedTuple):
+    thresholdViews: Mapping[str, Any]
+    commonCandidateStats: tuple[tuple[tuple[int, int], float], ...]
+    nullStatsByDraw: tuple[np.ndarray, ...]
+    pooledNullStats: np.ndarray
+    nullCandidateCounts: tuple[int, ...]
 
 
 def _logRoccoProgress(
@@ -1442,25 +1457,9 @@ def _selectedCoordinateRunBounds(
     mask_ = np.asarray(mask, dtype=bool)
     intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
     ends_ = np.asarray(ends, dtype=np.int64).ravel()
-    if intervals_.size != mask_.size or ends_.size != mask_.size:
-        raise ValueError("`intervals`, `ends`, and `mask` must match length")
-    runs: List[Tuple[int, int]] = []
-    n = int(mask_.size)
-    i = 0
-    while i < n:
-        if not bool(mask_[i]):
-            i += 1
-            continue
-        start = i
-        while (
-            i + 1 < n
-            and bool(mask_[i + 1])
-            and int(ends_[i]) == int(intervals_[i + 1])
-        ):
-            i += 1
-        runs.append((int(start), int(i)))
-        i += 1
-    return runs
+    if mask_.ndim != 1:
+        raise ValueError("`mask` must be one-dimensional")
+    return cconsenrich.cSelectedCoordinateRunBounds(mask_, intervals_, ends_)
 
 
 def _splitBroadRunsByWidth(
@@ -1499,6 +1498,65 @@ def _splitBroadRunsByWidth(
     return boundedRuns
 
 
+def _validatedOrderedRuns(
+    name: str,
+    runs: Sequence[tuple[int, int]],
+    size: int,
+) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    previousEnd = -1
+    for start, end in runs:
+        start_ = int(start)
+        end_ = int(end)
+        if start_ < 0 or end_ < start_ or end_ >= int(size):
+            raise ValueError(f"{name} indices are invalid")
+        if start_ <= previousEnd:
+            raise ValueError(f"{name} must be ordered and disjoint")
+        out.append((start_, end_))
+        previousEnd = end_
+    return out
+
+
+def _runsTouchingReferenceRuns(
+    candidateRuns: Sequence[tuple[int, int]],
+    referenceRuns: Sequence[tuple[int, int]],
+    intervals: npt.ArrayLike,
+    ends: npt.ArrayLike,
+) -> list[tuple[int, int]]:
+    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+    ends_ = np.asarray(ends, dtype=np.int64).ravel()
+    if intervals_.size != ends_.size:
+        raise ValueError("`intervals` and `ends` must match length")
+    candidateRuns_ = _validatedOrderedRuns(
+        "candidate runs",
+        candidateRuns,
+        intervals_.size,
+    )
+    referenceRuns_ = _validatedOrderedRuns(
+        "reference runs",
+        referenceRuns,
+        intervals_.size,
+    )
+    touchingRuns: list[tuple[int, int]] = []
+    referenceIndex = 0
+    for candidateStart, candidateEnd in candidateRuns_:
+        candidateStartBP = int(intervals_[candidateStart])
+        candidateEndBP = int(ends_[candidateEnd])
+        while (
+            referenceIndex < len(referenceRuns_)
+            and int(ends_[referenceRuns_[referenceIndex][1]])
+            < candidateStartBP
+        ):
+            referenceIndex += 1
+        if (
+            referenceIndex < len(referenceRuns_)
+            and int(intervals_[referenceRuns_[referenceIndex][0]])
+            <= candidateEndBP
+        ):
+            touchingRuns.append((candidateStart, candidateEnd))
+    return touchingRuns
+
+
 def _mergeBroadRunsByObjective(
     runs: Sequence[Tuple[int, int]],
     scores: np.ndarray,
@@ -1522,10 +1580,8 @@ def _mergeBroadRunsByObjective(
     maxRegionBP_ = int(maxRegionBP)
     if mergeToleranceBP_ <= 0 or maxRegionBP_ <= 0:
         raise ValueError("broad merge sizes must be positive")
-    atomicRuns = [(int(start), int(end)) for start, end in runs]
+    atomicRuns = _validatedOrderedRuns("broad atomic runs", runs, scores_.size)
     for start, end in atomicRuns:
-        if start < 0 or end < start or end >= scores_.size:
-            raise ValueError("broad atomic run indices are invalid")
         if int(ends_[end]) - int(intervals_[start]) > maxRegionBP_:
             raise RuntimeError("atomic broad run exceeds `maxRegionBP`")
     if not atomicRuns:
@@ -1578,68 +1634,54 @@ def _mergeBroadRunsByObjective(
         chainRuns = atomicRuns[first:stop]
         chainGains = edgeGains[first : stop - 1]
         m = len(chainRuns)
-        prefix = [0.0]
-        for gain in chainGains:
-            prefix.append(float(prefix[-1] + gain))
-        utilities = [-math.inf] * (m + 1)
-        groups = [m + 1] * (m + 1)
+        edgePrefix = np.empty(m, dtype=np.float64)
+        edgePrefix[0] = 0.0
+        for index, gain in enumerate(chainGains, start=1):
+            edgePrefix[index] = float(edgePrefix[index - 1] + gain)
+        utilities = np.full(m + 1, -math.inf, dtype=np.float64)
+        groups = np.full(m + 1, m + 1, dtype=np.int64)
+        predecessors = np.full(m + 1, -1, dtype=np.int64)
         utilities[0] = 0.0
         groups[0] = 0
+        candidates = deque([0])
         for j in range(1, m + 1):
-            for k in range(j):
-                if int(ends_[chainRuns[j - 1][1]]) - int(
-                    intervals_[chainRuns[k][0]]
-                ) > maxRegionBP_:
-                    continue
-                if not np.isfinite(utilities[k]):
-                    continue
-                utility = float(utilities[k] + prefix[j - 1] - prefix[k])
-                groupCount = int(groups[k] + 1)
-                if (
-                    utility > utilities[j]
-                    or (utility == utilities[j] and groupCount < groups[j])
-                ):
-                    utilities[j] = utility
-                    groups[j] = groupCount
-            if not np.isfinite(utilities[j]):
+            groupEndBP = int(ends_[chainRuns[j - 1][1]])
+            while candidates and groupEndBP - int(
+                intervals_[chainRuns[candidates[0]][0]]
+            ) > maxRegionBP_:
+                candidates.popleft()
+            if not candidates:
                 raise RuntimeError("no feasible broad partition")
-
-        canReach = [False] * (m + 1)
-        canReach[m] = True
-        for k in range(m - 1, -1, -1):
-            for j in range(k + 1, m + 1):
-                if not canReach[j]:
-                    continue
-                if int(ends_[chainRuns[j - 1][1]]) - int(
-                    intervals_[chainRuns[k][0]]
-                ) > maxRegionBP_:
-                    continue
-                utility = float(utilities[k] + prefix[j - 1] - prefix[k])
-                if utility == utilities[j] and groups[k] + 1 == groups[j]:
-                    canReach[k] = True
-                    break
-        if not canReach[0]:
-            raise RuntimeError("no optimal broad partition path")
+            predecessor = int(candidates[0])
+            utilities[j] = float(
+                edgePrefix[j - 1]
+                + float(utilities[predecessor] - edgePrefix[predecessor])
+            )
+            groups[j] = int(groups[predecessor] + 1)
+            predecessors[j] = predecessor
+            if j < m:
+                candidateValue = float(utilities[j] - edgePrefix[j])
+                while candidates:
+                    tail = int(candidates[-1])
+                    tailValue = float(utilities[tail] - edgePrefix[tail])
+                    if candidateValue > tailValue or (
+                        candidateValue == tailValue
+                        and int(groups[j]) < int(groups[tail])
+                    ):
+                        candidates.pop()
+                    else:
+                        break
+                candidates.append(j)
 
         out: List[Tuple[int, int]] = []
-        k = 0
-        while k < m:
-            for j in range(k + 1, m + 1):
-                if not canReach[j]:
-                    continue
-                if int(ends_[chainRuns[j - 1][1]]) - int(
-                    intervals_[chainRuns[k][0]]
-                ) > maxRegionBP_:
-                    continue
-                utility = float(utilities[k] + prefix[j - 1] - prefix[k])
-                if utility == utilities[j] and groups[k] + 1 == groups[j]:
-                    out.append(
-                        (int(chainRuns[k][0]), int(chainRuns[j - 1][1]))
-                    )
-                    k = j
-                    break
-            else:
+        j = m
+        while j > 0:
+            k = int(predecessors[j])
+            if k < 0 or k >= j:
                 raise RuntimeError("no optimal broad partition path")
+            out.append((int(chainRuns[k][0]), int(chainRuns[j - 1][1])))
+            j = k
+        out.reverse()
         return out, float(utilities[m])
 
     mergedRuns: List[Tuple[int, int]] = []
@@ -1787,22 +1829,16 @@ def _parentConditionedSubpeakObjective(
 
 def _empiricalReplaySegmentPValues(
     observedStats: npt.ArrayLike,
-    nullStatsByDraw: Iterable[npt.ArrayLike],
+    sortedNullStats: npt.ArrayLike,
 ) -> np.ndarray:
     observed = np.asarray(observedStats, dtype=np.float64).ravel()
-    nullParts: List[np.ndarray] = []
-    for draw in nullStatsByDraw:
-        draw_ = np.asarray(draw, dtype=np.float64).ravel()
-        if draw_.size > 0:
-            nullParts.append(draw_)
+    nullStats = np.asarray(sortedNullStats, dtype=np.float64).ravel()
     if observed.size == 0:
         return np.asarray([], dtype=np.float64)
-    if len(nullParts) == 0:
+    if nullStats.size == 0:
         return np.ones(observed.size, dtype=np.float64)
-    nullStats = np.concatenate(nullParts)
     if not np.all(np.isfinite(observed)) or not np.all(np.isfinite(nullStats)):
         raise ValueError("replay segment statistics contain non-finite values")
-    nullStats.sort()
     denominator = float(nullStats.size + 1)
     tailStarts = np.searchsorted(nullStats, observed, side="left")
     out = (1.0 + (nullStats.size - tailStarts).astype(np.float64)) / denominator
@@ -1811,55 +1847,48 @@ def _empiricalReplaySegmentPValues(
 
 def _replayFDRQValues(
     observedStats: npt.ArrayLike,
-    nullStatsByDraw: Iterable[npt.ArrayLike],
+    sortedNullStatsByDraw: Iterable[npt.ArrayLike],
 ) -> np.ndarray:
     observed = np.asarray(observedStats, dtype=np.float64).ravel()
     if observed.size == 0:
         return np.asarray([], dtype=np.float64)
     nullDraws = [
         np.asarray(draw, dtype=np.float64).ravel()
-        for draw in nullStatsByDraw
+        for draw in sortedNullStatsByDraw
     ]
     if not np.all(np.isfinite(observed)) or any(
         not np.all(np.isfinite(draw)) for draw in nullDraws
     ):
         raise ValueError("replay FDR statistics contain non-finite values")
-    for draw in nullDraws:
-        draw.sort()
     statsSorted = np.sort(observed)
     order = np.argsort(-observed, kind="mergesort")
-    rawFdr = np.ones(observed.size, dtype=np.float64)
-    replayPseudocount = 1.0 / float(len(nullDraws) + 1) if len(nullDraws) > 0 else 1.0
-    for rank, idx in enumerate(order):
-        threshold = float(observed[idx])
-        observedAtThreshold = int(
-            statsSorted.size
-            - np.searchsorted(statsSorted, threshold, side="left")
-        )
-        expectedNull = float(
-            np.mean(
-                [
-                    draw.size - np.searchsorted(draw, threshold, side="left")
-                    for draw in nullDraws
-                ]
+    thresholds = observed[order]
+    observedAtThreshold = (
+        statsSorted.size
+        - np.searchsorted(statsSorted, thresholds, side="left")
+    )
+    replayPseudocount = (
+        1.0 / float(len(nullDraws) + 1) if len(nullDraws) > 0 else 1.0
+    )
+    expectedNull = np.zeros(observed.size, dtype=np.float64)
+    if nullDraws:
+        nullAtThreshold = np.zeros(observed.size, dtype=np.int64)
+        for draw in nullDraws:
+            nullAtThreshold += draw.size - np.searchsorted(
+                draw,
+                thresholds,
+                side="left",
             )
-            if len(nullDraws) > 0
-            else 0.0
-        )
-        rawFdr[rank] = float(
-            np.clip(
-                (expectedNull + replayPseudocount)
-                / float(max(observedAtThreshold, 1)),
-                0.0,
-                1.0,
-            )
-        )
+        expectedNull = nullAtThreshold.astype(np.float64) / float(len(nullDraws))
+    rawFdr = np.clip(
+        (expectedNull + replayPseudocount)
+        / np.maximum(observedAtThreshold, 1).astype(np.float64),
+        0.0,
+        1.0,
+    )
 
     qValues = np.ones(observed.size, dtype=np.float64)
-    running = 1.0
-    for rank in range(observed.size - 1, -1, -1):
-        running = min(running, float(rawFdr[rank]))
-        qValues[int(order[rank])] = float(running)
+    qValues[order] = np.minimum.accumulate(rawFdr[::-1])[::-1]
     return np.clip(qValues, 0.0, 1.0)
 
 
@@ -2119,21 +2148,14 @@ def _recordIndexBounds(
     return startIdx, endIdx
 
 
-def _scorePeakRecords(
-    records: Sequence[_peakRecord],
+def _buildCandidateReplayData(
     scores: npt.ArrayLike,
     prepared: Mapping[str, Any],
-    intervals: npt.ArrayLike,
-    ends: npt.ArrayLike,
     featureSpanBins: int,
     numRegionReplays: int,
     progressLabel: str | None = None,
-) -> Tuple[List[_peakRecord], Tuple[int, ...]]:
+) -> _candidateReplayData:
     scores_ = _asFloatVector("scores", scores)
-    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
-    ends_ = np.asarray(ends, dtype=np.int64).ravel()
-    if intervals_.size != scores_.size or ends_.size != scores_.size:
-        raise ValueError("`intervals`, `ends`, and `scores` must match length")
     thresholdViews = prepared.get("threshold_views")
     calibration = prepared.get("null_calibration")
     template = prepared.get("template")
@@ -2176,7 +2198,7 @@ def _scorePeakRecords(
         lowerSpan=int(morphology["lower"]),
         upperSpan=int(morphology["upper"]),
     )
-    observedCandidates = _multiscaleCandidateSegments(
+    dataCandidates = _multiscaleCandidateSegments(
         scores_,
         thresholdViews,
         scaleBins=scaleBins,
@@ -2184,38 +2206,19 @@ def _scorePeakRecords(
         maxSegments=_NULL_REPLAY_MAX_SEGMENTS,
         maxSegmentsPerView=_NULL_REPLAY_MAX_SEGMENTS_PER_VIEW,
     )
-    candidateStats: Dict[Tuple[int, int], float] = {}
-    for candidate in observedCandidates:
+    commonCandidateStats: dict[tuple[int, int], float] = {}
+    for candidate in dataCandidates:
         key = (int(candidate["start_idx"]), int(candidate["end_idx"]))
         statistic = float(candidate["score"])
-        if key not in candidateStats or statistic >= candidateStats[key]:
-            candidateStats[key] = statistic
-
-    recordBounds: List[Tuple[int, int]] = []
-    for record in records:
-        bounds = _recordIndexBounds(record, intervals_, ends_)
-        recordBounds.append(bounds)
-        statistic = float(
-            _bestSegmentScoreAcrossThresholdViews(
-                scores_,
-                bounds[0],
-                bounds[1],
-                thresholdViews,
-            )["score"]
-        )
-        if bounds not in candidateStats or statistic >= candidateStats[bounds]:
-            candidateStats[bounds] = statistic
-
-    orderedBounds = sorted(candidateStats)
-    observedStats = np.asarray(
-        [candidateStats[bounds] for bounds in orderedBounds],
-        dtype=np.float64,
-    )
-    candidateIndex = {bounds: index for index, bounds in enumerate(orderedBounds)}
+        if (
+            key not in commonCandidateStats
+            or statistic >= commonCandidateStats[key]
+        ):
+            commonCandidateStats[key] = statistic
     replayViews = _thresholdViewsForNullReplay(thresholdViews)
     rng = np.random.default_rng(randomSeed)
-    nullStatsByDraw: List[np.ndarray] = []
-    nullCandidateCounts: List[int] = []
+    nullStatsByDraw: list[np.ndarray] = []
+    nullCandidateCounts: list[int] = []
     replayTotal = int(numRegionReplays)
     replayMarks = {
         int(math.ceil(replayTotal * fraction / 4.0)) for fraction in range(1, 5)
@@ -2244,6 +2247,8 @@ def _scorePeakRecords(
             [float(candidate["score"]) for candidate in nullCandidates],
             dtype=np.float64,
         )
+        drawStats.sort()
+        drawStats.setflags(write=False)
         nullStatsByDraw.append(drawStats)
         nullCandidateCounts.append(int(drawStats.size))
         replayDone = drawIndex + 1
@@ -2260,9 +2265,64 @@ def _scorePeakRecords(
                 },
             )
 
-    pValues = _empiricalReplaySegmentPValues(observedStats, nullStatsByDraw)
+    nonemptyNullStats = [draw for draw in nullStatsByDraw if draw.size > 0]
+    pooledNullStats = (
+        np.concatenate(nonemptyNullStats)
+        if nonemptyNullStats
+        else np.asarray([], dtype=np.float64)
+    )
+    pooledNullStats.sort()
+    pooledNullStats.setflags(write=False)
+    return _candidateReplayData(
+        thresholdViews=thresholdViews,
+        commonCandidateStats=tuple(sorted(commonCandidateStats.items())),
+        nullStatsByDraw=tuple(nullStatsByDraw),
+        pooledNullStats=pooledNullStats,
+        nullCandidateCounts=tuple(nullCandidateCounts),
+    )
+
+
+def _scorePeakRecords(
+    records: Sequence[_peakRecord],
+    scores: npt.ArrayLike,
+    replayData: _candidateReplayData,
+    intervals: npt.ArrayLike,
+    ends: npt.ArrayLike,
+) -> list[_peakRecord]:
+    scores_ = _asFloatVector("scores", scores)
+    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+    ends_ = np.asarray(ends, dtype=np.int64).ravel()
+    if intervals_.size != scores_.size or ends_.size != scores_.size:
+        raise ValueError("`intervals`, `ends`, and `scores` must match length")
+    thresholdViews = replayData.thresholdViews
+    candidateStats = dict(replayData.commonCandidateStats)
+    recordBounds: list[tuple[int, int]] = []
+    for record in records:
+        bounds = _recordIndexBounds(record, intervals_, ends_)
+        recordBounds.append(bounds)
+        statistic = float(
+            _bestSegmentScoreAcrossThresholdViews(
+                scores_,
+                bounds[0],
+                bounds[1],
+                thresholdViews,
+            )["score"]
+        )
+        if bounds not in candidateStats or statistic >= candidateStats[bounds]:
+            candidateStats[bounds] = statistic
+
+    orderedBounds = sorted(candidateStats)
+    observedStats = np.asarray(
+        [candidateStats[bounds] for bounds in orderedBounds],
+        dtype=np.float64,
+    )
+    candidateIndex = {bounds: index for index, bounds in enumerate(orderedBounds)}
+    pValues = _empiricalReplaySegmentPValues(
+        observedStats,
+        replayData.pooledNullStats,
+    )
     qValues = np.maximum(
-        _replayFDRQValues(observedStats, nullStatsByDraw),
+        _replayFDRQValues(observedStats, replayData.nullStatsByDraw),
         pValues,
     )
     scored = [
@@ -2272,7 +2332,7 @@ def _scorePeakRecords(
         )
         for record, bounds in zip(records, recordBounds)
     ]
-    return scored, tuple(nullCandidateCounts)
+    return scored
 
 
 def _solveParentConditionedSubpeaks(
@@ -2293,141 +2353,14 @@ def _solveParentConditionedSubpeaks(
     if requiredBin is not None and (requiredBin < 0 or requiredBin >= n):
         raise ValueError("`requiredIndex` is outside `scores`")
     minRunBins_ = int(min(max(int(minRunBins), 1), n))
-    numStates = int(minRunBins_ + 1)
-    negInf = -math.inf
-    eps = 1.0e-12
-    largeCount = n + 1
-
-    prevValues = np.full(numStates, negInf, dtype=np.float64)
-    prevCounts = np.full(numStates, largeCount, dtype=np.int64)
-    prevValues[0] = 0.0
-    prevCounts[0] = 0
-    backState = np.full((n, numStates), -1, dtype=np.int16)
-
-    def _better(
-        value: float,
-        count: int,
-        bestValue: float,
-        bestCount: int,
-    ) -> bool:
-        if value > bestValue + eps:
-            return True
-        if abs(value - bestValue) <= eps and count < bestCount:
-            return True
-        return False
-
-    def _update(
-        values: np.ndarray,
-        counts: np.ndarray,
-        newState: int,
-        value: float,
-        count: int,
-        prevState: int,
-        i: int,
-    ) -> None:
-        if _better(
-            float(value),
-            int(count),
-            float(values[newState]),
-            int(counts[newState]),
-        ):
-            values[newState] = float(value)
-            counts[newState] = int(count)
-            backState[i, newState] = int(prevState)
-
-    for i in range(n):
-        adjustedScore = float(scores_[i] - penalty_)
-        newValues = np.full(numStates, negInf, dtype=np.float64)
-        newCounts = np.full(numStates, largeCount, dtype=np.int64)
-        transitionCost = float(costs_[i])
-        forceOn = bool(requiredBin is not None and i == requiredBin)
-
-        if not forceOn:
-            if np.isfinite(prevValues[0]):
-                _update(
-                    newValues,
-                    newCounts,
-                    0,
-                    float(prevValues[0]),
-                    int(prevCounts[0]),
-                    0,
-                    i,
-                )
-            if np.isfinite(prevValues[minRunBins_]):
-                _update(
-                    newValues,
-                    newCounts,
-                    0,
-                    float(prevValues[minRunBins_] - transitionCost),
-                    int(prevCounts[minRunBins_]),
-                    minRunBins_,
-                    i,
-                )
-
-        if np.isfinite(prevValues[0]):
-            _update(
-                newValues,
-                newCounts,
-                1,
-                float(
-                    prevValues[0]
-                    - transitionCost
-                    - runPenalty_
-                    + adjustedScore
-                ),
-                int(prevCounts[0] + 1),
-                0,
-                i,
-            )
-        for state in range(1, minRunBins_):
-            if not np.isfinite(prevValues[state]):
-                continue
-            _update(
-                newValues,
-                newCounts,
-                state + 1,
-                float(prevValues[state] + adjustedScore),
-                int(prevCounts[state] + 1),
-                state,
-                i,
-            )
-        if np.isfinite(prevValues[minRunBins_]):
-            _update(
-                newValues,
-                newCounts,
-                minRunBins_,
-                float(prevValues[minRunBins_] + adjustedScore),
-                int(prevCounts[minRunBins_] + 1),
-                minRunBins_,
-                i,
-            )
-
-        prevValues = newValues
-        prevCounts = newCounts
-
-    finalCandidates = [
-        (float(prevValues[0]), int(prevCounts[0]), 0),
-        (
-            float(prevValues[minRunBins_] - costs_[n]),
-            int(prevCounts[minRunBins_]),
-            minRunBins_,
-        ),
-    ]
-    bestValue, bestCount, bestState = max(
-        finalCandidates,
-        key=lambda item: (item[0], -item[1]),
+    mask = cconsenrich.cSolveParentConditionedSubpeaks(
+        scores_,
+        costs_,
+        penalty_,
+        minRunBins_,
+        requiredBin,
+        runPenalty_,
     )
-    if not np.isfinite(bestValue):
-        raise RuntimeError("parent-conditioned subpeak DP found no feasible path")
-    mask = np.zeros(n, dtype=bool)
-    state = int(bestState)
-    for i in range(n - 1, -1, -1):
-        if state > 0:
-            mask[i] = True
-        prevState = int(backState[i, state])
-        if prevState < 0:
-            break
-        state = prevState
     (
         objective,
         penalizedObjective,
@@ -2776,26 +2709,73 @@ def _readAlignedConsenrichBedGraphs(
     return out
 
 
-def _regionalMeanSignal(
-    intervals: npt.ArrayLike,
-    ends: npt.ArrayLike,
+def _buildRegionalSignalPrefix(
+    coverageWeights: npt.ArrayLike,
     signal: npt.ArrayLike,
-    startBP: int,
-    endBP: int,
+) -> _regionalSignalPrefix:
+    coverageWeights_ = np.asarray(coverageWeights)
+    if coverageWeights_.ndim != 1:
+        raise ValueError("`coverageWeights` must be one-dimensional")
+    if coverageWeights_.size == 0:
+        raise ValueError("`coverageWeights` must be non-empty")
+    if not np.issubdtype(coverageWeights_.dtype, np.integer):
+        raise ValueError("coverageWeights must contain integer BP widths")
+    coverageWeights_ = coverageWeights_.astype(np.int64, copy=False)
+    signal_ = _asFloatVector("exportSignal", signal)
+    if coverageWeights_.size != signal_.size:
+        raise ValueError("coverageWeights and exportSignal must match length")
+    if np.any(coverageWeights_ <= 0.0):
+        raise ValueError("coverageWeights must be positive")
+    coveredBPPrefix = np.empty(coverageWeights_.size + 1, dtype=np.int64)
+    coveredBPPrefix[0] = 0
+    np.cumsum(coverageWeights_, dtype=np.int64, out=coveredBPPrefix[1:])
+    totalCoveredBP = int(coveredBPPrefix[-1])
+    signalAnchor = float(
+        np.dot(coverageWeights_, signal_) / float(totalCoveredBP)
+    )
+    centeredSignalMassPrefix = np.empty(
+        coverageWeights_.size + 1,
+        dtype=np.float64,
+    )
+    centeredSignalMassPrefix[0] = 0.0
+    np.subtract(signal_, signalAnchor, out=centeredSignalMassPrefix[1:])
+    np.multiply(
+        centeredSignalMassPrefix[1:],
+        coverageWeights_,
+        out=centeredSignalMassPrefix[1:],
+    )
+    np.cumsum(
+        centeredSignalMassPrefix[1:],
+        out=centeredSignalMassPrefix[1:],
+    )
+    return _regionalSignalPrefix(
+        coveredBPPrefix=coveredBPPrefix,
+        centeredSignalMassPrefix=centeredSignalMassPrefix,
+        signalAnchor=signalAnchor,
+    )
+
+
+def _regionalMeanSignal(
+    signalPrefix: _regionalSignalPrefix,
+    startIdx: int,
+    endIdx: int,
 ) -> float:
-    intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
-    ends_ = np.asarray(ends, dtype=np.int64).ravel()
-    signal_ = np.asarray(signal, dtype=np.float64).ravel()
-    if intervals_.size != ends_.size or intervals_.size != signal_.size:
-        raise ValueError("intervals, ends, and signal must match length")
-    weights = np.maximum(
-        np.minimum(ends_, int(endBP)) - np.maximum(intervals_, int(startBP)),
-        0,
-    ).astype(np.float64)
-    coveredBP = float(np.sum(weights))
+    startIdx_ = int(startIdx)
+    endIdx_ = int(endIdx)
+    size = int(signalPrefix.coveredBPPrefix.size - 1)
+    if startIdx_ < 0 or endIdx_ < startIdx_ or endIdx_ >= size:
+        raise ValueError("regional signal indices are invalid")
+    coveredBP = float(
+        signalPrefix.coveredBPPrefix[endIdx_ + 1]
+        - signalPrefix.coveredBPPrefix[startIdx_]
+    )
     if coveredBP <= 0.0:
         raise RuntimeError("peak region has zero covered BP")
-    return float(np.dot(weights, signal_) / coveredBP)
+    centeredSignalMass = float(
+        signalPrefix.centeredSignalMassPrefix[endIdx_ + 1]
+        - signalPrefix.centeredSignalMassPrefix[startIdx_]
+    )
+    return float(signalPrefix.signalAnchor + centeredSignalMass / coveredBP)
 
 
 def _narrowRecordsFromSolution(
@@ -2805,6 +2785,7 @@ def _narrowRecordsFromSolution(
     signal: npt.ArrayLike,
     scores: npt.ArrayLike,
     solution: npt.ArrayLike,
+    signalPrefix: _regionalSignalPrefix,
 ) -> List[_peakRecord]:
     intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
     ends_ = np.asarray(ends, dtype=np.int64).ravel()
@@ -2819,6 +2800,8 @@ def _narrowRecordsFromSolution(
         == solution_.size
     ):
         raise ValueError("narrow record inputs must match length")
+    if signalPrefix.coveredBPPrefix.size != signal_.size + 1:
+        raise ValueError("regional signal prefix does not match input length")
     records: List[_peakRecord] = []
     for startIdx, endIdx in _selectedCoordinateRunBounds(
         solution_, intervals_, ends_
@@ -2838,9 +2821,7 @@ def _narrowRecordsFromSolution(
                 summitBP=summitBP,
                 family="narrow",
                 rawScore=float(np.max(scores_[startIdx : endIdx + 1])),
-                signalValue=_regionalMeanSignal(
-                    intervals_, ends_, signal_, startBP, endBP
-                ),
+                signalValue=_regionalMeanSignal(signalPrefix, startIdx, endIdx),
                 pValue=1.0,
                 qValue=1.0,
                 blocks=((startBP, endBP),),
@@ -2858,6 +2839,7 @@ def _broadRecordsFromRuns(
     parentRuns: Sequence[Tuple[int, int]],
     supportRuns: Sequence[Tuple[int, int]],
     blockRuns: Sequence[Tuple[int, int]],
+    signalPrefix: _regionalSignalPrefix,
 ) -> List[_peakRecord]:
     intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
     ends_ = np.asarray(ends, dtype=np.int64).ravel()
@@ -2865,27 +2847,65 @@ def _broadRecordsFromRuns(
     scores_ = np.asarray(scores, dtype=np.float64).ravel()
     if not (intervals_.size == ends_.size == signal_.size == scores_.size):
         raise ValueError("broad record inputs must match length")
+    if signalPrefix.coveredBPPrefix.size != signal_.size + 1:
+        raise ValueError("regional signal prefix does not match input length")
+    parentRuns_ = _validatedOrderedRuns(
+        "broad parent runs",
+        parentRuns,
+        scores_.size,
+    )
+    supportRuns_ = _validatedOrderedRuns(
+        "broad support runs",
+        supportRuns,
+        scores_.size,
+    )
+    blockRuns_ = _validatedOrderedRuns(
+        "broad block runs",
+        blockRuns,
+        scores_.size,
+    )
     records: List[_peakRecord] = []
-    for parentStartIdx, parentEndIdx in parentRuns:
-        overlappingSupportRuns = [
-            (int(startIdx), int(endIdx))
-            for startIdx, endIdx in supportRuns
-            if endIdx >= parentStartIdx and startIdx <= parentEndIdx
-        ]
+    supportLeft = 0
+    supportRight = 0
+    blockLeft = 0
+    blockRight = 0
+    for parentStartIdx, parentEndIdx in parentRuns_:
+        while (
+            supportLeft < len(supportRuns_)
+            and supportRuns_[supportLeft][1] < parentStartIdx
+        ):
+            supportLeft += 1
+        supportRight = max(supportRight, supportLeft)
+        while (
+            supportRight < len(supportRuns_)
+            and supportRuns_[supportRight][0] <= parentEndIdx
+        ):
+            supportRight += 1
+        overlappingSupportRuns = supportRuns_[supportLeft:supportRight]
         if not overlappingSupportRuns:
             raise RuntimeError("broad parent has no support blocks")
         startBP = int(intervals_[overlappingSupportRuns[0][0]])
         endBP = int(ends_[overlappingSupportRuns[-1][1]])
-        firstIdx = min(startIdx for startIdx, _endIdx in overlappingSupportRuns)
-        lastIdx = max(endIdx for _startIdx, endIdx in overlappingSupportRuns)
-        blockCoordinates = sorted(
+        firstIdx = int(overlappingSupportRuns[0][0])
+        lastIdx = int(overlappingSupportRuns[-1][1])
+        while (
+            blockLeft < len(blockRuns_)
+            and blockRuns_[blockLeft][1] < parentStartIdx
+        ):
+            blockLeft += 1
+        blockRight = max(blockRight, blockLeft)
+        while (
+            blockRight < len(blockRuns_)
+            and blockRuns_[blockRight][0] <= parentEndIdx
+        ):
+            blockRight += 1
+        blockCoordinates = [
             (
                 int(intervals_[max(int(startIdx), int(parentStartIdx))]),
                 int(ends_[min(int(endIdx), int(parentEndIdx))]),
             )
-            for startIdx, endIdx in blockRuns
-            if endIdx >= parentStartIdx and startIdx <= parentEndIdx
-        )
+            for startIdx, endIdx in blockRuns_[blockLeft:blockRight]
+        ]
         blocks: List[Tuple[int, int]] = []
         for blockStart, blockEnd in blockCoordinates:
             if blocks and blockStart <= blocks[-1][1]:
@@ -2910,9 +2930,7 @@ def _broadRecordsFromRuns(
                 summitBP=summitBP,
                 family="broad",
                 rawScore=float(np.mean(scores_[firstIdx : lastIdx + 1])),
-                signalValue=_regionalMeanSignal(
-                    intervals_, ends_, signal_, startBP, endBP
-                ),
+                signalValue=_regionalMeanSignal(signalPrefix, firstIdx, lastIdx),
                 pValue=1.0,
                 qValue=1.0,
                 blocks=tuple(blocks),
@@ -3696,6 +3714,10 @@ def solveRocco(
                 intervals,
                 ends,
             )
+            regionalSignalPrefix = _buildRegionalSignalPrefix(
+                ends - intervals,
+                exportSignal,
+            )
             prepared["null_calibration"] = {
                 **dict(prepared["null_calibration"]),
                 "segment_offsets": segmentOffsets,
@@ -3793,6 +3815,7 @@ def solveRocco(
                     exportSignal,
                     scoreTrack,
                     solution_,
+                    regionalSignalPrefix,
                 )
             if broadEnabled:
                 assert weakView is not None
@@ -3804,13 +3827,13 @@ def solveRocco(
                     weakSupportMask, intervals, ends
                 )
                 supportMask = solution_.copy()
-                for weakStart, weakEnd in weakRuns:
-                    if any(
-                        int(ends[weakEnd]) >= int(intervals[strongStart])
-                        and int(intervals[weakStart]) <= int(ends[strongEnd])
-                        for strongStart, strongEnd in strongRuns
-                    ):
-                        supportMask[weakStart : weakEnd + 1] = 1
+                for weakStart, weakEnd in _runsTouchingReferenceRuns(
+                    weakRuns,
+                    strongRuns,
+                    intervals,
+                    ends,
+                ):
+                    supportMask[weakStart : weakEnd + 1] = 1
                 supportRuns = _selectedCoordinateRunBounds(
                     supportMask, intervals, ends
                 )
@@ -3841,8 +3864,10 @@ def solveRocco(
                     parentRuns,
                     supportRuns,
                     strongRuns,
+                    regionalSignalPrefix,
                 )
 
+            del regionalSignalPrefix
             calledNarrow = len(narrowChromRecords)
             calledBroad = len(broadChromRecords)
             narrowChromRecords = _filterPeakRecordsByUncertainty(
@@ -3868,19 +3893,24 @@ def solveRocco(
                 broadChromRecords, blacklistByChrom
             )
 
+            replayData = _buildCandidateReplayData(
+                scoreTrack,
+                prepared,
+                featureSpanBins,
+                numRegionReplays_,
+                progressLabel=chromosomeLabel,
+            )
             narrowReplayCounts: Tuple[int, ...] = ()
             broadReplayCounts: Tuple[int, ...] = ()
             if peakMode_ in {"narrow", "both"}:
-                narrowChromRecords, narrowReplayCounts = _scorePeakRecords(
+                narrowChromRecords = _scorePeakRecords(
                     narrowChromRecords,
                     scoreTrack,
-                    prepared,
+                    replayData,
                     intervals,
                     ends,
-                    featureSpanBins,
-                    numRegionReplays_,
-                    progressLabel=f"{chromosomeLabel} narrow",
                 )
+                narrowReplayCounts = replayData.nullCandidateCounts
                 if minMeanSignal_ is not None:
                     narrowChromRecords = [
                         record
@@ -3889,16 +3919,14 @@ def solveRocco(
                     ]
                 narrowRows.extend(_narrowPeakRows(narrowChromRecords))
             if broadEnabled:
-                broadChromRecords, broadReplayCounts = _scorePeakRecords(
+                broadChromRecords = _scorePeakRecords(
                     broadChromRecords,
                     scoreTrack,
-                    prepared,
+                    replayData,
                     intervals,
                     ends,
-                    featureSpanBins,
-                    numRegionReplays_,
-                    progressLabel=f"{chromosomeLabel} broad",
                 )
+                broadReplayCounts = replayData.nullCandidateCounts
                 if minMeanSignal_ is not None:
                     broadChromRecords = [
                         record
