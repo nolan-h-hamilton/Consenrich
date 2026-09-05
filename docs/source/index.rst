@@ -28,7 +28,7 @@ Consenrich estimates regulatory signals from multi-sample functional genomics da
    * - Resource
      - Link
    * - Manuscript Preprint
-     - `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_
+     - `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v3>`_
    * - Source Code
      - `GitHub <https://github.com/nolan-h-hamilton/Consenrich>`_
    * - Documentation, Examples, etc.
