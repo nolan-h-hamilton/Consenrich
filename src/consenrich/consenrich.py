@@ -42,8 +42,9 @@ from .io import (
     _listOrEmpty,
     _prepareFragmentsNormalizationMetadata,
     _resolveExtendFrom5pBPPairs,
-    _sortBedGraphInPlace,
+    _reorderBedGraphChunks,
     _validateBedGraphSorted,
+    _writeBedGraphChunk,
     checkControlsPresent,
     checkMatchingEnabled,
     convertBedGraphToBigWig,
@@ -1487,14 +1488,16 @@ def _plotReplicateCalibration(
         markersize=5.0,
         label="replicate",
     )
-    gainAx.axhline(
-        1.0,
-        color=darkBlack,
-        linewidth=1.0,
-        alpha=0.75,
-        linestyle="--",
-        label="unit",
-    )
+    gainYMin, gainYMax = gainAx.get_ylim()
+    if gainYMin <= 1.0 <= gainYMax:
+        gainAx.axhline(
+            1.0,
+            color=darkBlack,
+            linewidth=1.0,
+            alpha=0.75,
+            linestyle="--",
+            label="unit",
+        )
     if plotGain.size <= 24:
         gainAx.set_xticks(x)
         gainAx.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
@@ -9277,6 +9280,7 @@ def main():
     if saveBackgroundTracks:
         bedGraphTracks.append(("background", "background"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
+    bedGraphChunkRanges = {suffix: {} for suffix in suffixes}
     bedGraphPlanChromOrder = [
         str(chromPlan["chromosome"]) for chromPlan in chromosomePlans
     ]
@@ -10254,17 +10258,11 @@ def main():
             blue=True,
         )
 
-        df = pd.DataFrame(
-            {
-                "Chromosome": chromosome,
-                "Start": intervals,
-                "End": intervals + intervalSizeBP,
-                "State": x_,
-            }
-        )
+        exportTracks = {"State": x_}
+        intervalEnds = intervals + intervalSizeBP
 
         if outputArgs.writeUncertainty and not segShrinkGenomeRequested:
-            df["uncertainty"] = uncertaintyTrack
+            exportTracks["uncertainty"] = uncertaintyTrack
         if stateDiagnosticTrackNames:
             outputTracks = (
                 precisionDiagnostics.get("outputTracks", {})
@@ -10310,7 +10308,7 @@ def main():
                         f"{chromosome}: expected {(len(intervals),)}, got "
                         f"{trackValues.shape}"
                     )
-                df[trackName] = trackValues
+                exportTracks[trackName] = trackValues
         if saveBackgroundTracks:
             if backgroundTrack is None or backgroundTrack.shape != (len(intervals),):
                 raise RuntimeError(
@@ -10318,7 +10316,7 @@ def main():
                     f"{chromosome}: expected {(len(intervals),)}, got "
                     f"{None if backgroundTrack is None else backgroundTrack.shape}"
                 )
-            df["background"] = backgroundTrack
+            exportTracks["background"] = backgroundTrack
 
         immediateBedGraphTracks = [
             (col, suffix)
@@ -10326,14 +10324,6 @@ def main():
             if suffix not in stateShrinkDeferredSuffixes
             and not (segShrinkGenomeRequested and suffix == "uncertainty")
         ]
-        cols_ = ["Chromosome", "Start", "End"] + [
-            column for column, _suffix in immediateBedGraphTracks
-        ]
-        df = df[cols_].sort_values(
-            by=["Start", "End"],
-            kind="mergesort",
-        )
-
         writeStart = time.perf_counter()
         tracksForChromosome = immediateBedGraphTracks
         for col, suffix in tracksForChromosome:
@@ -10345,15 +10335,15 @@ def main():
                 chromosome,
                 bedgraphPath,
             )
-            df[["Chromosome", "Start", "End", col]].to_csv(
+            _writeBedGraphChunk(
                 bedgraphPath,
-                sep="\t",
-                header=False,
-                index=False,
-                mode="w" if c_ == 0 else "a",
-                float_format="%.5f",
-                lineterminator="\n",
+                chromosome,
+                intervals,
+                intervalEnds,
+                exportTracks[col],
+                bedGraphChunkRanges[suffix],
             )
+        del exportTracks, intervalEnds
         chromosomeElapsed = time.perf_counter() - chromosomeStartTime
         outputElapsed = time.perf_counter() - writeStart
         logger.info(
@@ -10449,7 +10439,7 @@ def main():
                 f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
             )
         try:
-            for idx, item in enumerate(finalizedSegShrink):
+            for item in finalizedSegShrink:
                 chromosome = str(item["chromosome"])
                 intervals = np.asarray(item["intervals"], dtype=np.int64)
                 calibrated = np.asarray(item["calibrated"], dtype=np.float32)
@@ -10469,24 +10459,14 @@ def main():
                 itemDeleteBlockFields = _deleteBlockFactorSummaryFields(itemModel)
                 itemDeleteBlockLogFields = _deleteBlockFactorLogFields(itemModel)
                 if uncertaintyBedGraphPath is not None:
-                    dfUncertainty = pd.DataFrame(
-                        {
-                            "Chromosome": chromosome,
-                            "Start": intervals,
-                            "End": intervals + intervalSizeBP,
-                            "uncertainty": calibrated,
-                        }
-                    ).sort_values(by=["Start", "End"], kind="mergesort")
-                    dfUncertainty.to_csv(
+                    _writeBedGraphChunk(
                         uncertaintyBedGraphPath,
-                        sep="\t",
-                        header=False,
-                        index=False,
-                        mode="w" if idx == 0 else "a",
-                        float_format="%.5f",
-                        lineterminator="\n",
+                        chromosome,
+                        intervals,
+                        intervals + intervalSizeBP,
+                        calibrated,
+                        bedGraphChunkRanges["uncertainty"],
                     )
-                    del dfUncertainty
                 summaryRowIndex = item["summaryRowIndex"]
                 if 0 <= summaryRowIndex < len(runSummaryRows):
                     runSummaryRows[summaryRowIndex].update(itemDeleteBlockFields)
@@ -10692,7 +10672,7 @@ def main():
         )
         shrinkOutputTracks = _stateShrinkageOutputTracks(writeStateShrinkageTracks)
         try:
-            for idx, item in enumerate(stateShrinkDeferred):
+            for item in stateShrinkDeferred:
                 chromosome = str(item["chromosome"])
                 intervalCount = int(item["intervals"])
                 intervals = np.arange(
@@ -10718,21 +10698,13 @@ def main():
                     runSummaryRows[summaryRowIndex].update(
                         _stateShrinkageSummaryFields(stateShrinkageResult.metadata)
                     )
-                dfShrink = pd.DataFrame(
-                    {
-                        "Chromosome": chromosome,
-                        "Start": intervals,
-                        "End": intervals + intervalSizeBP,
-                        "stateShrunk": stateShrinkageResult.shrunkState,
-                        "stateShrunkUncertainty": stateShrinkageResult.posteriorSd,
-                    }
-                )
+                shrinkTracks = {
+                    "stateShrunk": stateShrinkageResult.shrunkState,
+                    "stateShrunkUncertainty": stateShrinkageResult.posteriorSd,
+                }
                 if writeStateShrinkageTracks:
-                    dfShrink["stateSpikeProp"] = stateShrinkageResult.spikeProp
-                dfShrink = dfShrink.sort_values(
-                    by=["Start", "End"],
-                    kind="mergesort",
-                )
+                    shrinkTracks["stateSpikeProp"] = stateShrinkageResult.spikeProp
+                intervalEnds = intervals + intervalSizeBP
                 for col, suffix in shrinkOutputTracks:
                     bedgraphPath = (
                         f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
@@ -10742,18 +10714,17 @@ def main():
                         chromosome,
                         bedgraphPath,
                     )
-                    dfShrink[["Chromosome", "Start", "End", col]].to_csv(
+                    _writeBedGraphChunk(
                         bedgraphPath,
-                        sep="\t",
-                        header=False,
-                        index=False,
-                        mode="w" if idx == 0 else "a",
-                        float_format="%.5f",
-                        lineterminator="\n",
+                        chromosome,
+                        intervals,
+                        intervalEnds,
+                        shrinkTracks[col],
+                        bedGraphChunkRanges[suffix],
                     )
                 item.pop("state")
                 item.pop("variance")
-                del dfShrink, intervals, stateShrinkageResult
+                del shrinkTracks, intervals, intervalEnds, stateShrinkageResult
         finally:
             stateShrinkDeferred.clear()
             del item, stateShrinkItem
@@ -10872,23 +10843,11 @@ def main():
         bedgraphPath = (
             f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
-        try:
-            if bedGraphPlanOrderDiffers:
-                _sortBedGraphInPlace(bedgraphPath, chromOrder=bedGraphChromOrder)
-            _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
-            validatedBedGraphs.add(os.path.abspath(bedgraphPath))
-        except Exception as ex:
-            logger.warning(
-                "bedGraph %s failed genome-order validation; sorting as fallback:\n%s",
-                bedgraphPath,
-                ex,
-            )
-            try:
-                _sortBedGraphInPlace(bedgraphPath, chromOrder=bedGraphChromOrder)
-                _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
-                validatedBedGraphs.add(os.path.abspath(bedgraphPath))
-            except Exception as sortEx:
-                logger.warning(f"Failed to sort {bedgraphPath}:\n{sortEx}")
+        _reorderBedGraphChunks(
+            bedgraphPath, bedGraphChunkRanges[suffix], bedGraphChromOrder,
+        )
+        _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
+        validatedBedGraphs.add(os.path.abspath(bedgraphPath))
 
     if peakCallingEnabled:
         try:

@@ -4347,6 +4347,8 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
 
     saveCalls = []
     axisText = {"x": [], "y": [], "title": [], "figure": []}
+    gainAxisLimits = [(0.8, 1.4)]
+    unitLineCalls = []
     fakeMatplotlib = types.ModuleType("matplotlib")
     fakePyplot = types.ModuleType("matplotlib.pyplot")
 
@@ -4409,6 +4411,9 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         def set_ylim(self, *args, **kwargs):
             return None
 
+        def get_ylim(self):
+            return gainAxisLimits[0]
+
         def grid(self, *args, **kwargs):
             return None
 
@@ -4425,6 +4430,8 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             return (["handle"], ["label"])
 
         def axhline(self, *args, **kwargs):
+            if kwargs.get("label") == "unit":
+                unitLineCalls.append(args[0])
             return None
 
         def set_yscale(self, *args, **kwargs):
@@ -4502,13 +4509,17 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         )
         mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
         mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
-        assert (
-            consenrich_cli._plotReplicateCalibration(
-                gainPlotRows,
-                str(tmp_path / "replicate_calibration.png"),
+        for limits in ((0.8, 1.4), (0.001, 0.003), (4.0, 8.0)):
+            gainAxisLimits[0] = limits
+            unitLineCalls.clear()
+            assert (
+                consenrich_cli._plotReplicateCalibration(
+                    gainPlotRows,
+                    str(tmp_path / "replicate_calibration.png"),
+                )
+                is True
             )
-            is True
-        )
+            assert unitLineCalls == ([1.0] if limits[0] <= 1.0 <= limits[1] else [])
     assert saveCalls[-1] == (str(tmp_path / "replicate_calibration.png"), 400)
     with monkeypatch.context() as mp:
         fakePyplot.subplots = lambda *args, **kwargs: (

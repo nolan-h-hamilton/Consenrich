@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import glob
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -18,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 import consenrich.ccounts as ccounts
+from consenrich import cconsenrich
 import consenrich.constants as constants
 import consenrich.core as core
 import consenrich.misc_util as misc_util
@@ -630,6 +633,30 @@ def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:
     return chromSizes
 
 
+class _BedGraphDataReader:
+    def __init__(self, handle):
+        self.handle = handle
+        self.metadataPattern = re.compile(
+            r"(?m)^[^\S\r\n]*(?:#[^\r\n]*|(?:track|browser)(?: [^\r\n]*)?)"
+            r"[^\S\r\n]*(?=\r?$)"
+        )
+        self.whitespacePattern = re.compile(r"[^\S\t\r\n ]")
+
+    def read(self, size=-1):
+        text = self.handle.read(size)
+        if size >= 0 and text and not text.endswith("\n"):
+            text += self.handle.readline()
+        if "#" in text or "track" in text or "browser" in text:
+            text = self.metadataPattern.sub("", text)
+        if not text.isascii() or any(
+            character in text for character in "\v\f\x1c\x1d\x1e\x1f"
+        ):
+            text = self.whitespacePattern.sub(" ", text)
+        if "\0" in text:
+            raise ValueError("Malformed bedGraph text contains a NUL byte")
+        return text
+
+
 def _convertBedGraphToBigWigPyBigWig(
     bedgraphPath: str,
     chromSizesFile: str,
@@ -652,15 +679,16 @@ def _convertBedGraphToBigWigPyBigWig(
     )
     if len(chromSizes_) == 0:
         raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
-    chromSizeByName = dict(chromSizes_)
-    chromRankByName = {chrom: rank for rank, (chrom, _size) in enumerate(chromSizes_)}
+    chromNames = [chrom for chrom, _size in chromSizes_]
+    chromIndex = pd.Index(chromNames, dtype=object)
+    sizes = np.asarray([size for _chrom, size in chromSizes_], dtype=np.int64)
 
     chunkSize_ = max(int(chunkSize), 1)
     outDir = os.path.dirname(os.path.abspath(bigwigPath)) or "."
     tempPath = ""
     bw = None
     seenEntry = False
-    lastChrom = ""
+    lastRank = -1
     lastStart = -1
     lastEnd = -1
     try:
@@ -673,109 +701,109 @@ def _convertBedGraphToBigWigPyBigWig(
             tempPath = tempHandle.name
         bw = pyBigWig.open(tempPath, "w")
         bw.addHeader(chromSizes_)
-        chroms: List[str] = []
-        starts: List[int] = []
-        ends: List[int] = []
-        values: List[float] = []
-        with open(bedgraphPath, "r", encoding="utf-8") as handle:
-            for lineNumber, line in enumerate(handle, start=1):
-                stripped = line.strip()
-                if (
-                    not stripped
-                    or stripped.startswith("#")
-                    or stripped == "track"
-                    or stripped.startswith("track ")
-                    or stripped == "browser"
-                    or stripped.startswith("browser ")
-                ):
+        with (
+            open(bedgraphPath, "r", encoding="utf-8") as handle,
+            pd.read_csv(
+                _BedGraphDataReader(handle),
+                sep=r"\s+",
+                header=None,
+                names=["chrom", "start", "end", "value", "extra"],
+                index_col=False,
+                dtype=object,
+                chunksize=chunkSize_,
+                engine="c",
+                na_filter=False,
+                quoting=csv.QUOTE_NONE,
+                on_bad_lines="error",
+            ) as chunks,
+        ):
+            for frame in chunks:
+                if frame.empty:
                     continue
-                parts = stripped.split()
-                if len(parts) != 4:
+                if np.any(frame["extra"].to_numpy(copy=False) != ""):
                     raise ValueError(
-                        f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
-                        "expected 4 columns"
+                        f"Malformed bedGraph row in {bedgraphPath}: expected 4 columns"
                     )
-                chrom = str(parts[0])
-                if chrom not in chromSizeByName:
+                ranks = chromIndex.get_indexer(frame["chrom"])
+                unknown = np.flatnonzero(ranks < 0)
+                if unknown.size:
+                    chrom = frame["chrom"].iloc[int(unknown[0])]
                     raise ValueError(
-                        f"Chromosome {chrom} on bedGraph row {lineNumber} is not "
-                        f"present in {chromSizesFile}"
+                        f"Chromosome {chrom} in {bedgraphPath} is not present "
+                        f"in {chromSizesFile}"
                     )
                 try:
-                    start = int(parts[1])
-                    end = int(parts[2])
-                except ValueError as e:
+                    starts = frame["start"].to_numpy(dtype=np.int64)
+                    ends = frame["end"].to_numpy(dtype=np.int64)
+                except (ValueError, OverflowError) as e:
                     raise ValueError(
-                        f"Invalid bedGraph coordinates on row {lineNumber} in "
-                        f"{bedgraphPath}"
+                        f"Invalid bedGraph coordinates in {bedgraphPath}"
                     ) from e
                 try:
-                    value = float(parts[3])
+                    values = frame["value"].to_numpy(dtype=np.float64)
                 except ValueError as e:
                     raise ValueError(
-                        f"Invalid bedGraph value on row {lineNumber} in {bedgraphPath}"
+                        f"Invalid bedGraph value in {bedgraphPath}"
                     ) from e
-                if not np.isfinite(value):
+                if not np.all(np.isfinite(values)):
+                    raise ValueError(f"Non-finite bedGraph value in {bedgraphPath}")
+                if np.any(starts < 0):
+                    raise ValueError(f"Negative start coordinate in {bedgraphPath}")
+                if np.any(ends <= starts):
                     raise ValueError(
-                        f"Non-finite bedGraph value on row {lineNumber} in {bedgraphPath}"
+                        f"End coordinate must be greater than start in {bedgraphPath}"
                     )
-                if start < 0:
+                outside = np.flatnonzero(ends > sizes[ranks])
+                if outside.size:
+                    index = int(outside[0])
+                    chrom = chromNames[int(ranks[index])]
                     raise ValueError(
-                        f"Negative start coordinate on bedGraph row {lineNumber}"
+                        f"End coordinate {ends[index]} in {bedgraphPath} exceeds "
+                        f"{chrom} size of {sizes[ranks[index]]}"
                     )
-                if end <= start:
+                sameChrom = ranks[1:] == ranks[:-1]
+                if (
+                    ranks[0] < lastRank
+                    or (ranks[0] == lastRank and starts[0] < lastStart)
+                    or np.any(ranks[1:] < ranks[:-1])
+                    or np.any(sameChrom & (starts[1:] < starts[:-1]))
+                ):
                     raise ValueError(
-                        f"End coordinate must be greater than start on bedGraph row "
-                        f"{lineNumber}"
+                        f"bedGraph input is not sorted in {bedgraphPath}"
                     )
-                if end > chromSizeByName[chrom]:
+                if (
+                    (ranks[0] == lastRank and starts[0] < lastEnd)
+                    or np.any(sameChrom & (starts[1:] < ends[:-1]))
+                ):
                     raise ValueError(
-                        f"End coordinate {end} on bedGraph row {lineNumber} exceeds "
-                        f"{chrom} size of {chromSizeByName[chrom]}"
+                        f"Overlapping bedGraph interval in {bedgraphPath}"
                     )
-                chromRank = chromRankByName[chrom]
-                if seenEntry:
-                    lastRank = chromRankByName[lastChrom]
-                    if chromRank < lastRank or (
-                        chrom == lastChrom and start < lastStart
-                    ):
-                        raise ValueError(
-                            f"bedGraph input is not sorted at row {lineNumber}; sort "
-                            "by chromosome sizes order, then start/end"
-                        )
-                    if chrom == lastChrom and start < lastEnd:
-                        raise ValueError(
-                            f"Overlapping bedGraph interval at row {lineNumber}"
-                        )
-                chroms.append(chrom)
-                starts.append(start)
-                ends.append(end)
-                values.append(value)
+                bw.addEntries(
+                    frame["chrom"].tolist(),
+                    starts,
+                    ends=ends,
+                    values=values.astype(np.float32),
+                    validate=False,
+                )
                 seenEntry = True
-                lastChrom = chrom
-                lastStart = start
-                lastEnd = end
-                if len(chroms) >= chunkSize_:
-                    bw.addEntries(chroms, starts, ends=ends, values=values)
-                    chroms.clear()
-                    starts.clear()
-                    ends.clear()
-                    values.clear()
-        if len(chroms) > 0:
-            bw.addEntries(chroms, starts, ends=ends, values=values)
+                lastRank = int(ranks[-1])
+                lastStart = int(starts[-1])
+                lastEnd = int(ends[-1])
         if not seenEntry:
             raise ValueError(f"No bedGraph intervals found in {bedgraphPath}")
         bw.close()
         bw = None
         os.replace(tempPath, bigwigPath)
     finally:
-        if bw is not None:
-            bw.close()
-        if tempPath and os.path.exists(tempPath):
-            try:
-                os.remove(tempPath)
-            except OSError:
-                pass
+        try:
+            if bw is not None:
+                bw.close()
+        finally:
+            if tempPath and os.path.exists(tempPath):
+                try:
+                    os.remove(tempPath)
+                except OSError:
+                    pass
 
 
 def _validateBedGraphSorted(
@@ -874,6 +902,86 @@ def _validateBedGraphSorted(
             lastStart = start
             lastEnd = end
             lastRank = chromRank
+
+
+def _writeBedGraphChunk(
+    bedgraphPath: str,
+    chromosome: str,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    values: np.ndarray,
+    chunkRanges: dict[str, tuple[int, int]],
+) -> None:
+    if chromosome in chunkRanges:
+        raise ValueError(f"Duplicate bedGraph chromosome chunk: {chromosome}")
+    offset = os.path.getsize(bedgraphPath) if chunkRanges else 0
+    cconsenrich.cWriteBedGraph(
+        bedgraphPath,
+        chromosome,
+        np.asarray(starts, dtype=np.int64),
+        np.asarray(ends, dtype=np.int64),
+        np.asarray(values),
+        append=bool(chunkRanges),
+    )
+    chunkRanges[chromosome] = (offset, os.path.getsize(bedgraphPath) - offset)
+
+
+def _reorderBedGraphChunks(
+    bedgraphPath: str,
+    chunkRanges: dict[str, tuple[int, int]],
+    chromOrder: Sequence[str],
+) -> None:
+    if not chunkRanges:
+        raise ValueError("No bedGraph chromosome chunks were written")
+    if len(set(chromOrder)) != len(chromOrder):
+        raise ValueError("Chromosome order must not contain duplicates")
+    orderedChromosomes = [chrom for chrom in chromOrder if chrom in chunkRanges]
+    if len(orderedChromosomes) != len(chunkRanges):
+        raise ValueError("bedGraph chunks contain chromosomes absent from chromosome order")
+    expectedOffset = 0
+    for offset, length in chunkRanges.values():
+        if offset != expectedOffset or length < 0:
+            raise ValueError("bedGraph chromosome byte ranges must be contiguous")
+        expectedOffset += length
+    if expectedOffset != os.path.getsize(bedgraphPath):
+        raise ValueError("bedGraph chromosome byte ranges do not match file size")
+    if orderedChromosomes == list(chunkRanges):
+        return
+    tempPath = ""
+    buffer = bytearray(1024 * 1024)
+    view = memoryview(buffer)
+    try:
+        with open(bedgraphPath, "rb") as source, tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix="consenrich_reorder_",
+            suffix=".bedGraph",
+            dir=os.path.dirname(os.path.abspath(bedgraphPath)),
+            delete=False,
+        ) as output:
+            tempPath = output.name
+            for chromosome in orderedChromosomes:
+                offset, remaining = chunkRanges[chromosome]
+                source.seek(offset)
+                while remaining:
+                    count = source.readinto(view[:min(remaining, len(buffer))])
+                    if not count:
+                        raise ValueError("bedGraph chromosome byte range exceeds file size")
+                    if output.write(view[:count]) != count:
+                        raise OSError("Incomplete bedGraph chromosome chunk write")
+                    remaining -= count
+        os.chmod(tempPath, os.stat(bedgraphPath).st_mode & 0o7777)
+        os.replace(tempPath, bedgraphPath)
+        reorderedRanges = {}
+        offset = 0
+        for chromosome in orderedChromosomes:
+            length = chunkRanges[chromosome][1]
+            reorderedRanges[chromosome] = (offset, length)
+            offset += length
+        chunkRanges.clear()
+        chunkRanges.update(reorderedRanges)
+    finally:
+        if tempPath and os.path.exists(tempPath):
+            os.remove(tempPath)
 
 
 def _sortBedGraphInPlace(

@@ -20,10 +20,16 @@ from numpy.random import default_rng
 from numpy.random cimport bitgen_t
 from libc.math cimport isfinite, fabs, fma, hypot, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, erf, isnan, lgamma, nextafterf, NAN, INFINITY
 from libc.float cimport DBL_MIN
+from libc.errno cimport EIO, EOVERFLOW, errno
+from libc.locale cimport localeconv
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
-from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
+from libc.stdio cimport FILE, fclose, fopen, fwrite, snprintf, printf, fprintf, fflush, stdout, stderr
 from cython.parallel cimport prange
+
+cdef extern from "fenv.h" nogil:
+    int FE_TONEAREST
+    int fegetround()
 
 cdef extern from "htslib/hts.h":
     ctypedef struct htsFile
@@ -10839,3 +10845,103 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
         free(respScratch)
         free(logSlabScratch)
     return shrunkArr, posteriorSdArr, spikePropArr, slabMeanArr, slabWeightArr
+
+
+def cWriteBedGraph(
+    object path,
+    str chromosome not None,
+    const int64_t[:] starts not None,
+    const int64_t[:] ends not None,
+    const real_t[:] values not None,
+    bint append=False,
+):
+    cdef Py_ssize_t n = starts.shape[0]
+    cdef Py_ssize_t i
+    cdef bytes pathBytes = os.fsencode(path)
+    cdef bytes chromosomeBytes = chromosome.encode("utf-8")
+    cdef const char* pathData = pathBytes
+    cdef const char* chromosomeData = chromosomeBytes
+    cdef const char* fileMode = "ab" if append else "wb"
+    cdef size_t chromosomeLength = len(chromosomeBytes)
+    cdef size_t rowCapacity = chromosomeLength + 400
+    cdef size_t bufferCapacity = max(<size_t>1048576, rowCapacity + 1)
+    cdef size_t used = 0
+    cdef size_t available
+    cdef int formattedLength
+    cdef int errorNumber = 0
+    cdef int closeStatus
+    cdef char* buffer = NULL
+    cdef FILE* handle = NULL
+
+    if ends.shape[0] != n or values.shape[0] != n:
+        raise ValueError("starts, ends, and values must have equal lengths")
+    if not chromosomeBytes:
+        raise ValueError("chromosome must be nonempty without quotes or row delimiters")
+    for i in range(chromosomeLength):
+        if chromosomeData[i] in (9, 13, 10, 34, 0):
+            raise ValueError("chromosome must be nonempty without quotes or row delimiters")
+    for i in range(len(pathBytes)):
+        if pathData[i] == 0:
+            raise ValueError("path must not contain a null byte")
+    if localeconv().decimal_point[0] != 46 or localeconv().decimal_point[1] != 0:
+        raise ValueError("native formatting requires a period decimal separator")
+    if fegetround() != FE_TONEAREST:
+        raise ValueError("native formatting requires round-to-nearest arithmetic")
+    with nogil:
+        for i in range(n):
+            if starts[i] < 0 or ends[i] <= starts[i]:
+                with gil:
+                    raise ValueError(f"invalid interval at row {i}")
+            if i > 0 and starts[i] < ends[i - 1]:
+                with gil:
+                    raise ValueError(f"unsorted or overlapping interval at row {i}")
+            if not isfinite(values[i]):
+                with gil:
+                    raise ValueError(f"non-finite value at row {i}")
+    buffer = <char*>malloc(bufferCapacity)
+    if buffer == NULL:
+        raise MemoryError()
+    try:
+        with nogil:
+            handle = fopen(pathData, fileMode)
+            if handle == NULL:
+                errorNumber = errno
+        if handle == NULL:
+            raise OSError(errorNumber, "could not open bedGraph output", path)
+        with nogil:
+            for i in range(n):
+                if bufferCapacity - used <= rowCapacity:
+                    if fwrite(buffer, 1, used, handle) != used:
+                        errorNumber = errno if errno != 0 else EIO
+                        break
+                    used = 0
+                memcpy(buffer + used, chromosomeData, chromosomeLength)
+                available = bufferCapacity - used - chromosomeLength
+                formattedLength = snprintf(
+                    buffer + used + chromosomeLength,
+                    available,
+                    "\t%lld\t%lld\t%.5f\n",
+                    <long long>starts[i],
+                    <long long>ends[i],
+                    <double>values[i],
+                )
+                if formattedLength < 0:
+                    errorNumber = errno if errno != 0 else EIO
+                    break
+                if <size_t>formattedLength >= available:
+                    errorNumber = EOVERFLOW
+                    break
+                used += chromosomeLength + <size_t>formattedLength
+            if errorNumber == 0 and used > 0:
+                if fwrite(buffer, 1, used, handle) != used:
+                    errorNumber = errno if errno != 0 else EIO
+            closeStatus = fclose(handle)
+            handle = NULL
+            if closeStatus != 0 and errorNumber == 0:
+                errorNumber = errno if errno != 0 else EIO
+        if errorNumber != 0:
+            raise OSError(errorNumber, "could not write bedGraph output", path)
+    finally:
+        if handle != NULL:
+            fclose(handle)
+        free(buffer)
