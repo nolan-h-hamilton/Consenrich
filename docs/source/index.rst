@@ -11,12 +11,12 @@ Consenrich
    examples
    params
 
-Consenrich estimates regulatory signals from multi-sample functional genomics datasets.
+Consenrich estimates shared latent regulatory signals from noisy, multi-sample epigenomic sequencing measurements.
 
 .. image:: ../images/fig.png
    :align: center
 
-**Input:** Sequencing data (BAM files, fragments, etc.) from ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, and other functional genomics assays where multiple samples or replicates measure a shared regulatory signal but differ in local noise, artifacts, sequencing depth, assay quality, or biological heterogeneity.
+**Input:** Sequencing data in BAM, 10x fragments, or other supported formats from bulk or single-cell ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, CUT&Tag, or related assays.
 
 **Output:** Consensus signal estimate tracks (bedGraph, bigWig), associated uncertainty tracks (bedGraph, bigWig), and optional consensus peak calls (narrowPeak, gappedPeak, BED).
 
