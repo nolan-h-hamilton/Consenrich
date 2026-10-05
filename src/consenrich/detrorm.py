@@ -173,6 +173,7 @@ def getScaleFactorPerMillion(
     maxInsertSize: int | None = 1000,
     readLength: int | None = 0,
     extendBP: int | None = 0,
+    fragmentsUseReadSupport: bool = False,
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -217,6 +218,7 @@ def getScaleFactorPerMillion(
         pairedEndMode=_bamPairedEndMode(bamInputMode) if sourceKind == "BAM" else 0,
         readLength=int(readLength or 0),
         extendBP=int(extendBP or 0),
+        fragmentsUseReadSupport=fragmentsUseReadSupport,
     )
     if totalMappedReads <= 0:
         raise ValueError(
@@ -271,6 +273,8 @@ def getPairScaleFactors(
     extendBPB: int | None = 0,
     countReadLengthA: int | None = None,
     countReadLengthB: int | None = None,
+    fragmentsUseReadSupportA: bool = False,
+    fragmentsUseReadSupportB: bool = False,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data to a common sequencing depth.
 
@@ -325,6 +329,7 @@ def getPairScaleFactors(
             maxInsertSize=maxInsertSize,
             readLength=countReadLengthA if countReadLengthA is not None else readLengthA,
             extendBP=extendBPA,
+            fragmentsUseReadSupport=fragmentsUseReadSupportA,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
@@ -345,6 +350,7 @@ def getPairScaleFactors(
             maxInsertSize=maxInsertSize,
             readLength=countReadLengthB if countReadLengthB is not None else readLengthB,
             extendBP=extendBPB,
+            fragmentsUseReadSupport=fragmentsUseReadSupportB,
         )
     elif normMethodUpper in ("EGS", "RPGC"):
         scaleFactorA = getScaleFactor1x(

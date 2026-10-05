@@ -2819,7 +2819,7 @@ def _caseFinalForwardGainSummaryUsesReplicateContigRows():
 
 
 @pytest.mark.correctness
-def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
+def test_perIntervalOutputDiagnosticTracks():
     stateCovarForward = np.zeros((3, 2, 2), dtype=np.float32)
     stateCovarForward[:, 0, 0] = [0.4, 0.5, 0.6]
     stateCovarForward[:, 0, 1] = [0.03, 0.04, 0.05]
@@ -2834,7 +2834,7 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
     lambdaExp = np.asarray([1.0, 2.0, 0.5], dtype=np.float32)
     processPrecExp = np.asarray([1.0, 2.0, 4.0], dtype=np.float32)
 
-    tracks = core._perIntervalOutputDiagnosticTracks(
+    trackArgs = dict(
         stateCovarForward=stateCovarForward,
         matrixMunc=matrixMunc,
         matrixQ0=matrixQ0,
@@ -2850,6 +2850,8 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
         procPrecisionMultiplierMin=0.25,
         procPrecisionMultiplierMax=4.0,
     )
+
+    tracks = core._perIntervalOutputDiagnosticTracks(**trackArgs)
 
     np.testing.assert_allclose(tracks["preKappaQLevel"], [0.2, 0.2, 0.2])
     np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.05, 0.05])
@@ -2881,6 +2883,59 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
     denom = 1.0 + pred00 * sumInvR0
     assert tracks["sumGain0"][0] == pytest.approx(pred00 * sumInvR0 / denom)
     assert tracks["sumGain1"][0] == pytest.approx(pred10 * sumInvR0 / denom)
+
+    intervalCount = 65_539
+    for stateDim in (1, 2):
+        covar = np.resize(
+            stateCovarForward[:, :stateDim, :stateDim],
+            (intervalCount, stateDim, stateDim),
+        )
+        localArgs = dict(trackArgs)
+        localArgs.update(
+            stateCovarForward=covar,
+            matrixMunc=np.resize(matrixMunc, (2, intervalCount)),
+            lambdaExp=np.resize(lambdaExp, intervalCount),
+            stateModel=(
+                core.STATE_MODEL_LEVEL if stateDim == 1 else core.STATE_MODEL_LEVEL_TREND
+            ),
+        )
+        for noiseSource in ("precision", "stored", "fixed"):
+            precision = (
+                np.resize(processPrecExp, intervalCount)
+                if noiseSource == "precision" else None
+            )
+            noise = (
+                np.resize(
+                    matrixQ0[:stateDim, :stateDim] * 2,
+                    (intervalCount - 1, stateDim, stateDim),
+                )
+                if noiseSource == "stored" else None
+            )
+            localArgs.update(processPrecExp=precision, pNoiseForward=noise)
+            result = core._perIntervalOutputDiagnosticTracks(**localArgs)
+            f = matrixF[:stateDim, :stateDim].astype(np.float64)
+            for index in (0, 1, 2, 65_535, 65_536, intervalCount - 1):
+                q = matrixQ0[:stateDim, :stateDim].astype(np.float64)
+                if precision is not None:
+                    q /= precision[index]
+                elif noise is not None and index > 0:
+                    q = noise[index - 1].astype(np.float64)
+                covariance = (
+                    np.eye(stateDim) if index == 0
+                    else covar[index - 1].astype(np.float64)
+                )
+                predicted = f @ covariance @ f.T + q
+                invR = np.sum(
+                    localArgs["lambdaExp"][index]
+                    / (localArgs["matrixMunc"][:, index].astype(np.float64) + 0.1)
+                )
+                expectedGain = predicted[:, 0] * invR / (1 + predicted[0, 0] * invR)
+                assert result["sumGain0"][index] == pytest.approx(
+                    expectedGain[0], rel=1e-6
+                )
+                assert result["sumGain1"][index] == pytest.approx(
+                    0.0 if stateDim == 1 else expectedGain[1], rel=1e-6
+                )
 
 
 @pytest.mark.correctness
@@ -3195,6 +3250,11 @@ def _checkCFixedBackgroundPrecisionUpdates(levelOnly, scaleObs, scaleProcess):
     lagCovSmoothed = np.asarray(out[4], dtype=np.float64)
     lambdaExp = np.asarray(out[6], dtype=np.float64)
     processPrecExp = np.asarray(out[7], dtype=np.float64)
+
+    np.testing.assert_array_equal(
+        out[5],
+        (matrixData.T.astype(np.float64) - stateSmoothed[:, :1]).astype(np.float32),
+    )
 
     expectedLambda = []
     for k in range(n):
@@ -3626,8 +3686,82 @@ def _caseLevelForwardBackwardMatchesPythonReference():
     np.testing.assert_allclose(residuals, refResiduals, rtol=2.0e-6, atol=2.0e-6)
 
 
+@pytest.mark.parametrize("stateDim", [1, 2])
+def test_observationSufficientStats(stateDim):
+    rng = np.random.default_rng(9017)
+    for trackCount in (1, 10):
+        intervalCount = 257
+        data = rng.normal(size=(trackCount, intervalCount)).astype(np.float32)
+        variance = np.exp(rng.normal(size=data.shape)).astype(np.float32)
+        variance[:, 20:25] = 1.0e30
+        variance[0, 40:60] = 1.0e30
+        pad = float(np.float32(0.01))
+        active = variance < 5.0e29
+        weights = np.where(active, 1.0 / (variance.astype(np.float64) + pad), 0.0)
+        weightSum = weights.sum(axis=0)
+        mean = np.divide(
+            (weights * data).sum(axis=0), weightSum,
+            out=np.zeros(intervalCount), where=weightSum > 0,
+        )
+        stats = np.column_stack((
+            weightSum, mean, (weights * (data - mean) ** 2).sum(axis=0),
+            np.where(active, np.log(variance.astype(np.float64) + pad), 0.0).sum(axis=0),
+            active.sum(axis=0),
+        ))
+        args = dict(
+            matrixData=data, matrixPluginMuncInit=variance,
+            matrixQ0=np.eye(stateDim, dtype=np.float32) * 0.01,
+            intervalToBlockMap=np.zeros(intervalCount, dtype=np.int32), blockCount=1,
+            stateInit=0.0, stateCovarInit=1.0, pad=pad, returnNLL=True,
+            lambdaExp=rng.uniform(0.25, 4.0, intervalCount).astype(np.float32),
+            processPrecExp=rng.uniform(0.25, 4.0, intervalCount).astype(np.float32),
+        )
+        forward = cconsenrich.cforwardPassLevel
+        if stateDim == 2:
+            forward = cconsenrich.cforwardPass
+            args["matrixF"] = np.asarray([[1.0, 0.3], [0.0, 1.0]], dtype=np.float32)
+        outputs = []
+        for observationStats in (None, stats):
+            state = np.empty((intervalCount, stateDim), dtype=np.float32)
+            covariance = np.empty((intervalCount, stateDim, stateDim), dtype=np.float32)
+            noise = np.empty_like(covariance)
+            statistic = np.empty(intervalCount, dtype=np.float32)
+            result = forward(
+                **args, observationStats=observationStats, stateForward=state,
+                stateCovarForward=covariance, pNoiseForward=noise, vectorD=statistic,
+            )
+            outputs.append((state, covariance, noise[:-1], statistic, result[3]))
+            skippedState = np.empty_like(state)
+            skippedCovariance = np.empty_like(covariance)
+            skippedNoise = np.empty_like(noise)
+            unusedStatistic = np.full(intervalCount, -123.0, dtype=np.float32)
+            for computeNLL in (False, True):
+                skipped = forward(
+                    **dict(args, returnNLL=computeNLL), observationStats=observationStats,
+                    computeStatistic=False, stateForward=skippedState,
+                    stateCovarForward=skippedCovariance, pNoiseForward=skippedNoise,
+                    vectorD=unusedStatistic,
+                )
+                np.testing.assert_array_equal(skippedState, state)
+                np.testing.assert_array_equal(skippedCovariance, covariance)
+                np.testing.assert_array_equal(skippedNoise[:-1], noise[:-1])
+                np.testing.assert_array_equal(unusedStatistic, -123.0)
+                assert skipped[2] is None
+                if computeNLL:
+                    assert skipped[3] == result[3]
+        for collapsed, direct in zip(outputs[1], outputs[0], strict=True):
+            np.testing.assert_allclose(collapsed, direct, rtol=2.0e-6, atol=2.0e-7)
+    for computeNLL in (False, True):
+        empty = forward(**dict(
+            args, matrixData=data[:, :0].copy(),
+            matrixPluginMuncInit=variance[:, :0].copy(),
+            computeStatistic=False, returnNLL=computeNLL,
+        ))
+        assert empty == ((0.0, 0, None, 0.0) if computeNLL else (0.0, 0, None))
+
+
 @pytest.mark.correctness
-def _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers():
+def test_forwardBackwardResidualBuffers():
     matrixData = np.asarray(
         [
             [0.25, 0.10, 0.45, 0.75, 0.20, -0.10, 0.05],
@@ -3731,6 +3865,36 @@ def _caseLevelEmbeddedForwardBackwardAgreementWithPrecisionMultipliers():
         (fullSmooth[3], levelSmooth[3]),
     ):
         np.testing.assert_allclose(observed, expected, rtol=2.0e-6, atol=2.0e-6)
+    for smoother, stored, expected, extraArgs in (
+        (cconsenrich.cbackwardPassLevel, levelStore, levelSmooth, {}),
+        (cconsenrich.cbackwardPass, fullStore, fullSmooth, {"matrixF": matrixF}),
+    ):
+        for computeLagCovariance in (True, False):
+            lagBuffer = np.full_like(expected[2], -456.0)
+            residualBuffer = np.full_like(expected[3], -123.0)
+            withoutResiduals = smoother(
+                matrixData=matrixData,
+                stateForward=stored["stateForward"],
+                stateCovarForward=stored["stateCovarForward"],
+                pNoiseForward=stored["pNoiseForward"],
+                postFitResiduals=residualBuffer,
+                computeResiduals=False,
+                computeLagCovariance=computeLagCovariance,
+                lagCovSmoothed=lagBuffer,
+                **extraArgs,
+            )
+            for result, reference in zip(withoutResiduals[:2], expected[:2]):
+                np.testing.assert_array_equal(result, reference)
+            assert withoutResiduals[3] is None
+            np.testing.assert_array_equal(residualBuffer, -123.0)
+            if computeLagCovariance:
+                np.testing.assert_array_equal(withoutResiduals[2], expected[2])
+            else:
+                assert withoutResiduals[2] is None
+                np.testing.assert_array_equal(lagBuffer, -456.0)
+
+
+
 @pytest.mark.correctness
 def _caseInitialProcessNoiseSeedRecoversRandomWalkScale():
     rng = np.random.default_rng(122)
@@ -6377,8 +6541,8 @@ def _caseReadSegmentsFragmentsGrouped():
     )
 
     assert counts.shape == (2, 4)
-    assert np.allclose(counts[0], np.array([2.0, 2.0, 2.0, 4.0], dtype=np.float32))
-    assert np.allclose(counts[1], np.array([0.0, 4.0, 2.0, 0.0], dtype=np.float32))
+    assert np.allclose(counts[0], np.array([2.0, 2.0, 1.0, 3.0], dtype=np.float32))
+    assert np.allclose(counts[1], np.array([0.0, 3.0, 1.0, 0.0], dtype=np.float32))
 
 
 @pytest.mark.correctness
@@ -6415,23 +6579,23 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
     allowListPath.write_text("BC_A\nBC_B\n", encoding="ascii")
 
     expectedByMode = {
-        "coverage": np.array([2.0, 5.0, 4.0, 3.0], dtype=np.float32),
-        "cutsite": np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32),
-        "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
-        "midpoint": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
-        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: np.array(
+        "coverage": ([2.0, 4.0, 2.0, 2.0], [2.0, 5.0, 4.0, 3.0]),
+        "cutsite": ([2.0, 5.0, 2.0, 3.0], [2.0, 6.0, 4.0, 4.0]),
+        "center": ([0.0, 3.0, 2.0, 1.0], [0.0, 3.0, 4.0, 1.0]),
+        "midpoint": ([0.0, 3.0, 2.0, 1.0], [0.0, 3.0, 4.0, 1.0]),
+        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: (
+            [1.0, 2.25, 1.6388889, 1.1111111],
             [1.0, 2.5, 3.2777777, 1.2222222],
-            dtype=np.float32,
         ),
     }
     expectedNoiseByMode = {
-        "coverage": np.array([2.0, 5.0, 4.0, 3.0], dtype=np.float32),
-        "cutsite": np.array([2.0, 8.0, 4.0, 6.0], dtype=np.float32),
-        "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
-        "midpoint": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
-        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: np.array(
+        "coverage": ([2.0, 4.0, 2.0, 2.0], [2.0, 5.0, 4.0, 3.0]),
+        "cutsite": ([2.0, 7.0, 2.0, 5.0], [2.0, 8.0, 4.0, 6.0]),
+        "center": ([0.0, 3.0, 2.0, 1.0], [0.0, 3.0, 4.0, 1.0]),
+        "midpoint": ([0.0, 3.0, 2.0, 1.0], [0.0, 3.0, 4.0, 1.0]),
+        constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: (
+            [0.5, 1.5625, 1.3526235, 1.0123457],
             [0.5, 1.625, 2.7052469, 1.0246914],
-            dtype=np.float32,
         ),
     }
 
@@ -6443,25 +6607,27 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
                     sourceKind="FRAGMENTS",
                     barcodeAllowListFile=str(allowListPath),
                     countMode=countMode,
+                    fragmentsUseReadSupport=useReadSupport,
                 )
+                for useReadSupport in (False, True)
             ],
             chromosome="chr1",
             start=0,
             end=40,
             intervalSizeBP=10,
-            readLengths=[1],
-            scaleFactors=[1.0],
+            readLengths=[1, 1],
+            scaleFactors=[1.0, 1.0],
             oneReadPerBin=0,
             samThreads=1,
             samFlagExclude=0,
             returnRawNoiseMass=True,
         )
 
-        assert np.allclose(result.counts[0], expected), countMode
-        assert np.allclose(
-            result.rawNoiseMass[0],
-            expectedNoiseByMode[countMode],
-        ), countMode
+        np.testing.assert_allclose(result.counts, expected, err_msg=countMode)
+        np.testing.assert_allclose(
+            result.rawNoiseMass, expectedNoiseByMode[countMode], rtol=1e-6,
+            err_msg=countMode,
+        )
 
 
 @pytest.mark.correctness
@@ -6490,7 +6656,7 @@ def _caseReadSegmentsFragmentsUseDefaultFragmentCountMode(tmp_path):
         defaultFragmentCountMode="cutsite",
     )
 
-    assert np.allclose(counts[0], np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32))
+    assert np.allclose(counts[0], np.array([2.0, 5.0, 2.0, 3.0], dtype=np.float32))
 
 
 @pytest.mark.correctness
@@ -6516,6 +6682,105 @@ def _caseReadSegmentsFragmentsRejectFFP():
                 oneReadPerBin=0,
                 samThreads=1,
                 samFlagExclude=0,
+            )
+
+
+def _caseFragmentsIndexingPreservesSource(tmp_path):
+    import gzip
+
+    pysam = pytest.importorskip("pysam")
+    content = b"chr1\t1\t7\tBC_M\nchr1\t12\t17\tBC_A\t3\nchr1\t21\t28\tBC_B\t2\t-\n"
+    path = tmp_path / "indexed.fragments.tsv.gz"
+    with pysam.BGZFile(str(path), "wb") as output:
+        output.write(content)
+    sourceBytes = path.read_bytes()
+    sourceMTime = path.stat().st_mtime_ns
+    indexPath = Path(f"{path}.tbi")
+    assert not ccounts.ccounts_checkAlignmentPath(
+        str(path), sourceKind="FRAGMENTS", buildIndex=False,
+    )
+    assert not indexPath.exists()
+    assert ccounts.ccounts_checkAlignmentPath(
+        str(path), sourceKind="FRAGMENTS", buildIndex=True, threadCount=1,
+    )
+    indexMTime = indexPath.stat().st_mtime_ns
+    for buildIndex in (False, True):
+        assert ccounts.ccounts_checkAlignmentPath(
+            str(path), sourceKind="FRAGMENTS", buildIndex=buildIndex,
+        )
+        assert indexPath.stat().st_mtime_ns == indexMTime
+    with pysam.TabixFile(str(path)) as fragments:
+        assert list(fragments.fetch("chr1")) == content.decode("ascii").splitlines()
+    allowListPath = tmp_path / "supportBarcodes.txt"
+    allowListPath.write_text("BC_A\nBC_B\n", encoding="ascii")
+    for useReadSupport, expectedDepth in ((False, 3), (True, 5)):
+        barcodePath = str(allowListPath) if useReadSupport else ""
+        depth, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+            str(path), sourceKind="FRAGMENTS",
+            barcodeAllowListFile=barcodePath,
+            fragmentsUseReadSupport=useReadSupport,
+        )
+        assert depth == expectedDepth
+        counts = ccounts.ccounts_countAlignmentRegion(
+            str(path), "chr1", 0, 30, 10,
+            readLength=1, oneReadPerBin=0, threadCount=1, flagExclude=0,
+            sourceKind="FRAGMENTS", countMode="coverage",
+            barcodeAllowListFile=barcodePath,
+            fragmentsUseReadSupport=useReadSupport,
+        )
+        np.testing.assert_array_equal(
+            counts, [0, 3, 2] if useReadSupport else [1, 1, 1],
+        )
+        assert counts.sum() == depth
+    assert path.read_bytes() == sourceBytes
+    assert path.stat().st_mtime_ns == sourceMTime
+
+    for fileName, data, useBGZF in (
+        ("unsorted.fragments.tsv.gz", b"chr1\t12\t17\tBC_A\t1\nchr1\t1\t7\tBC_A\t1\n", True),
+        ("gzip.fragments.tsv.gz", content, False),
+    ):
+        invalidPath = tmp_path / fileName
+        if useBGZF:
+            with pysam.BGZFile(str(invalidPath), "wb") as output:
+                output.write(data)
+        else:
+            invalidPath.write_bytes(gzip.compress(data, mtime=0))
+        invalidBytes = invalidPath.read_bytes()
+        with pytest.raises(RuntimeError):
+            ccounts.ccounts_checkAlignmentPath(
+                str(invalidPath), sourceKind="FRAGMENTS", buildIndex=True,
+            )
+        assert not Path(f"{invalidPath}.tbi").exists()
+        assert invalidPath.read_bytes() == invalidBytes
+
+    for supportIndex, support in enumerate((None, "invalid", "0", "-1")):
+        supportPath = tmp_path / f"support{supportIndex}.fragments.tsv.gz"
+        fields = ["chr1", "1", "7", "BC_A"]
+        if support is not None:
+            fields.append(support)
+        with pysam.BGZFile(str(supportPath), "wb") as output:
+            output.write(("\t".join(fields) + "\n").encode("ascii"))
+        assert ccounts.ccounts_checkAlignmentPath(
+            str(supportPath), sourceKind="FRAGMENTS", buildIndex=True,
+        )
+        counts = ccounts.ccounts_countAlignmentRegion(
+            str(supportPath), "chr1", 0, 10, 10, sourceKind="FRAGMENTS",
+            readLength=1, oneReadPerBin=0, threadCount=1, flagExclude=0,
+        )
+        depth, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+            str(supportPath), sourceKind="FRAGMENTS",
+        )
+        np.testing.assert_array_equal(counts, [1])
+        assert depth == 1
+        with pytest.raises(RuntimeError, match="positive integer.*column five"):
+            ccounts.ccounts_countAlignmentRegion(
+                str(supportPath), "chr1", 0, 10, 10, sourceKind="FRAGMENTS",
+                readLength=1, oneReadPerBin=0, threadCount=1, flagExclude=0,
+                fragmentsUseReadSupport=True,
+            )
+        with pytest.raises(RuntimeError, match="positive integer.*column five"):
+            ccounts.ccounts_getAlignmentMappedReadCount(
+                str(supportPath), sourceKind="FRAGMENTS", fragmentsUseReadSupport=True,
             )
 
 
@@ -7277,31 +7542,43 @@ def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
-    mappedCount, _ = ccounts.ccounts_getAlignmentMappedReadCount(
-        str(gzPath),
-        sourceKind="FRAGMENTS",
-        barcodeAllowListFile=str(allowListPath),
-        countMode="cutsite",
-    )
-    cellCount = ccounts.ccounts_getFragmentCellCount(
-        str(gzPath),
-        barcodeAllowListFile=str(allowListPath),
-    )
-    scaleFactor = detrorm.getScaleFactorPerMillion(
-        str(gzPath),
-        [],
-        10,
-        sourceKind="FRAGMENTS",
-        barcodeAllowListFile=str(allowListPath),
-        countMode="cutsite",
-        normMethod="RPKM",
-        groupCellCount=cellCount,
-        fragmentsGroupNorm="CELLS",
-    )
-
-    assert mappedCount == 12
-    assert cellCount == 1
-    assert scaleFactor == pytest.approx((1_000_000 / 12.0) * 100.0)
+    for barcodePath, expectedCells, rowDepth, supportDepth, chr2Depth in (
+        (str(allowListPath), 1, 5, 6, 1),
+        ("", 3, 9, 11, 2),
+    ):
+        cellCount = ccounts.ccounts_getFragmentCellCount(
+            str(gzPath), barcodeAllowListFile=barcodePath,
+        )
+        assert cellCount == expectedCells
+        for excludeChroms in ([], ["chr2"]):
+            for useReadSupport, totalDepth in ((False, rowDepth), (True, supportDepth)):
+                selectedDepth = totalDepth - (chr2Depth if excludeChroms else 0)
+                for countMode in ("coverage", "cutsite", constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP):
+                    expectedDepth = selectedDepth * (2 if countMode == "cutsite" else 1)
+                    mappedCount, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+                        str(gzPath),
+                        sourceKind="FRAGMENTS",
+                        barcodeAllowListFile=barcodePath,
+                        excludeChromosomes=excludeChroms,
+                        countMode=countMode,
+                        fragmentsUseReadSupport=useReadSupport,
+                    )
+                    assert mappedCount == expectedDepth
+                    for normMethod, groupNorm, binScale in (("CPM", "NONE", 1), ("RPKM", "CELLS", 100)):
+                        scaleFactor = detrorm.getScaleFactorPerMillion(
+                            str(gzPath), excludeChroms, 10,
+                            sourceKind="FRAGMENTS",
+                            barcodeAllowListFile=barcodePath,
+                            countMode=countMode,
+                            normMethod=normMethod,
+                            groupCellCount=cellCount,
+                            fragmentsGroupNorm=groupNorm,
+                            fragmentsUseReadSupport=useReadSupport,
+                        )
+                        expectedScale = round(1_000_000 / expectedDepth * binScale, 5)
+                        if groupNorm == "CELLS":
+                            expectedScale /= expectedCells
+                        assert scaleFactor == pytest.approx(expectedScale)
 
 
 def _pairedNormalizationRecords() -> list[dict]:
@@ -7948,6 +8225,7 @@ def test_core_fragments_io_contracts(tmp_path, contract_case):
             (tmp_path,),
         ),
         ("fragments reject ffp", _caseReadSegmentsFragmentsRejectFFP, ()),
+        ("fragments index build and reuse", _caseFragmentsIndexingPreservesSource, (tmp_path,)),
         (
             "fragments mapped count",
             _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells,

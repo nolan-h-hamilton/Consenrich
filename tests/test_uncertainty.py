@@ -2,6 +2,7 @@
 
 import logging
 import math
+import threading
 import numpy as np
 import json
 import pandas as pd
@@ -756,6 +757,28 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         outPrefix=str(tmp_path / "cal"),
     )
 
+    serialResult = uncertainty.calibrateChromosomeStateUncertainty(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        fullState=fullState,
+        fullCovar=fullCovar,
+        fullBackground=np.zeros(n, dtype=np.float32),
+        intervals=np.arange(n, dtype=np.int64) * 25,
+        intervalSizeBP=25,
+        params=params._replace(refitThreads=1),
+        runKwargs=_smallRunKwargs(),
+    )
+    np.testing.assert_array_equal(result.factor, serialResult.factor)
+    np.testing.assert_array_equal(
+        result.calibratedUncertainty, serialResult.calibratedUncertainty,
+    )
+
+    pd.testing.assert_frame_equal(result.summary, serialResult.summary, check_exact=True)
+    pd.testing.assert_frame_equal(result.scores, serialResult.scores, check_exact=True)
+    for key in result.model:
+        if key != "timings_seconds":
+            assert result.model[key] == serialResult.model[key], key
+
     assert result.factor.shape == (n,)
     assert result.calibratedUncertainty.shape == (n,)
     assert np.all(
@@ -988,8 +1011,14 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch, caplog):
     fullCovar[:, 1, 1] = 0.01
     capturedKwargs = []
     capturedMasks = []
+    refitThreadIDs = set()
+    refitBarrier = threading.Barrier(2)
 
     def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **kwargs):
+        assert matrixDataArg is matrixData
+        assert _matrixMuncArg is matrixMunc
+        refitThreadIDs.add(threading.get_ident())
+        refitBarrier.wait(timeout=10.0)
         capturedKwargs.append(dict(kwargs))
         capturedMasks.append(np.asarray(observationMask, dtype=np.uint8).copy())
         residual = np.asarray(matrixDataArg, dtype=np.float32) - fullState[:, 0][None, :]
@@ -1009,7 +1038,7 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch, caplog):
     runKwargs["processNoiseWarmupECMIters"] = 5
     params = core.uncertaintyCalibrationParams(
         enabled=True,
-        folds=2,
+        folds=4,
         blockSizeBP=100,
         calibrationECMIters=2,
         deleteBlockDeletionProbability=0.2,
@@ -1032,6 +1061,7 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch, caplog):
         runKwargs=runKwargs,
     )
 
+    assert len(refitThreadIDs) == 2
     assert len(capturedKwargs) == params.folds
     assert len(capturedMasks) == params.folds
     assert all(np.all(mask[0, :] == 0) for mask in capturedMasks)

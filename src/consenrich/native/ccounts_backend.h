@@ -75,6 +75,7 @@ extern "C"
         int64_t maxInsertSize;
         int64_t pairedEndMode;
         int64_t inferFragmentLength;
+        uint8_t fragmentsUseReadSupport;
     } ccounts_countOptions;
 
     typedef struct ccounts_result

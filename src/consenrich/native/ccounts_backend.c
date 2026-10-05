@@ -939,7 +939,31 @@ ccounts_result ccounts_checkAlignmentFile(
     {
         return ccounts_makeResult(-1, "failed to open fragments source");
     }
-    tbxHandle = tbx_index_load(sourceConfig->path);
+    tbxHandle = tbx_index_load3(sourceConfig->path, NULL, HTS_IDX_SAVE_REMOTE | HTS_IDX_SILENT_FAIL);
+    if (tbxHandle == NULL && buildIndex)
+    {
+        if (hts_get_format(fragmentsHandle)->compression != bgzf)
+        {
+            hts_close(fragmentsHandle);
+            return ccounts_makeResult(-1, "fragments indexing requires BGZF compression");
+        }
+        hts_close(fragmentsHandle);
+        if (tbx_index_build3(sourceConfig->path, NULL, 0, threadCount > 0 ? threadCount : 1, &tbx_conf_bed) < 0)
+        {
+            return ccounts_makeResult(-1, "failed to build fragments tabix index: input must be coordinate-sorted BGZF and the index path writable");
+        }
+        fragmentsHandle = hts_open(sourceConfig->path, "r");
+        if (fragmentsHandle == NULL)
+        {
+            return ccounts_makeResult(-1, "failed to open fragments source");
+        }
+        tbxHandle = tbx_index_load(sourceConfig->path);
+        if (tbxHandle == NULL)
+        {
+            hts_close(fragmentsHandle);
+            return ccounts_makeResult(-1, "failed to load fragments tabix index");
+        }
+    }
     if (hasIndexOut != NULL)
     {
         *hasIndexOut = tbxHandle != NULL ? 1 : 0;
@@ -1684,6 +1708,7 @@ ccounts_result ccounts_getMappedReadCount(
     const char *targetName = NULL;
     uint8_t countMode = countOptions != NULL ? countOptions->countMode : (uint8_t)ccounts_countModeCoverage;
     uint8_t oneReadPerBin = countOptions != NULL ? countOptions->oneReadPerBin : 0U;
+    uint8_t fragmentsUseReadSupport = countOptions != NULL ? countOptions->fragmentsUseReadSupport : 0U;
     uint16_t flagExclude = countOptions != NULL ? countOptions->flagExclude : 0U;
     int64_t minMappingQuality = countOptions != NULL ? countOptions->minMappingQuality : 0;
     int64_t minTemplateLength = countOptions != NULL && countOptions->minTemplateLength >= 0
@@ -1846,10 +1871,11 @@ ccounts_result ccounts_getMappedReadCount(
             fieldIndex = 0;
             barcodeStart = NULL;
             barcodeLength = 0U;
-            fragmentCount = 1;
+            fragmentCount = 0;
             fragStart = 0;
             fragEnd = 0;
-            while (fieldIndex < 5 && cursor != NULL)
+            fieldLength = 0U;
+            while (fieldIndex < 5 && *cursor != '\0' && *cursor != '\n' && *cursor != '\r')
             {
                 fieldStart = cursor;
                 while (*cursor != '\0' && *cursor != '\t' && *cursor != '\n' && *cursor != '\r')
@@ -1882,11 +1908,11 @@ ccounts_result ccounts_getMappedReadCount(
                         break;
                     }
                 }
-                else if (fieldIndex == 4)
+                else if (fieldIndex == 4 && fragmentsUseReadSupport)
                 {
                     if (!ccounts_parseInt64Field(fieldStart, fieldLength, &fragmentCount))
                     {
-                        fragmentCount = 1;
+                        fragmentCount = 0;
                     }
                 }
                 else if (fieldIndex == 3)
@@ -1900,7 +1926,7 @@ ccounts_result ccounts_getMappedReadCount(
                 }
                 ++fieldIndex;
             }
-            if (fieldLength == 0U)
+            if (fieldIndex < 4 || barcodeLength == 0U || fragEnd <= fragStart)
             {
                 continue;
             }
@@ -1913,12 +1939,14 @@ ccounts_result ccounts_getMappedReadCount(
             {
                 continue;
             }
-            // if the fragment count is missing or malformed, assume it's a single read
-            // if its present, use it to scale the read count
-            emittedCount = (uint64_t)(fragmentCount > 0 ? fragmentCount : 1);
-            emittedSpanBP = fragEnd > fragStart
-                                ? (uint64_t)((fragEnd - fragStart) * (int64_t)emittedCount)
-                                : 0U;
+            if (fragmentsUseReadSupport && fragmentCount <= 0)
+            {
+                free(lineBuffer.s);
+                ccounts_closeSource(sourceHandle);
+                return ccounts_makeResult(-1, "fragmentsUseReadSupport requires a positive integer in column five");
+            }
+            emittedCount = (uint64_t)(fragmentsUseReadSupport ? fragmentCount : 1);
+            emittedSpanBP = (uint64_t)(fragEnd - fragStart) * emittedCount;
             if (!oneReadPerBin &&
                 ((ccounts_countMode)countMode == ccounts_countModeCutSite ||
                  (ccounts_countMode)countMode == ccounts_countModeFivePrime))
@@ -2857,11 +2885,12 @@ ccounts_result ccounts_countRegionWithMass(
             fieldIndex = 0;
             fragStart = 0;
             fragEnd = 0;
-            fragCount = 1;
+            fragCount = 0;
             barcodeStart = NULL;
             barcodeLength = 0U;
+            fieldLength = 0U;
 
-            while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r')
+            while (fieldIndex < 5 && *cursor != '\0' && *cursor != '\n' && *cursor != '\r')
             {
                 fieldStart = cursor;
                 while (*cursor != '\0' && *cursor != '\t' && *cursor != '\n' && *cursor != '\r')
@@ -2884,9 +2913,10 @@ ccounts_result ccounts_countRegionWithMass(
                     barcodeStart = fieldStart;
                     barcodeLength = fieldLength;
                 }
-                if (fieldIndex == 4 && !ccounts_parseInt64Field(fieldStart, fieldLength, &fragCount))
+                if (fieldIndex == 4 && countOptions->fragmentsUseReadSupport &&
+                    !ccounts_parseInt64Field(fieldStart, fieldLength, &fragCount))
                 {
-                    fragCount = 1;
+                    fragCount = 0;
                 }
                 if (*cursor == '\t')
                 {
@@ -2895,7 +2925,7 @@ ccounts_result ccounts_countRegionWithMass(
                 ++fieldIndex;
             }
 
-            if (fieldLength == 0U || fragEnd <= fragStart)
+            if (fieldIndex < 4 || barcodeLength == 0U || fragEnd <= fragStart)
             {
                 continue;
             }
@@ -2909,7 +2939,14 @@ ccounts_result ccounts_countRegionWithMass(
                 continue;
             }
 
-            incrementValue = (float)(fragCount > 0 ? fragCount : 1);
+            if (countOptions->fragmentsUseReadSupport && fragCount <= 0)
+            {
+                free(lineBuffer.s);
+                hts_itr_destroy(fragmentsIterator);
+                free(deltaBuffer);
+                return ccounts_makeResult(-1, "fragmentsUseReadSupport requires a positive integer in column five");
+            }
+            incrementValue = (float)(countOptions->fragmentsUseReadSupport ? fragCount : 1);
             if ((ccounts_countMode)countOptions->countMode == ccounts_countModeCenter ||
                 countOptions->oneReadPerBin)
             {

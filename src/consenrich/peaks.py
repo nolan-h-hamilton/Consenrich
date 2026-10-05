@@ -2612,12 +2612,12 @@ def _readAlignedConsenrichBedGraphs(
             "state": np.float64,
         },
     )
-    stateDF.sort_values(
-        by=["chromosome", "start", "end"],
-        kind="mergesort",
-        inplace=True,
-    )
-    stateDF.reset_index(drop=True, inplace=True)
+    stateOrder = np.lexsort((
+        stateDF["end"].to_numpy(copy=False),
+        stateDF["start"].to_numpy(copy=False),
+        pd.factorize(stateDF["chromosome"], sort=True, use_na_sentinel=False)[0],
+    ))
+    stateDF = stateDF.iloc[stateOrder].reset_index(drop=True)
 
     uncertaintyDF: pd.DataFrame | None = None
     if uncertaintyBedGraphFile is not None:
@@ -2634,12 +2634,12 @@ def _readAlignedConsenrichBedGraphs(
                 "uncertainty": np.float64,
             },
         )
-        uncertaintyDF.sort_values(
-            by=["chromosome", "start", "end"],
-            kind="mergesort",
-            inplace=True,
-        )
-        uncertaintyDF.reset_index(drop=True, inplace=True)
+        uncertaintyOrder = np.lexsort((
+            uncertaintyDF["end"].to_numpy(copy=False),
+            uncertaintyDF["start"].to_numpy(copy=False),
+            pd.factorize(uncertaintyDF["chromosome"], sort=True, use_na_sentinel=False)[0],
+        ))
+        uncertaintyDF = uncertaintyDF.iloc[uncertaintyOrder].reset_index(drop=True)
         if not stateDF[["chromosome", "start", "end"]].equals(
             uncertaintyDF[["chromosome", "start", "end"]]
         ):
@@ -2662,12 +2662,12 @@ def _readAlignedConsenrichBedGraphs(
                 "export_signal": np.float64,
             },
         )
-        exportSignalDF.sort_values(
-            by=["chromosome", "start", "end"],
-            kind="mergesort",
-            inplace=True,
-        )
-        exportSignalDF.reset_index(drop=True, inplace=True)
+        exportOrder = np.lexsort((
+            exportSignalDF["end"].to_numpy(copy=False),
+            exportSignalDF["start"].to_numpy(copy=False),
+            pd.factorize(exportSignalDF["chromosome"], sort=True, use_na_sentinel=False)[0],
+        ))
+        exportSignalDF = exportSignalDF.iloc[exportOrder].reset_index(drop=True)
         if not stateDF[["chromosome", "start", "end"]].equals(
             exportSignalDF[["chromosome", "start", "end"]]
         ):
@@ -2680,14 +2680,13 @@ def _readAlignedConsenrichBedGraphs(
     for chromosome, chromStateDF in stateDF.groupby("chromosome", sort=False):
         if allowedChroms is not None and chromosome not in allowedChroms:
             continue
+        chromSlice = slice(int(chromStateDF.index[0]), int(chromStateDF.index[-1]) + 1)
         chromUncDF = None
         if uncertaintyDF is not None:
-            chromUncDF = uncertaintyDF[uncertaintyDF["chromosome"] == chromosome]
+            chromUncDF = uncertaintyDF.iloc[chromSlice]
         chromExportSignalDF = None
         if exportSignalDF is not None:
-            chromExportSignalDF = exportSignalDF[
-                exportSignalDF["chromosome"] == chromosome
-            ]
+            chromExportSignalDF = exportSignalDF.iloc[chromSlice]
         out[str(chromosome)] = {
             "intervals": chromStateDF["start"].to_numpy(dtype=np.int64, copy=True),
             "ends": chromStateDF["end"].to_numpy(dtype=np.int64, copy=True),

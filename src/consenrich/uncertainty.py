@@ -8,6 +8,7 @@ import os
 import tempfile
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -1710,6 +1711,12 @@ def calibrateChromosomeStateUncertainty(
     chromosome: str | None = None,
     calibrationReplayPath: str | Path | None = None,
 ) -> uncertaintyCalibrationResult:
+    if (
+        isinstance(params.refitThreads, (bool, np.bool_))
+        or not isinstance(params.refitThreads, (int, np.integer))
+        or params.refitThreads < 1
+    ):
+        raise ValueError("refitThreads must be a positive integer")
     totalStart = time.perf_counter()
     timings: dict[str, float] = {}
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
@@ -1989,7 +1996,8 @@ def calibrateChromosomeStateUncertainty(
             f"{int(fitKwargs['processNoiseWarmupECMIters'])}"
         )
     )
-    for fold in range(int(folds)):
+
+    def _refitFold(fold: int):
         logger.info(
             "uncertaintyCalibration.fold.start fold=%s/%s intervals=%s warmupMode=%s warmupDetail=%s",
             int(fold + 1),
@@ -1998,7 +2006,7 @@ def calibrateChromosomeStateUncertainty(
             warmupMode,
             warmupDetail,
         )
-        stageStart = time.perf_counter()
+        foldStart = time.perf_counter()
         foldInfo = _cuncertainty.cmakeFoldMaskAndInformation(
             int(m),
             int(n),
@@ -2016,22 +2024,10 @@ def calibrateChromosomeStateUncertainty(
             replicateDependenceRho,
             replicateDependenceRho > 0.0,
         )
-        if replicateDependenceRho > 0.0:
-            mask, keptInfo, heldoutInfo, h, nominalHeldoutInfo = foldInfo
-            nominalHeldoutInfo = np.asarray(nominalHeldoutInfo, dtype=np.float64)
-        else:
-            mask, keptInfo, heldoutInfo, h = foldInfo
-            nominalHeldoutInfo = heldoutInfo
-        foldMaskInformationSeconds = time.perf_counter() - stageStart
-        maskInformationSeconds += foldMaskInformationSeconds
-        deletedReplicates = np.sum(mask == 0, axis=0).astype(np.int64, copy=False)
-        deletedObservations = np.sum(
-            (mask == 0) & (activeMask != 0),
-            axis=0,
-        ).astype(np.int64, copy=False)
-        deletedReplicateIntervalTotal += int(np.sum(deletedReplicates))
-        deletedObservationIntervalTotal += int(np.sum(deletedObservations))
-        stageStart = time.perf_counter()
+        mask = foldInfo[0]
+        del foldInfo
+        foldMaskInformationSeconds = time.perf_counter() - foldStart
+        refitStart = time.perf_counter()
         try:
             out = core.runConsenrich(
                 matrixData,
@@ -2040,102 +2036,123 @@ def calibrateChromosomeStateUncertainty(
                 **fitKwargs,
             )
         except Exception as exc:
-            logger.warning(
-                "uncertaintyCalibration.deleteBlock.fold.failed fold=%s/%s error=%s",
-                int(fold + 1),
-                int(folds),
-                str(exc),
-            )
-            foldFailures += 1
-            foldDiagnosticRows.extend(
-                _calibrationKeyValueRows(
-                    recordType="fold",
-                    event="delete_block_calibration.fold.failed",
-                    chromosome=chromosome,
-                    fold=int(fold + 1),
-                    values={
-                        "status": "failed",
-                        "error": str(exc),
-                        "deleted_replicates": int(np.sum(deletedReplicates)),
-                        "deleted_observations": int(np.sum(deletedObservations)),
-                        "warmup_mode": warmupMode,
-                        "warmup_detail": warmupDetail,
-                    },
+            return mask, None, foldMaskInformationSeconds, 0.0, str(exc)
+        return mask, out, foldMaskInformationSeconds, time.perf_counter() - refitStart, None
+
+    refitThreads = min(int(params.refitThreads), int(folds))
+    logger.info("uncertaintyCalibration.refits.start threads=%s", refitThreads)
+    refitsStart = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=refitThreads) as pool:
+        for foldStart in range(0, int(folds), refitThreads):
+            foldStop = min(foldStart + refitThreads, int(folds))
+            refits = pool.map(_refitFold, range(foldStart, foldStop))
+            for fold, result in enumerate(refits, start=foldStart):
+                mask, out, foldMaskInformationSeconds, foldRefitSeconds, error = result
+                maskInformationSeconds += foldMaskInformationSeconds
+                deletedReplicates = np.sum(mask == 0, axis=0).astype(np.int64, copy=False)
+                deletedObservations = np.sum(
+                    (mask == 0) & (activeMask != 0),
+                    axis=0,
+                ).astype(np.int64, copy=False)
+                deletedReplicateIntervalTotal += int(np.sum(deletedReplicates))
+                deletedObservationIntervalTotal += int(np.sum(deletedObservations))
+                if error is not None:
+                    logger.warning(
+                        "uncertaintyCalibration.deleteBlock.fold.failed fold=%s/%s error=%s",
+                        int(fold + 1),
+                        int(folds),
+                        str(error),
+                    )
+                    foldFailures += 1
+                    foldDiagnosticRows.extend(
+                        _calibrationKeyValueRows(
+                            recordType="fold",
+                            event="delete_block_calibration.fold.failed",
+                            chromosome=chromosome,
+                            fold=int(fold + 1),
+                            values={
+                                "status": "failed",
+                                "error": str(error),
+                                "deleted_replicates": int(np.sum(deletedReplicates)),
+                                "deleted_observations": int(np.sum(deletedObservations)),
+                                "warmup_mode": warmupMode,
+                                "warmup_detail": warmupDetail,
+                            },
+                        )
+                    )
+                    continue
+                refitSeconds += foldRefitSeconds
+                stateMasked, covarMasked = out[:2]
+                stageStart = time.perf_counter()
+                stateMaskedArr = np.asarray(stateMasked, dtype=np.float64)
+                xMasked = (
+                    stateMaskedArr[:, 0]
+                    if stateMaskedArr.ndim == 2
+                    else stateMaskedArr.reshape(-1)
                 )
-            )
-            continue
-        foldRefitSeconds = time.perf_counter() - stageStart
-        refitSeconds += foldRefitSeconds
-        stateMasked, covarMasked = out[:2]
-        stageStart = time.perf_counter()
-        stateMaskedArr = np.asarray(stateMasked, dtype=np.float64)
-        xMasked = (
-            stateMaskedArr[:, 0]
-            if stateMaskedArr.ndim == 2
-            else stateMaskedArr.reshape(-1)
-        )
-        covarMaskedArr = np.asarray(covarMasked, dtype=np.float64)
-        pMasked = (
-            covarMaskedArr[:, 0, 0]
-            if covarMaskedArr.ndim == 3
-            else covarMaskedArr.reshape(-1)
-        )
-        if xMasked.shape[0] != n or pMasked.shape[0] != n:
-            raise ValueError("masked fold output does not match interval count")
-        if len(out) <= 5:
-            if targetSignal == "state_plus_background" or replicateDependenceAuto:
-                raise ValueError("delete-block calibration refit requires masked background output")
-            backgroundMasked = np.zeros(n, dtype=np.float64)
-        else:
-            backgroundMasked = np.asarray(out[5], dtype=np.float64).reshape(-1)
-            if backgroundMasked.shape[0] != n:
-                raise ValueError("masked background output must match interval count")
-        if replicateDependenceAuto and eligibleReplicateCount >= 2:
-            evidence = _cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
-                matrixData,
-                matrixMunc,
-                activeMask,
-                blockFold,
-                repsByBlockCount,
-                repsByBlock,
-                np.ascontiguousarray(xMasked + backgroundMasked, dtype=np.float64),
-                lambdaValues,
-                bool(params.deleteBlockUseLambdaInInformation),
-                padValue,
-                int(blockLen),
-                int(fold),
-            )
-            rhoZByFold[int(fold)] += float(evidence.get("fisher_z_weighted_sum", 0.0))
-            rhoWeightByFold[int(fold)] += float(evidence.get("weight_sum", 0.0))
-            rhoBlockCountByFold[int(fold)] += int(evidence.get("block_count", 0))
-            rhoPairCountByFold[int(fold)] += int(evidence.get("pair_count", 0))
-            rhoUpperBound = float(evidence.get("rho_upper_bound", rhoUpperBound))
-        foldExtractSeconds = time.perf_counter() - stageStart
-        extractSeconds += foldExtractSeconds
-        logger.info(
-            "uncertaintyCalibration.fold.refit.done fold=%s/%s "
-            "deletedReplicates=%s deletedObservations=%s refitSeconds=%.3f "
-            "extractSeconds=%.3f",
-            int(fold + 1),
-            int(folds),
-            int(np.sum(deletedReplicates)),
-            int(np.sum(deletedObservations)),
-            float(foldRefitSeconds),
-            float(foldExtractSeconds),
-        )
-        foldRecords.append(
-            {
-                "fold": int(fold),
-                "mask": mask,
-                "xMasked": np.ascontiguousarray(xMasked, dtype=np.float64),
-                "pMasked": np.ascontiguousarray(pMasked, dtype=np.float64),
-                "backgroundMasked": np.ascontiguousarray(backgroundMasked, dtype=np.float64),
-                "deletedReplicates": deletedReplicates,
-                "deletedObservations": deletedObservations,
-                "refitSeconds": float(foldRefitSeconds),
-                "extractSeconds": float(foldExtractSeconds),
-            }
-        )
+                covarMaskedArr = np.asarray(covarMasked, dtype=np.float64)
+                pMasked = (
+                    covarMaskedArr[:, 0, 0]
+                    if covarMaskedArr.ndim == 3
+                    else covarMaskedArr.reshape(-1)
+                )
+                if xMasked.shape[0] != n or pMasked.shape[0] != n:
+                    raise ValueError("masked fold output does not match interval count")
+                if len(out) <= 5:
+                    if targetSignal == "state_plus_background" or replicateDependenceAuto:
+                        raise ValueError("delete-block calibration refit requires masked background output")
+                    backgroundMasked = np.zeros(n, dtype=np.float64)
+                else:
+                    backgroundMasked = np.asarray(out[5], dtype=np.float64).reshape(-1)
+                    if backgroundMasked.shape[0] != n:
+                        raise ValueError("masked background output must match interval count")
+                if replicateDependenceAuto and eligibleReplicateCount >= 2:
+                    evidence = _cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
+                        matrixData,
+                        matrixMunc,
+                        activeMask,
+                        blockFold,
+                        repsByBlockCount,
+                        repsByBlock,
+                        np.ascontiguousarray(xMasked + backgroundMasked, dtype=np.float64),
+                        lambdaValues,
+                        bool(params.deleteBlockUseLambdaInInformation),
+                        padValue,
+                        int(blockLen),
+                        int(fold),
+                    )
+                    rhoZByFold[int(fold)] += float(evidence.get("fisher_z_weighted_sum", 0.0))
+                    rhoWeightByFold[int(fold)] += float(evidence.get("weight_sum", 0.0))
+                    rhoBlockCountByFold[int(fold)] += int(evidence.get("block_count", 0))
+                    rhoPairCountByFold[int(fold)] += int(evidence.get("pair_count", 0))
+                    rhoUpperBound = float(evidence.get("rho_upper_bound", rhoUpperBound))
+                foldExtractSeconds = time.perf_counter() - stageStart
+                extractSeconds += foldExtractSeconds
+                logger.info(
+                    "uncertaintyCalibration.fold.refit.done fold=%s/%s "
+                    "deletedReplicates=%s deletedObservations=%s refitSeconds=%.3f "
+                    "extractSeconds=%.3f",
+                    int(fold + 1),
+                    int(folds),
+                    int(np.sum(deletedReplicates)),
+                    int(np.sum(deletedObservations)),
+                    float(foldRefitSeconds),
+                    float(foldExtractSeconds),
+                )
+                foldRecords.append(
+                    {
+                        "fold": int(fold),
+                        "mask": mask,
+                        "xMasked": np.ascontiguousarray(xMasked, dtype=np.float64),
+                        "pMasked": np.ascontiguousarray(pMasked, dtype=np.float64),
+                        "backgroundMasked": np.ascontiguousarray(backgroundMasked, dtype=np.float64),
+                        "deletedReplicates": deletedReplicates,
+                        "deletedObservations": deletedObservations,
+                        "refitSeconds": float(foldRefitSeconds),
+                        "extractSeconds": float(foldExtractSeconds),
+                    }
+                )
+    timings["masked_refits_wall_seconds"] = time.perf_counter() - refitsStart
     replicateDependenceRhoByFold = np.full(int(folds), float(replicateDependenceRho), dtype=np.float64)
     if replicateDependenceAuto and eligibleReplicateCount >= 2:
         pooledEstimate = _replicateDependenceEstimateFromEvidence(

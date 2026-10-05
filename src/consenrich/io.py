@@ -269,16 +269,25 @@ def _ensureBedGraphIndexed(path: str, logger_: logging.Logger = logger) -> str:
     return _buildBedGraphTabixIndex(path)
 
 
-def _prepareBedGraphSources(
+def _prepareIndexedSources(
     sources: Sequence[core.inputSource],
     logger_: logging.Logger = logger,
 ) -> List[core.inputSource]:
     preparedSources: List[core.inputSource] = []
+    indexedFragments: set[str] = set()
     for source in sources:
         if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
             indexedPath = _ensureBedGraphIndexed(source.path, logger_)
             if indexedPath != source.path:
                 source = source._replace(path=indexedPath)
+        elif source.sourceKind == core.FRAGMENTS_SOURCE_KIND:
+            if source.path not in indexedFragments:
+                ccounts.ccounts_checkAlignmentPath(
+                    source.path,
+                    sourceKind=core.FRAGMENTS_SOURCE_KIND,
+                    buildIndex=True,
+                )
+                indexedFragments.add(source.path)
         preparedSources.append(source)
     return preparedSources
 
@@ -303,6 +312,7 @@ def _coerceInputSource(
     defaultRole: str,
     defaultBarcodeTag: str | None = None,
     defaultFragmentPositionMode: str | None = None,
+    fragmentsUseReadSupport: bool = constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
 ) -> core.inputSource:
     if isinstance(sourceConfig, str):
         path = sourceConfig
@@ -331,11 +341,17 @@ def _coerceInputSource(
             "fragmentPositionMode",
             defaultFragmentPositionMode,
         )
+        fragmentsUseReadSupport = sourceConfig.get(
+            "fragmentsUseReadSupport", fragmentsUseReadSupport
+        )
     else:
         raise TypeError("Each input source must be a path string or a mapping.")
 
     if not path:
         raise ValueError("Each input source requires a non-empty `path`.")
+
+    if not isinstance(fragmentsUseReadSupport, bool):
+        raise ValueError("`fragmentsUseReadSupport` must be a boolean.")
 
     if role not in ["treatment", "control"]:
         raise ValueError(f"Unsupported source role `{role}` for `{path}`.")
@@ -362,15 +378,21 @@ def _coerceInputSource(
         countMode=countMode,
         bamInputMode=bamInputMode,
         fragmentPositionMode=fragmentPositionMode,
+        fragmentsUseReadSupport=fragmentsUseReadSupport,
     )
 
 
-def _buildPathInputSources(pathList: List[str], role: str) -> List[core.inputSource]:
+def _buildPathInputSources(
+    pathList: List[str],
+    role: str,
+    fragmentsUseReadSupport: bool = constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
+) -> List[core.inputSource]:
     return [
         core.inputSource(
             path=path,
             sourceKind=_normalizeSourceKind(None, path),
             role=role,
+            fragmentsUseReadSupport=fragmentsUseReadSupport,
         )
         for path in _expandWildCards(pathList)
     ]
@@ -588,6 +610,7 @@ def convertBedGraphToBigWig(
                 chromSizesFile,
                 bigwig,
                 chromSizes=chromSizes,
+                validated=os.path.abspath(bedgraph) in validatedPaths,
             )
         except Exception as e:
             logger.warning(
@@ -664,6 +687,7 @@ def _convertBedGraphToBigWigPyBigWig(
     chunkSize: int = 200_000,
     *,
     chromSizes: Optional[Sequence[Tuple[str, int]]] = None,
+    validated: bool = False,
 ) -> None:
     try:
         import pyBigWig
@@ -709,9 +733,14 @@ def _convertBedGraphToBigWigPyBigWig(
                 header=None,
                 names=["chrom", "start", "end", "value", "extra"],
                 index_col=False,
-                dtype=object,
+                dtype=(
+                    {"chrom": object, "start": np.int64, "end": np.int64,
+                     "value": np.float64, "extra": object}
+                    if validated else object
+                ),
                 chunksize=chunkSize_,
                 engine="c",
+                float_precision="round_trip",
                 na_filter=False,
                 quoting=csv.QUOTE_NONE,
                 on_bad_lines="error",
@@ -778,13 +807,31 @@ def _convertBedGraphToBigWigPyBigWig(
                     raise ValueError(
                         f"Overlapping bedGraph interval in {bedgraphPath}"
                     )
-                bw.addEntries(
-                    frame["chrom"].tolist(),
-                    starts,
-                    ends=ends,
-                    values=values.astype(np.float32),
-                    validate=False,
-                )
+                entryValues = values.astype(np.float32)
+                runBounds = np.r_[0, np.flatnonzero(~sameChrom) + 1, len(ranks)]
+                for runStart, runStop in zip(runBounds[:-1], runBounds[1:]):
+                    chrom = chromNames[int(ranks[runStart])]
+                    runStarts = starts[runStart:runStop]
+                    runEnds = ends[runStart:runStop]
+                    runValues = entryValues[runStart:runStop]
+                    span = int(runEnds[0] - runStarts[0])
+                    if np.all(runEnds - runStarts == span):
+                        step = int(runStarts[1] - runStarts[0]) if len(runStarts) > 1 else span
+                        if np.all(np.diff(runStarts) == step):
+                            bw.addEntries(
+                                chrom, int(runStarts[0]), values=runValues,
+                                span=span, step=step, validate=False,
+                            )
+                        else:
+                            bw.addEntries(
+                                chrom, runStarts, values=runValues,
+                                span=span, validate=False,
+                            )
+                    else:
+                        bw.addEntries(
+                            [chrom] * len(runStarts), runStarts,
+                            ends=runEnds, values=runValues, validate=False,
+                        )
                 seenEntry = True
                 lastRank = int(ranks[-1])
                 lastStart = int(starts[-1])

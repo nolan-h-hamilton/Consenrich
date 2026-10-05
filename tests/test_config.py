@@ -2883,6 +2883,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     defaultArgs = parsedDefault["uncertaintyCalibrationArgs"]
     defaultOutputArgs = parsedDefault["outputArgs"]
     assert defaultArgs.enabled is True
+    assert defaultArgs.refitThreads == 2
     assert defaultOutputArgs.plotPrecisionReweightingHistograms is True
     assert defaultArgs.mode == constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
     assert (
@@ -2925,6 +2926,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.mode: delete-block-state
     uncertaintyCalibrationParams.blockSizeBP: 25000
     uncertaintyCalibrationParams.folds: 3
+    uncertaintyCalibrationParams.refitThreads: 1
     uncertaintyCalibrationParams.maxScores: 1234
     uncertaintyCalibrationParams.calibrationOuterIters: 4
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
@@ -2959,6 +2961,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.mode == "delete_block_state"
     assert explicitArgs.blockSizeBP == 25_000
     assert explicitArgs.folds == 3
+    assert explicitArgs.refitThreads == 1
     assert explicitArgs.maxScores == 1234
     assert explicitArgs.calibrationOuterIters == 4
     assert explicitArgs.targets == (0.5, 0.9)
@@ -3029,6 +3032,12 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
             readConfig(str(configAliasPath))
 
     for key, value in (
+        ("refitThreads", 0),
+        ("refitThreads", -1),
+        ("refitThreads", "false"),
+        ("refitThreads", 1.5),
+        ("refitThreads", "'2'"),
+        ("refitThreads", "null"),
         ("deleteBlockFactorSegmentCount", 0),
         ("deleteBlockFactorBootstrapReplicates", 7),
     ):
@@ -3304,7 +3313,9 @@ def _case_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
     fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
-    fragmentsPath.write_text("", encoding="utf-8")
+    fragmentsPath.write_bytes(
+        (Path(__file__).parent / "data" / "fragments" / "small.fragments.tsv.gz").read_bytes()
+    )
     groupMapPath = tmp_path / "groups.tsv"
     groupMapPath.write_text("BC_A\tclusterA\n", encoding="utf-8")
 
@@ -3346,6 +3357,9 @@ def _case_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert inputArgs.treatmentSources[1].sourceKind == "FRAGMENTS"
     assert inputArgs.treatmentSources[1].selectGroups == ["clusterA"]
     assert inputArgs.treatmentSources[1].fragmentPositionMode == "fragmentEndpoints"
+    assert inputArgs.treatmentSources[1].fragmentsUseReadSupport is False
+    assert configParsed["scArgs"].fragmentsUseReadSupport is False
+    assert Path(f"{fragmentsPath}.tbi").is_file()
     assert configParsed["countingArgs"].normMethod == "CPM"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
 
@@ -3435,7 +3449,20 @@ def _case_readConfigScParamsProvideFragmentsDefaults(
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
     fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
-    fragmentsPath.write_text("", encoding="utf-8")
+    fragmentsPath.write_bytes(
+        (Path(__file__).parent / "data" / "fragments" / "small.fragments.tsv.gz").read_bytes()
+    )
+    Path(f"{fragmentsPath}.tbi").unlink(missing_ok=True)
+    checkCalls = []
+    nativeCheck = misc_util.ccounts.ccounts_checkAlignmentPath
+
+    def checkAlignmentPath(path, sourceKind="BAM", buildIndex=False, threadCount=0):
+        checkCalls.append((path, sourceKind, buildIndex))
+        return nativeCheck(
+            path, sourceKind=sourceKind, buildIndex=buildIndex, threadCount=threadCount,
+        )
+
+    monkeypatch.setattr(misc_util.ccounts, "ccounts_checkAlignmentPath", checkAlignmentPath)
 
     configYaml = f"""
     experimentName: sampleExperiment
@@ -3444,11 +3471,16 @@ def _case_readConfigScParamsProvideFragmentsDefaults(
         - path: {fragmentsPath}
           format: fragments
           role: treatment
+        - path: {fragmentsPath}
+          format: fragments
+          role: treatment
+          fragmentsUseReadSupport: false
     genomeParams.name: testGenome
     scParams.defaultCountMode: center
     scParams.fragmentsGroupNorm: CELLS
     scParams.defaultFragmentPositionMode: fragmentEndpoints
     scParams.barcodeTag: CR
+    scParams.fragmentsUseReadSupport: true
     """
 
     configPath = writeConfigFile(tmp_path, "config_sc_defaults.yaml", configYaml)
@@ -3458,9 +3490,26 @@ def _case_readConfigScParamsProvideFragmentsDefaults(
     assert source.countMode is None
     assert source.fragmentPositionMode == "fragmentEndpoints"
     assert source.barcodeTag == "CR"
+    assert source.fragmentsUseReadSupport is True
+    assert configParsed["inputArgs"].treatmentSources[1].fragmentsUseReadSupport is False
+    assert configParsed["scArgs"].fragmentsUseReadSupport is True
+    assert checkCalls == [(str(fragmentsPath), "FRAGMENTS", True)]
+    assert Path(f"{fragmentsPath}.tbi").is_file()
     assert configParsed["scArgs"].defaultCountMode == "center"
     assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "NONE"
+    for invalidValue in (1, "false"):
+        for optionPath in ("scParams", "inputParams"):
+            invalidConfig = {
+                "genomeParams": {"name": "testGenome"},
+                "inputParams": {"samples": [{"path": str(fragmentsPath), "format": "fragments"}]},
+            }
+            if optionPath == "scParams":
+                invalidConfig["scParams"] = {"fragmentsUseReadSupport": invalidValue}
+            else:
+                invalidConfig["inputParams"]["samples"][0]["fragmentsUseReadSupport"] = invalidValue
+            with pytest.raises(ValueError, match="fragmentsUseReadSupport"):
+                readConfig(invalidConfig)
 
 
 def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
@@ -3502,64 +3551,49 @@ def _case_readConfigRejectsCRAMSources(
         readConfig(str(configPath))
 
 
-def _readBigWigIntervals(path: Path, chroms: list[str]) -> dict[str, list[tuple]]:
-    pyBigWig = pytest.importorskip("pyBigWig")
-    bw = pyBigWig.open(str(path))
-    try:
-        return {chrom: list(bw.intervals(chrom) or []) for chrom in chroms}
-    finally:
-        bw.close()
-
-
 def _case_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
     pyBigWig = pytest.importorskip("pyBigWig")
-
     bedGraphPath = tmp_path / "toy.bedGraph"
     chromSizesPath = tmp_path / "toy.chrom.sizes"
-    pyBigWigPath = tmp_path / "pybigwig.bw"
+    chroms = ["chr1", "chr2", "chr10"]
+    rows = [
+        ("chr1", 0, 50, 1.000000059604645), ("chr1", 50, 100, -1.0), ("chr1", 100, 150, 2.0),
+        ("chr2", 0, 50, 0.5), ("chr2", 60, 110, -1.0), ("chr2", 200, 250, 2.0),
+        ("chr10", 0, 25, 0.5), ("chr10", 60, 110, -1.0), ("chr10", 200, 275, 2.0),
+    ]
     bedGraphPath.write_text(
-        "\n".join(
-            [
-                "track type=bedGraph name=toy",
-                "browser position chr1:1-20",
-                "chr1 0 10 0.5",
-                "chr1\t10\t20\t2.25",
-                "chr2\t0\t8\t2.0",
-                "chr10 0 5 10.0",
-            ]
-        )
-        + "\n",
+        "track type=bedGraph name=toy\nbrowser position chr1:1-150\n"
+        + "".join(
+            (" " if index % 2 else "\t").join(map(str, row)) + "\n"
+            for index, row in enumerate(rows)
+        ),
         encoding="ascii",
     )
     chromSizesPath.write_text(
-        "chr1\t100\nchr2\t100\nchr10\t100\n",
+        "".join(f"{chrom}\t1000\n" for chrom in chroms),
         encoding="ascii",
     )
-
-    consenrich_io._convertBedGraphToBigWigPyBigWig(
-        str(bedGraphPath),
-        str(chromSizesPath),
-        str(pyBigWigPath),
-        chunkSize=2,
-    )
-
-    chroms = ["chr1", "chr2", "chr10"]
-    assert _readBigWigIntervals(pyBigWigPath, chroms) == {
-        "chr1": [(0, 10, 0.5), (10, 20, 2.25)],
-        "chr2": [(0, 8, 2.0)],
-        "chr10": [(0, 5, 10.0)],
-    }
-
-    handle = pyBigWig.open(str(pyBigWigPath))
-    try:
-        header = handle.header()
-    finally:
-        handle.close()
-    assert header["nBasesCovered"] == 33
-    assert header["minVal"] == 0
-    assert header["maxVal"] == 10
-    assert header["sumData"] == 93
-    assert header["sumSquared"] == 585
+    for validated in (False, True):
+        for chunkSize in (2, 20):
+            output = tmp_path / f"tracks{validated}{chunkSize}.bw"
+            consenrich_io._convertBedGraphToBigWigPyBigWig(
+                str(bedGraphPath), str(chromSizesPath), str(output),
+                chunkSize=chunkSize, validated=validated,
+            )
+            with pyBigWig.open(str(output)) as track:
+                assert list(track.chroms()) == chroms
+                for chrom in chroms:
+                    expected = tuple(
+                        (row[1], row[2], float(np.float32(row[3])))
+                        for row in rows if row[0] == chrom
+                    )
+                    assert track.intervals(chrom) == expected
+                header = track.header()
+                assert header["nBasesCovered"] == 450
+                assert header["minVal"] == -1
+                assert header["maxVal"] == 2
+                assert header["sumData"] == 287
+                assert header["sumSquared"] == 918
 
 
 def _case_convertBedGraphToBigWigPyBigWigRejectsOutOfBounds(tmp_path):
@@ -3599,6 +3633,37 @@ def _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph(tmp_path):
     assert not bigWigPath.exists()
 
 
+def test_nativeBedGraphChunkValidation(tmp_path):
+    path = tmp_path / "tracks.bedGraph"
+    chunks = {}
+    starts = np.asarray([0, 50], dtype=np.int64)
+    ends = starts + 50
+    for chrom, values in (("chr22", [0.5, 1.0]), ("chr6", [-1.0, 2.0])):
+        consenrich_io._writeBedGraphChunk(
+            str(path), chrom, starts, ends, np.asarray(values), chunks,
+        )
+    consenrich_io._reorderBedGraphChunks(str(path), chunks, ["chr6", "chr22"])
+    consenrich_io._validateBedGraphSorted(str(path), chromOrder=["chr6", "chr22"])
+    assert path.read_text().splitlines() == [
+        "chr6\t0\t50\t-1.00000", "chr6\t50\t100\t2.00000",
+        "chr22\t0\t50\t0.50000", "chr22\t50\t100\t1.00000",
+    ]
+    for invalidStarts, invalidEnds, invalidValues in (
+        ([-1, 50], [50, 100], [0.0, 1.0]),
+        ([0, 50], [0, 100], [0.0, 1.0]),
+        ([50, 0], [100, 50], [0.0, 1.0]),
+        ([0, 25], [50, 75], [0.0, 1.0]),
+        ([0, 50], [50, 100], [0.0, np.nan]),
+    ):
+        with pytest.raises(ValueError):
+            consenrich_io._writeBedGraphChunk(
+                str(path), "chr11", np.asarray(invalidStarts, dtype=np.int64),
+                np.asarray(invalidEnds, dtype=np.int64), np.asarray(invalidValues), chunks,
+            )
+        assert "chr11" not in chunks
+        assert len(path.read_text().splitlines()) == 4
+
+
 def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch):
     experimentName = "toy"
     version = consenrich_io.__version__
@@ -3634,8 +3699,9 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
         chunkSize=200_000,
         *,
         chromSizes=None,
+        validated=False,
     ):
-        convertCalls.append((bedGraphPath, chromSizesFile, bigWigPath, chromSizes))
+        convertCalls.append((bedGraphPath, chromSizesFile, bigWigPath, chromSizes, validated))
         Path(bigWigPath).write_bytes(b"x" * 128)
 
     monkeypatch.chdir(tmp_path)
@@ -3667,6 +3733,7 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
         f"consenrichOutput_{experimentName}_uncertainty.v{version}.bedGraph",
     ]
     assert all(call[3] == [("chr1", 100)] for call in convertCalls)
+    assert [call[4] for call in convertCalls] == [True, False]
     assert all(not bedGraphPath.exists() for bedGraphPath in bedGraphPaths.values())
 
 
@@ -4784,6 +4851,9 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
         "estimated_slab_scales": np.bool_(True),
         "iterations": np.int64(8),
         "converged": np.bool_(True),
+        "stop_reason": "parameterTolerance",
+        "objective_change": np.float64(0.00001),
+        "max_relative_change": np.float64(0.000002),
         "log_likelihood": np.float64(-12.5),
     }
     row = {
@@ -4802,6 +4872,9 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
     record = json.loads(summaryPath.read_text(encoding="utf-8"))
     assert set(record) <= set(consenrich_cli.RUN_SUMMARY_COLUMNS)
     assert record["state_shrinkage_model"] == "spikeAndStudentT"
+    assert record["state_shrinkage_stop_reason"] == "parameterTolerance"
+    assert record["state_shrinkage_objective_change"] == pytest.approx(0.00001)
+    assert record["state_shrinkage_max_relative_change"] == pytest.approx(0.000002)
     assert record["state_shrinkage_slab_family"] == "studentTNormalScaleMixture"
     assert record["state_shrinkage_slab_count"] == 2
     assert record["state_shrinkage_slab_weight"] == [0.25, 0.75]

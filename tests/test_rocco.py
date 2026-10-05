@@ -14,6 +14,28 @@ import consenrich.io as consenrich_io
 import consenrich.peaks as peaks
 
 
+def test_numericBedGraphOrdering(tmp_path):
+    rng = np.random.default_rng(184)
+    rows = [(chrom, 50 * (index // 2), 50 * (index // 2) + 20 + index % 2, index)
+            for chrom in ("chr6", "chr11", "chr22") for index in range(20)]
+    paths = []
+    for offset in (0, 100, 200):
+        path = tmp_path / f"signal{offset}.bedGraph"
+        frame = pd.DataFrame(rows)
+        frame[3] += offset
+        frame.iloc[rng.permutation(len(frame))].to_csv(path, sep="\t", header=False, index=False)
+        paths.append(str(path))
+    for chromosomes in (None, ["chr6"]):
+        result = peaks._readAlignedConsenrichBedGraphs(*paths, chromosomes=chromosomes)
+        assert list(result) == (["chr11", "chr22", "chr6"] if chromosomes is None else chromosomes)
+        for chrom, tracks in result.items():
+            expected = np.asarray([row[1:] for row in sorted(rows) if row[0] == chrom])
+            np.testing.assert_array_equal(tracks["intervals"], expected[:, 0])
+            np.testing.assert_array_equal(tracks["ends"], expected[:, 1])
+            for name, offset in (("state", 0), ("uncertainty", 100), ("export_signal", 200)):
+                np.testing.assert_array_equal(tracks[name], expected[:, 2] + offset)
+
+
 def _writeSingleChromBedGraphs(
     tmp_path: Path,
     state: np.ndarray,

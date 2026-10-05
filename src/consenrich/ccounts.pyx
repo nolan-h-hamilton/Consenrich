@@ -54,6 +54,7 @@ cdef extern from "native/ccounts_backend.h":
         int64_t maxInsertSize
         int64_t pairedEndMode
         int64_t inferFragmentLength
+        uint8_t fragmentsUseReadSupport
 
     ctypedef struct ccounts_result:
         int errorCode
@@ -352,6 +353,7 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     int readLength=0,
     int extendBP=0,
     int returnSpanBP=0,
+    bint fragmentsUseReadSupport=False,
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
@@ -384,6 +386,7 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     countOptions.maxInsertSize = maxInsertSize
     countOptions.pairedEndMode = pairedEndMode
     countOptions.inferFragmentLength = 0
+    countOptions.fragmentsUseReadSupport = fragmentsUseReadSupport
     if returnSpanBP:
         mappedSpanBPPointer = &mappedSpanBP
 
@@ -462,6 +465,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     str barcodeAllowListFile="",
     str barcodeGroupMapFile="",
     str countMode="coverage",
+    bint fragmentsUseReadSupport=False,
 ):
     cdef int numIntervals
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
@@ -504,6 +508,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     countOptions.maxInsertSize = maxInsertSize
     countOptions.pairedEndMode = pairedEndMode
     countOptions.inferFragmentLength = inferFragmentLength
+    countOptions.fragmentsUseReadSupport = fragmentsUseReadSupport
 
     # open once here so region counting can reuse the initialized native handle
     with nogil:
@@ -549,6 +554,7 @@ cpdef object ccounts_countAlignmentRegionMass(
     str barcodeAllowListFile="",
     str barcodeGroupMapFile="",
     str countMode="coverage",
+    bint fragmentsUseReadSupport=False,
 ):
     cdef int numIntervals
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
@@ -592,6 +598,7 @@ cpdef object ccounts_countAlignmentRegionMass(
     countOptions.maxInsertSize = maxInsertSize
     countOptions.pairedEndMode = pairedEndMode
     countOptions.inferFragmentLength = inferFragmentLength
+    countOptions.fragmentsUseReadSupport = fragmentsUseReadSupport
 
     with nogil:
         result = ccounts_openSource(&sourceConfig, &sourceHandle)

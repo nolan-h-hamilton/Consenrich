@@ -184,6 +184,7 @@ from .constants import (
     SC_DEFAULT_COUNT_MODE,
     SC_DEFAULT_FRAGMENTS_GROUP_NORM,
     SC_DEFAULT_FRAGMENT_POSITION_MODE,
+    SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
     STATE_MODEL_LEVEL,
     STATE_MODEL_LEVEL_TREND,
     STATE_MODEL_MODES,
@@ -213,6 +214,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN_OVERRIDE,
     UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_REFIT_THREADS,
     UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_DELETION_PROBABILITY,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
@@ -323,35 +325,27 @@ class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
     :param deltaF: Fixed positive integration step size in the two-state
-        transition :math:`x_{[i+1,0]} = x_{[i,0]} + \delta_F x_{[i,1]}`.
+        transition :math:`x_{[i+1]} = x_{[i]} + \Delta \dot{x}_{[i]}`.
         Ignored when ``stateModel="level"``.
     :type deltaF: float
-    :param stateModel: Latent process model. ``"levelTrend"`` uses the existing
-        two-state level/slope model. ``"level"`` uses only the signal level
-        state and pads public state arrays for compatibility.
+    :param stateModel: The process or `state transition` model.
     :type stateModel: str
-    :param minQ: Lower floor for calibrated base process-noise diagonal entries.
-        The same floor is used for process-noise calibration bounds and warm-start
-        conditioning.
+    :param minQ: Lower floor for process-noise diagonal entries, :math:`q_{[i]} \geq \text{minQ}`.
     :type minQ: float
     :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
-    :param processNoiseCalibration: Process-noise calibration mode.
-    :type processNoiseCalibration: str
-    :param processNoiseWarmupECMIters: Maximum fixed-background ECM iterations
+    :param processNoiseWarmupECMIters: Maximum fixed-:math:`g` ECM iterations
         per nuisance pass used by process-noise warm-up calibration.
     :type processNoiseWarmupECMIters: int
-    :param processNoiseWarmupOuterPasses: Total outer warm-up pass budget used
-        by the internal nuisance/Q alternation before the final fit.
+    :param processNoiseWarmupOuterPasses: Total outer pass budget used during process-noise warm-up
     :type processNoiseWarmupOuterPasses: int
-    :param precisionMultiplierMin: Lower clamp for process precision multipliers
-        :math:`\kappa_{[i]}` during robust ECM reweighting. If negative, it is
-        resolved at fit time to the most permissive strict
-        convexity-preserving lower clamp for the active state dimension and
-        ``ECM_robustTNu``.
+    :param precisionMultiplierMin: Lower bound for process precision multipliers
+        :math:`\kappa_{[i]}`. If negative, it is
+        resolved at fit time to the most permissive
+        convexity-preserving value given ``ECM_robustTNu``.
     :type precisionMultiplierMin: float
-    :param precisionMultiplierMax: Upper clamp for process precision multipliers
-        :math:`\kappa_{[i]}` during robust ECM reweighting.
+    :param precisionMultiplierMax: Upper bound for multipliers
+        :math:`\kappa_{[i]}` during precision-reweighting inside the ECM-based procedure.
     :type precisionMultiplierMax: float
     :seealso: :func:`consenrich.core.runConsenrich`
 
@@ -626,6 +620,7 @@ class uncertaintyCalibrationParams(NamedTuple):
     deleteBlockFactorBootstrapReplicates: int = (
         UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_BOOTSTRAP_REPLICATES
     )
+    refitThreads: int = UNCERTAINTY_CALIBRATION_DEFAULT_REFIT_THREADS
 
 
 def checkStateUncertaintyCoverage(
@@ -827,6 +822,7 @@ class inputSource(NamedTuple):
     countMode: str | None = None
     bamInputMode: str | None = None
     fragmentPositionMode: str | None = None
+    fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
 
 
 class readSegmentsResult(NamedTuple):
@@ -1000,6 +996,7 @@ class scParams(NamedTuple):
     defaultCountMode: str | None = SC_DEFAULT_COUNT_MODE
     fragmentsGroupNorm: str | None = SC_DEFAULT_FRAGMENTS_GROUP_NORM
     defaultFragmentPositionMode: str | None = SC_DEFAULT_FRAGMENT_POSITION_MODE
+    fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
 
 
 class matchingParams(NamedTuple):
@@ -1092,7 +1089,7 @@ class outputParams(NamedTuple):
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
     :param writeUncertainty: If True, write the state uncertainty track to bedGraph.
-        The default uncalibrated track is :math:`\sqrt{\widetilde{P}_{[i,0,0]}}`;
+        The default uncalibrated track is :math:`\sqrt{\widetilde{P}_{[i,00]}}`;
         when uncertainty calibration is enabled, the caller may replace it with the
         delete-block calibrated state-variance track.
     :type writeUncertainty: bool
@@ -1903,6 +1900,7 @@ def readSegments(
                         barcodeAllowListFile=barcodeAllowListFile or "",
                         barcodeGroupMapFile="",
                         countMode=countMode,
+                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
                     )
                     counts[sourceIndex, :] = countResult.counts
                     if rawNoiseMass is None:
@@ -1931,6 +1929,7 @@ def readSegments(
                         barcodeAllowListFile=barcodeAllowListFile or "",
                         barcodeGroupMapFile="",
                         countMode=countMode,
+                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
                     )
             else:
                 countMode = _normalizeCountMode(
@@ -2850,8 +2849,7 @@ def _estimateBackgroundWarmStart(
         intervalCount,
     )
     warmActive = np.isfinite(matrixMuncArr) & (
-        matrixMuncArr
-        < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
+        matrixMuncArr < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
     )
     warmVariance = np.maximum(
         matrixMuncArr + float(pad),
@@ -2957,11 +2955,9 @@ def estimateProvisionalBackground(
     ),
     returnDiagnostics: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, dict[str, Any]]:
-    r"""Estimate a provisional shared background from weighted observations.
+    r"""Estimate a provisional shared background for warm-starts
 
-    This exposes the same weighted background warm-start solve used internally by
-    :func:`runConsenrich`. It is intended for nuisance-background prepasses such
-    as MUNC residualization; the returned track is not a full latent-state fit.
+    :func:`runConsenrich`
     """
 
     matrixDataArr, matrixMuncArr = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
@@ -3296,12 +3292,8 @@ def _runFixedBackgroundECMPhase(
         ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
         ECM_scaleObsPrecisionToMedian=bool(ECM_scaleObsPrecisionToMedian),
         ECM_scaleProcessPrecisionToMedian=bool(ECM_scaleProcessPrecisionToMedian),
-        obsPrecisionWarmStartIsMedianScaled=bool(
-            ECM_scaleObsPrecisionToMedian
-        ),
-        processPrecisionWarmStartIsMedianScaled=bool(
-            ECM_scaleProcessPrecisionToMedian
-        ),
+        obsPrecisionWarmStartIsMedianScaled=bool(ECM_scaleObsPrecisionToMedian),
+        processPrecisionWarmStartIsMedianScaled=bool(ECM_scaleProcessPrecisionToMedian),
         obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
         obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
         procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
@@ -3454,7 +3446,7 @@ def _computeExpectedTransitionResidualSums(
     r"""Compute expected squared state-transition residual sums.
 
     ``lagCovSmoothed[k]`` is interpreted as
-    :math:`\mathrm{Cov}(x_k, x_{k+1}\mid y)`, matching
+    :math:`\mathrm{Cov}(\mathbf{x}_{[k+1]}, \mathbf{x}_{[k+2]}\mid \mathbf{z}_{[1:n]})`, matching
     :func:`consenrich.cconsenrich.cbackwardPass`.
     """
 
@@ -3815,24 +3807,24 @@ def constructMatrixQ(
     useIdentity: float = -1.0,
     tol: float = 1.0e-8,  # conservative
 ) -> npt.NDArray[np.float32]:
-    r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}`.
+    r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}_0`.
 
-    :param minDiagQ: Minimum value for diagonal entries of :math:`\mathbf{Q}`.
+    :param minDiagQ: Minimum value for diagonal entries of :math:`\mathbf{Q}_0`.
     :type minDiagQ: float
-    :param Q00: Optional value for entry (0,0) of :math:`\mathbf{Q}`.
+    :param Q00: Optional value for entry (0,0) of :math:`\mathbf{Q}_0`.
     :type Q00: Optional[float]
-    :param Q01: Optional value for entry (0,1) of :math:`\mathbf{Q}`.
+    :param Q01: Optional value for entry (0,1) of :math:`\mathbf{Q}_0`.
     :type Q01: Optional[float]
-    :param Q10: Optional value for entry (1,0) of :math:`\mathbf{Q}`.
+    :param Q10: Optional value for entry (1,0) of :math:`\mathbf{Q}_0`.
     :type Q10: Optional[float]
-    :param Q11: Optional value for entry (1,1) of :math:`\mathbf{Q}`.
+    :param Q11: Optional value for entry (1,1) of :math:`\mathbf{Q}_0`.
     :type Q11: Optional[float]
-    :param useIdentity: If > 0.0, use a scaled identity matrix for :math:`\mathbf{Q}`.
+    :param useIdentity: If > 0.0, use a scaled identity matrix for :math:`\mathbf{Q}_0`.
         Overrides other parameters.
     :type useIdentity: float
     :param tol: Tolerance for positive definiteness check.
     :type tol: float
-    :return: The process noise covariance matrix :math:`\mathbf{Q}`.
+    :return: The process noise covariance matrix :math:`\mathbf{Q}_0`.
     :rtype: npt.NDArray[np.float32]
 
     :seealso: :class:`processParams`
@@ -3907,9 +3899,7 @@ def runConsenrich(
     t_innerIters: int = FIT_DEFAULT_T_INNER_ITERS,
     ECM_robustTNu: float = FIT_DEFAULT_ROBUST_T_NU,
     ECM_processRobustTNu: float = FIT_DEFAULT_PROCESS_ROBUST_T_NU,
-    ECM_useObsPrecisionReweighting: bool = (
-        FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING
-    ),
+    ECM_useObsPrecisionReweighting: bool = (FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING),
     ECM_useProcessPrecisionReweighting: bool = True,
     ECM_scaleObsPrecisionToMedian: bool = FIT_DEFAULT_SCALE_OBS_PRECISION_TO_MEDIAN,
     ECM_scaleProcessPrecisionToMedian: bool = (
@@ -3948,47 +3938,59 @@ def runConsenrich(
     logIndentLevel: int = 0,
     logRunRole: str | None = None,
 ):
-    r"""Run Consenrich over a contiguous genomic region
+    r"""Run Consenrich over a chromosome.
 
-    Consenrich estimates a shared signal level from multiple replicate tracks using a
-    selectable latent smoother plus fixed-background ECM and an outer
-    fit/background alternation loop.
+    Consenrich estimates a genome-wide consensus epigenomic state track from multi-sample sequence count data.
+    The corresponding model-implied uncertainty is also propagated through the estimation process across genomic intervals.
 
-    The observation model is
+    **Overview**
 
-    .. math::
+    Let :math:`\mathbf{x}` denote the state mean and :math:`\mathbf{P}` its covariance.
 
-      z_{[j,i]} = g_{[i]} + x_{[i,0]} + \epsilon_{[j,i]},
-      \qquad
-      \mathrm{Var}(\epsilon_{[j,i]}) =
-      \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[i]}}.
+    We alternate the following `outer` estimation steps until convergence (or the iteration
+    limit), using an expectation/conditional maximization (ECM) fitting pattern [1]_ [2]_.
 
-    Here :math:`z_{[j,i]}` is the observed track value, :math:`g_{[i]}` is an
-    optional low-frequency background shared across replicates, and
-    :math:`v_{[j,i]}` is the plugin observation variance supplied by
-    ``matrixMunc``.
+    #. :func:`consenrich.cconsenrich.cfixedBackgroundECM`: Fix the shared *background*
+       offset track :math:`g_{[1:n]}`, observation variances ``matrixMunc``, and
+       process variance :math:`\mathbf{Q}_0`.
 
-    By default, the latent state follows the two-state level/trend model
+       #. :func:`consenrich.cconsenrich.cforwardPass`: Propagate the state
+          from genomic interval :math:`i-1` to :math:`i`, then update this prediction using the observations
+          and the state and observation uncertainties [3]_. The *gain* determines how much the observations influence the updated state (relative to the prior prediction from the smooth process model).
 
-    .. math::
+          .. math::
 
-      \mathbf{x}_{[i+1]} = \mathbf{F}(\delta_F)\mathbf{x}_{[i]} + \eta_{[i]},
-      \qquad
-      \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
+             (\mathbf{x}_{[i|i-1]},\mathbf{P}_{[i|i-1]})
+             \longrightarrow (\mathbf{x}_{[i|i]},\mathbf{P}_{[i|i]}).
 
-    With ``stateModel="level"``, the model is scalar:
+       #. :func:`consenrich.cconsenrich.cbackwardPass`: Iterate genomic intervals in the reverse direction
+          over :math:`i=n-1,\ldots,1` [4]_. This is sometimes called the *retrospective* pass because it incorporates information from 'future' observations.
 
-    .. math::
+          .. math::
 
-      x_{[i+1]} = x_{[i]} + \eta_{[i]}.
+             \widetilde{\mathbf{x}}_{[i]}=\mathbf{x}_{[i|n]},
+             \qquad \widetilde{\mathbf{P}}_{[i]}=\mathbf{P}_{[i|n]}.
 
-    This wrapper ties together several fundamental routines written in Cython:
+       #. Update observation and 'precision multipliers' :math:`\lambda_{[1:n]}` and
+          :math:`\kappa_{[2:n]}` [5]_.
 
-    #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
-    #. :func:`consenrich.cconsenrich.cbackwardPass`: Backward fixed-interval smoother
-    #. :func:`consenrich.cconsenrich.cfixedBackgroundECM`: Run ECM to convergence wrt a fixed :math:`g`.
+    #. :func:`consenrich.core.solveZeroCenteredBackground`: Fit the shared background track :math:`g_{[1:n]}` to residuals
+       :math:`z_{[j,i]}-\widetilde{x}_{[i]}`, weighted by observation
+       precision :math:`\lambda_{[i]}/(v_{[j,i]}+\mathrm{pad})`.
 
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cfixedBackgroundECM`
+    References
+    ----------
+    .. [1] Meng and Rubin (1993). Maximum likelihood estimation via the ECM
+       algorithm: A general framework. https://doi.org/10.1093/biomet/80.2.267
+    .. [2] Shumway and Stoffer (1982). An approach to time series smoothing
+       and forecasting using the EM algorithm.
+       https://doi.org/10.1111/j.1467-9892.1982.tb00349.x
+    .. [3] Kalman (1960). A new approach to linear filtering and prediction
+       problems. https://doi.org/10.1115/1.3662552
+    .. [4] Rauch, Tung and Striebel (1965). Maximum likelihood estimates of
+       linear dynamic systems. https://doi.org/10.2514/3.3166
+    .. [5] Aravkin, Burke and Pillonetto (2014). Robust and trend-following
+       Student's t Kalman smoothers. https://doi.org/10.1137/130918861
     """
 
     matrixData, matrixMunc = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
@@ -4005,9 +4007,7 @@ def runConsenrich(
             raise ValueError("intervalSizeBP must be positive when provided")
 
     requestedProcessPrecisionReweighting = bool(ECM_useProcessPrecisionReweighting)
-    if bool(ECM_scaleObsPrecisionToMedian) and not bool(
-        ECM_useObsPrecisionReweighting
-    ):
+    if bool(ECM_scaleObsPrecisionToMedian) and not bool(ECM_useObsPrecisionReweighting):
         raise ValueError(
             "ECM_scaleObsPrecisionToMedian requires "
             "ECM_useObsPrecisionReweighting=True"
@@ -4024,9 +4024,7 @@ def runConsenrich(
     if ECM_processRobustTNu is None or isinstance(
         ECM_processRobustTNu, (bool, np.bool_)
     ):
-        raise ValueError(
-            "`fitParams.ECM_processRobustTNu` must be positive and finite"
-        )
+        raise ValueError("`fitParams.ECM_processRobustTNu` must be positive and finite")
     ECM_processRobustTNu = _checkFinitePositive(
         "fitParams.ECM_processRobustTNu",
         ECM_processRobustTNu,
@@ -4049,8 +4047,7 @@ def runConsenrich(
         stateDim=int(stateDim),
     )
     if bool(ECM_scaleObsPrecisionToMedian) and not (
-        observationPrecisionMultiplierMin <= 1.0
-        <= observationPrecisionMultiplierMax
+        observationPrecisionMultiplierMin <= 1.0 <= observationPrecisionMultiplierMax
     ):
         raise ValueError(
             "observation precision multiplier bounds must contain 1 when "
@@ -4697,8 +4694,7 @@ def runConsenrich(
         )
         processPrecExpLocal = (
             np.ascontiguousarray(initialProcessPrecLocal, dtype=np.float32).copy()
-            if initialProcessPrecLocal is not None
-            and bool(useProcPrecLocal)
+            if initialProcessPrecLocal is not None and bool(useProcPrecLocal)
             else None
         )
         backgroundPrepassApplied = False
@@ -4951,9 +4947,7 @@ def runConsenrich(
                 ECM_processRobustTNu=float(ECM_processRobustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 useProcPrecLocal=bool(useProcPrecLocal),
-                ECM_scaleObsPrecisionToMedian=bool(
-                    ECM_scaleObsPrecisionToMedian
-                ),
+                ECM_scaleObsPrecisionToMedian=bool(ECM_scaleObsPrecisionToMedian),
                 ECM_scaleProcessPrecisionToMedian=bool(
                     ECM_scaleProcessPrecisionToMedian
                 ),
@@ -5106,8 +5100,7 @@ def runConsenrich(
 
             backgroundActive = np.isfinite(currentMunc) & (
                 currentMunc
-                < 0.5
-                * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
+                < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
             )
             backgroundVariance = np.maximum(
                 currentMunc + float(pad),
@@ -5477,9 +5470,7 @@ def runConsenrich(
                 ECM_processRobustTNu=float(ECM_processRobustTNu),
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 useProcPrecLocal=bool(useProcPrecLocal),
-                ECM_scaleObsPrecisionToMedian=bool(
-                    ECM_scaleObsPrecisionToMedian
-                ),
+                ECM_scaleObsPrecisionToMedian=bool(ECM_scaleObsPrecisionToMedian),
                 ECM_scaleProcessPrecisionToMedian=bool(
                     ECM_scaleProcessPrecisionToMedian
                 ),
@@ -6027,12 +6018,8 @@ def runConsenrich(
         "optimization_path_tracked": bool(trackOptimizationPath),
         "observation_robust_t_nu": metadataFloat(ECM_robustTNu),
         "process_robust_t_nu": metadataFloat(ECM_processRobustTNu),
-        "scale_obs_precision_to_median": bool(
-            ECM_scaleObsPrecisionToMedian
-        ),
-        "scale_process_precision_to_median": bool(
-            ECM_scaleProcessPrecisionToMedian
-        ),
+        "scale_obs_precision_to_median": bool(ECM_scaleObsPrecisionToMedian),
+        "scale_process_precision_to_median": bool(ECM_scaleProcessPrecisionToMedian),
         "process_precision_reweighting_requested": bool(
             requestedProcessPrecisionReweighting
         ),
@@ -6196,7 +6183,7 @@ def getPrimaryState(
 
     :param stateVectors: State vectors from :func:`runConsenrich`.
     :type stateVectors: npt.NDArray[np.float32]
-    :return: A one-dimensional numpy array of the primary state estimates ( signal level, :math:`\widetilde{x}_{[i,0]}`).
+    :return: A one-dimensional numpy array of the primary state estimates ( signal level, :math:`\widetilde{x}_{[i]}`).
     :rtype: npt.NDArray[np.float32]
     """
     out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
@@ -7810,7 +7797,6 @@ def _perIntervalOutputDiagnosticTracks(
     if stateDim == 2 and f.shape != (2, 2):
         raise ValueError("matrixF must have shape (2, 2) for level-trend tracks")
 
-    obsVariance = np.maximum(munc + float(pad), 1.0e-12)
     if lambdaExp is None:
         obsPrecision = np.ones(intervalCount, dtype=np.float64)
     else:
@@ -7856,7 +7842,6 @@ def _perIntervalOutputDiagnosticTracks(
     effectiveQTrend = qTracks["effectiveQTrend"]
     sumGain0 = np.zeros(intervalCount, dtype=np.float64)
     sumGain1 = np.zeros(intervalCount, dtype=np.float64)
-    previousCovar = np.eye(stateDim, dtype=np.float64) * float(stateCovarInit)
     baseQ = q0[:stateDim, :stateDim]
     procPrecision = None
     if processPrecExp is not None:
@@ -7872,37 +7857,36 @@ def _perIntervalOutputDiagnosticTracks(
         if pNoiseForward is None or procPrecision is not None
         else np.asarray(pNoiseForward)
     )
-    qEff = np.empty((stateDim, stateDim), dtype=np.float64)
-
-    for k in range(intervalCount):
-        if pNoise is not None and k > 0:
-            pNoiseEff = pNoise[k - 1, :stateDim, :stateDim]
-            if np.all(np.isfinite(pNoiseEff)):
-                qEff[:, :] = pNoiseEff
-            else:
-                qEff[:, :] = baseQ
+    for chunkStart in range(0, intervalCount, 65_536):
+        chunkStop = min(chunkStart + 65_536, intervalCount)
+        covarianceInput = np.empty((chunkStop - chunkStart, stateDim, stateDim))
+        if chunkStart == 0:
+            covarianceInput[0] = np.eye(stateDim) * float(stateCovarInit)
+            covarianceInput[1:] = covar[:chunkStop - 1, :stateDim, :stateDim]
         else:
-            qEff[:, :] = baseQ
-            if procPrecision is not None:
-                qEff[:, :] /= float(procPrecision[k])
+            covarianceInput[:] = covar[chunkStart - 1:chunkStop - 1, :stateDim, :stateDim]
+        qEff = np.broadcast_to(baseQ, covarianceInput.shape).copy()
+        if procPrecision is not None:
+            qEff /= procPrecision[chunkStart:chunkStop, None, None]
+        elif pNoise is not None:
+            noiseStart = max(chunkStart, 1)
+            noiseChunk = pNoise[noiseStart - 1:chunkStop - 1, :stateDim, :stateDim]
+            validNoise = np.all(np.isfinite(noiseChunk), axis=(1, 2))
+            qEff[noiseStart - chunkStart:][validNoise] = noiseChunk[validNoise]
         if stateDim == 2:
-            predCovar = f @ previousCovar @ f.T + qEff
-            pred10 = float(predCovar[1, 0])
+            predCovar = f @ covarianceInput @ f.T + qEff
+            pred10 = predCovar[:, 1, 0]
         else:
-            predCovar = previousCovar + qEff
+            predCovar = covarianceInput + qEff
             pred10 = 0.0
-
-        pred00 = max(float(predCovar[0, 0]), 0.0)
-        denom = 1.0 + pred00 * float(sumInvR[k])
-        if np.isfinite(denom) and denom > 0.0:
-            gainScale = float(sumInvR[k]) / denom
-            sumGain0[k] = pred00 * gainScale
-            sumGain1[k] = pred10 * gainScale
-
-        previousCovar = np.asarray(
-            covar[k, :stateDim, :stateDim],
-            dtype=np.float64,
-        )
+        pred00 = np.maximum(predCovar[:, 0, 0], 0.0)
+        inverseVariance = sumInvR[chunkStart:chunkStop]
+        denom = 1.0 + pred00 * inverseVariance
+        validDenom = np.isfinite(denom) & (denom > 0.0)
+        gainScale = np.zeros(chunkStop - chunkStart, dtype=np.float64)
+        np.divide(inverseVariance, denom, out=gainScale, where=validDenom)
+        sumGain0[chunkStart:chunkStop] = np.where(validDenom, pred00 * gainScale, 0.0)
+        sumGain1[chunkStart:chunkStop] = np.where(validDenom, pred10 * gainScale, 0.0)
 
     return {
         "baseQLevel": qTracks["baseQLevel"].astype(np.float32, copy=False),
@@ -8156,7 +8140,7 @@ def solveZeroCenteredBackground(
     Returns
     -------
     npt.NDArray[np.float32]
-        The estimated background :math:`g(i)^k, i=1,\dots,n`.
+        The estimated background :math:`g_{[i]}^{(k)}, i=1,\dots,n`.
     """
     residualArr = np.asarray(residualMatrix, dtype=np.float32)
     invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
@@ -8485,7 +8469,7 @@ def getMuncTrack(
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     For an individual experimental sample (replicate), quantify *positional* observation noise levels over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
-    These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
+    These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\left(v_{[j,i]}\right)_{j,i} \in \mathbb{R}^{m \times n}`.
 
     Variance is modeled as a function of a signed mean signal predictor. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
     If ``countModelVarianceFloor`` is supplied, it must be a precomputed

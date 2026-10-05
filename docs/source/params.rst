@@ -3,6 +3,21 @@ Parameter Guidance
 
 Most parameters can be left at their default values. The following sections provide guidance on key arguments that may be useful to adjust for specific applications.
 
+Fragment Inputs
+~~~~~~~~~~~~~~~
+
+``scParams.fragmentsUseReadSupport``
+    Defaults to ``false``, assigning each fragment row weight one. Set to
+    ``true`` to weight counts and CPM/RPKM depth by column five (read support).
+    Each ``inputParams.samples`` entry can override ``fragmentsUseReadSupport``.
+    The `10x fragments format
+    <https://www.10xgenomics.com/support/software/cell-ranger-atac/latest/analysis/outputs/fragments-file>`_
+    records read support as the unique read pair plus duplicate read pairs.
+
+Sorted BGZF fragment inputs receive a `tabix <https://www.htslib.org/doc/tabix.html>`_
+index automatically when no index exists. Plain text or ordinary gzip inputs must be BGZF-compressed with
+`bgzip <https://www.htslib.org/doc/bgzip.html>`_ first.
+
 Peak Calling Controls
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -28,7 +43,7 @@ Peak Calling Controls
 
 ``matchingParams.minMeanSignal``
     Keeps regions whose covered-BP-weighted mean signal reaches the supplied
-    descriptive threshold. Disable with ``null``.
+    descriptive threshold. The default is ``0.01``. Disable with ``null``.
 
 ``matchingParams.mergeToleranceBP``
     Sets the maximum gap eligible for broad-family merging. A positive value

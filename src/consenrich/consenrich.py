@@ -43,7 +43,6 @@ from .io import (
     _prepareFragmentsNormalizationMetadata,
     _resolveExtendFrom5pBPPairs,
     _reorderBedGraphChunks,
-    _validateBedGraphSorted,
     _writeBedGraphChunk,
     checkControlsPresent,
     checkMatchingEnabled,
@@ -400,6 +399,9 @@ RUN_SUMMARY_COLUMNS = [
     "state_shrinkage_estimated_slab_scales",
     "state_shrinkage_iterations",
     "state_shrinkage_converged",
+    "state_shrinkage_stop_reason",
+    "state_shrinkage_objective_change",
+    "state_shrinkage_max_relative_change",
     "state_shrinkage_log_likelihood",
     "state_shrinkage_state_abs_median_before",
     "state_shrinkage_state_abs_median_after",
@@ -3644,6 +3646,13 @@ def _stateShrinkageSummaryFields(
         "state_shrinkage_converged": _jsonDiagnosticValue(
             stateShrinkage.get("converged")
         ),
+        "state_shrinkage_stop_reason": stateShrinkage.get("stop_reason"),
+        "state_shrinkage_objective_change": _summaryNumber(
+            stateShrinkage.get("objective_change")
+        ),
+        "state_shrinkage_max_relative_change": _summaryNumber(
+            stateShrinkage.get("max_relative_change")
+        ),
         "state_shrinkage_log_likelihood": _summaryNumber(
             stateShrinkage.get("log_likelihood")
         ),
@@ -4631,6 +4640,10 @@ def _logResolvedCountingPresetSources(
                 ("bam input mode", bamInputMode if isBAM else None),
                 ("fragment position mode", fragmentPositionMode),
                 (
+                    "fragments use read support",
+                    source.fragmentsUseReadSupport if isFragmentsText else None,
+                ),
+                (
                     "one read per bin",
                     int(samArgs.oneReadPerBin)
                     if sourceKind != core.BEDGRAPH_SOURCE_KIND
@@ -5559,11 +5572,16 @@ def main():
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     controlSources = _listOrEmpty(getattr(inputArgs, "controlSources", None))
     if not treatmentSources:
-        treatmentSources = _buildPathInputSources(inputArgs.bamFiles, role="treatment")
+        treatmentSources = _buildPathInputSources(
+            inputArgs.bamFiles,
+            role="treatment",
+            fragmentsUseReadSupport=scArgs.fragmentsUseReadSupport,
+        )
     if not controlSources:
         controlSources = _buildPathInputSources(
             _listOrEmpty(inputArgs.bamFilesControl),
             role="control",
+            fragmentsUseReadSupport=scArgs.fragmentsUseReadSupport,
         )
     bamFiles = core.getSourcePaths(treatmentSources)
     bamFilesControl = core.getSourcePaths(controlSources)
@@ -6245,6 +6263,8 @@ def main():
                         extendBPB=extendBPB,
                         countReadLengthA=countReadLengthA,
                         countReadLengthB=countReadLengthB,
+                        fragmentsUseReadSupportA=sourceA.fragmentsUseReadSupport,
+                        fragmentsUseReadSupportB=sourceB.fragmentsUseReadSupport,
                     )
 
                 pairScalingFactors = io_helpers._threadMap(
@@ -6316,6 +6336,7 @@ def main():
                         maxInsertSize=samArgs.maxInsertSize,
                         readLength=readLength,
                         extendBP=extendBP,
+                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
                     )
 
                 scaleFactors = io_helpers._threadMap(
@@ -8130,7 +8151,6 @@ def main():
                 (intervalCount, seedStateDim, seedStateDim),
                 dtype=np.float32,
             )
-            vectorD = np.empty(intervalCount, dtype=np.float32)
             if seedStateModel == core.STATE_MODEL_LEVEL:
                 cconsenrich.cforwardPassLevel(
                     matrixData=seedData,
@@ -8148,8 +8168,8 @@ def main():
                     stateForward=stateForward,
                     stateCovarForward=stateCovarForward,
                     pNoiseForward=pNoiseForward,
-                    vectorD=vectorD,
-                    returnNLL=True,
+                    computeStatistic=False,
+                    returnNLL=False,
                     storeNLLInD=False,
                     lambdaExp=None,
                     processPrecExp=None,
@@ -8167,6 +8187,8 @@ def main():
                         stateCovarSmoothed=None,
                         lagCovSmoothed=None,
                         postFitResiduals=None,
+                        computeResiduals=False,
+                        computeLagCovariance=False,
                     )
                 )
             else:
@@ -8190,8 +8212,8 @@ def main():
                     stateForward=stateForward,
                     stateCovarForward=stateCovarForward,
                     pNoiseForward=pNoiseForward,
-                    vectorD=vectorD,
-                    returnNLL=True,
+                    computeStatistic=False,
+                    returnNLL=False,
                     storeNLLInD=False,
                     lambdaExp=None,
                     processPrecExp=None,
@@ -8210,6 +8232,8 @@ def main():
                         stateCovarSmoothed=None,
                         lagCovSmoothed=None,
                         postFitResiduals=None,
+                        computeResiduals=False,
+                        computeLagCovariance=False,
                     )
                 )
             return (
@@ -10652,7 +10676,8 @@ def main():
         logger.info(
             "stateShrinkage.prior: model=%s scope=%s blockIntervals=%d "
             "effectiveBlocks=%s priorSpikeProp=%s priorScale=%s iterations=%d "
-            "converged=%s slabCount=%s slabWeight=%s slabVariance=%s "
+            "converged=%s stopReason=%s objectiveChange=%s maxRelativeChange=%s "
+            "slabCount=%s slabWeight=%s slabVariance=%s "
             "componentWeights=%s",
             str(stateShrinkPrior.metadata.get("model") or "NA"),
             str(stateShrinkPrior.metadata.get("scope") or "NA"),
@@ -10662,6 +10687,9 @@ def main():
             _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("prior_scale")),
             int(stateShrinkPrior.metadata.get("iterations") or 0),
             bool(stateShrinkPrior.metadata.get("converged")),
+            stateShrinkPrior.metadata["stop_reason"],
+            _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("objective_change")),
+            _fmtDiagnosticFloat(stateShrinkPrior.metadata.get("max_relative_change")),
             _diagnosticJsonText(stateShrinkPrior.metadata.get("slab_count")),
             _diagnosticJsonText(stateShrinkPrior.metadata.get("slab_weight")),
             _diagnosticJsonText(stateShrinkPrior.metadata.get("slab_variance")),
@@ -10846,7 +10874,7 @@ def main():
         _reorderBedGraphChunks(
             bedgraphPath, bedGraphChunkRanges[suffix], bedGraphChromOrder,
         )
-        _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
+        # The native writer checks each interval, and chunk reordering checks chromosome order.
         validatedBedGraphs.add(os.path.abspath(bedgraphPath))
 
     if peakCallingEnabled:

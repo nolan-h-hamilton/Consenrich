@@ -612,6 +612,13 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
         constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
     )
     core._normalizeFragmentPositionMode(defaultFragmentPositionMode)
+    fragmentsUseReadSupport = _cfgGet(
+        configData,
+        "scParams.fragmentsUseReadSupport",
+        constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
+    )
+    if not isinstance(fragmentsUseReadSupport, bool):
+        raise ValueError("`scParams.fragmentsUseReadSupport` must be a boolean.")
 
     sampleConfigs = _cfgGet(
         configData,
@@ -629,6 +636,7 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
                 defaultRole="treatment",
                 defaultBarcodeTag=defaultBarcodeTag,
                 defaultFragmentPositionMode=defaultFragmentPositionMode,
+                fragmentsUseReadSupport=fragmentsUseReadSupport,
             )
             for sourceConfig in sampleConfigs
         ]
@@ -656,11 +664,14 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
             or []
         )
         treatmentSources = io_helpers._buildPathInputSources(
-            bamFilesRaw, role="treatment"
+            bamFilesRaw,
+            role="treatment",
+            fragmentsUseReadSupport=fragmentsUseReadSupport,
         )
         controlSources = io_helpers._buildPathInputSources(
             bamFilesControlRaw,
             role="control",
+            fragmentsUseReadSupport=fragmentsUseReadSupport,
         )
 
     if len(treatmentSources) == 0:
@@ -675,8 +686,8 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
             "Number of control sources must be 0, 1, or the same as number of treatment sources"
         )
 
-    treatmentSources = io_helpers._prepareBedGraphSources(treatmentSources)
-    controlSources = io_helpers._prepareBedGraphSources(controlSources)
+    treatmentSources = io_helpers._prepareIndexedSources(treatmentSources)
+    controlSources = io_helpers._prepareIndexedSources(controlSources)
 
     if len(controlSources) == 1:
         logger.info(
@@ -1491,11 +1502,19 @@ def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams
         constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
     )
     core._normalizeFragmentPositionMode(defaultFragmentPositionMode_)
+    fragmentsUseReadSupport_ = _cfgGet(
+        configData,
+        "scParams.fragmentsUseReadSupport",
+        constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
+    )
+    if not isinstance(fragmentsUseReadSupport_, bool):
+        raise ValueError("`scParams.fragmentsUseReadSupport` must be a boolean.")
     return core.scParams(
         barcodeTag=barcodeTag_,
         defaultCountMode=defaultCountMode_,
         fragmentsGroupNorm=fragmentsGroupNorm_,
         defaultFragmentPositionMode=defaultFragmentPositionMode_,
+        fragmentsUseReadSupport=fragmentsUseReadSupport_,
     )
 
 
@@ -1787,6 +1806,17 @@ def getUncertaintyCalibrationArgs(
                 "uncertaintyCalibrationParams.targetCalibrationDelta must be a "
                 "probability in (0, 1)"
             )
+    refitThreads = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.refitThreads",
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_REFIT_THREADS,
+    )
+    if (
+        isinstance(refitThreads, (bool, np.bool_))
+        or not isinstance(refitThreads, (int, np.integer))
+        or refitThreads < 1
+    ):
+        raise ValueError("uncertaintyCalibrationParams.refitThreads must be a positive integer")
     return core.uncertaintyCalibrationParams(
         enabled=bool(
             calibrationBoolValue(
@@ -1794,6 +1824,7 @@ def getUncertaintyCalibrationArgs(
                 "uncertaintyCalibrationParams.enabled",
             )
         ),
+        refitThreads=int(refitThreads),
         mode=mode,
         folds=int(
             _cfgGet(

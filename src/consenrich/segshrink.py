@@ -34,7 +34,12 @@ def _bootstrapVariance(values: np.ndarray) -> float:
     finite = finite[np.isfinite(finite)]
     if finite.size < 2:
         return float("inf")
-    variance = float(np.var(finite, ddof=1))
+    roundoffTolerance = (
+        32.0 * np.finfo(np.float64).eps * max(1.0, float(np.max(np.abs(finite))))
+    )
+    if float(np.ptp(finite)) <= roundoffTolerance:
+        return float("inf")
+    variance = float(np.var(finite - finite[0], ddof=1))
     if not np.isfinite(variance) or variance <= 0.0:
         return float("inf")
     return variance
