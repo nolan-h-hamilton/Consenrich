@@ -1,1 +1,6 @@
+* linguist-detectable=false
 *.ipynb linguist-language=Python
+* text=auto eol=lf
+*.py diff=python
+*.c  diff=cpp
+*.h  diff=cpp
