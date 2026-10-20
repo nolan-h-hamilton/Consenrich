@@ -2,12 +2,7 @@
 
 Consenrich estimates shared latent regulatory signals from noisy, multi-sample epigenomic sequencing measurements 
 
-![Consenrich overview](docs/images/fig.png)
-
-**Input:** Sequencing data in BAM, 10x fragments, or other supported formats from bulk or single-cell ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, CUT&Tag, or related assays.
-
-**Output:** Consensus signal estimate tracks (bedGraph, bigWig), associated uncertainty/background tracks (bedGraph, bigWig), and optional consensus peak calls (narrowPeak, gappedPeak, BED).
-
+![Consenrich overview](docs/images/fig.svg)
 
 [**See the Documentation**](https://nolan-h-hamilton.github.io/Consenrich/).
 
