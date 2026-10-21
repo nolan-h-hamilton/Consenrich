@@ -57,40 +57,6 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def writeGenomeCovariateCache(
-    tmpPath,
-    *,
-    features=("gc", "repeat_frac"),
-    chrom="chrTest",
-    binSize=50,
-):
-    cacheLabel = "_".join(str(feature) for feature in features)
-    cacheDir = tmpPath / f"genome_covariates_{cacheLabel}"
-    arraysDir = cacheDir / "arrays"
-    arraysDir.mkdir(parents=True)
-    arr = np.zeros((4, len(features)), dtype=np.float32)
-    for featureIndex in range(len(features)):
-        arr[:, featureIndex] = np.linspace(0.1, 0.4, arr.shape[0])
-    np.save(arraysDir / f"{chrom}.npy", arr, allow_pickle=False)
-    manifest = {
-        "schema": "consenrich-genome-covariates-v1",
-        "bin_size_bp": int(binSize),
-        "features": list(features),
-        "chromosomes": [
-            {
-                "name": chrom,
-                "length": int(arr.shape[0] * binSize),
-                "bins": int(arr.shape[0]),
-                "array": f"arrays/{chrom}.npy",
-            }
-        ],
-    }
-    (cacheDir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    return cacheDir
-
-
-
-
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     sources = [
         consenrich_core.inputSource(
@@ -1148,120 +1114,31 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
         )
 
 
-def _case_readConfigMuncCovariates(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    cacheDir = writeGenomeCovariateCache(tmp_path)
-
-    configYaml = f"""
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    genomeParams.genomeCovariateCacheDir: {cacheDir}
-    countingParams.intervalSizeBP: 50
-    observationParams:
-      muncCovariates:
-        enabled: true
-        mode: per-replicate-additive
-        features: [gc_dev, repeat_frac]
-    """
-    configPath = writeConfigFile(tmp_path, "config_munc_covariates.yaml", configYaml)
-
-    parsed = readConfig(str(configPath))
-
-    assert parsed["genomeArgs"].genomeCovariateCacheDir == str(cacheDir)
-    assert parsed["observationArgs"].muncCovariatesEnabled is True
-    assert (
-        parsed["observationArgs"].muncCovariatesMode
-        == constants.MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
-    )
-    assert parsed["observationArgs"].muncCovariatesFeatures == ("gc", "repeat_frac")
-
-
-def _case_readConfigMuncCovariatesAcceptsManifestFeatureNames(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    cacheDir = writeGenomeCovariateCache(
-        tmp_path,
-        features=("gc", "custom_signal_z", "repeat_frac"),
-    )
-
-    configYaml = f"""
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    genomeParams.genomeCovariateCacheDir: {cacheDir}
-    countingParams.intervalSizeBP: 50
-    observationParams:
-      muncCovariates:
-        enabled: true
-        features: [gc_dev, custom_signal_z]
-    """
+def _case_readConfigRejectsRemovedCovariates(tmp_path, monkeypatch):
+    for configData in (
+        {"genomeParams.genomeCovariateCacheDir": None},
+        {"genomeParams": {"genomeCovariateCacheDir": None}},
+        {"observationParams.muncCovariates": None},
+        {"observationParams": {"muncCovariates": {}}},
+        *(
+            configData
+            for key, value in (("enabled", False), ("mode", None), ("features", []))
+            for configData in (
+                {f"observationParams.muncCovariates.{key}": value},
+                {"observationParams": {f"muncCovariates.{key}": value}},
+                {"observationParams": {"muncCovariates": {key: value}}},
+            )
+        ),
+    ):
+        with pytest.raises(ValueError, match="is not supported"):
+            readConfig(configData)
     configPath = writeConfigFile(
         tmp_path,
-        "config_munc_covariates_custom_feature.yaml",
-        configYaml,
+        "removed_covariates.yaml",
+        "observationParams:\n  muncCovariates: null",
     )
-
-    parsed = readConfig(str(configPath))
-
-    assert parsed["observationArgs"].muncCovariatesFeatures == (
-        "gc",
-        "custom_signal_z",
-    )
-
-
-def _case_readConfigMuncCovariatesRequireCache(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.muncCovariates.enabled: true
-    """
-    configPath = writeConfigFile(
-        tmp_path,
-        "config_munc_covariates_missing_cache.yaml",
-        configYaml,
-    )
-
-    with pytest.raises(ValueError, match="genomeCovariateCacheDir"):
-        readConfig(str(configPath))
-
-
-def _case_readConfigMuncCovariatesRejectMissingFeature(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    cacheDir = writeGenomeCovariateCache(tmp_path, features=("gc",))
-
-    configYaml = f"""
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    genomeParams.genomeCovariateCacheDir: {cacheDir}
-    countingParams.intervalSizeBP: 50
-    observationParams.muncCovariates.enabled: true
-    observationParams.muncCovariates.features: repeat_frac
-    """
-    configPath = writeConfigFile(
-        tmp_path,
-        "config_munc_covariates_missing_feature.yaml",
-        configYaml,
-    )
-
-    with pytest.raises(ValueError, match="missing requested MUNC features"):
-        readConfig(str(configPath))
+    with pytest.raises(ValueError, match="observationParams.muncCovariates"):
+        readConfig(configPath)
 
 
 def _case_readConfigUsesGenericDefaultConfiguration(
@@ -1857,18 +1734,6 @@ def _case_runtime_defaults_are_centralized(
     }
     for attrName, defaultKey in ebPriorFieldMap.items():
         assert getattr(parsed["observationArgs"], attrName) == profile[defaultKey]
-    assert (
-        parsed["observationArgs"].muncCovariatesEnabled
-        == profile["observationParams.muncCovariates.enabled"]
-    )
-    assert (
-        parsed["observationArgs"].muncCovariatesMode
-        == profile["observationParams.muncCovariates.mode"]
-    )
-    assert (
-        parsed["observationArgs"].muncCovariatesFeatures
-        == profile["observationParams.muncCovariates.features"]
-    )
     assert (
         parsed["observationArgs"].useCountNoiseFloor
         == profile["observationParams.useCountNoiseFloor"]
@@ -4080,19 +3945,7 @@ def test_config_parser_defaults_and_override_contracts(
             _case_readConfigBroadcastsSharedControlScaleFactor,
         ),
         ("process noise options", _case_readConfigProcessNoiseOptions),
-        ("MUNC covariates", _case_readConfigMuncCovariates),
-        (
-            "MUNC covariates accept manifest feature names",
-            _case_readConfigMuncCovariatesAcceptsManifestFeatureNames,
-        ),
-        (
-            "MUNC covariates require cache",
-            _case_readConfigMuncCovariatesRequireCache,
-        ),
-        (
-            "MUNC covariates reject missing feature",
-            _case_readConfigMuncCovariatesRejectMissingFeature,
-        ),
+        ("removed covariate keys", _case_readConfigRejectsRemovedCovariates),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         (

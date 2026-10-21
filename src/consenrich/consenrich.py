@@ -28,10 +28,6 @@ from . import constants
 from . import _logging as logging_utils
 from . import misc_util
 from ._version import __version__
-from .genome_covariates import (
-    ConsenrichGenomeCovariateCache,
-    resolve_genome_covariate_feature_config,
-)
 from . import io as io_helpers
 from .sc_runs import executeFits
 from .config import getLoggingArgs, loadConfig, readConfig
@@ -4839,20 +4835,6 @@ def _logMuncEstimationParameters(
                     else "disabled"
                 ),
             ),
-            (
-                "MUNC genomic covariates",
-                (
-                    "enabled"
-                    if bool(
-                        getattr(
-                            observationArgs,
-                            "muncCovariatesEnabled",
-                            constants.OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
-                        )
-                    )
-                    else "disabled"
-                ),
-            ),
             ("EB Nu0 override", _formatOptionalLogValue(observationArgs.EB_setNu0)),
             ("EB NuL override", _formatOptionalLogValue(observationArgs.EB_setNuL)),
             ("sparse nearest regions", int(observationArgs.numNearest or 0)),
@@ -6713,7 +6695,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     muncLocalEvidenceCachePaths: Dict[str, str] = {}
     pooledBlockMeansParts: list[np.ndarray] = []
     pooledBlockVarsParts: list[np.ndarray] = []
-    pooledBlockCovariatesParts: list[np.ndarray] = []
     pooledBlockLogVarianceNoiseParts: list[np.ndarray] = []
     pooledSampleIndexParts: list[np.ndarray] = []
     pooledChromIndexParts: list[np.ndarray] = []
@@ -6907,172 +6888,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
         )
     )
-    muncCovariatesEnabled = bool(
-        getattr(
-            observationArgs,
-            "muncCovariatesEnabled",
-            constants.OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
-        )
-    )
-    muncCovariatesMode = getattr(
-        observationArgs,
-        "muncCovariatesMode",
-        constants.OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE,
-    )
-    if muncCovariatesEnabled:
-        covariateModeKey = (
-            str(muncCovariatesMode).strip().replace("-", "").replace("_", "").lower()
-        )
-        supportedCovariateModeByKey = {
-            mode.replace("-", "").replace("_", "").lower(): mode
-            for mode in constants.MUNC_SUPPORTED_COVARIATE_MODES
-        }
-        if covariateModeKey not in supportedCovariateModeByKey:
-            raise ValueError(
-                "Unsupported observationParams.muncCovariates.mode "
-                f"{muncCovariatesMode!r}."
-            )
-        muncCovariatesMode = supportedCovariateModeByKey[covariateModeKey]
-    muncCovariateFeatureConfig = getattr(
-        observationArgs,
-        "muncCovariatesFeatures",
-        constants.OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
-    )
-    muncCovariateRawFeatures = resolve_genome_covariate_feature_config(
-        muncCovariateFeatureConfig,
-        default_features=constants.OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
-        config_name="observationParams.muncCovariates.features",
-    )
-    genomeCovariateCache = None
-    if muncCovariatesEnabled:
-        if not getattr(genomeArgs, "genomeCovariateCacheDir", None):
-            raise ValueError(
-                "`genomeParams.genomeCovariateCacheDir` is required when "
-                "`observationParams.muncCovariates.enabled` is true."
-            )
-        if not muncCovariateRawFeatures:
-            raise ValueError(
-                "`observationParams.muncCovariates.features` must select at least "
-                "one feature when MUNC covariates are enabled."
-            )
-        genomeCovariateCache = ConsenrichGenomeCovariateCache(
-            genomeArgs.genomeCovariateCacheDir,
-            interval_size_bp=int(intervalSizeBP),
-            requested_chromosomes=tuple(
-                str(chromPlan["chromosome"]) for chromPlan in chromosomePlans
-            ),
-        )
-        muncCovariateRawFeatures = resolve_genome_covariate_feature_config(
-            muncCovariateFeatureConfig,
-            default_features=constants.OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
-            available_features=genomeCovariateCache.features,
-            config_name="observationParams.muncCovariates.features",
-        )
-        if not muncCovariateRawFeatures:
-            raise ValueError(
-                "`observationParams.muncCovariates.features` must select at least "
-                "one feature when MUNC covariates are enabled."
-            )
-        genomeCovariateCache.validate_request(
-            required_features=muncCovariateRawFeatures,
-            interval_size_bp=int(intervalSizeBP),
-            required_features_label="requested MUNC features",
-        )
-    muncCovariateFeatureNames = tuple(
-        "gc_dev" if str(name) == "gc" else str(name)
-        for name in muncCovariateRawFeatures
-    )
-    if muncCovariatesEnabled:
-        logger.info(
-            "MUNC genomic covariates enabled: mode=%s features=%s cache=%s",
-            muncCovariatesMode,
-            ",".join(muncCovariateFeatureNames),
-            genomeArgs.genomeCovariateCacheDir,
-        )
-
-    def _prepareMuncCovariateTrack(rawCovariates: np.ndarray) -> np.ndarray:
-        prepared = np.asarray(rawCovariates, dtype=np.float32).copy()
-        if prepared.ndim != 2 or prepared.shape[1] != len(muncCovariateRawFeatures):
-            raise ValueError("genome covariate track has an unexpected shape")
-        for featureIndex, featureName in enumerate(muncCovariateRawFeatures):
-            col = prepared[:, featureIndex].astype(np.float64, copy=False)
-            if str(featureName) == "gc":
-                finite = col[np.isfinite(col)]
-                medianGc = float(np.median(finite)) if finite.size else 0.0
-                col = np.abs(col - medianGc)
-            else:
-                col = np.maximum(col, 0.0)
-            prepared[:, featureIndex] = col.astype(np.float32, copy=False)
-        return prepared
-
-    def _getChromMuncCovariates(
-        chromosome: str,
-        chromosomeStart: int,
-        chromosomeEnd: int,
-        numIntervals: int,
-    ) -> np.ndarray | None:
-        if not muncCovariatesEnabled or genomeCovariateCache is None:
-            return None
-        try:
-            raw = genomeCovariateCache.fetch(
-                chromosome,
-                start=int(chromosomeStart),
-                end=int(chromosomeEnd),
-                feature_names=muncCovariateRawFeatures,
-                interval_size_bp=int(intervalSizeBP),
-            )
-        except KeyError as exc:
-            raise ValueError(
-                f"MUNC genomic covariates: chromosome {chromosome} is missing from "
-                "the cache; "
-                "disable observationParams.muncCovariates or rebuild the cache with "
-                "all requested chromosomes."
-            ) from exc
-        raw = np.asarray(raw, dtype=np.float32)
-        if raw.shape[0] != int(numIntervals):
-            raise ValueError(
-                "MUNC genomic covariates: cache for "
-                f"{chromosome} returned {int(raw.shape[0])} intervals, "
-                f"expected {int(numIntervals)}"
-            )
-        return _prepareMuncCovariateTrack(raw)
-
-    def _blockCovariateMeans(
-        covariates: np.ndarray,
-        starts: np.ndarray,
-        ends: np.ndarray,
-    ) -> np.ndarray:
-        covArr = np.asarray(covariates, dtype=np.float64)
-        startsArr = np.asarray(starts, dtype=np.int64).ravel()
-        endsArr = np.asarray(ends, dtype=np.int64).ravel()
-        if startsArr.shape != endsArr.shape:
-            raise ValueError("block starts and ends must align")
-        nBlocks = int(startsArr.size)
-        nFeatures = int(covArr.shape[1])
-        if nBlocks == 0:
-            return np.empty((0, nFeatures), dtype=np.float32)
-        startsClip = np.clip(startsArr, 0, covArr.shape[0]).astype(np.int64)
-        endsClip = np.clip(endsArr, 0, covArr.shape[0]).astype(np.int64)
-        validSpan = endsClip > startsClip
-        finite = np.isfinite(covArr)
-        values = np.where(finite, covArr, 0.0)
-        cumValues = np.vstack(
-            (np.zeros((1, nFeatures), dtype=np.float64), np.cumsum(values, axis=0))
-        )
-        cumCounts = np.vstack(
-            (
-                np.zeros((1, nFeatures), dtype=np.float64),
-                np.cumsum(finite.astype(np.float64), axis=0),
-            )
-        )
-        sums = cumValues[endsClip, :] - cumValues[startsClip, :]
-        counts = cumCounts[endsClip, :] - cumCounts[startsClip, :]
-        out = np.full((nBlocks, nFeatures), np.nan, dtype=np.float64)
-        np.divide(sums, counts, out=out, where=(counts > 0.0) & validSpan[:, None])
-        finiteOut = np.isfinite(out)
-        out[finiteOut & (out < 0.0)] = 0.0
-        return out.astype(np.float32, copy=False)
-
     def _inverseMuncTrendPredictor(predictor: np.ndarray) -> np.ndarray:
         arr = np.asarray(predictor, dtype=np.float64)
         return np.sign(arr) * np.expm1(np.abs(arr))
@@ -8038,7 +7853,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         *,
         inputLabel: str = "raw",
         diagnosticRawMat: np.ndarray | None = None,
-        chromCovariates: np.ndarray | None = None,
         countModelVarianceFloorMat: np.ndarray | None = None,
     ) -> np.ndarray:
         nonlocal pooledNuLTauWeightSum, pooledNuLWeightSum
@@ -8769,15 +8583,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         blockMeansForFitMatrix = _inverseMuncTrendPredictor(blockPredictorMatrix)
         collectedMeansParts: list[np.ndarray] = []
         rawDiagnosticMeansParts: list[np.ndarray] = []
-        blockCovariates = (
-            _blockCovariateMeans(
-                chromCovariates,
-                startsArr,
-                endsArr,
-            )
-            if chromCovariates is not None
-            else None
-        )
         chromPooledRowCount = 0
         for j in range(numSamples):
             blockMeansArr = blockMeansForFitMatrix[j, :]
@@ -8825,10 +8630,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             pooledBlockLogVarianceNoiseParts.append(
                 np.asarray(blockLogVarianceNoise[valid], dtype=np.float64)
             )
-            if blockCovariates is not None:
-                pooledBlockCovariatesParts.append(
-                    np.asarray(blockCovariates[valid, :], dtype=np.float32)
-                )
             pooledSampleIndexParts.append(np.full(count, int(j), dtype=np.int64))
             pooledChromIndexParts.append(np.full(count, int(c_), dtype=np.int64))
             pooledBlockStartsParts.append(
@@ -8992,12 +8793,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
             )
         muncTrendInputLabel = "dense_seed_state"
-        chromCovariates = _getChromMuncCovariates(
-            chromosome,
-            int(chromPlan["start"]),
-            int(chromPlan["end"]),
-            int(chromPlan["numIntervals"]),
-        )
         priorMeanTrack = _collectPooledMuncBlocks(
             c_,
             intervals,
@@ -9005,7 +8800,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             seedMuncMat,
             inputLabel=muncTrendInputLabel,
             diagnosticRawMat=chromMat if bool(fitArgs.fitBackground) else None,
-            chromCovariates=chromCovariates,
             countModelVarianceFloorMat=countModelVarianceFloorMat,
         )
         priorMeanCachePath = os.path.join(
@@ -9028,23 +8822,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         pooledChromIndex = np.concatenate(pooledChromIndexParts)
         pooledBlockStarts = np.concatenate(pooledBlockStartsParts)
         pooledTrendWeights = np.concatenate(pooledTrendWeightsParts)
-        if pooledBlockCovariatesParts:
-            pooledBlockCovariates = np.concatenate(pooledBlockCovariatesParts)
-        elif muncCovariatesEnabled:
-            pooledBlockCovariates = np.zeros(
-                (pooledBlockMeans.size, len(muncCovariateRawFeatures)),
-                dtype=np.float32,
-            )
-        else:
-            pooledBlockCovariates = None
     else:
         pooledBlockMeans = np.empty(0, dtype=np.float64)
         pooledBlockVars = np.empty(0, dtype=np.float64)
-        pooledBlockCovariates = (
-            np.empty((0, len(muncCovariateRawFeatures)), dtype=np.float32)
-            if muncCovariatesEnabled
-            else None
-        )
         pooledBlockLogVarianceNoise = None
         pooledSampleIndex = np.empty(0, dtype=np.int64)
         pooledChromIndex = np.empty(0, dtype=np.int64)
@@ -9053,7 +8833,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     pooledBlockMeansParts.clear()
     pooledBlockVarsParts.clear()
-    pooledBlockCovariatesParts.clear()
     pooledBlockLogVarianceNoiseParts.clear()
     pooledSampleIndexParts.clear()
     pooledChromIndexParts.clear()
@@ -9337,84 +9116,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         pooledMuncFit.diagnostics,
     )
 
-    additiveCovariateModel: core.MuncAdditiveCovariateModel | None = None
-    if muncCovariatesEnabled:
-        if pooledBlockCovariates is None:
-            logger.warning(
-                "MUNC genomic covariates were enabled, but no block-level covariates "
-                "were collected; continuing with the baseline MUNC trend only."
-            )
-        elif pooledBlockCovariates.shape[0] != pooledBlockMeans.size:
-            raise RuntimeError(
-                "pooled MUNC block covariates are not aligned with block means"
-            )
-        elif pooledBlockMeans.size == 0:
-            logger.warning(
-                "MUNC genomic covariates were enabled, but no pooled MUNC blocks "
-                "were available; continuing with the baseline MUNC trend only."
-            )
-        else:
-            baselinePooledVariance = core._clipVarianceTrack(
-                pooledPriorVarianceBase,
-                floor=varianceFloorForTrend,
-                cap=varianceCapForTrend,
-            ).astype(np.float64, copy=False)
-            factorAdjustedBlockVars = (
-                np.asarray(pooledBlockVars, dtype=np.float64)
-                / pooledReplicateVarianceFactors[pooledSampleIndex]
-            )
-            additiveCovariateModel = core.fitMuncAdditiveCovariateModel(
-                pooledBlockMeans,
-                factorAdjustedBlockVars,
-                baselinePooledVariance,
-                pooledBlockCovariates,
-                pooledSampleIndex,
-                featureNames=muncCovariateFeatureNames,
-                weights=pooledTrendWeights,
-                sampleCount=numSamples,
-                eps=varianceFloorForTrend,
-            )
-            pooledCoefficients = np.asarray(
-                additiveCovariateModel.pooledCoefficients,
-                dtype=np.float64,
-            )
-            additiveCovariateModel = additiveCovariateModel._replace(
-                perReplicateCoefficients=np.repeat(
-                    pooledCoefficients[None, :, :],
-                    int(numSamples),
-                    axis=0,
-                ),
-                replicateUsesPooled=np.ones(int(numSamples), dtype=bool),
-                diagnostics={
-                    **dict(additiveCovariateModel.diagnostics),
-                    "replicate_covariate_fit": "disabled",
-                    "replicate_fallback_count": int(numSamples),
-                },
-            )
-            logger.info(
-                "MUNC additive genomic covariate model: features=%s valid_pairs=%d "
-                "basis=%d shared_replicates=%d pooled_coef_sum=%.4g",
-                ",".join(additiveCovariateModel.featureNames),
-                int(additiveCovariateModel.diagnostics.get("valid_pairs", 0)),
-                int(additiveCovariateModel.diagnostics.get("basis_count", 0)),
-                int(
-                    additiveCovariateModel.diagnostics.get(
-                        "replicate_fallback_count",
-                        0,
-                    )
-                ),
-                float(
-                    additiveCovariateModel.diagnostics.get(
-                        "pooled_coefficient_sum",
-                        0.0,
-                    )
-                ),
-            )
-
     del (
         pooledBlockMeans,
         pooledBlockVars,
-        pooledBlockCovariates,
         pooledBlockLogVarianceNoise,
         pooledSampleIndex,
         pooledChromIndex,
@@ -9627,12 +9331,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             muncResidualBackground,
             logDiagnostics=False,
         )
-        chromMuncCovariates = _getChromMuncCovariates(
-            chromosome,
-            chromosomeStart,
-            chromosomeEnd,
-            numIntervals,
-        )
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         logger.info(
             "loaded transformed matrix cache %s samples=%d intervals=%d",
@@ -9744,8 +9442,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 priorVarianceTrack=pooledPriorVarianceTrack,
                 replicateVarianceFactor=replicateVarianceFactor,
                 EB_pooledNu0=pooledNu0,
-                covariateTrack=chromMuncCovariates,
-                additiveCovariateModel=additiveCovariateModel,
                 replicateIndex=j,
                 sampleFile=sampleFileByIndex[j],
                 localVarianceTrack=muncLocalEvidenceMat[j, :],
@@ -9764,7 +9460,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 muncMat,
                 muncIntervalsArr,
                 muncExcludeMask,
-                chromMuncCovariates,
                 countModelVarianceFloorMat,
                 sparseIntervalIndices,
                 sparseRegionMask,
@@ -9801,7 +9496,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             int(numSamples),
             time.perf_counter() - muncStart,
         )
-        del residMat, muncLocalEvidenceMat, chromMuncCovariates
+        del residMat, muncLocalEvidenceMat
         if countModelVarianceFloorMat is not None:
             del countModelVarianceFloorMat
 

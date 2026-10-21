@@ -17,10 +17,6 @@ import yaml
 import consenrich.constants as constants
 import consenrich.core as core
 import consenrich.misc_util as misc_util
-from consenrich.genome_covariates import (
-    resolve_genome_covariate_feature_config,
-    validate_genome_covariate_cache,
-)
 from . import io as io_helpers
 from . import cellmetadata
 from ._normalization import (
@@ -61,6 +57,20 @@ def loadConfig(
 
     if not isinstance(configData, Mapping):
         raise TypeError("Top-level YAML must be a mapping/object.")
+    for sectionName, removedName in (
+        ("genomeParams", "genomeCovariateCacheDir"),
+        ("observationParams", "muncCovariates"),
+    ):
+        removedKey = f"{sectionName}.{removedName}"
+        declaredKeys = tuple(configData)
+        sectionData = configData.get(sectionName)
+        if isinstance(sectionData, Mapping):
+            declaredKeys += tuple(f"{sectionName}.{key}" for key in sectionData)
+        if _cfgHas(configData, removedKey) or any(
+            isinstance(key, str) and key.startswith(f"{removedKey}.")
+            for key in declaredKeys
+        ):
+            raise ValueError(f"`{removedKey}` is not supported.")
     return configData
 
 
@@ -512,22 +522,6 @@ def _coerceTransformFloat(
     return out
 
 
-def _normalizeMuncCovariatesMode(value: Any) -> str:
-    raw = constants.OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE if value is None else value
-    key = str(raw).strip().replace("-", "").replace("_", "").lower()
-    canonicalByKey = {
-        mode.replace("-", "").replace("_", "").lower(): mode
-        for mode in constants.MUNC_SUPPORTED_COVARIATE_MODES
-    }
-    if key not in canonicalByKey:
-        supported = ", ".join(constants.MUNC_SUPPORTED_COVARIATE_MODES)
-        raise ValueError(
-            f"Unsupported observationParams.muncCovariates.mode {raw!r}. "
-            f"Supported modes: {supported}."
-        )
-    return canonicalByKey[key]
-
-
 def _normalizeMuncEBPriorGUncertaintyMode(value: Any) -> str:
     raw = (
         constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
@@ -546,19 +540,6 @@ def _normalizeMuncEBPriorGUncertaintyMode(value: Any) -> str:
             f"Supported modes: {supported}."
         )
     return canonicalByKey[key]
-
-
-def _normalizeMuncCovariateFeatures(
-    value: Any,
-    *,
-    availableFeatures: Sequence[str] | None = None,
-) -> tuple[str, ...]:
-    return resolve_genome_covariate_feature_config(
-        value,
-        default_features=constants.OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
-        available_features=availableFeatures,
-        config_name="observationParams.muncCovariates.features",
-    )
 
 
 def _normalizeProcessNoiseCalibration(value: Any) -> str:
@@ -1089,7 +1070,6 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
     chromSizesFile: Optional[str] = None
     blacklistFile: Optional[str] = None
     sparseBedFile: Optional[str] = None
-    genomeCovariateCacheDir: Optional[str] = None
     chromosomesList: Optional[List[str]] = None
 
     excludeChromsList: List[str] = (
@@ -1137,14 +1117,6 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
     )
     if sparseOverride:
         sparseBedFile = sparseOverride
-
-    genomeCovariateCacheDir = _cfgGet(
-        configData,
-        "genomeParams.genomeCovariateCacheDir",
-        _cfgDefault(configData, "genomeParams.genomeCovariateCacheDir"),
-    )
-    if genomeCovariateCacheDir is not None:
-        genomeCovariateCacheDir = str(genomeCovariateCacheDir)
 
     if not chromSizesFile or not os.path.exists(chromSizesFile):
         raise FileNotFoundError(
@@ -1194,7 +1166,6 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
         chromSizesFile=chromSizesFile,
         blacklistFile=blacklistFile,
         sparseBedFile=sparseBedFile,
-        genomeCovariateCacheDir=genomeCovariateCacheDir,
         chromosomes=chromosomesList,
         excludeChroms=excludeChromsList,
         excludeForNorm=excludeForNormList,
@@ -2458,50 +2429,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         raise ValueError(
             "`observationParams.muncSeedProcess.maxQ` must be negative or at least minQ."
         )
-    muncCovariatesEnabled = bool(
-        _cfgGet(
-            configData,
-            "observationParams.muncCovariates.enabled",
-            _cfgDefault(configData, "observationParams.muncCovariates.enabled"),
-        )
-    )
-    muncCovariatesMode = _normalizeMuncCovariatesMode(
-        _cfgGet(
-            configData,
-            "observationParams.muncCovariates.mode",
-            _cfgDefault(configData, "observationParams.muncCovariates.mode"),
-        )
-    )
-    muncCovariatesFeaturesRaw = _cfgGet(
-        configData,
-        "observationParams.muncCovariates.features",
-        _cfgDefault(configData, "observationParams.muncCovariates.features"),
-    )
-    genomeCovariateValidation = None
-    if muncCovariatesEnabled:
-        if not genomeParams.genomeCovariateCacheDir:
-            raise ValueError(
-                "`genomeParams.genomeCovariateCacheDir` is required when "
-                "`observationParams.muncCovariates.enabled` is true."
-            )
-        genomeCovariateValidation = validate_genome_covariate_cache(
-            genomeParams.genomeCovariateCacheDir,
-            interval_size_bp=countingParams.intervalSizeBP,
-        )
-    muncCovariatesFeatures = _normalizeMuncCovariateFeatures(
-        muncCovariatesFeaturesRaw,
-        availableFeatures=(
-            genomeCovariateValidation.features
-            if genomeCovariateValidation is not None
-            else None
-        ),
-    )
-    if muncCovariatesEnabled and genomeCovariateValidation is not None:
-        genomeCovariateValidation.validate_request(
-            required_features=muncCovariatesFeatures,
-            interval_size_bp=countingParams.intervalSizeBP,
-            required_features_label="requested MUNC features",
-        )
     useReplicateVarianceScaleValue = bool(
         _cfgGet(
             configData,
@@ -2769,9 +2696,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "muncEBPriorWarmupECMIters": muncEBPriorWarmupECMIters,
         "muncEBPriorWarmupOuterPasses": muncEBPriorWarmupOuterPasses,
         "muncEBPriorGUncertaintyMode": muncEBPriorGUncertaintyMode,
-        "muncCovariatesEnabled": muncCovariatesEnabled,
-        "muncCovariatesMode": muncCovariatesMode,
-        "muncCovariatesFeatures": muncCovariatesFeatures,
     }
     observationArgs = core.observationParams(**observationValues)
 

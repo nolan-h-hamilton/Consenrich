@@ -386,15 +386,6 @@ for extension in extModules:
     extension.depends = [
         dependency for dependency in extension.depends if not os.path.isabs(dependency)
     ]
-for generatedPath in [
-    "src/consenrich/cconsenrich.c",
-    "src/consenrich/ccounts.c",
-    "src/consenrich/cuncertainty.c",
-]:
-    if os.path.exists(generatedPath):
-        os.remove(generatedPath)
-
-
 setup(
     ext_modules=extModules,
     cmdclass={

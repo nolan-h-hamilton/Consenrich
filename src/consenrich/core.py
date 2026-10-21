@@ -110,9 +110,6 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
-    OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
-    OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED,
-    OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MIN_TILES_PER_STRATUM,
@@ -386,12 +383,6 @@ class observationParams(NamedTuple):
     :type EB_use: bool | None
     :param useReplicateVarianceScale: If True, scale the pooled MUNC prior variance by replicate-specific factors.
     :type useReplicateVarianceScale: bool | None
-    :param muncCovariatesEnabled: If True, add a nonnegative per-replicate genomic covariate variance component to the MUNC prior before empirical-Bayes shrinkage.
-    :type muncCovariatesEnabled: bool | None
-    :param muncCovariatesMode: Genomic covariate MUNC mode. Currently ``"perReplicateAdditive"``.
-    :type muncCovariatesMode: str | None
-    :param muncCovariatesFeatures: Genomic covariate feature names to read from the cache. ``"gc"`` is transformed to chromosome-median absolute deviation at runtime.
-    :type muncCovariatesFeatures: tuple[str, ...] | None
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually sets local model df, :math:`\nu_L`, to this value.
@@ -521,11 +512,6 @@ class observationParams(NamedTuple):
     )
     muncEBPriorGUncertaintyMode: str | None = (
         OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
-    )
-    muncCovariatesEnabled: bool | None = OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED
-    muncCovariatesMode: str | None = OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE
-    muncCovariatesFeatures: tuple[str, ...] | None = (
-        OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES
     )
     smoothToFraglen: bool | None = OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN
 
@@ -869,8 +855,6 @@ class genomeParams(NamedTuple):
     :type blacklistFile: str, optional
     :param sparseBedFile: A BED file with 'sparse regions' that are mutually exclusive with or devoid of the targeted signal. Used to estimate noise levels. See :func:`getMuncTrack`.
     :type sparseBedFile: str, optional
-    :param genomeCovariateCacheDir: Optional directory containing a Consenrich genome covariate cache used by additive genomic MUNC covariance.
-    :type genomeCovariateCacheDir: str, optional
     :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
     :type chromosomes: List[str]
     :param excludeChroms: A list of chromosome names to *exclude* from analysis.
@@ -883,7 +867,6 @@ class genomeParams(NamedTuple):
     chromSizesFile: str
     blacklistFile: Optional[str]
     sparseBedFile: Optional[str]
-    genomeCovariateCacheDir: Optional[str]
     chromosomes: List[str]
     excludeChroms: List[str]
     excludeForNorm: List[str]
@@ -6357,18 +6340,6 @@ class PooledMuncVarianceTrend(NamedTuple):
     diagnostics: dict[str, Any]
 
 
-class MuncAdditiveCovariateModel(NamedTuple):
-    r"""Nonnegative additive genomic-covariate variance model for MUNC."""
-
-    featureNames: tuple[str, ...]
-    basisEdges: np.ndarray
-    basisMetadata: dict[str, Any]
-    pooledCoefficients: np.ndarray
-    perReplicateCoefficients: np.ndarray
-    replicateUsesPooled: np.ndarray
-    diagnostics: dict[str, Any]
-
-
 def _muncTrendPredictor(values: np.ndarray) -> np.ndarray:
     r"""Signed MUNC trend predictor: ``sign(mean) * log1p(abs(mean))``."""
 
@@ -6716,339 +6687,6 @@ def evalPSplineLogVarianceTrend(
         logFloor,
         logCap,
     )
-
-
-def _sanitizeMuncCovariateMatrix(
-    covariates: np.ndarray,
-    expectedFeatures: int | None = None,
-) -> np.ndarray:
-    covArr = np.asarray(covariates, dtype=np.float64)
-    if covArr.ndim == 1:
-        covArr = covArr.reshape(-1, 1)
-    elif covArr.ndim != 2:
-        raise ValueError("MUNC covariates must be a 2D array")
-    if expectedFeatures is not None and covArr.shape[1] != int(expectedFeatures):
-        raise ValueError(
-            "MUNC covariate feature count mismatch: "
-            f"expected {int(expectedFeatures)}, got {int(covArr.shape[1])}"
-        )
-    covArr = np.array(covArr, dtype=np.float64, copy=True)
-    finite = np.isfinite(covArr)
-    covArr[finite & (covArr < 0.0)] = 0.0
-    return covArr
-
-
-def _muncAdditiveBasisEdges(
-    means: np.ndarray,
-    weights: np.ndarray | None = None,
-    basisCount: int = 4,
-) -> np.ndarray:
-    predictor = _muncTrendPredictor(means).ravel()
-    if weights is None:
-        weightsArr = np.ones_like(predictor, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-        if weightsArr.shape != predictor.shape:
-            raise ValueError("weights must align with blockMeans")
-    valid = np.isfinite(predictor) & np.isfinite(weightsArr) & (weightsArr > 0.0)
-    x = predictor[valid]
-    w = weightsArr[valid]
-    if x.size < 2 or np.nanmax(x) <= np.nanmin(x):
-        return np.array([-np.inf, np.inf], dtype=np.float64)
-    requested = int(max(1, min(int(basisCount), 16)))
-    if requested <= 1:
-        return np.array([-np.inf, np.inf], dtype=np.float64)
-    probs = np.linspace(0.0, 1.0, requested + 1, dtype=np.float64)[1:-1]
-    internal = _weightedQuantile(x, w, probs)
-    internal = np.unique(internal[np.isfinite(internal)])
-    if internal.size:
-        span = float(np.max(x) - np.min(x))
-        minGap = max(span * 1.0e-8, 1.0e-10)
-        internal = internal[
-            (internal > float(np.min(x)) + minGap)
-            & (internal < float(np.max(x)) - minGap)
-        ]
-        internal = np.unique(internal)
-    if internal.size == 0:
-        return np.array([-np.inf, np.inf], dtype=np.float64)
-    return np.concatenate(
-        (
-            np.array([-np.inf], dtype=np.float64),
-            internal.astype(np.float64, copy=False),
-            np.array([np.inf], dtype=np.float64),
-        )
-    )
-
-
-def _muncAdditiveBasisIndex(means: np.ndarray, basisEdges: np.ndarray) -> np.ndarray:
-    edges = np.asarray(basisEdges, dtype=np.float64).ravel()
-    if edges.size < 2:
-        edges = np.array([-np.inf, np.inf], dtype=np.float64)
-    predictor = _muncTrendPredictor(means).ravel()
-    bins = np.searchsorted(edges[1:-1], predictor, side="right").astype(np.intp)
-    bins[~np.isfinite(predictor)] = 0
-    return np.clip(bins, 0, int(edges.size) - 2)
-
-
-def _muncAdditiveDesign(
-    means: np.ndarray,
-    covariates: np.ndarray,
-    basisEdges: np.ndarray,
-) -> np.ndarray:
-    covArr = _sanitizeMuncCovariateMatrix(covariates)
-    bins = _muncAdditiveBasisIndex(means, basisEdges)
-    if covArr.shape[0] != bins.size:
-        raise ValueError("MUNC covariates must align with blockMeans")
-    featureCount = int(covArr.shape[1])
-    basisCount = int(max(1, np.asarray(basisEdges).size - 1))
-    design = np.zeros((bins.size, featureCount * basisCount), dtype=np.float64)
-    rows = np.arange(bins.size, dtype=np.intp)
-    if np.any(~np.isfinite(covArr)):
-        raise ValueError("MUNC covariate design cannot contain missing covariates")
-    for feature in range(featureCount):
-        design[rows, feature * basisCount + bins] = covArr[:, feature]
-    return design
-
-
-def _fitNonnegativeRidge(
-    design: np.ndarray,
-    target: np.ndarray,
-    weights: np.ndarray,
-    ridge: float,
-) -> np.ndarray:
-    X = np.asarray(design, dtype=np.float64)
-    y = np.asarray(target, dtype=np.float64).ravel()
-    w = np.asarray(weights, dtype=np.float64).ravel()
-    if X.ndim != 2 or X.shape[0] != y.size or y.size != w.size:
-        raise ValueError("nonnegative ridge design, target, and weights must align")
-    if X.shape[1] == 0:
-        return np.empty(0, dtype=np.float64)
-    valid = np.isfinite(y) & np.isfinite(w) & (w > 0.0)
-    if not np.any(valid):
-        return np.zeros(X.shape[1], dtype=np.float64)
-    X = X[valid, :]
-    y = np.maximum(y[valid], 0.0)
-    w = w[valid]
-    if not np.any(np.isfinite(X)) or float(np.max(np.abs(X))) <= 0.0:
-        return np.zeros(X.shape[1], dtype=np.float64)
-    X[~np.isfinite(X)] = 0.0
-    sqrtW = np.sqrt(w)
-    Xw = X * sqrtW[:, None]
-    yw = y * sqrtW
-    ridge_ = float(ridge)
-    if np.isfinite(ridge_) and ridge_ > 0.0:
-        Xw = np.vstack(
-            (
-                Xw,
-                math.sqrt(ridge_) * np.eye(X.shape[1], dtype=np.float64),
-            )
-        )
-        yw = np.concatenate((yw, np.zeros(X.shape[1], dtype=np.float64)))
-    try:
-        beta, _ = optimize.nnls(Xw, yw, maxiter=max(3 * Xw.shape[1], 1))
-    except RuntimeError as exc:
-        raise RuntimeError("nonnegative ridge NNLS failed to converge") from exc
-    beta = np.asarray(beta, dtype=np.float64)
-    if beta.shape != (X.shape[1],):
-        raise RuntimeError(
-            "nonnegative ridge NNLS returned an invalid coefficient count"
-        )
-    if not np.all(np.isfinite(beta)):
-        raise FloatingPointError(
-            "nonnegative ridge NNLS returned non-finite coefficients"
-        )
-    if np.any(beta < 0.0):
-        raise FloatingPointError(
-            "nonnegative ridge NNLS returned negative coefficients"
-        )
-    return beta
-
-
-def fitMuncAdditiveCovariateModel(
-    blockMeans: np.ndarray,
-    blockVariances: np.ndarray,
-    baselineVariances: np.ndarray,
-    blockCovariates: np.ndarray,
-    sampleIndex: np.ndarray,
-    *,
-    featureNames: Tuple[str, ...] | tuple[str, ...] | None = None,
-    weights: np.ndarray | None = None,
-    sampleCount: int | None = None,
-    minBlocksPerReplicate: int = 250,
-    basisCount: int = 4,
-    ridge: float = 1.0,
-    eps: float = 1.0e-12,
-) -> MuncAdditiveCovariateModel:
-    r"""Fit per-replicate nonnegative additive genomic MUNC variance."""
-
-    means = np.asarray(blockMeans, dtype=np.float64).ravel()
-    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
-    baseline = np.asarray(baselineVariances, dtype=np.float64).ravel()
-    samples = np.asarray(sampleIndex, dtype=np.int64).ravel()
-    if means.shape != variances.shape or means.shape != baseline.shape:
-        raise ValueError("blockMeans, blockVariances, and baselineVariances must align")
-    if samples.shape != means.shape:
-        raise ValueError("sampleIndex must align with blockMeans")
-    covArr = _sanitizeMuncCovariateMatrix(blockCovariates)
-    if covArr.shape[0] != means.size:
-        raise ValueError("blockCovariates must align with blockMeans")
-    featureCount = int(covArr.shape[1])
-    if featureNames is None:
-        names = tuple(f"feature_{idx}" for idx in range(featureCount))
-    else:
-        names = tuple(str(name) for name in featureNames)
-    if len(names) != featureCount:
-        raise ValueError("featureNames must match blockCovariates columns")
-    if weights is None:
-        weightsArr = np.ones_like(means, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-        if weightsArr.shape != means.shape:
-            raise ValueError("weights must align with blockMeans")
-    if sampleCount is None:
-        sampleCount_ = int(np.max(samples)) + 1 if samples.size else 0
-    else:
-        sampleCount_ = int(max(sampleCount, 0))
-
-    valid = (
-        np.isfinite(means)
-        & np.isfinite(variances)
-        & np.isfinite(baseline)
-        & np.isfinite(weightsArr)
-        & np.all(np.isfinite(covArr), axis=1)
-        & (weightsArr > 0.0)
-        & (variances > max(float(eps), 0.0))
-        & (baseline > 0.0)
-        & (samples >= 0)
-        & (samples < sampleCount_)
-    )
-    validCount = int(np.count_nonzero(valid))
-    basisEdges = _muncAdditiveBasisEdges(
-        means[valid],
-        weights=weightsArr[valid],
-        basisCount=basisCount,
-    )
-    basisCount_ = int(max(1, basisEdges.size - 1))
-    coefShape = (featureCount, basisCount_)
-    pooledCoefficients = np.zeros(coefShape, dtype=np.float64)
-    perReplicateCoefficients = np.zeros(
-        (sampleCount_, featureCount, basisCount_),
-        dtype=np.float64,
-    )
-    replicateUsesPooled = np.ones(sampleCount_, dtype=bool)
-    replicateValidCounts = np.zeros(sampleCount_, dtype=np.int64)
-
-    if validCount > 0 and featureCount > 0:
-        excess = np.maximum(variances[valid] - baseline[valid], 0.0)
-        fitMeans = means[valid]
-        fitCov = covArr[valid, :]
-        fitWeights = weightsArr[valid]
-        fitSamples = samples[valid]
-        pooledDesign = _muncAdditiveDesign(fitMeans, fitCov, basisEdges)
-        pooledBeta = _fitNonnegativeRidge(
-            pooledDesign,
-            excess,
-            fitWeights,
-            ridge,
-        )
-        pooledCoefficients = pooledBeta.reshape(coefShape)
-        perReplicateCoefficients[:] = pooledCoefficients[None, :, :]
-
-        minBlocks = int(max(1, minBlocksPerReplicate))
-        for sample in range(sampleCount_):
-            sampleMask = fitSamples == int(sample)
-            replicateValidCounts[sample] = int(np.count_nonzero(sampleMask))
-            if replicateValidCounts[sample] < minBlocks:
-                continue
-            repBeta = _fitNonnegativeRidge(
-                pooledDesign[sampleMask, :],
-                excess[sampleMask],
-                fitWeights[sampleMask],
-                ridge,
-            )
-            perReplicateCoefficients[sample, :, :] = repBeta.reshape(coefShape)
-            replicateUsesPooled[sample] = False
-
-    diagnostics = {
-        "valid_pairs": validCount,
-        "feature_count": featureCount,
-        "basis_count": basisCount_,
-        "basis_edges": basisEdges.tolist(),
-        "basis_predictor": "signed_log1p",
-        "ridge": float(ridge),
-        "min_blocks_per_replicate": int(max(1, minBlocksPerReplicate)),
-        "pooled_coefficient_sum": float(np.sum(pooledCoefficients)),
-        "per_replicate_coefficient_sum": [
-            float(value)
-            for value in np.sum(perReplicateCoefficients, axis=(1, 2)).tolist()
-        ],
-        "replicate_valid_counts": [
-            int(value) for value in replicateValidCounts.tolist()
-        ],
-        "replicate_fallback_count": int(np.count_nonzero(replicateUsesPooled)),
-    }
-    return MuncAdditiveCovariateModel(
-        featureNames=names,
-        basisEdges=basisEdges.astype(np.float64, copy=False),
-        basisMetadata={
-            "type": "quantile_indicator",
-            "predictor": "signed_log1p",
-            "basis_count": basisCount_,
-        },
-        pooledCoefficients=pooledCoefficients.astype(np.float64, copy=False),
-        perReplicateCoefficients=perReplicateCoefficients.astype(
-            np.float64,
-            copy=False,
-        ),
-        replicateUsesPooled=replicateUsesPooled,
-        diagnostics=diagnostics,
-    )
-
-
-def evalMuncAdditiveCovariateModel(
-    model: MuncAdditiveCovariateModel | None,
-    meanTrack: np.ndarray,
-    covariateTrack: np.ndarray | None,
-    replicateIndex: int | None = None,
-) -> np.ndarray:
-    r"""Evaluate a nonnegative additive MUNC covariate variance track."""
-
-    means = np.asarray(meanTrack, dtype=np.float64).ravel()
-    if model is None or covariateTrack is None:
-        return np.zeros_like(means, dtype=np.float32)
-    featureCount = int(len(model.featureNames))
-    if featureCount == 0:
-        return np.zeros_like(means, dtype=np.float32)
-    covArr = _sanitizeMuncCovariateMatrix(covariateTrack, featureCount)
-    if covArr.shape[0] != means.size:
-        raise ValueError("covariateTrack must align with meanTrack")
-    finiteRows = np.all(np.isfinite(covArr), axis=1)
-    if not np.any(finiteRows):
-        return np.zeros_like(means, dtype=np.float32)
-    basisEdges = np.asarray(model.basisEdges, dtype=np.float64)
-    bins = _muncAdditiveBasisIndex(means, basisEdges)
-    if replicateIndex is None:
-        coefficients = np.asarray(model.pooledCoefficients, dtype=np.float64)
-    else:
-        rep = int(replicateIndex)
-        perRep = np.asarray(model.perReplicateCoefficients, dtype=np.float64)
-        usesPooled = np.asarray(model.replicateUsesPooled, dtype=bool).ravel()
-        if (
-            rep < 0
-            or rep >= perRep.shape[0]
-            or (rep < usesPooled.size and bool(usesPooled[rep]))
-        ):
-            coefficients = np.asarray(model.pooledCoefficients, dtype=np.float64)
-        else:
-            coefficients = perRep[rep, :, :]
-    out = np.zeros(means.size, dtype=np.float64)
-    for feature in range(featureCount):
-        out[finiteRows] += (
-            covArr[finiteRows, feature] * coefficients[feature, bins[finiteRows]]
-        )
-    out[~np.isfinite(out)] = 0.0
-    out[out < 0.0] = 0.0
-    return out.astype(np.float32, copy=False)
 
 
 def fitPooledMuncVarianceTrend(
@@ -8490,8 +8128,6 @@ def getMuncTrack(
     priorMeanTrack: Optional[np.ndarray] = None,
     replicateVarianceFactor: float = 1.0,
     EB_pooledNu0: float | None = None,
-    covariateTrack: Optional[np.ndarray] = None,
-    additiveCovariateModel: Optional[MuncAdditiveCovariateModel] = None,
     replicateIndex: int | None = None,
     sampleFile: str | None = None,
     countModelVarianceFloor: Optional[np.ndarray] = None,
@@ -8648,14 +8284,6 @@ def getMuncTrack(
                 ),
             ),
             (
-                "MUNC genomic covariates",
-                (
-                    "enabled"
-                    if additiveCovariateModel is not None and covariateTrack is not None
-                    else "disabled"
-                ),
-            ),
-            (
                 "MUNC count model floor",
                 "enabled" if countModelVarianceFloorArr is not None else "disabled",
             ),
@@ -8744,32 +8372,6 @@ def getMuncTrack(
         ).reshape(-1)
         if priorTrack.shape[0] != valuesArr.size:
             raise ValueError("priorVarianceTrack must match values length")
-    if additiveCovariateModel is not None and covariateTrack is not None:
-        additionalTrack = evalMuncAdditiveCovariateModel(
-            additiveCovariateModel,
-            meanTrack,
-            covariateTrack,
-            replicateIndex,
-        ).astype(np.float64, copy=False)
-        priorTrack = (
-            np.asarray(
-                priorTrack,
-                dtype=np.float64,
-            ).reshape(-1)
-            + additionalTrack
-        )
-        finiteAdditional = additionalTrack[np.isfinite(additionalTrack)]
-        if finiteAdditional.size:
-            logger.info(
-                "MUNC additive genomic covariate variance: replicate=%s "
-                "sampleFile=%s active_fraction=%.4f median=%.4g q95=%.4g",
-                "pooled" if replicateIndex is None else int(replicateIndex),
-                sampleFileLog,
-                float(np.count_nonzero(finiteAdditional > 0.0))
-                / float(finiteAdditional.size),
-                float(np.median(finiteAdditional)),
-                float(np.quantile(finiteAdditional, 0.95)),
-            )
     if abs(replicateFactor - 1.0) > 1.0e-8:
         priorTrack = (
             np.asarray(priorTrack, dtype=np.float64).reshape(-1) * replicateFactor

@@ -685,7 +685,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
                 chromSizesFile=str(chromSizesPath),
                 blacklistFile=None,
                 sparseBedFile=None,
-                genomeCovariateCacheDir=None,
                 chromosomes=["chrTest"],
                 excludeChroms=[],
                 excludeForNorm=[],
@@ -752,8 +751,6 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
                 muncEBPriorSupportMaxQ=1.0,
                 muncEBPriorMaxExtrapolatedFraction=0.0,
                 muncEBPriorGUncertaintyMode="disabled",
-                muncCovariatesEnabled=False,
-                muncCovariatesFeatures=(),
                 muncSeedWeightEnabled=seedWeightEnabled,
                 muncSeedWeightPasses=2,
                 muncSeedWeightStudentT=seedWeightStudentT,
@@ -5404,188 +5401,6 @@ def _caseMuncTrendRejectsInvalidVarianceValues():
 
 
 @pytest.mark.correctness
-def _caseNonnegativeRidgeFailsWhenNNLSSolverFails(monkeypatch):
-    def failNNLS(*args, **kwargs):
-        raise RuntimeError("iteration limit")
-
-    monkeypatch.setattr(core.optimize, "nnls", failNNLS)
-
-    with pytest.raises(
-        RuntimeError,
-        match="nonnegative ridge NNLS failed",
-    ) as excInfo:
-        means = np.linspace(-1.0, 1.0, 4, dtype=np.float64)
-        baseline = np.ones(means.size, dtype=np.float64)
-        core.fitMuncAdditiveCovariateModel(
-            means,
-            baseline + 1.0,
-            baseline,
-            np.ones((means.size, 1), dtype=np.float64),
-            np.zeros(means.size, dtype=np.int64),
-            sampleCount=1,
-            minBlocksPerReplicate=1,
-        )
-
-    assert isinstance(excInfo.value.__cause__, RuntimeError)
-    assert str(excInfo.value.__cause__) == "iteration limit"
-
-
-@pytest.mark.correctness
-def _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback():
-    means0 = np.linspace(-3.0, 3.0, 80, dtype=np.float64)
-    means1 = np.linspace(-3.0, 3.0, 80, dtype=np.float64)
-    means2 = np.linspace(-1.0, 1.0, 6, dtype=np.float64)
-    means = np.concatenate([means0, means1, means2])
-    sampleIndex = np.concatenate(
-        [
-            np.zeros(means0.size, dtype=np.int64),
-            np.ones(means1.size, dtype=np.int64),
-            np.full(means2.size, 2, dtype=np.int64),
-        ]
-    )
-    baseline = 2.0 + 0.05 * np.abs(means)
-    excess = np.where(sampleIndex == 0, 0.5, np.where(sampleIndex == 1, 3.0, 7.0))
-    covariates = np.ones((means.size, 1), dtype=np.float32)
-
-    model = core.fitMuncAdditiveCovariateModel(
-        means,
-        baseline + excess,
-        baseline,
-        covariates,
-        sampleIndex,
-        featureNames=("repeat_frac",),
-        sampleCount=3,
-        basisCount=1,
-        ridge=1.0e-8,
-        minBlocksPerReplicate=20,
-    )
-
-    probeMeans = np.zeros(4, dtype=np.float64)
-    probeCovariates = np.ones((probeMeans.size, 1), dtype=np.float32)
-    add0 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 0)
-    add1 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 1)
-    add2 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 2)
-
-    assert model.featureNames == ("repeat_frac",)
-    assert model.replicateUsesPooled.tolist() == [False, False, True]
-    assert float(np.median(add0)) == pytest.approx(0.5, abs=0.05)
-    assert float(np.median(add1)) == pytest.approx(3.0, abs=0.05)
-    assert float(np.median(add2)) > float(np.median(add0))
-    assert float(np.median(add2)) < 3.0
-
-
-@pytest.mark.correctness
-def _caseMuncAdditiveCovariateModelTreatsMissingCovariatesAsMissing():
-    means = np.zeros(6, dtype=np.float64)
-    baseline = np.full(means.size, 2.0, dtype=np.float64)
-    variances = np.asarray([5.0, 100.0, 5.0, 100.0, 5.0, 100.0], dtype=np.float64)
-    covariates = np.asarray([[1.0], [np.nan], [1.0], [np.nan], [1.0], [np.nan]])
-    sampleIndex = np.zeros(means.size, dtype=np.int64)
-
-    model = core.fitMuncAdditiveCovariateModel(
-        means,
-        variances,
-        baseline,
-        covariates,
-        sampleIndex,
-        featureNames=("repeat_frac",),
-        sampleCount=1,
-        basisCount=1,
-        ridge=1.0e-8,
-        minBlocksPerReplicate=1,
-    )
-
-    probeMeans = np.zeros(3, dtype=np.float64)
-    probeCovariates = np.asarray([[1.0], [np.nan], [2.0]], dtype=np.float32)
-    additional = core.evalMuncAdditiveCovariateModel(
-        model,
-        probeMeans,
-        probeCovariates,
-        0,
-    )
-
-    assert model.diagnostics["valid_pairs"] == 3
-    np.testing.assert_allclose(additional, np.asarray([3.0, 0.0, 6.0]), atol=1.0e-5)
-
-
-@pytest.mark.correctness
-def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
-    values = np.zeros(40, dtype=np.float32)
-    intervals = np.arange(values.size, dtype=np.uint32) * np.uint32(25)
-    trend = core.PSplineLogVarianceTrend(
-        knots=np.empty(0, dtype=np.float64),
-        degree=-1,
-        beta=np.array([np.log(2.0)], dtype=np.float64),
-        xMin=0.0,
-        xMax=0.0,
-        lambdaHat=0.0,
-        edf=1.0,
-        gcv=0.0,
-        lambdaAtBoundary=False,
-        finiteCount=1,
-        diagnostics={"fallback": "test_constant"},
-    )
-    model = core.MuncAdditiveCovariateModel(
-        featureNames=("gc_dev",),
-        basisEdges=np.array([-np.inf, np.inf], dtype=np.float64),
-        basisMetadata={"type": "quantile_indicator", "predictor": "signed_log1p"},
-        pooledCoefficients=np.array([[3.0]], dtype=np.float64),
-        perReplicateCoefficients=np.array(
-            [
-                [[1.0]],
-                [[4.0]],
-            ],
-            dtype=np.float64,
-        ),
-        replicateUsesPooled=np.array([False, False], dtype=bool),
-        diagnostics={},
-    )
-    covariates = np.ones((values.size, 1), dtype=np.float32)
-    localTrack0 = np.full(values.size, 3.0, dtype=np.float32)
-    localTrack1 = np.full(values.size, 6.0, dtype=np.float32)
-
-    track0, _ = core.getMuncTrack(
-        "chrTest",
-        intervals,
-        values,
-        25,
-        muncTrendBlockSizeBP=100,
-        muncLocalWindowSizeBP=100,
-        EB_use=True,
-        EB_localQuantile=-1.0,
-        EB_setNuL=4,
-        EB_pooledNu0=1.0e9,
-        pooledTrend=trend,
-        covariateTrack=covariates,
-        additiveCovariateModel=model,
-        replicateIndex=0,
-        localVarianceTrack=localTrack0,
-        varianceFloor=1.0e-6,
-    )
-    track1, _ = core.getMuncTrack(
-        "chrTest",
-        intervals,
-        values,
-        25,
-        muncTrendBlockSizeBP=100,
-        muncLocalWindowSizeBP=100,
-        EB_use=True,
-        EB_localQuantile=-1.0,
-        EB_setNuL=4,
-        EB_pooledNu0=1.0e9,
-        pooledTrend=trend,
-        covariateTrack=covariates,
-        additiveCovariateModel=model,
-        replicateIndex=1,
-        localVarianceTrack=localTrack1,
-        varianceFloor=1.0e-6,
-    )
-
-    np.testing.assert_allclose(track0, np.full(values.size, 3.0), rtol=1.0e-5)
-    np.testing.assert_allclose(track1, np.full(values.size, 6.0), rtol=1.0e-5)
-
-
-@pytest.mark.correctness
 def _casePSplineGuardedGCVAppliesEdfCap():
     rng = np.random.default_rng(321)
     amplitudes = np.linspace(0.0, 10.0, 500, dtype=np.float64)
@@ -8159,18 +7974,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(
             "MUNC sparse local variance rejection",
             _caseGetMuncTrackRejectsSparseLocalVariancePaths,
         ),
-        (
-            "MUNC additive covariate model",
-            _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
-        ),
-        (
-            "MUNC missing additive covariates",
-            _caseMuncAdditiveCovariateModelTreatsMissingCovariatesAsMissing,
-        ),
-        (
-            "MUNC additive covariates before EB",
-            _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage,
-        ),
         ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesEdfCap),
         ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
@@ -8185,11 +7988,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(
         ),
     ):
         contract_case(label, func)
-    contract_case(
-        "nonnegative ridge NNLS failure",
-        _caseNonnegativeRidgeFailsWhenNNLSSolverFails,
-        monkeypatch,
-    )
     contract_case(
         "MUNC supplied pooled trend",
         _caseGetMuncTrackUsesSuppliedPooledTrendAndPriorMean,
