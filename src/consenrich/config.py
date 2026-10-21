@@ -22,6 +22,7 @@ from consenrich.genome_covariates import (
     validate_genome_covariate_cache,
 )
 from . import io as io_helpers
+from . import cellmetadata
 from ._normalization import (
     normalize_config_enum as _sharedNormalizeConfigEnum,
     normalize_count_transform_method as _sharedNormalizeCountingTransformMethod,
@@ -601,6 +602,10 @@ def _buildProcessArgs(
 
 def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.inputParams:
     configData = loadConfig(config_path)
+    sharedMetadata = cellmetadata.parseMetadataSpec(
+        _cfgGet(configData, "scParams.cellMetadata", None)
+    )
+    fits = cellmetadata.parseFits(_cfgGet(configData, "scParams.fits", None))
     defaultBarcodeTag = _cfgGet(
         configData,
         "scParams.barcodeTag",
@@ -640,6 +645,33 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
             )
             for sourceConfig in sampleConfigs
         ]
+        for sourceIndex, source in enumerate(allSources):
+            sourceMetadata = cellmetadata.parseMetadataSpec(source.cellMetadata)
+            effectiveMetadata = (
+                sourceMetadata if sourceMetadata is not None else sharedMetadata
+            )
+            metadataSample = source.metadataSample
+            if (
+                metadataSample is None
+                and effectiveMetadata is not None
+                and effectiveMetadata["sampleColumn"] is not None
+            ):
+                metadataSample = source.sampleName
+            source = source._replace(
+                cellMetadata=sourceMetadata, metadataSample=metadataSample
+            )
+            allSources[sourceIndex] = source
+            if (
+                effectiveMetadata is not None
+                and source.barcodeGroupMapFile is not None
+            ):
+                raise ValueError(
+                    "Cell metadata and `barcodeGroupMapFile` cannot be used together."
+                )
+            if fits is not None and source.selectGroups is not None:
+                raise ValueError(
+                    "Per-source `selectGroups` cannot be used with `scParams.fits`."
+                )
         treatmentSources = [
             source for source in allSources if str(source.role).lower() == "treatment"
         ]
@@ -1043,8 +1075,16 @@ def getLoggingArgs(
 def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.genomeParams:
     configData = loadConfig(config_path)
 
+    effectiveGenomeSize = _cfgGet(configData, "genomeParams.effectiveGenomeSize", None)
+    if effectiveGenomeSize is not None and (
+        isinstance(effectiveGenomeSize, bool)
+        or not isinstance(effectiveGenomeSize, int)
+        or effectiveGenomeSize <= 0
+    ):
+        raise ValueError("`genomeParams.effectiveGenomeSize` must be a positive integer.")
+
     genomeName = _cfgGet(configData, "genomeParams.name", constants.GENOME_DEFAULT_NAME)
-    genomeLabel = constants.resolveGenomeName(genomeName)
+    genomeLabel = constants.resolveGenomeName(genomeName) if genomeName is not None else None
 
     chromSizesFile: Optional[str] = None
     blacklistFile: Optional[str] = None
@@ -1069,7 +1109,7 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
         or []
     )
 
-    if genomeLabel:
+    if genomeLabel in ("ce10", "ce11", "dm6", "hg19", "hg38", "mm10", "mm39"):
         chromSizesFile = constants.getGenomeResourceFile(genomeLabel, "sizes")
         blacklistFile = constants.getGenomeResourceFile(genomeLabel, "blacklist")
         sparseBedFile = constants.getGenomeResourceFile(genomeLabel, "sparse")
@@ -1158,6 +1198,7 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
         chromosomes=chromosomesList,
         excludeChroms=excludeChromsList,
         excludeForNorm=excludeForNormList,
+        effectiveGenomeSize=effectiveGenomeSize,
     )
 
 
@@ -1515,6 +1556,10 @@ def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams
         fragmentsGroupNorm=fragmentsGroupNorm_,
         defaultFragmentPositionMode=defaultFragmentPositionMode_,
         fragmentsUseReadSupport=fragmentsUseReadSupport_,
+        cellMetadata=cellmetadata.parseMetadataSpec(
+            _cfgGet(configData, "scParams.cellMetadata", None)
+        ),
+        fits=cellmetadata.parseFits(_cfgGet(configData, "scParams.fits", None)),
     )
 
 

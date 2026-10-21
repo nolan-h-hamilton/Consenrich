@@ -1,0 +1,717 @@
+{
+  "generatedUTC": "2026-10-21T16:30:07.547284+00:00",
+  "formatSpecification": "https://genome.ucsc.edu/FAQ/FAQformat.html#format7",
+  "generator": "scripts/buildNonNResources.py",
+  "assemblies": {
+    "ce10": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/ce10/bigZips/ce10.2bit",
+      "lastModified": "Mon, 23 May 2011 20:23:10 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "ce10.sizes",
+      "chromosomes": {
+        "chrI": {
+          "physicalLength": 15072423,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 15072423
+        },
+        "chrII": {
+          "physicalLength": 15279345,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 15279345
+        },
+        "chrIII": {
+          "physicalLength": 13783700,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 13783700
+        },
+        "chrIV": {
+          "physicalLength": 17493793,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 17493793
+        },
+        "chrV": {
+          "physicalLength": 20924149,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 20924149
+        },
+        "chrX": {
+          "physicalLength": 17718866,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 17718866
+        }
+      }
+    },
+    "ce11": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/ce11/bigZips/ce11.2bit",
+      "lastModified": "Wed, 10 Jun 2015 22:41:17 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "ce11.sizes",
+      "chromosomes": {
+        "chrI": {
+          "physicalLength": 15072434,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 15072434
+        },
+        "chrII": {
+          "physicalLength": 15279421,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 15279421
+        },
+        "chrIII": {
+          "physicalLength": 13783801,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 13783801
+        },
+        "chrIV": {
+          "physicalLength": 17493829,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 17493829
+        },
+        "chrV": {
+          "physicalLength": 20924180,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 20924180
+        },
+        "chrX": {
+          "physicalLength": 17718942,
+          "nBlockCount": 0,
+          "nBases": 0,
+          "nonNBases": 17718942
+        }
+      }
+    },
+    "dm6": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/dm6.2bit",
+      "lastModified": "Thu, 28 Aug 2014 20:53:30 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "dm6.sizes",
+      "chromosomes": {
+        "chr2L": {
+          "physicalLength": 23513712,
+          "nBlockCount": 2,
+          "nBases": 200,
+          "nonNBases": 23513512
+        },
+        "chr2R": {
+          "physicalLength": 25286936,
+          "nBlockCount": 8,
+          "nBases": 6700,
+          "nonNBases": 25280236
+        },
+        "chr3L": {
+          "physicalLength": 28110227,
+          "nBlockCount": 9,
+          "nBases": 118160,
+          "nonNBases": 27992067
+        },
+        "chr3R": {
+          "physicalLength": 32079331,
+          "nBlockCount": 27,
+          "nBases": 24572,
+          "nonNBases": 32054759
+        },
+        "chr4": {
+          "physicalLength": 1348131,
+          "nBlockCount": 1,
+          "nBases": 17000,
+          "nonNBases": 1331131
+        },
+        "chrX": {
+          "physicalLength": 23542271,
+          "nBlockCount": 10,
+          "nBases": 66120,
+          "nonNBases": 23476151
+        },
+        "chrY": {
+          "physicalLength": 3667352,
+          "nBlockCount": 211,
+          "nBases": 257633,
+          "nonNBases": 3409719
+        }
+      }
+    },
+    "hg19": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit",
+      "lastModified": "Sun, 08 Mar 2009 22:29:44 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "hg19.sizes",
+      "chromosomes": {
+        "chr1": {
+          "physicalLength": 249250621,
+          "nBlockCount": 39,
+          "nBases": 23970000,
+          "nonNBases": 225280621
+        },
+        "chr10": {
+          "physicalLength": 135534747,
+          "nBlockCount": 25,
+          "nBases": 4220009,
+          "nonNBases": 131314738
+        },
+        "chr11": {
+          "physicalLength": 135006516,
+          "nBlockCount": 9,
+          "nBases": 3877000,
+          "nonNBases": 131129516
+        },
+        "chr12": {
+          "physicalLength": 133851895,
+          "nBlockCount": 13,
+          "nBases": 3370502,
+          "nonNBases": 130481393
+        },
+        "chr13": {
+          "physicalLength": 115169878,
+          "nBlockCount": 6,
+          "nBases": 19580000,
+          "nonNBases": 95589878
+        },
+        "chr14": {
+          "physicalLength": 107349540,
+          "nBlockCount": 2,
+          "nBases": 19060000,
+          "nonNBases": 88289540
+        },
+        "chr15": {
+          "physicalLength": 102531392,
+          "nBlockCount": 12,
+          "nBases": 20836626,
+          "nonNBases": 81694766
+        },
+        "chr16": {
+          "physicalLength": 90354753,
+          "nBlockCount": 6,
+          "nBases": 11470000,
+          "nonNBases": 78884753
+        },
+        "chr17": {
+          "physicalLength": 81195210,
+          "nBlockCount": 7,
+          "nBases": 3400000,
+          "nonNBases": 77795210
+        },
+        "chr18": {
+          "physicalLength": 78077248,
+          "nBlockCount": 20,
+          "nBases": 3420019,
+          "nonNBases": 74657229
+        },
+        "chr19": {
+          "physicalLength": 59128983,
+          "nBlockCount": 6,
+          "nBases": 3320000,
+          "nonNBases": 55808983
+        },
+        "chr2": {
+          "physicalLength": 243199373,
+          "nBlockCount": 24,
+          "nBases": 4994855,
+          "nonNBases": 238204518
+        },
+        "chr20": {
+          "physicalLength": 63025520,
+          "nBlockCount": 7,
+          "nBases": 3520000,
+          "nonNBases": 59505520
+        },
+        "chr21": {
+          "physicalLength": 48129895,
+          "nBlockCount": 17,
+          "nBases": 13023253,
+          "nonNBases": 35106642
+        },
+        "chr22": {
+          "physicalLength": 51304566,
+          "nBlockCount": 23,
+          "nBases": 16410021,
+          "nonNBases": 34894545
+        },
+        "chr3": {
+          "physicalLength": 198022430,
+          "nBlockCount": 9,
+          "nBases": 3225295,
+          "nonNBases": 194797135
+        },
+        "chr4": {
+          "physicalLength": 191154276,
+          "nBlockCount": 12,
+          "nBases": 3492600,
+          "nonNBases": 187661676
+        },
+        "chr5": {
+          "physicalLength": 180915260,
+          "nBlockCount": 7,
+          "nBases": 3220000,
+          "nonNBases": 177695260
+        },
+        "chr6": {
+          "physicalLength": 171115067,
+          "nBlockCount": 11,
+          "nBases": 3720001,
+          "nonNBases": 167395066
+        },
+        "chr7": {
+          "physicalLength": 159138663,
+          "nBlockCount": 17,
+          "nBases": 3785000,
+          "nonNBases": 155353663
+        },
+        "chr8": {
+          "physicalLength": 146364022,
+          "nBlockCount": 9,
+          "nBases": 3475100,
+          "nonNBases": 142888922
+        },
+        "chr9": {
+          "physicalLength": 141213431,
+          "nBlockCount": 40,
+          "nBases": 21070000,
+          "nonNBases": 120143431
+        },
+        "chrX": {
+          "physicalLength": 155270560,
+          "nBlockCount": 23,
+          "nBases": 4170000,
+          "nonNBases": 151100560
+        },
+        "chrY": {
+          "physicalLength": 59373566,
+          "nBlockCount": 18,
+          "nBases": 33720000,
+          "nonNBases": 25653566
+        }
+      }
+    },
+    "hg38": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.2bit",
+      "lastModified": "Thu, 30 Apr 2015 23:16:38 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "hg38.sizes",
+      "chromosomes": {
+        "chr1": {
+          "physicalLength": 248956422,
+          "nBlockCount": 168,
+          "nBases": 18475410,
+          "nonNBases": 230481012
+        },
+        "chr10": {
+          "physicalLength": 133797422,
+          "nBlockCount": 80,
+          "nBases": 534460,
+          "nonNBases": 133262962
+        },
+        "chr11": {
+          "physicalLength": 135086622,
+          "nBlockCount": 17,
+          "nBases": 552880,
+          "nonNBases": 134533742
+        },
+        "chr12": {
+          "physicalLength": 133275309,
+          "nBlockCount": 30,
+          "nBases": 137493,
+          "nonNBases": 133137816
+        },
+        "chr13": {
+          "physicalLength": 114364328,
+          "nBlockCount": 23,
+          "nBases": 16381203,
+          "nonNBases": 97983125
+        },
+        "chr14": {
+          "physicalLength": 107043718,
+          "nBlockCount": 25,
+          "nBases": 16475569,
+          "nonNBases": 90568149
+        },
+        "chr15": {
+          "physicalLength": 101991189,
+          "nBlockCount": 19,
+          "nBases": 17349864,
+          "nonNBases": 84641325
+        },
+        "chr16": {
+          "physicalLength": 90338345,
+          "nBlockCount": 22,
+          "nBases": 8532402,
+          "nonNBases": 81805943
+        },
+        "chr17": {
+          "physicalLength": 83257441,
+          "nBlockCount": 48,
+          "nBases": 337237,
+          "nonNBases": 82920204
+        },
+        "chr18": {
+          "physicalLength": 80373285,
+          "nBlockCount": 61,
+          "nBases": 283680,
+          "nonNBases": 80089605
+        },
+        "chr19": {
+          "physicalLength": 58617616,
+          "nBlockCount": 9,
+          "nBases": 176858,
+          "nonNBases": 58440758
+        },
+        "chr2": {
+          "physicalLength": 242193529,
+          "nBlockCount": 35,
+          "nBases": 1645301,
+          "nonNBases": 240548228
+        },
+        "chr20": {
+          "physicalLength": 64444167,
+          "nBlockCount": 90,
+          "nBases": 499910,
+          "nonNBases": 63944257
+        },
+        "chr21": {
+          "physicalLength": 46709983,
+          "nBlockCount": 52,
+          "nBases": 6621364,
+          "nonNBases": 40088619
+        },
+        "chr22": {
+          "physicalLength": 50818468,
+          "nBlockCount": 49,
+          "nBases": 11658691,
+          "nonNBases": 39159777
+        },
+        "chr3": {
+          "physicalLength": 198295559,
+          "nBlockCount": 29,
+          "nBases": 195424,
+          "nonNBases": 198100135
+        },
+        "chr4": {
+          "physicalLength": 190214555,
+          "nBlockCount": 18,
+          "nBases": 461888,
+          "nonNBases": 189752667
+        },
+        "chr5": {
+          "physicalLength": 181538259,
+          "nBlockCount": 37,
+          "nBases": 272881,
+          "nonNBases": 181265378
+        },
+        "chr6": {
+          "physicalLength": 170805979,
+          "nBlockCount": 16,
+          "nBases": 727457,
+          "nonNBases": 170078522
+        },
+        "chr7": {
+          "physicalLength": 159345973,
+          "nBlockCount": 20,
+          "nBases": 375842,
+          "nonNBases": 158970131
+        },
+        "chr8": {
+          "physicalLength": 145138636,
+          "nBlockCount": 12,
+          "nBases": 370500,
+          "nonNBases": 144768136
+        },
+        "chr9": {
+          "physicalLength": 138394717,
+          "nBlockCount": 46,
+          "nBases": 16604167,
+          "nonNBases": 121790550
+        },
+        "chrX": {
+          "physicalLength": 156040895,
+          "nBlockCount": 34,
+          "nBases": 1147866,
+          "nonNBases": 154893029
+        },
+        "chrY": {
+          "physicalLength": 57227415,
+          "nBlockCount": 61,
+          "nBases": 30812372,
+          "nonNBases": 26415043
+        }
+      }
+    },
+    "mm10": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.2bit",
+      "lastModified": "Tue, 07 Feb 2012 18:52:41 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "mm10.sizes",
+      "chromosomes": {
+        "chr1": {
+          "physicalLength": 195471971,
+          "nBlockCount": 50,
+          "nBases": 3562779,
+          "nonNBases": 191909192
+        },
+        "chr10": {
+          "physicalLength": 130694993,
+          "nBlockCount": 29,
+          "nBases": 3627331,
+          "nonNBases": 127067662
+        },
+        "chr11": {
+          "physicalLength": 122082543,
+          "nBlockCount": 4,
+          "nBases": 3336598,
+          "nonNBases": 118745945
+        },
+        "chr12": {
+          "physicalLength": 120129022,
+          "nBlockCount": 6,
+          "nBases": 3206602,
+          "nonNBases": 116922420
+        },
+        "chr13": {
+          "physicalLength": 120421639,
+          "nBlockCount": 9,
+          "nBases": 3300446,
+          "nonNBases": 117121193
+        },
+        "chr14": {
+          "physicalLength": 124902244,
+          "nBlockCount": 14,
+          "nBases": 3460134,
+          "nonNBases": 121442110
+        },
+        "chr15": {
+          "physicalLength": 104043685,
+          "nBlockCount": 9,
+          "nBases": 3390370,
+          "nonNBases": 100653315
+        },
+        "chr16": {
+          "physicalLength": 98207768,
+          "nBlockCount": 12,
+          "nBases": 3188010,
+          "nonNBases": 95019758
+        },
+        "chr17": {
+          "physicalLength": 94987271,
+          "nBlockCount": 39,
+          "nBases": 3279809,
+          "nonNBases": 91707462
+        },
+        "chr18": {
+          "physicalLength": 90702639,
+          "nBlockCount": 9,
+          "nBases": 3250005,
+          "nonNBases": 87452634
+        },
+        "chr19": {
+          "physicalLength": 61431566,
+          "nBlockCount": 5,
+          "nBases": 3225710,
+          "nonNBases": 58205856
+        },
+        "chr2": {
+          "physicalLength": 182113224,
+          "nBlockCount": 25,
+          "nBases": 3786573,
+          "nonNBases": 178326651
+        },
+        "chr3": {
+          "physicalLength": 160039680,
+          "nBlockCount": 20,
+          "nBases": 3640825,
+          "nonNBases": 156398855
+        },
+        "chr4": {
+          "physicalLength": 156508116,
+          "nBlockCount": 39,
+          "nBases": 4452505,
+          "nonNBases": 152055611
+        },
+        "chr5": {
+          "physicalLength": 151834684,
+          "nBlockCount": 32,
+          "nBases": 3915010,
+          "nonNBases": 147919674
+        },
+        "chr6": {
+          "physicalLength": 149736546,
+          "nBlockCount": 9,
+          "nBases": 3400003,
+          "nonNBases": 146336543
+        },
+        "chr7": {
+          "physicalLength": 145441459,
+          "nBlockCount": 32,
+          "nBases": 3586052,
+          "nonNBases": 141855407
+        },
+        "chr8": {
+          "physicalLength": 129401213,
+          "nBlockCount": 12,
+          "nBases": 3789781,
+          "nonNBases": 125611432
+        },
+        "chr9": {
+          "physicalLength": 124595110,
+          "nBlockCount": 34,
+          "nBases": 3438092,
+          "nonNBases": 121157018
+        },
+        "chrX": {
+          "physicalLength": 171031299,
+          "nBlockCount": 103,
+          "nBases": 7543304,
+          "nonNBases": 163487995
+        },
+        "chrY": {
+          "physicalLength": 91744698,
+          "nBlockCount": 30,
+          "nBases": 3620000,
+          "nonNBases": 88124698
+        }
+      }
+    },
+    "mm39": {
+      "sourceURL": "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/bigZips/mm39.2bit",
+      "lastModified": "Thu, 30 Jul 2020 16:03:37 GMT",
+      "formatVersion": 0,
+      "chromSizesResource": "mm39.sizes",
+      "chromosomes": {
+        "chr1": {
+          "physicalLength": 195154279,
+          "nBlockCount": 15,
+          "nBases": 3200246,
+          "nonNBases": 191954033
+        },
+        "chr10": {
+          "physicalLength": 130530862,
+          "nBlockCount": 5,
+          "nBases": 3375102,
+          "nonNBases": 127155760
+        },
+        "chr11": {
+          "physicalLength": 121973369,
+          "nBlockCount": 3,
+          "nBases": 3151000,
+          "nonNBases": 118822369
+        },
+        "chr12": {
+          "physicalLength": 120092757,
+          "nBlockCount": 5,
+          "nBases": 3170002,
+          "nonNBases": 116922755
+        },
+        "chr13": {
+          "physicalLength": 120883175,
+          "nBlockCount": 5,
+          "nBases": 3627000,
+          "nonNBases": 117256175
+        },
+        "chr14": {
+          "physicalLength": 125139656,
+          "nBlockCount": 9,
+          "nBases": 3965503,
+          "nonNBases": 121174153
+        },
+        "chr15": {
+          "physicalLength": 104073951,
+          "nBlockCount": 2,
+          "nBases": 3150000,
+          "nonNBases": 100923951
+        },
+        "chr16": {
+          "physicalLength": 98008968,
+          "nBlockCount": 12,
+          "nBases": 3158009,
+          "nonNBases": 94850959
+        },
+        "chr17": {
+          "physicalLength": 95294699,
+          "nBlockCount": 10,
+          "nBases": 3479202,
+          "nonNBases": 91815497
+        },
+        "chr18": {
+          "physicalLength": 90720763,
+          "nBlockCount": 7,
+          "nBases": 3115005,
+          "nonNBases": 87605758
+        },
+        "chr19": {
+          "physicalLength": 61420004,
+          "nBlockCount": 3,
+          "nBases": 3200000,
+          "nonNBases": 58220004
+        },
+        "chr2": {
+          "physicalLength": 181755017,
+          "nBlockCount": 8,
+          "nBases": 3401000,
+          "nonNBases": 178354017
+        },
+        "chr3": {
+          "physicalLength": 159745316,
+          "nBlockCount": 15,
+          "nBases": 3207140,
+          "nonNBases": 156538176
+        },
+        "chr4": {
+          "physicalLength": 156860686,
+          "nBlockCount": 31,
+          "nBases": 4150898,
+          "nonNBases": 152709788
+        },
+        "chr5": {
+          "physicalLength": 151758149,
+          "nBlockCount": 5,
+          "nBases": 3752000,
+          "nonNBases": 148006149
+        },
+        "chr6": {
+          "physicalLength": 149588044,
+          "nBlockCount": 7,
+          "nBases": 3205003,
+          "nonNBases": 146383041
+        },
+        "chr7": {
+          "physicalLength": 144995196,
+          "nBlockCount": 8,
+          "nBases": 3320501,
+          "nonNBases": 141674695
+        },
+        "chr8": {
+          "physicalLength": 130127694,
+          "nBlockCount": 9,
+          "nBases": 4450300,
+          "nonNBases": 125677394
+        },
+        "chr9": {
+          "physicalLength": 124359700,
+          "nBlockCount": 10,
+          "nBases": 3174846,
+          "nonNBases": 121184854
+        },
+        "chrX": {
+          "physicalLength": 169476592,
+          "nBlockCount": 74,
+          "nBases": 5270271,
+          "nonNBases": 164206321
+        },
+        "chrY": {
+          "physicalLength": 91455967,
+          "nBlockCount": 25,
+          "nBases": 2970000,
+          "nonNBases": 88485967
+        }
+      }
+    }
+  }
+}

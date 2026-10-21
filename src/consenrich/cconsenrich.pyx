@@ -929,6 +929,14 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     return result
 
 
+cdef extern from "native/barcode_selection.h":
+    ctypedef struct crBarcodeSelection:
+        int active
+    crBarcodeSelection* crBarcodeSelectionCreate(const char* tag, const char* path, const char** error)
+    void crBarcodeSelectionDestroy(crBarcodeSelection* selection)
+    int crBarcodeSelected(const crBarcodeSelection* selection, const bam1_t* record)
+
+
 cpdef tuple cExpectedTransitionResidualSums(
     cnp.ndarray[cnp.float64_t, ndim=2] stateSmoothed,
     cnp.ndarray[cnp.float64_t, ndim=3] stateCovarSmoothed,
@@ -4484,6 +4492,8 @@ cpdef bint cisAlignmentPairedEnd(
     int64_t maxReads=1000,
     uint16_t samThreads=0,
     uint16_t samFlagExclude=3844,
+    str barcodeAllowListFile="",
+    str barcodeTag="CB",
 ):
     r"""Return True when sampled alignment records carry the paired-end flag."""
     cdef bytes bamFileBytes = bamFile.encode("utf-8")
@@ -4493,6 +4503,11 @@ cpdef bint cisAlignmentPairedEnd(
     cdef int64_t sampled = 0
     cdef int readFlag
     cdef bint isPairedEnd = <bint>0
+    cdef bytes allowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes tagBytes = barcodeTag.encode("utf-8")
+    cdef const char* selectionError = NULL
+    cdef crBarcodeSelection* selection = NULL
+    cdef int selected
 
     if maxReads < 1:
         maxReads = 1
@@ -4502,6 +4517,9 @@ cpdef bint cisAlignmentPairedEnd(
         raise FileNotFoundError(f"Could not open alignment file `{bamFile}`")
 
     try:
+        selection = crBarcodeSelectionCreate(tagBytes, allowListBytes, &selectionError)
+        if selection == NULL:
+            raise ValueError((<bytes>selectionError).decode("utf-8"))
         if samThreads > 1:
             hts_set_threads(<htsFile*>fileHandle, <int>samThreads)
 
@@ -4517,6 +4535,13 @@ cpdef bint cisAlignmentPairedEnd(
             readFlag = <int>record.core.flag
             if (readFlag & samFlagExclude) != 0:
                 continue
+            if selection.active and (readFlag & 1) != 0 and (readFlag & 64) == 0:
+                continue
+            selected = crBarcodeSelected(selection, record)
+            if selected < 0:
+                raise ValueError("barcodeTag requires SAM type Z")
+            if not selected:
+                continue
             sampled += 1
             if (readFlag & 1) != 0:
                 isPairedEnd = <bint>1
@@ -4524,6 +4549,7 @@ cpdef bint cisAlignmentPairedEnd(
 
         return isPairedEnd
     finally:
+        crBarcodeSelectionDestroy(selection)
         if record != NULL:
             bam_destroy1(record)
         if header != NULL:
@@ -4544,6 +4570,8 @@ cpdef int64_t cgetFragmentLength(
     int64_t lagStep=5,
     int64_t earlyExit=250,
     int64_t randSeed=42,
+    str barcodeAllowListFile="",
+    str barcodeTag="CB",
 ):
     cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps
@@ -4611,6 +4639,12 @@ cpdef int64_t cgetFragmentLength(
     cdef hts_itr_t* iteratorHandle = NULL
     cdef bam1_t* record = NULL
     cdef hts_pos_t queryLength = 0
+    cdef bytes allowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes tagBytes = barcodeTag.encode("utf-8")
+    cdef const char* selectionError = NULL
+    cdef crBarcodeSelection* selection = NULL
+    cdef int selected
+    cdef bint hasSelection = bool(barcodeAllowListFile)
 
     earlyExit = min(earlyExit, iters)
     samThreadsInternal = <int>samThreads
@@ -4628,6 +4662,8 @@ cpdef int64_t cgetFragmentLength(
     if maxInsertSize < 1:
         maxInsertSize = 1
     if iters < 1:
+        if hasSelection:
+            raise ValueError("could not estimate fragment length from selected BAM records")
         return <int64_t>fallBack
     if blockSize < 64:
         blockSize = 64
@@ -4638,29 +4674,40 @@ cpdef int64_t cgetFragmentLength(
 
     fileHandle = sam_open(bamFileBytes, "r")
     if fileHandle == NULL:
+        if hasSelection:
+            raise ValueError("could not estimate fragment length from selected BAM records")
         return <int64_t>fallBack
 
     try:
+        selection = crBarcodeSelectionCreate(tagBytes, allowListBytes, &selectionError)
+        if selection == NULL:
+            raise ValueError((<bytes>selectionError).decode("utf-8"))
         if samThreadsInternal > 1:
             hts_set_threads(<htsFile*>fileHandle, samThreadsInternal)
 
         header = sam_hdr_read(fileHandle)
         if header == NULL or header.n_targets <= 0:
+            if hasSelection:
+                raise ValueError("could not estimate fragment length from selected BAM records")
             return <int64_t>fallBack
 
         indexHandle = sam_index_load(<htsFile*>fileHandle, bamFileBytes)
         if indexHandle == NULL:
+            if hasSelection:
+                raise ValueError("could not estimate fragment length from selected BAM records")
             return <int64_t>fallBack
 
         record = bam_init1()
         if record == NULL:
+            if hasSelection:
+                raise ValueError("could not estimate fragment length from selected BAM records")
             return <int64_t>fallBack
 
         lengthsArr = np.empty(header.n_targets, dtype=np.int64)
         for contigIdx in range(header.n_targets):
             lengthsArr[contigIdx] = <int64_t>header.target_len[contigIdx]
 
-        kTop = 3 if header.n_targets >= 3 else (2 if header.n_targets >= 2 else 1)
+        kTop = header.n_targets if hasSelection else (3 if header.n_targets >= 3 else (2 if header.n_targets >= 2 else 1))
         topContigsIdx = np.argpartition(lengthsArr, -kTop)[-kTop:]
         topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])[::-1]]
 
@@ -4677,6 +4724,13 @@ cpdef int64_t cgetFragmentLength(
             while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
                 readFlag = <int>record.core.flag
                 if (readFlag & samFlagExclude) != 0:
+                    continue
+                if hasSelection and (readFlag & 1) != 0 and (readFlag & 64) == 0:
+                    continue
+                selected = crBarcodeSelected(selection, record)
+                if selected < 0:
+                    raise ValueError("barcodeTag requires SAM type Z")
+                if not selected:
                     continue
 
                 if not isPairedEnd and (readFlag & 1) != 0:
@@ -4701,6 +4755,8 @@ cpdef int64_t cgetFragmentLength(
                 break
 
         if numReadLengthSamples <= 0:
+            if hasSelection:
+                raise ValueError("could not estimate fragment length from selected BAM records")
             return <int64_t>fallBack
 
         avgReadLength /= <double>numReadLengthSamples
@@ -4735,9 +4791,14 @@ cpdef int64_t cgetFragmentLength(
                     readFlag = <int>record.core.flag
                     if (readFlag & samFlagExclude) != 0:
                         continue
-                    if (readFlag & 2) == 0:
-                        continue
                     if (readFlag & 64) == 0:
+                        continue
+                    selected = crBarcodeSelected(selection, record)
+                    if selected < 0:
+                        raise ValueError("barcodeTag requires SAM type Z")
+                    if not selected:
+                        continue
+                    if (readFlag & 2) == 0:
                         continue
 
                     tlen = <int64_t>record.core.isize
@@ -4755,7 +4816,9 @@ cpdef int64_t cgetFragmentLength(
                 hts_itr_destroy(iteratorHandle)
                 iteratorHandle = NULL
 
-            if tlenN < max(500, requiredSamplesPE // 5):
+            if tlenN < (1 if hasSelection else max(500, requiredSamplesPE // 5)):
+                if hasSelection:
+                    raise ValueError("could not estimate fragment length from selected BAM records")
                 return <int64_t>fallBack
 
             midIdx = tlenN // 2
@@ -4767,6 +4830,8 @@ cpdef int64_t cgetFragmentLength(
             if medPE < <cnp.int32_t>minInsertSize:
                 return <int64_t>minInsertSize
             if medPE > <cnp.int32_t>maxInsertSize:
+                if hasSelection:
+                    raise ValueError("could not estimate fragment length from selected BAM records")
                 return <int64_t>fallBack
             return <int64_t>medPE
 
@@ -4805,6 +4870,11 @@ cpdef int64_t cgetFragmentLength(
             while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
                 readFlag = <int>record.core.flag
                 if (readFlag & samFlagExclude) != 0:
+                    continue
+                selected = crBarcodeSelected(selection, record)
+                if selected < 0:
+                    raise ValueError("barcodeTag requires SAM type Z")
+                if not selected:
                     continue
                 j = <int>(record.core.pos // rollingChunkSize)
                 if 0 <= j < numChunks:
@@ -4871,6 +4941,11 @@ cpdef int64_t cgetFragmentLength(
                 while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
                     readFlag = <int>record.core.flag
                     if (readFlag & samFlagExclude) != 0:
+                        continue
+                    selected = crBarcodeSelected(selection, record)
+                    if selected < 0:
+                        raise ValueError("barcodeTag requires SAM type Z")
+                    if not selected:
                         continue
 
                     readStart = <int64_t>record.core.pos
@@ -4942,6 +5017,7 @@ cpdef int64_t cgetFragmentLength(
                 break
 
     finally:
+        crBarcodeSelectionDestroy(selection)
         if iteratorHandle != NULL:
             hts_itr_destroy(iteratorHandle)
         if record != NULL:
@@ -4954,6 +5030,8 @@ cpdef int64_t cgetFragmentLength(
             sam_close(fileHandle)
 
     if len(bestLags) < 3:
+        if hasSelection:
+            raise ValueError("could not estimate fragment length from selected BAM records")
         return fallBack
 
     bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
@@ -4965,7 +5043,6 @@ cpdef int64_t cgetFragmentLength(
         med = <int>maxInsertSize
 
     return <int64_t>med
-
 
 cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     str chromosome,

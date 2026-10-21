@@ -123,6 +123,12 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_sourceHandle** sourceHandleOut
     ) nogil
 
+    ccounts_result ccounts_getSourceChromosomeNames(
+        const ccounts_sourceConfig* sourceConfig,
+        const char*** namesOut,
+        int* countOut,
+    ) nogil
+
     void ccounts_closeSource(ccounts_sourceHandle* sourceHandle) nogil
 
     ccounts_result ccounts_countRegion(
@@ -159,13 +165,13 @@ cdef ccounts_sourceConfig _makeSourceConfig(
     str sourceKind,
     bytes barcodeAllowListBytes=b"",
     bytes barcodeGroupMapBytes=b"",
+    bytes barcodeTagBytes=b"CB",
 ):
     cdef ccounts_sourceConfig sourceConfig
     # keep byte strings for the duration of wrapper calls
     sourceConfig.path = pathBytes
     sourceConfig.sourceKind = _getSourceKindCode(sourceKind)
-    # barcode tags are handled in the higher-level alignment path for now
-    sourceConfig.barcodeTag = NULL
+    sourceConfig.barcodeTag = barcodeTagBytes
     if len(barcodeAllowListBytes) > 0:
         sourceConfig.barcodeAllowListFile = barcodeAllowListBytes
     else:
@@ -255,11 +261,18 @@ cpdef bint ccounts_isAlignmentPairedEnd(
     int maxReads=1000,
     int threadCount=0,
     str sourceKind="BAM",
+    str barcodeAllowListFile="",
+    str barcodeTag="CB",
 ):
+    cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
+        barcodeAllowListBytes,
+        b"",
+        barcodeTagBytes,
     )
     cdef ccounts_result result
     cdef int isPairedEnd = 0
@@ -282,11 +295,18 @@ cpdef int ccounts_getAlignmentReadLength(
     int maxIterations,
     int flagExclude,
     str sourceKind="BAM",
+    str barcodeAllowListFile="",
+    str barcodeTag="CB",
 ):
+    cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
+        barcodeAllowListBytes,
+        b"",
+        barcodeTagBytes,
     )
     cdef ccounts_result result
     cdef uint32_t readLength = 0
@@ -311,13 +331,20 @@ cpdef tuple ccounts_getAlignmentChromRange(
     int threadCount,
     int flagExclude,
     str sourceKind="BAM",
+    str barcodeAllowListFile="",
+    str barcodeTag="CB",
 ):
+    cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
     cdef const char* chromosomePtr = chromosomeBytes
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
+        barcodeAllowListBytes,
+        b"",
+        barcodeTagBytes,
     )
     cdef ccounts_result result
     cdef uint64_t startValue = 0
@@ -354,13 +381,17 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     int extendBP=0,
     int returnSpanBP=0,
     bint fragmentsUseReadSupport=False,
+    str barcodeTag="CB",
 ):
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
         barcodeAllowListBytes,
+        b"",
+        barcodeTagBytes,
     )
     cdef ccounts_result result
     cdef ccounts_countOptions countOptions
@@ -466,8 +497,10 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     str barcodeGroupMapFile="",
     str countMode="coverage",
     bint fragmentsUseReadSupport=False,
+    str barcodeTag="CB",
 ):
     cdef int numIntervals
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
@@ -477,6 +510,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
         sourceKind,
         barcodeAllowListBytes,
         barcodeGroupMapBytes,
+        barcodeTagBytes,
     )
     cdef ccounts_sourceHandle* sourceHandle = NULL
     cdef ccounts_region region
@@ -555,8 +589,10 @@ cpdef object ccounts_countAlignmentRegionMass(
     str barcodeGroupMapFile="",
     str countMode="coverage",
     bint fragmentsUseReadSupport=False,
+    str barcodeTag="CB",
 ):
     cdef int numIntervals
+    cdef bytes barcodeTagBytes = barcodeTag.encode("utf-8")
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
@@ -566,6 +602,7 @@ cpdef object ccounts_countAlignmentRegionMass(
         sourceKind,
         barcodeAllowListBytes,
         barcodeGroupMapBytes,
+        barcodeTagBytes,
     )
     cdef ccounts_sourceHandle* sourceHandle = NULL
     cdef ccounts_region region
@@ -620,3 +657,24 @@ cpdef object ccounts_countAlignmentRegionMass(
                 ccounts_closeSource(sourceHandle)
 
     return readSegmentsResult(counts, rawNoiseMass)
+
+
+cpdef list ccounts_getChromosomeNames(str alignmentPath, str sourceKind="BAM"):
+    cdef bytes pathBytes = alignmentPath.encode("utf-8")
+    cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(pathBytes, sourceKind)
+    cdef const char** names = NULL
+    cdef int count = 0
+    cdef int i
+    cdef ccounts_result result
+    cdef list chromosomeNames = []
+    with nogil:
+        result = ccounts_getSourceChromosomeNames(&sourceConfig, &names, &count)
+    _raiseIfError(result)
+    try:
+        for i in range(count):
+            chromosomeNames.append((<bytes>names[i]).decode("utf-8"))
+    finally:
+        for i in range(count):
+            free(<void*>names[i])
+        free(<void*>names)
+    return chromosomeNames

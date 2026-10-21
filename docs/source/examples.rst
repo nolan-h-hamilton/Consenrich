@@ -189,15 +189,6 @@ Run Consenrich
 
   % consenrich --config atacDemo.yaml --verbose
 
-Principal output files:
-
-.. code-block:: text
-
-  atacDemo_consenrich_state.VERSION..bw
-  atacDemo_consenrich_uncertainty.VERSION.bw
-  consenrichOutput_atacDemo_state.VERSION_rocco.narrowPeak
-  consenrichOutput_atacDemo_state.VERSION_rocco.gappedPeak
-
 Results
 """""""
 
@@ -315,15 +306,6 @@ Run Consenrich
 
   % consenrich --config bigH3K4me1Demo.yaml --verbose
 
-Principal output files:
-
-.. code-block:: text
-
-  bigH3K4me1Demo_consenrich_state.VERSION.bw
-  bigH3K4me1Demo_consenrich_uncertainty.VERSION.bw
-  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.narrowPeak
-  consenrichOutput_bigH3K4me1Demo_state.VERSION_rocco.gappedPeak
-
 Results
 """""""
 
@@ -331,3 +313,183 @@ Results
    :alt: H3K4me1 demo IGV snapshot
    :align: center
    :width: 100%
+
+
+.. _scatac-demo:
+
+Consenrich for Single-Cell
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In this demo, we use publicly available scATAC-seq data to infer signal and peaks for Goblet, Early Colonocyte, Colonocyte, and BEST4 cells in the ascending colon. Note that Consenrich can also accept data from other single-cell epigenomic assays, e.g., scCut&Tag.
+
+`Zhao/Pott <https://www.nature.com/articles/s41588-026-02755-z>`_
+· `GSE273194 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE273194>`_
+· `Cell annotations <https://zenodo.org/records/21508422>`_
+
+.. list-table::
+  :header-rows: 1
+  :widths: 10 26 14 22 16 12
+
+  * - Donor
+    - GEO sample
+    - Goblet
+    - Early Colonocyte
+    - Colonocyte
+    - BEST4
+  * - P3
+    - `GSM8423799 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8423799>`_
+    - 412
+    - 690
+    - 1277
+    - 46
+  * - P4
+    - `GSM8423800 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8423800>`_
+    - 647
+    - 983
+    - 1125
+    - 56
+  * - P6
+    - `GSM8423801 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8423801>`_
+    - 893
+    - 1355
+    - 1183
+    - 54
+  * - P12
+    - `GSM8423805 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8423805>`_
+    - 336
+    - 591
+    - 811
+    - 15
+  * - P13
+    - `GSM8423806 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8423806>`_
+    - 403
+    - 827
+    - 1034
+    - 74
+
+Download Fragments and Cell Labels
+""""""""""""""""""""""""""""""""""
+
+This will be about 6 GB of data. You can remove donors and adapt the YAML config below as needed to reduce size.
+
+.. code-block:: bash
+
+  geoFiles=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8423nnn
+
+  while read -r accession donor; do
+      fragmentFile="${accession}_${donor}-AC-CDnonInf_fragments.tsv.gz"
+      curl -fLO "$geoFiles/$accession/suppl/$fragmentFile"
+      curl -fLO "$geoFiles/$accession/suppl/$fragmentFile.tbi.gz"
+      gzip -dc "$fragmentFile.tbi.gz" > "$fragmentFile.tbi"
+  done <<'EOF'
+  GSM8423799 P3
+  GSM8423800 P4
+  GSM8423801 P6
+  GSM8423805 P12
+  GSM8423806 P13
+  EOF
+
+  # wget or curl, depending
+  curl -fL -o scATAC_cell_metadata.csv \
+      'https://zenodo.org/records/21508422/files/scATAC_cell_metadata.csv?download=1'
+
+YAML Configuration
+""""""""""""""""""
+
+.. code-block:: yaml
+  :name: scATACDemo.yaml
+
+  experimentName: scATACDemo
+
+  genomeParams:
+    name: hg38
+    chromosomes: [chr21, chr22] # delete this line to run genome-wide
+
+  scParams:
+    cellMetadata:
+      path: scATAC_cell_metadata.csv
+      barcodeColumn: barcode
+      sampleColumn: Sample_ID
+      groupColumn: cluster_label1
+    fits:
+      - name: Goblet
+        selectGroups: [AC_Goblet]
+      - name: EarlyColonocyte
+        selectGroups: [Early_Colonocyte]
+      - name: Colonocyte
+        selectGroups: [Colonocyte]
+      - name: BEST4
+        selectGroups: [BEST4]
+
+  inputParams:
+    samples:
+      - name: P3
+        path: GSM8423799_P3-AC-CDnonInf_fragments.tsv.gz
+        format: fragments
+        metadataSample: P3-AC-CDnonInf
+      - name: P4
+        path: GSM8423800_P4-AC-CDnonInf_fragments.tsv.gz
+        format: fragments
+        metadataSample: P4-AC-CDnonInf
+      - name: P6
+        path: GSM8423801_P6-AC-CDnonInf_fragments.tsv.gz
+        format: fragments
+        metadataSample: P6-AC-CDnonInf
+      - name: P12
+        path: GSM8423805_P12-AC-CDnonInf_fragments.tsv.gz
+        format: fragments
+        metadataSample: P12-AC-CDnonInf
+      - name: P13
+        path: GSM8423806_P13-AC-CDnonInf_fragments.tsv.gz
+        format: fragments
+        metadataSample: P13-AC-CDnonInf
+
+Run Consenrich
+""""""""""""""
+
+.. code-block:: console
+
+  % consenrich --config scATACDemo.yaml --verbose
+
+.. _scatac-results:
+
+Results
+"""""""
+
+Browser snapshots for each cell type (uncertainty tracks omitted for spacing)
+
+Goblet
+^^^^^^
+
+.. image:: ../images/scATACGobletIGV.png
+   :alt: Goblet donor tracks, Consenrich signal and peaks, and Signac and ArchR peaks in IGV
+   :align: center
+   :width: 100%
+   :class: no-scaled-link
+
+Early Colonocyte
+^^^^^^^^^^^^^^^^
+
+.. image:: ../images/scATACEarlyColonocyteIGV.png
+   :alt: Early Colonocyte donor tracks, Consenrich signal and peaks, and Signac and ArchR peaks in IGV
+   :align: center
+   :width: 100%
+   :class: no-scaled-link
+
+Colonocyte
+^^^^^^^^^^
+
+.. image:: ../images/scATACColonocyteIGV.png
+   :alt: Colonocyte donor tracks, Consenrich signal and peaks, and Signac and ArchR peaks in IGV
+   :align: center
+   :width: 100%
+   :class: no-scaled-link
+
+BEST4
+^^^^^
+
+.. image:: ../images/scATACBEST4IGV.png
+   :alt: BEST4 donor tracks, Consenrich signal and peaks, and Signac and ArchR peaks in IGV
+   :align: center
+   :width: 100%
+   :class: no-scaled-link

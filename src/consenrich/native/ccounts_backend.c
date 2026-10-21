@@ -1,4 +1,5 @@
 #include "ccounts_backend.h"
+#include "barcode_selection.h"
 
 #include <htslib/hts.h>
 #include <htslib/bgzf.h>
@@ -39,6 +40,7 @@ struct ccounts_sourceHandle
     htsFile *bedGraphHandle;
     char **barcodeAllowList;
     int barcodeAllowCount;
+    crBarcodeSelection *barcodeSelection;
 };
 
 KHASH_SET_INIT_STR(ccounts_barcodeSet)
@@ -535,6 +537,12 @@ static ccounts_result ccounts_loadBarcodeAllowList(
     }
 
     fclose(allowListFile);
+    if (barcodeAllowList == NULL)
+    {
+        barcodeAllowList = (char **)calloc(1, sizeof(char *));
+        if (barcodeAllowList == NULL)
+            return ccounts_makeResult(-1, "failed to allocate empty barcode selection");
+    }
     if (barcodeAllowCount > 1)
     {
         // keep allowlist sorted so membership checks stay cheap
@@ -568,9 +576,13 @@ static int ccounts_barcodeAllowed(
     const char *target = NULL;
     size_t targetLength = 0U;
 
-    if (barcodeAllowCount <= 0 || barcodeAllowList == NULL)
+    if (barcodeAllowList == NULL)
     {
         return 1;
+    }
+    if (barcodeAllowCount == 0)
+    {
+        return 0;
     }
     // allowlist stays sorted so this can stay a binary search
     while (low <= high)
@@ -1076,6 +1088,9 @@ ccounts_result ccounts_isPairedEnd(
     sam_hdr_t *header = NULL;
     bam1_t *record = NULL;
     ccounts_result result;
+    crBarcodeSelection *selection = NULL;
+    const char *selectionError = NULL;
+    int selected;
     int seen = 0;
 
     if (isPairedEndOut != NULL)
@@ -1093,15 +1108,37 @@ ccounts_result ccounts_isPairedEnd(
         return result;
     }
 
+    selection = crBarcodeSelectionCreate(
+        sourceConfig->barcodeTag, sourceConfig->barcodeAllowListFile, &selectionError);
+    if (selection == NULL)
+    {
+        ccounts_closeAlignmentFile(fileHandle, header);
+        return ccounts_makeResult(-1, selectionError);
+    }
+
     record = bam_init1();
     if (record == NULL)
     {
+        crBarcodeSelectionDestroy(selection);
         ccounts_closeAlignmentFile(fileHandle, header);
         return ccounts_makeResult(-1, "failed to allocate bam record");
     }
 
     while (sam_read1(fileHandle, header, record) >= 0)
     {
+        if (selection->active && (record->core.flag & BAM_FPAIRED) != 0 &&
+            (record->core.flag & BAM_FREAD1) == 0)
+            continue;
+        selected = crBarcodeSelected(selection, record);
+        if (selected < 0)
+        {
+            crBarcodeSelectionDestroy(selection);
+            bam_destroy1(record);
+            ccounts_closeAlignmentFile(fileHandle, header);
+            return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+        }
+        if (!selected)
+            continue;
         if ((record->core.flag & BAM_FPAIRED) != 0)
         {
             if (isPairedEndOut != NULL)
@@ -1117,6 +1154,7 @@ ccounts_result ccounts_isPairedEnd(
         }
     }
 
+    crBarcodeSelectionDestroy(selection);
     bam_destroy1(record);
     ccounts_closeAlignmentFile(fileHandle, header);
     return ccounts_makeOk();
@@ -1134,6 +1172,9 @@ ccounts_result ccounts_getReadLength(
     sam_hdr_t *header = NULL;
     bam1_t *record = NULL;
     ccounts_result result;
+    crBarcodeSelection *selection = NULL;
+    const char *selectionError = NULL;
+    int selected;
     uint32_t *readLengths = NULL;
     int readCapacity = 0;
     int readCount = 0;
@@ -1173,24 +1214,38 @@ ccounts_result ccounts_getReadLength(
         const char *fieldStart = NULL;
         size_t fieldLength = 0U;
         uint32_t *fragmentLengths = NULL;
+        char **barcodeAllowList = NULL;
+        int barcodeAllowCount = 0;
+        const char *barcodeStart = NULL;
+        size_t barcodeLength = 0U;
 
         fragmentsHandle = hts_open(sourceConfig->path, "r");
         if (fragmentsHandle == NULL)
         {
             return ccounts_makeResult(-1, "failed to open fragments source");
         }
+        result = ccounts_loadBarcodeAllowList(sourceConfig->barcodeAllowListFile,
+                                               &barcodeAllowList, &barcodeAllowCount);
+        if (result.errorCode != 0)
+        {
+            hts_close(fragmentsHandle);
+            return result;
+        }
         fragmentLengths = (uint32_t *)malloc((size_t)maxIterations * sizeof(uint32_t));
         if (fragmentLengths == NULL)
         {
             hts_close(fragmentsHandle);
+            ccounts_freeBarcodeAllowList(barcodeAllowList, barcodeAllowCount);
             return ccounts_makeResult(-1, "failed to allocate fragments read length buffer");
         }
         while (fragmentCount < maxIterations &&
                (iteratorCode = hts_getline(fragmentsHandle, '\n', &lineBuffer)) >= 0)
         {
             cursor = lineBuffer.s;
+            barcodeStart = NULL;
+            barcodeLength = 0U;
             int fieldIndex = 0;
-            while (fieldIndex < 3 && cursor != NULL)
+            while (fieldIndex < 4 && *cursor != '\0')
             {
                 fieldStart = cursor;
                 while (*cursor != '\0' && *cursor != '\t' && *cursor != '\n' && *cursor != '\r')
@@ -1208,13 +1263,20 @@ ccounts_result ccounts_getReadLength(
                     fieldLength = 0U;
                     break;
                 }
+                if (fieldIndex == 3)
+                {
+                    barcodeStart = fieldStart;
+                    barcodeLength = fieldLength;
+                }
                 if (*cursor == '\t')
                 {
                     ++cursor;
                 }
                 ++fieldIndex;
             }
-            if (fieldLength == 0U || fragEnd <= fragStart)
+            if (fieldLength == 0U || fragEnd <= fragStart || barcodeLength == 0U ||
+                !ccounts_barcodeAllowed(barcodeAllowList, barcodeAllowCount,
+                                        barcodeStart, barcodeLength))
             {
                 continue;
             }
@@ -1247,6 +1309,7 @@ ccounts_result ccounts_getReadLength(
             }
         }
         free(fragmentLengths);
+        ccounts_freeBarcodeAllowList(barcodeAllowList, barcodeAllowCount);
         hts_close(fragmentsHandle);
         if (fragmentCount == 0)
         {
@@ -1261,9 +1324,18 @@ ccounts_result ccounts_getReadLength(
         return result;
     }
 
+    selection = crBarcodeSelectionCreate(
+        sourceConfig->barcodeTag, sourceConfig->barcodeAllowListFile, &selectionError);
+    if (selection == NULL)
+    {
+        ccounts_closeAlignmentFile(fileHandle, header);
+        return ccounts_makeResult(-1, selectionError);
+    }
+
     record = bam_init1();
     if (record == NULL)
     {
+        crBarcodeSelectionDestroy(selection);
         ccounts_closeAlignmentFile(fileHandle, header);
         return ccounts_makeResult(-1, "failed to allocate bam record");
     }
@@ -1273,17 +1345,29 @@ ccounts_result ccounts_getReadLength(
     if (readLengths == NULL)
     {
         bam_destroy1(record);
+        crBarcodeSelectionDestroy(selection);
         ccounts_closeAlignmentFile(fileHandle, header);
         return ccounts_makeResult(-1, "failed to allocate read length buffer");
     }
 
-    while (iterCount < maxIterations && sam_read1(fileHandle, header, record) >= 0)
+    while ((selection->active ? readCount : iterCount) < maxIterations && sam_read1(fileHandle, header, record) >= 0)
     {
         ++iterCount;
         if ((record->core.flag & flagExclude) != 0)
         {
             continue;
         }
+        selected = crBarcodeSelected(selection, record);
+        if (selected < 0)
+        {
+            crBarcodeSelectionDestroy(selection);
+            bam_destroy1(record);
+            free(readLengths);
+            ccounts_closeAlignmentFile(fileHandle, header);
+            return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+        }
+        if (!selected)
+            continue;
 
         queryLength = record->core.l_qseq;
         if (queryLength <= 0 && record->core.n_cigar > 0)
@@ -1321,6 +1405,7 @@ ccounts_result ccounts_getReadLength(
     }
 
     free(readLengths);
+    crBarcodeSelectionDestroy(selection);
     bam_destroy1(record);
     ccounts_closeAlignmentFile(fileHandle, header);
 
@@ -1618,6 +1703,16 @@ ccounts_result ccounts_getChromRange(
             {
                 continue;
             }
+            int selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+            if (selected < 0)
+            {
+                hts_itr_destroy(iteratorHandle);
+                bam_destroy1(record);
+                ccounts_closeSource(sourceHandle);
+                return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+            }
+            if (!selected)
+                continue;
             if (startOut != NULL)
             {
                 *startOut = (uint64_t)record->core.pos;
@@ -1646,6 +1741,16 @@ ccounts_result ccounts_getChromRange(
             {
                 continue;
             }
+            int selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+            if (selected < 0)
+            {
+                hts_itr_destroy(iteratorHandle);
+                bam_destroy1(record);
+                ccounts_closeSource(sourceHandle);
+                return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+            }
+            if (!selected)
+                continue;
             if (endOut != NULL)
             {
                 *endOut = (uint64_t)bam_endpos(record);
@@ -1671,6 +1776,16 @@ ccounts_result ccounts_getChromRange(
                 {
                     continue;
                 }
+                int selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+                if (selected < 0)
+                {
+                    hts_itr_destroy(iteratorHandle);
+                    bam_destroy1(record);
+                    ccounts_closeSource(sourceHandle);
+                    return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+                }
+                if (!selected)
+                    continue;
                 if (endOut != NULL)
                 {
                     *endOut = (uint64_t)bam_endpos(record);
@@ -2005,6 +2120,7 @@ ccounts_result ccounts_getMappedReadCount(
      * of scanning the whole BAM. Small BAMs still use the exact path below.
      */
     needsBamScan =
+        sourceHandle->barcodeSelection->active ||
         pairedEndMode > 0 ||
         flagExclude != 0U ||
         minMappingQuality > 0 ||
@@ -2024,7 +2140,8 @@ ccounts_result ccounts_getMappedReadCount(
         int usedSampleEstimate = 0;
         int attemptedSampleEstimate = 0;
 
-        if (haveIndexTotals && indexMappedCount > CCOUNTS_MAPPED_COUNT_EXACT_SCAN_MAX)
+        if (!sourceHandle->barcodeSelection->active &&
+            haveIndexTotals && indexMappedCount > CCOUNTS_MAPPED_COUNT_EXACT_SCAN_MAX)
         {
             bam1_t *record = NULL;
             hts_itr_t *iteratorHandle = NULL;
@@ -2211,9 +2328,20 @@ ccounts_result ccounts_getMappedReadCount(
 
             while ((readStatus = sam_read1((htsFile *)sourceHandle->fileHandle, sourceHandle->header, record)) >= 0)
             {
+                int selected;
+                if (pairedEndMode > 0 && (record->core.flag & BAM_FREAD2) != 0)
+                    continue;
                 if ((record->core.flag & BAM_FUNMAP) != 0 || record->core.tid < 0)
                 {
-                    ++unmappedCount;
+                    selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+                    if (selected < 0)
+                    {
+                        bam_destroy1(record);
+                        ccounts_closeSource(sourceHandle);
+                        return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+                    }
+                    if (selected)
+                        ++unmappedCount;
                     continue;
                 }
                 targetName = sam_hdr_tid2name(sourceHandle->header, record->core.tid);
@@ -2229,6 +2357,15 @@ ccounts_result ccounts_getMappedReadCount(
                 {
                     continue;
                 }
+                selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+                if (selected < 0)
+                {
+                    bam_destroy1(record);
+                    ccounts_closeSource(sourceHandle);
+                    return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+                }
+                if (!selected)
+                    continue;
 
                 readStart = (int64_t)record->core.pos;
                 readEnd = (int64_t)bam_endpos(record);
@@ -2470,6 +2607,7 @@ ccounts_result ccounts_openSource(
 {
     ccounts_sourceHandle *sourceHandle = NULL;
     ccounts_result result;
+    const char *selectionError = NULL;
 
     if (sourceHandleOut != NULL)
     {
@@ -2491,6 +2629,13 @@ ccounts_result ccounts_openSource(
         {
             free(sourceHandle);
             return result;
+        }
+        sourceHandle->barcodeSelection = crBarcodeSelectionCreate(
+            sourceConfig->barcodeTag, sourceConfig->barcodeAllowListFile, &selectionError);
+        if (sourceHandle->barcodeSelection == NULL)
+        {
+            ccounts_closeSource(sourceHandle);
+            return ccounts_makeResult(-1, selectionError);
         }
         sourceHandle->indexHandle = sam_index_load((htsFile *)sourceHandle->fileHandle, sourceConfig->path);
     }
@@ -2545,6 +2690,7 @@ void ccounts_closeSource(ccounts_sourceHandle *sourceHandle)
     ccounts_freeBarcodeAllowList(
         sourceHandle->barcodeAllowList,
         sourceHandle->barcodeAllowCount);
+    crBarcodeSelectionDestroy(sourceHandle->barcodeSelection);
     ccounts_closeAlignmentFile(sourceHandle->fileHandle, sourceHandle->header);
     free(sourceHandle);
 }
@@ -2842,6 +2988,9 @@ ccounts_result ccounts_countRegionWithMass(
         {
             return ccounts_makeResult(-1, "fragments source handle is not initialized");
         }
+
+        if (tbx_name2id(sourceHandle->tbxHandle, region->chromosome) < 0)
+            return ccounts_makeOk();
 
         start64 = (int64_t)region->start;
         end64 = (int64_t)region->end;
@@ -3163,6 +3312,9 @@ ccounts_result ccounts_countRegionWithMass(
 
     while (sam_itr_next((htsFile *)sourceHandle->fileHandle, iteratorHandle, record) >= 0)
     {
+        int selected;
+        if (countOptions->pairedEndMode > 0 && (record->core.flag & BAM_FREAD2) != 0)
+            continue;
         if ((record->core.flag & countOptions->flagExclude) != 0)
         {
             continue;
@@ -3171,6 +3323,16 @@ ccounts_result ccounts_countRegionWithMass(
         {
             continue;
         }
+        selected = crBarcodeSelected(sourceHandle->barcodeSelection, record);
+        if (selected < 0)
+        {
+            free(deltaBuffer);
+            hts_itr_destroy(iteratorHandle);
+            bam_destroy1(record);
+            return ccounts_makeResult(-1, "barcodeTag requires SAM type Z");
+        }
+        if (!selected)
+            continue;
 
         readStart = (int64_t)record->core.pos;
         readEnd = (int64_t)bam_endpos(record);
@@ -3439,4 +3601,55 @@ ccounts_result ccounts_countRegion(
         countBuffer,
         NULL,
         countBufferLength);
+}
+
+ccounts_result ccounts_getSourceChromosomeNames(
+    const ccounts_sourceConfig *sourceConfig, const char ***namesOut, int *countOut)
+{
+    ccounts_sourceHandle *sourceHandle = NULL;
+    const char **names = NULL;
+    const char **seqNames = NULL;
+    ccounts_result result = ccounts_openSource(sourceConfig, &sourceHandle);
+    int i;
+    *namesOut = NULL;
+    *countOut = 0;
+    if (result.errorCode != 0)
+        return result;
+    if (sourceHandle->header != NULL)
+        *countOut = sam_hdr_nref(sourceHandle->header);
+    else if (sourceHandle->tbxHandle != NULL)
+        seqNames = tbx_seqnames(sourceHandle->tbxHandle, countOut);
+    else
+    {
+        ccounts_closeSource(sourceHandle);
+        return ccounts_makeResult(-1, "source index is required for chromosome names");
+    }
+    if (*countOut == 0)
+    {
+        free(seqNames);
+        ccounts_closeSource(sourceHandle);
+        return ccounts_makeOk();
+    }
+    names = (const char **)calloc(*countOut, sizeof(char *));
+    if (names != NULL)
+        for (i = 0; i < *countOut; ++i)
+        {
+            names[i] = strdup(seqNames != NULL ? seqNames[i] : sam_hdr_tid2name(sourceHandle->header, i));
+            if (names[i] == NULL)
+                break;
+        }
+    free(seqNames);
+    ccounts_closeSource(sourceHandle);
+    if (names == NULL || i < *countOut)
+    {
+        if (names != NULL)
+        {
+            for (i = 0; i < *countOut; ++i)
+                free((void *)names[i]);
+            free(names);
+        }
+        return ccounts_makeResult(-1, "failed to allocate chromosome names");
+    }
+    *namesOut = names;
+    return ccounts_makeOk();
 }

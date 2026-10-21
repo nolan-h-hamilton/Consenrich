@@ -7,7 +7,7 @@ include vendor/htslib/LICENSE
 include vendor/htslib/htscodecs/LICENSE.md
 recursive-include src/consenrich *.pyx *.h
 recursive-include src/consenrich/native *.c *.h
-recursive-include src/consenrich/data *.bed *.sizes
+recursive-include src/consenrich/data *.bed *.sizes *.json
 graft vendor/htslib
 prune tests
 prune docs/build

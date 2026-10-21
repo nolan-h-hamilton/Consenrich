@@ -49,10 +49,12 @@ dependencies = [
 bigwig = ["pyBigWig>=0.3.24"]
 plots = ["matplotlib>=3.8"]
 memory = ["psutil>=5.9"]
+singlecell = ["anndata>=0.11"]
 all = [
     "pyBigWig>=0.3.24",
     "matplotlib>=3.8",
     "psutil>=5.9",
+    "anndata>=0.11",
 ]
 
 [project.urls]
@@ -105,7 +107,7 @@ namespaces = false
 include = ["consenrich", "consenrich.*"]
 
 [tool.setuptools.package-data]
-"consenrich.data" = ["*.bed", "*.sizes"]
+"consenrich.data" = ["*.bed", "*.sizes", "*.json"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"

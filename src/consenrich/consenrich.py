@@ -33,6 +33,7 @@ from .genome_covariates import (
     resolve_genome_covariate_feature_config,
 )
 from . import io as io_helpers
+from .sc_runs import executeFits
 from .config import getLoggingArgs, loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
@@ -5546,8 +5547,13 @@ def main():
     if resolvedLogPath is not None:
         _logCliMilestone("Canonical log: %s", resolvedLogPath)
     _logCliPhase("Config")
+    args.config = str(Path(args.config).resolve())
+    args.logFile = str(resolvedLogPath.resolve()) if resolvedLogPath is not None else None
+    executeFits(readConfig(args.config), args, _runConfigured, _configureCliLogging)
+
+
+def _runConfigured(config, args, sharedReferenceGrid=None):
     cliRunStart = time.perf_counter()
-    config = readConfig(args.config)
     experimentName = config["experimentName"]
     countingPreset = config.get("countingPreset")
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
@@ -5824,12 +5830,6 @@ def main():
         str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
         for source in treatmentSources + controlSources
     )
-    if anyFragments and normMethod_ in ["EGS", "RPGC"]:
-        logger.warning(
-            "Fragments inputs use insertion-based depth normalization not EGS/RPGC"
-            "  --> using CPM/RPKM ..."
-        )
-        normMethod_ = "CPM"
     if (
         anyBedGraph
         and not allBedGraph
@@ -5854,7 +5854,17 @@ def main():
                 source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
             )
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
-    effectiveGenomeSizes = getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles)
+    automaticTreatmentEGS = (
+        normMethod_ in ["EGS", "RPGC"] and countingArgs.scaleFactors is None and not allBedGraph
+    )
+    automaticControlEGS = (
+        normMethod_ in ["EGS", "RPGC"] and controlsPresent
+        and countingArgs.scaleFactorsControl is None and not allBedGraph
+    )
+    effectiveGenomeSizes = (
+        getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles, treatmentSources)
+        if automaticTreatmentEGS else [0] * len(treatmentSources)
+    )
     treatmentBamInputModes = [
         (
             core._resolveSourceBamInputMode(
@@ -5893,6 +5903,28 @@ def main():
         )
         for source in controlSources
     ]
+    automaticEGSSources = (
+        list(zip(treatmentSources, treatmentCountModes)) if automaticTreatmentEGS else []
+    ) + (list(zip(controlSources, controlCountModes)) if automaticControlEGS else [])
+    if any(source.sourceKind == core.FRAGMENTS_SOURCE_KIND for source, _ in automaticEGSSources):
+        if str(scArgs.fragmentsGroupNorm).upper() != "NONE":
+            raise ValueError(
+                "EGS/RPGC normalization for fragments requires "
+                "scParams.fragmentsGroupNorm=NONE"
+            )
+        for source, countMode in automaticEGSSources:
+            if str(source.sourceKind).upper() != core.FRAGMENTS_SOURCE_KIND:
+                continue
+            if countMode != constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP:
+                raise ValueError(
+                    "EGS/RPGC normalization for fragments requires "
+                    "conservedFractionalOverlap count mode"
+                )
+            if source.fragmentsUseReadSupport:
+                raise ValueError(
+                    "EGS/RPGC normalization for fragments requires "
+                    "fragmentsUseReadSupport=False"
+                )
     singleBinCountModes = {"cutsite", "fiveprime", "ffp", "ffp-center", "center"}
     singleBinActiveCountModes = sorted(
         {
@@ -6017,6 +6049,27 @@ def main():
         if controlsPresent
         else []
     )
+    controlsUseTreatmentLengths = controlsPresent and not any(
+        source.barcodeAllowListFile for source in treatmentSources + controlSources
+    )
+    treatmentEstimateForControl = (
+        [
+            controlsUseTreatmentLengths
+            and source.sourceKind in core.ALIGNMENT_SOURCE_KINDS
+            and (
+                countMode == "ffp-center"
+                or (
+                    bamMode in ("reads", "read1")
+                    and (autoInferFragmentLength or inferFragmentLengthRequested)
+                )
+            )
+            for source, bamMode, countMode in zip(
+                controlSources, controlBamInputModes, controlCountModes
+            )
+        ]
+        if controlsPresent
+        else [False] * len(treatmentSources)
+    )
 
     def _estimateFragmentLengthForSource(
         source: core.inputSource,
@@ -6030,6 +6083,8 @@ def main():
                 samThreads=samArgs.samThreads,
                 samFlagExclude=sourceFlagExclude,
                 maxInsertSize=samArgs.maxInsertSize,
+                barcodeAllowListFile=source.barcodeAllowListFile or "",
+                barcodeTag=source.barcodeTag or "CB",
             )
         )
         logger.info(
@@ -6040,7 +6095,7 @@ def main():
         return fragmentLength
 
     def _resolveCharacteristicFragmentLength(task) -> int:
-        source, sourceBamInputMode, configuredExtendBP = task
+        source, sourceBamInputMode, configuredExtendBP, pairedControlNeedsLength = task
         if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
             return 0
         if sourceBamInputMode == "fragments" and (
@@ -6052,6 +6107,20 @@ def main():
             )
         if int(configuredExtendBP) > 0:
             return int(configuredExtendBP)
+        sourceMode = _getSourceCountMode(
+            source, samArgs.defaultCountMode, scArgs.defaultCountMode
+        )
+        estimateNeeded = (
+            pairedControlNeedsLength
+            or bool(smoothToFraglen_)
+            or sourceMode == "ffp-center"
+            or (
+                sourceBamInputMode in ("reads", "read1")
+                and (autoInferFragmentLength or inferFragmentLengthRequested)
+            )
+        )
+        if not estimateNeeded:
+            return 0
         return _estimateFragmentLengthForSource(
             source,
             core._resolveSourceFlagExclude(
@@ -6065,22 +6134,33 @@ def main():
             treatmentSources,
             treatmentBamInputModes,
             configuredExtendFrom5pBPTreatment,
+            treatmentEstimateForControl,
         ),
         _resolveCharacteristicFragmentLength,
         "characteristic lengths",
         allowThreads=setupAllowThreads,
     )
     if controlsPresent:
-        logger.info(
-            "Using treatment-derived extension lengths for control BAM sources."
-        )
-        (
-            characteristicFragmentLengthsTreatment,
-            characteristicFragmentLengthsControl,
-        ) = _resolveExtendFrom5pBPPairs(
-            characteristicFragmentLengthsTreatment,
-            characteristicFragmentLengthsControl,
-        )
+        if not controlsUseTreatmentLengths:
+            characteristicFragmentLengthsControl = io_helpers._threadMap(
+                zip(
+                    controlSources,
+                    controlBamInputModes,
+                    configuredExtendFrom5pBPControl,
+                    [False] * len(controlSources),
+                ),
+                _resolveCharacteristicFragmentLength,
+                "control characteristic lengths",
+                allowThreads=setupAllowThreads,
+            )
+        else:
+            (
+                characteristicFragmentLengthsTreatment,
+                characteristicFragmentLengthsControl,
+            ) = _resolveExtendFrom5pBPPairs(
+                characteristicFragmentLengthsTreatment,
+                characteristicFragmentLengthsControl,
+            )
 
     def _resolveCountExtendFrom5pBP(
         source: core.inputSource,
@@ -6181,13 +6261,24 @@ def main():
         if controlsPresent:
 
             def _getReadLengthForSource(source: core.inputSource) -> int:
+                if source.sourceKind != "BAM":
+                    return 0
+                sourceMode = _getSourceCountMode(source, samArgs.defaultCountMode, scArgs.defaultCountMode)
+                bamMode = core._resolveSourceBamInputModeForCountMode(source, samArgs.bamInputMode, sourceMode)
+                flagExclude = samArgs.samFlagExclude
+                if source.barcodeAllowListFile:
+                    flagExclude = core._resolveSourceFlagExclude(flagExclude, bamMode)
+                    if bamMode == "fragments":
+                        flagExclude |= 128
                 return core.getReadLength(
                     source.path,
                     100,
                     1000,
                     samArgs.samThreads,
-                    samArgs.samFlagExclude,
+                    flagExclude,
                     sourceKind=str(source.sourceKind).upper(),
+                    barcodeAllowListFile=source.barcodeAllowListFile,
+                    barcodeTag=source.barcodeTag,
                 )
 
             readLengthsControlBamFiles = io_helpers._threadMap(
@@ -6196,9 +6287,9 @@ def main():
                 "control read lengths",
                 allowThreads=setupAllowThreads,
             )
-            effectiveGenomeSizesControl = getEffectiveGenomeSizes(
-                genomeArgs,
-                readLengthsControlBamFiles,
+            effectiveGenomeSizesControl = (
+                getEffectiveGenomeSizes(genomeArgs, readLengthsControlBamFiles, controlSources)
+                if automaticControlEGS else [0] * len(controlSources)
             )
 
             if scaleFactors is not None and scaleFactorsControl is not None:
@@ -6207,6 +6298,57 @@ def main():
             elif allBedGraph:
                 treatScaleFactors = scaleFactors or [1.0] * len(treatmentSources)
                 controlScaleFactors = scaleFactorsControl or [1.0] * len(controlSources)
+            elif scaleFactors is not None or scaleFactorsControl is not None:
+                def _scaleUnspecifiedSources(sourceList, sizes, fragmentLengths, readLengths,
+                                             allowLists, countModes, cellCounts, bamModes, extensions):
+                    values = []
+                    for source, size, fragmentLength, readLength, allowList, countMode, cellCount, bamMode, extension in zip(
+                        sourceList, sizes, fragmentLengths, readLengths, allowLists,
+                        countModes, cellCounts, bamModes, extensions,
+                    ):
+                        options = {
+                            "sourceKind": source.sourceKind,
+                            "barcodeAllowListFile": allowList,
+                            "barcodeTag": source.barcodeTag,
+                            "countMode": countMode,
+                            "oneReadPerBin": samArgs.oneReadPerBin,
+                            "groupCellCount": cellCount,
+                            "fragmentsGroupNorm": scArgs.fragmentsGroupNorm,
+                            "bamInputMode": bamMode,
+                            "samFlagExclude": samArgs.samFlagExclude,
+                            "minMappingQuality": samArgs.minMappingQuality,
+                            "minTemplateLength": samArgs.minTemplateLength,
+                            "maxInsertSize": samArgs.maxInsertSize,
+                            "extendBP": extension,
+                            "fragmentsUseReadSupport": source.fragmentsUseReadSupport,
+                        }
+                        if normMethod_ in ("EGS", "RPGC"):
+                            factor = detrorm.getScaleFactor1x(
+                                source.path, size, fragmentLength, excludeForNorm,
+                                chromSizes, samArgs.samThreads,
+                                intervalSizeBP=intervalSizeBP, countReadLength=readLength,
+                                effectiveGenomeSizeIsFinal=(source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
+                                **options,
+                            )
+                        else:
+                            factor = detrorm.getScaleFactorPerMillion(
+                                source.path, excludeForNorm, intervalSizeBP,
+                                normMethod=normMethod_, samThreads=samArgs.samThreads,
+                                readLength=readLength, **options,
+                            )
+                        values.append(factor)
+                    return values
+
+                treatScaleFactors = scaleFactors if scaleFactors is not None else _scaleUnspecifiedSources(
+                    treatmentSources, effectiveGenomeSizes, characteristicFragmentLengthsTreatment,
+                    readLengthsBamFiles, treatmentAllowLists, treatmentNativeCountModes,
+                    treatmentSelectedCellCounts, treatmentBamInputModes, countExtendFrom5pBPTreatment,
+                )
+                controlScaleFactors = scaleFactorsControl if scaleFactorsControl is not None else _scaleUnspecifiedSources(
+                    controlSources, effectiveGenomeSizesControl, characteristicFragmentLengthsControl,
+                    readLengthsControlBamFiles, controlAllowLists, controlNativeCountModes,
+                    controlSelectedCellCounts, controlBamInputModes, countExtendFrom5pBPControl,
+                )
             else:
 
                 def _getPairScaleFactors(task):
@@ -6265,6 +6407,10 @@ def main():
                         countReadLengthB=countReadLengthB,
                         fragmentsUseReadSupportA=sourceA.fragmentsUseReadSupport,
                         fragmentsUseReadSupportB=sourceB.fragmentsUseReadSupport,
+                        barcodeTagA=sourceA.barcodeTag,
+                        barcodeTagB=sourceB.barcodeTag,
+                        effectiveGenomeSizeIsFinalA=(sourceA.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
+                        effectiveGenomeSizeIsFinalB=(sourceB.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
                     )
 
                 pairScalingFactors = io_helpers._threadMap(
@@ -6337,6 +6483,7 @@ def main():
                         readLength=readLength,
                         extendBP=extendBP,
                         fragmentsUseReadSupport=source.fragmentsUseReadSupport,
+                        barcodeTag=source.barcodeTag,
                     )
 
                 scaleFactors = io_helpers._threadMap(
@@ -6388,6 +6535,9 @@ def main():
                         extendBP=extendBP,
                         intervalSizeBP=intervalSizeBP,
                         countReadLength=countReadLength,
+                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
+                        barcodeTag=source.barcodeTag,
+                        effectiveGenomeSizeIsFinal=(source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
                     )
 
                 scaleFactors = io_helpers._threadMap(
@@ -6446,16 +6596,22 @@ def main():
     for chromosome in chromosomes:
         if str(chromosome) not in chromSizesDict:
             continue
-        chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
-            bamFiles,
-            chromosome,
-            chromSizesDict[chromosome],
-            samArgs.samThreads,
-            samArgs.samFlagExclude,
-            sourceKinds=treatmentSourceKinds,
-        )
-        chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % intervalSizeBP)))
-        chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % intervalSizeBP)))
+        if sharedReferenceGrid is not None:
+            chromosomeStart, chromosomeEnd = sharedReferenceGrid[chromosome]
+        else:
+            chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
+                bamFiles,
+                chromosome,
+                chromSizesDict[chromosome],
+                samArgs.samThreads,
+                samArgs.samFlagExclude,
+                sourceKinds=treatmentSourceKinds,
+            )
+            chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % intervalSizeBP)))
+            chromosomeEnd = min(
+                chromSizesDict[chromosome],
+                ((chromosomeEnd + intervalSizeBP - 1) // intervalSizeBP) * intervalSizeBP,
+            )
         numIntervals = (
             ((chromosomeEnd - chromosomeStart) + intervalSizeBP) - 1
         ) // intervalSizeBP
@@ -10283,7 +10439,7 @@ def main():
         )
 
         exportTracks = {"State": x_}
-        intervalEnds = intervals + intervalSizeBP
+        intervalEnds = np.minimum(intervals + intervalSizeBP, chromSizesDict[chromosome])
 
         if outputArgs.writeUncertainty and not segShrinkGenomeRequested:
             exportTracks["uncertainty"] = uncertaintyTrack
@@ -10487,7 +10643,7 @@ def main():
                         uncertaintyBedGraphPath,
                         chromosome,
                         intervals,
-                        intervals + intervalSizeBP,
+                        np.minimum(intervals + intervalSizeBP, chromSizesDict[chromosome]),
                         calibrated,
                         bedGraphChunkRanges["uncertainty"],
                     )
@@ -10732,7 +10888,7 @@ def main():
                 }
                 if writeStateShrinkageTracks:
                     shrinkTracks["stateSpikeProp"] = stateShrinkageResult.spikeProp
-                intervalEnds = intervals + intervalSizeBP
+                intervalEnds = np.minimum(intervals + intervalSizeBP, chromSizesDict[chromosome])
                 for col, suffix in shrinkOutputTracks:
                     bedgraphPath = (
                         f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
@@ -10958,11 +11114,8 @@ def main():
 
             _logCliMilestone("ROCCO peak calling done: output=%s", artifacts)
         except Exception as ex_:
-            logger.warning(
-                f"ROCCO peak calling raised an exception:\n\n\t{ex_}\n"
-                f"Skipping peak-calling step...try running post hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
-                f"\tSee ``consenrich -h`` for more details.\n"
-            )
+            logger.error("ROCCO peak calling failed: %s", ex_)
+            raise
 
     if outputArgs.convertToBigWig:
         convertBedGraphToBigWig(
@@ -10978,6 +11131,71 @@ def main():
         experimentName,
         time.perf_counter() - cliRunStart,
     )
+
+    normalizationChromSizes = misc_util.getChromSizesDict(genomeArgs.chromSizesFile)
+    normalizationExcludedBases = sum(
+        normalizationChromSizes.get(chromosome, 0) for chromosome in (excludeForNorm or ())
+    )
+    normalizationMetadata = {
+        "method": normMethod_,
+        "intervalSizeBP": int(intervalSizeBP),
+        "fragmentsGroupNorm": scArgs.fragmentsGroupNorm,
+        "treatment": [
+            {
+                "donor": source.sampleName or source.path,
+                "basis": (
+                    "explicitScaleFactor" if countingArgs.scaleFactors is not None else
+                    ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
+                    if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
+                    "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"
+                ),
+                "sourceKind": source.sourceKind,
+                "bamInputMode": bamMode,
+                "countMode": mode,
+                "effectiveGenomeSize": (
+                    int(size) - (
+                        0 if source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None
+                        else normalizationExcludedBases
+                    ) if automaticTreatmentEGS else None
+                ),
+                "scaleFactor": float(factor),
+            }
+            for source, mode, bamMode, size, factor in zip(
+                treatmentSources, treatmentNativeCountModes, treatmentBamInputModes, effectiveGenomeSizes,
+                treatScaleFactors if controlsPresent else scaleFactors,
+            )
+        ],
+    }
+    if controlsPresent:
+        normalizationMetadata["control"] = [
+            {
+                "donor": source.sampleName or source.path,
+                "basis": (
+                    "explicitScaleFactor" if countingArgs.scaleFactorsControl is not None else
+                    ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
+                    if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
+                    "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"
+                ),
+                "sourceKind": source.sourceKind,
+                "bamInputMode": bamMode,
+                "countMode": mode,
+                "effectiveGenomeSize": (
+                    int(size) - (
+                        0 if source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None
+                        else normalizationExcludedBases
+                    ) if automaticControlEGS else None
+                ),
+                "scaleFactor": float(factor),
+            }
+            for source, mode, bamMode, size, factor in zip(
+                controlSources, controlNativeCountModes, controlBamInputModes, effectiveGenomeSizesControl, controlScaleFactors,
+            )
+        ]
+    Path(f"consenrichOutput_{experimentName}_normalization.json").write_text(
+        json.dumps(normalizationMetadata, indent=2) + "\n"
+    )
+    logger.info("normalization.resolved %s", json.dumps(normalizationMetadata))
+    return normalizationMetadata
 
 
 if __name__ == "__main__":

@@ -138,6 +138,9 @@ extern "C"
         const ccounts_sourceConfig *sourceConfig,
         ccounts_sourceHandle **sourceHandleOut);
 
+    ccounts_result ccounts_getSourceChromosomeNames(
+        const ccounts_sourceConfig *sourceConfig, const char ***namesOut, int *countOut);
+
     void ccounts_closeSource(ccounts_sourceHandle *sourceHandle);
 
     ccounts_result ccounts_countRegion(

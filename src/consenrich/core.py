@@ -823,6 +823,11 @@ class inputSource(NamedTuple):
     bamInputMode: str | None = None
     fragmentPositionMode: str | None = None
     fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
+    metadataSample: str | None = None
+    cellMetadata: dict | None = None
+    selectedBarcodes: frozenset[str] | None = None
+    selectedCellCount: int | None = None
+    barcodeSelectionPrepared: bool = False
 
 
 class readSegmentsResult(NamedTuple):
@@ -873,7 +878,7 @@ class genomeParams(NamedTuple):
     :type excludeForNorm: List[str]
     """
 
-    genomeName: str
+    genomeName: str | None
     chromSizesFile: str
     blacklistFile: Optional[str]
     sparseBedFile: Optional[str]
@@ -881,6 +886,7 @@ class genomeParams(NamedTuple):
     chromosomes: List[str]
     excludeChroms: List[str]
     excludeForNorm: List[str]
+    effectiveGenomeSize: int | None = None
 
 
 class countingParams(NamedTuple):
@@ -997,6 +1003,8 @@ class scParams(NamedTuple):
     fragmentsGroupNorm: str | None = SC_DEFAULT_FRAGMENTS_GROUP_NORM
     defaultFragmentPositionMode: str | None = SC_DEFAULT_FRAGMENT_POSITION_MODE
     fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
+    cellMetadata: dict | None = None
+    fits: tuple[dict, ...] | None = None
 
 
 class matchingParams(NamedTuple):
@@ -1435,6 +1443,8 @@ def getReadLength(
     samThreads: int,
     samFlagExclude: int,
     sourceKind: str = "BAM",
+    barcodeAllowListFile: str | None = None,
+    barcodeTag: str | None = None,
 ) -> int:
     r"""Infer read length from mapped reads in a BAM file.
 
@@ -1467,6 +1477,8 @@ def getReadLength(
         maxIterations,
         samFlagExclude,
         sourceKind=sourceKind,
+        barcodeAllowListFile=barcodeAllowListFile or "",
+        barcodeTag=barcodeTag or "CB",
     )
     if init_rlen == 0:
         raise ValueError(
@@ -1531,6 +1543,8 @@ def _loadBarcodeAllowSet(path: str | None) -> set[str]:
 
 
 def _resolveFragmentsBarcodeAllowSet(source: inputSource) -> set[str] | None:
+    if source.selectedBarcodes is not None:
+        return set(source.selectedBarcodes)
     allowListPath = (
         str(source.barcodeAllowListFile)
         if source.barcodeAllowListFile is not None and str(source.barcodeAllowListFile)
@@ -1543,7 +1557,7 @@ def _resolveFragmentsBarcodeAllowSet(source: inputSource) -> set[str] | None:
     )
     selectGroups = set(source.selectGroups or [])
 
-    if allowListPath is None and (groupMapPath is None or len(selectGroups) == 0):
+    if allowListPath is None and groupMapPath is None:
         return None
 
     allowSet = _loadBarcodeAllowSet(allowListPath)
@@ -1561,7 +1575,7 @@ def _resolveFragmentsBarcodeAllowSet(source: inputSource) -> set[str] | None:
                 groupName = parts[1]
                 if len(selectGroups) == 0 or groupName in selectGroups:
                     groupSet.add(barcode)
-        if len(allowSet) > 0:
+        if allowListPath is not None:
             allowSet &= groupSet
         else:
             allowSet = groupSet
@@ -1572,6 +1586,8 @@ def _resolveFragmentsBarcodeAllowSet(source: inputSource) -> set[str] | None:
 def _writeFragmentsAllowList(
     source: inputSource,
 ) -> tuple[str | None, str | None]:
+    if source.barcodeSelectionPrepared:
+        return source.barcodeAllowListFile, None
     allowSet = _resolveFragmentsBarcodeAllowSet(source)
     if allowSet is None:
         return None, None
@@ -1592,6 +1608,8 @@ def _writeFragmentsAllowList(
 
 
 def getFragmentsSelectedBarcodeCount(source: inputSource) -> int | None:
+    if source.selectedCellCount is not None:
+        return source.selectedCellCount
     allowSet = _resolveFragmentsBarcodeAllowSet(source)
     if allowSet is None:
         return None
@@ -1635,11 +1653,17 @@ def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
 
 
 @lru_cache(maxsize=None)
-def _isAlignmentSourcePairedEnd(alignmentPath: str) -> bool:
+def _isAlignmentSourcePairedEnd(
+    alignmentPath: str,
+    barcodeAllowListFile: str | None = None,
+    barcodeTag: str | None = None,
+) -> bool:
     return bool(
         cconsenrich.cisAlignmentPairedEnd(
             alignmentPath,
             maxReads=1_000,
+            barcodeAllowListFile=barcodeAllowListFile or "",
+            barcodeTag=barcodeTag or "CB",
         )
     )
 
@@ -1653,7 +1677,9 @@ def _resolveSourceBamInputMode(
         return "reads"
     if normalizedMode != "auto":
         return normalizedMode
-    return "fragments" if _isAlignmentSourcePairedEnd(source.path) else "reads"
+    return "fragments" if _isAlignmentSourcePairedEnd(
+        source.path, source.barcodeAllowListFile, source.barcodeTag
+    ) else "reads"
 
 
 def _resolveSourceFlagExclude(
@@ -1837,6 +1863,7 @@ def readSegments(
             barcodeAllowListFile, tempPath = _writeFragmentsAllowList(source)
             if tempPath is not None:
                 tempPaths.append(tempPath)
+            source = source._replace(barcodeAllowListFile=barcodeAllowListFile)
 
             if sourceKind == BEDGRAPH_SOURCE_KIND:
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
@@ -1976,6 +2003,8 @@ def readSegments(
                             samThreads=samThreads,
                             samFlagExclude=sourceFlagExclude,
                             maxInsertSize=maxInsertSize,
+                            barcodeAllowListFile=barcodeAllowListFile or "",
+                            barcodeTag=source.barcodeTag or "CB",
                         )
                     )
                 if ffpCenterPreset and sourceExtendBP <= 0:
@@ -2004,9 +2033,10 @@ def readSegments(
                         minMappingQuality=minMappingQuality,
                         minTemplateLength=minTemplateLength,
                         sourceKind=sourceKind,
-                        barcodeAllowListFile="",
+                        barcodeAllowListFile=barcodeAllowListFile or "",
                         barcodeGroupMapFile="",
                         countMode=countMode,
+                        barcodeTag=source.barcodeTag or "CB",
                     )
                     counts[sourceIndex, :] = countResult.counts
                     if rawNoiseMass is None:
@@ -2032,9 +2062,10 @@ def readSegments(
                         minMappingQuality=minMappingQuality,
                         minTemplateLength=minTemplateLength,
                         sourceKind=sourceKind,
-                        barcodeAllowListFile="",
+                        barcodeAllowListFile=barcodeAllowListFile or "",
                         barcodeGroupMapFile="",
                         countMode=countMode,
+                        barcodeTag=source.barcodeTag or "CB",
                     )
             np.multiply(
                 counts[sourceIndex, :],

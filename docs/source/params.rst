@@ -73,6 +73,13 @@ Estimation Controls
     whereas larger :math:`\kappa_i` favors smoother variation.
 
 ``outputParams.stateShrinkageEnabled``
-    Enables experimental posterior state shrinkage and defaults to ``True``.
-    Set it to ``False`` to disable it. Use the shrunk state as a visualization
-    or ranking track, rather than as a replacement for the fitted state.
+    Enables an *experimental* posterior state shrinkage using a spike-and-Student-:math:`t`
+    prior, with consenrich-estimated positional signal and uncertainty plugged-in.
+    Disable it in the YAML config w/ ``outputParams.stateShrinkageEnabled: false``.
+
+    Depending on the downstream application, the shrunk state/uncertainty tracks
+    should be interpreted as approximate since the inputs are estimates themselves,
+    i.e., uncertainty is not propagated in the fully Bayesian sense.
+
+    Specifically, cutoffs on the `shrunkState` tracks may
+    become conservative relative to the original `state`
