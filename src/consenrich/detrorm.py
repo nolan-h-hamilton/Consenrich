@@ -173,6 +173,7 @@ def getScaleFactor1x(
                 "EGS/RPGC normalization with conservedFractionalOverlap requires "
                 "a positive intervalSizeBP"
             )
+        # Normalize by event-counts, times bin size ( not fragment size!)
         return round(effectiveGenomeSize / (totalMappedReads * int(intervalSizeBP)), 5)
     if totalMappedSpanBP <= 0:
         raise ValueError(

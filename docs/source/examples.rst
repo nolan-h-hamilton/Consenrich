@@ -130,7 +130,8 @@ current package version, the principal output files are:
   demoHistoneChIPSeq_consenrich_uncertainty.VERSION.bw
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.gappedPeak
-  consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak.nullCalibration.png
+
+The tag switches from `state` to `shrunkState` for ``outputParams.stateShrinkageEnabled``.
 
 .. _atac-demo:
 
@@ -486,8 +487,8 @@ Run Consenrich
 Results
 """""""
 
-Browser snapshots for each cell type (uncertainty tracks omitted for spacing). Note, each method here was run with generic defaults, including Consenrich.
-Signac and ArchR are included as familiar references and not comparators.
+Browser snapshots for each cell type (uncertainty tracks omitted for spacing).
+Signac and ArchR are included here as familiar references, both run with generic defaults.
 
 Goblet
 ^^^^^^

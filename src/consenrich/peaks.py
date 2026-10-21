@@ -1419,6 +1419,9 @@ def solveChromROCCO(
     )
     baseSelectionPenalty = float(selectionPenalty_)
     if multiplier != 1.0:
+        # negative data-derived penalties: divide to tighten selection
+        # this should only arise when calibration requires a reward for selection
+        # FFR: consider raising or warning
         selectionPenalty_ = (
             baseSelectionPenalty * multiplier
             if baseSelectionPenalty >= 0.0

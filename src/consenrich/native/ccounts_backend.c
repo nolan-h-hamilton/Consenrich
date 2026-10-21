@@ -1225,7 +1225,7 @@ ccounts_result ccounts_getReadLength(
             return ccounts_makeResult(-1, "failed to open fragments source");
         }
         result = ccounts_loadBarcodeAllowList(sourceConfig->barcodeAllowListFile,
-                                               &barcodeAllowList, &barcodeAllowCount);
+                                              &barcodeAllowList, &barcodeAllowCount);
         if (result.errorCode != 0)
         {
             hts_close(fragmentsHandle);
@@ -3313,6 +3313,7 @@ ccounts_result ccounts_countRegionWithMass(
     while (sam_itr_next((htsFile *)sourceHandle->fileHandle, iteratorHandle, record) >= 0)
     {
         int selected;
+        /* use read1 barcode _without_ consulting the mate for PE */
         if (countOptions->pairedEndMode > 0 && (record->core.flag & BAM_FREAD2) != 0)
             continue;
         if ((record->core.flag & countOptions->flagExclude) != 0)

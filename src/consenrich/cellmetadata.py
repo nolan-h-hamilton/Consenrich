@@ -166,6 +166,7 @@ class MetadataSelections:
                     raise ValueError(
                         f"Invalid identifier in cell metadata column `{column}`: {value!r}"
                     )
+            # barcodes are consistent across donors and can repeat within them
             identity = (sample, barcode)
             if identity in identities:
                 raise ValueError(

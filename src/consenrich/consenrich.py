@@ -6623,6 +6623,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 sourceKinds=treatmentSourceKinds,
             )
             chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % intervalSizeBP)))
+            # Retain the terminal partial bin without extending beyond the reference
             chromosomeEnd = min(
                 chromSizesDict[chromosome],
                 ((chromosomeEnd + intervalSizeBP - 1) // intervalSizeBP) * intervalSizeBP,
