@@ -29,7 +29,7 @@ def executeFits(config, args, runConfigured, configureLogging):
     controlSources = resolvedSources[treatmentCount:]
     genomeArgs = config["genomeArgs"]
     genomePaths = {}
-    for field in ("chromSizesFile", "blacklistFile", "sparseBedFile", "genomeCovariateCacheDir"):
+    for field in ("chromSizesFile", "blacklistFile", "sparseBedFile"):
         path = getattr(genomeArgs, field)
         if path is not None:
             genomePaths[field] = str(Path(path).resolve())

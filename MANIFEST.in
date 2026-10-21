@@ -6,6 +6,9 @@ include THIRD_PARTY_LICENSES.md
 include vendor/htslib/LICENSE
 include vendor/htslib/htscodecs/LICENSE.md
 recursive-include src/consenrich *.pyx *.h
+include src/consenrich/cconsenrich.c
+include src/consenrich/ccounts.c
+include src/consenrich/cuncertainty.c
 recursive-include src/consenrich/native *.c *.h
 recursive-include src/consenrich/data *.bed *.sizes *.json
 graft vendor/htslib

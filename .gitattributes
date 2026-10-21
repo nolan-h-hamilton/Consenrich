@@ -4,3 +4,6 @@
 *.py diff=python
 *.c  diff=cpp
 *.h  diff=cpp
+src/consenrich/cconsenrich.c linguist-generated=true
+src/consenrich/ccounts.c linguist-generated=true
+src/consenrich/cuncertainty.c linguist-generated=true

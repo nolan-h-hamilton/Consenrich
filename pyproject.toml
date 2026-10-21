@@ -63,6 +63,10 @@ Source = "https://github.com/nolan-h-hamilton/Consenrich"
 Issues = "https://github.com/nolan-h-hamilton/Consenrich/issues"
 
 [dependency-groups]
+cython-sources = [
+    "Cython==3.2.5",
+    "numpy==2.3.5",
+]
 test = [
     "pytest",
     "pysam>=0.23.3",
@@ -111,7 +115,6 @@ include = ["consenrich", "consenrich.*"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
-consenrich-cache = "consenrich.cache_cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

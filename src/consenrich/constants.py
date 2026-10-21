@@ -224,7 +224,6 @@ GENOME_DEFAULT_NAME: Final[str | None] = None
 GENOME_DEFAULT_CHROM_SIZES_FILE: Final[str | None] = None
 GENOME_DEFAULT_BLACKLIST_FILE: Final[str | None] = None
 GENOME_DEFAULT_SPARSE_BED_FILE: Final[str | None] = None
-GENOME_DEFAULT_COVARIATE_CACHE_DIR: Final[str | None] = None
 GENOME_DEFAULT_CHROMOSOMES: Final[StrTuple | None] = None
 GENOME_DEFAULT_EXCLUDE_CHROMS: Final[StrTuple] = ()
 GENOME_DEFAULT_EXCLUDE_FOR_NORM: Final[StrTuple] = ()
@@ -355,21 +354,6 @@ OBSERVATION_DEFAULT_PAD: Final[float] = 1.0e-4
 OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = 0.1
 OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 10.0
 OBSERVATION_DEFAULT_USE_REPLICATE_VARIANCE_SCALE: Final[bool] = True
-MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE: Final[str] = "perReplicateAdditive"
-MUNC_SUPPORTED_COVARIATE_MODES: Final[StrTuple] = (
-    MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE,
-)
-MUNC_COVARIATE_FEATURES: Final[StrTuple] = (
-    "gc",
-    "low_mappability_frac",
-    "repeat_frac",
-)
-OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED: Final[bool] = False
-OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE: Final[str] = (
-    MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
-)
-OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES: Final[StrTuple] = MUNC_COVARIATE_FEATURES
-
 FIT_DEFAULT_FIXED_BACKGROUND_ITERS: Final[int] = 50
 FIT_DEFAULT_FIXED_BACKGROUND_RTOL: Final[float] = 1.0e-6
 FIT_DEFAULT_T_INNER_ITERS: Final[int] = 6
@@ -682,7 +666,6 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         "processParams.precisionMultiplierMax": (
             PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
         ),
-        "genomeParams.genomeCovariateCacheDir": GENOME_DEFAULT_COVARIATE_CACHE_DIR,
         "observationParams.precisionMultiplierMin": (
             OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN
         ),
@@ -798,15 +781,6 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         ),
         "observationParams.useCountNoiseFloor": (
             OBSERVATION_DEFAULT_USE_COUNT_NOISE_FLOOR
-        ),
-        "observationParams.muncCovariates.enabled": (
-            OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED
-        ),
-        "observationParams.muncCovariates.mode": (
-            OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE
-        ),
-        "observationParams.muncCovariates.features": (
-            OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES
         ),
         "observationParams.restrictLocalVarianceToSparseBed": (
             OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
