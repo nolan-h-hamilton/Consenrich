@@ -5243,6 +5243,13 @@ def _buildArgParser() -> argparse.ArgumentParser:
         help="One-sided Gaussian z-threshold used when calibrating null tail occupancy.",
     )
     parser.add_argument(
+        "--match-selection-penalty-multiplier",
+        type=float,
+        default=constants.MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
+        dest="matchSelectionPenaltyMultiplier",
+        help="Positive multiplier for the per-bin selection penalty.",
+    )
+    parser.add_argument(
         "--match-nested-rocco-iters",
         type=int,
         default=constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS,
@@ -5420,6 +5427,13 @@ def main():
             parser.error("--match-feature-duration-bp must be positive")
         if args.matchNumRegionReplays <= 0:
             parser.error("--match-num-region-replays must be positive")
+        if (
+            not np.isfinite(args.matchSelectionPenaltyMultiplier)
+            or args.matchSelectionPenaltyMultiplier <= 0
+        ):
+            parser.error(
+                "--match-selection-penalty-multiplier must be finite and positive"
+            )
         if args.matchPeakMode in {"broad", "both"}:
             if args.matchMergeToleranceBP is None:
                 parser.error(
@@ -5478,6 +5492,7 @@ def main():
             useLocalBootStrapRadius=args.matchUseLocalBootStrapRadius,
             plotNullCalibrationDiagnostics=args.matchPlotNullCalibrationDiagnostics,
             thresholdZ=args.matchThresholdZ,
+            selectionPenaltyMultiplier=args.matchSelectionPenaltyMultiplier,
             nestedRoccoIters=args.matchNestedRoccoIters,
             nestedRoccoBudgetScale=args.matchNestedRoccoBudgetScale,
             exportFilterUncertaintyMultiplier=(
@@ -11094,6 +11109,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 thresholdZ=float(matchingArgs.thresholdZ),
                 gamma=matchingArgs.gamma,
                 selectionPenalty=matchingArgs.selectionPenalty,
+                selectionPenaltyMultiplier=matchingArgs.selectionPenaltyMultiplier,
                 gammaScale=float(matchingArgs.gammaScale),
                 nestedRoccoIters=int(matchingArgs.nestedRoccoIters),
                 nestedRoccoBudgetScale=float(matchingArgs.nestedRoccoBudgetScale),

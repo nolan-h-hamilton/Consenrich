@@ -3056,6 +3056,24 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         sourceCountModes,
     )
 
+    selectionPenaltyMultiplier = _cfgGet(
+        configData,
+        "matchingParams.selectionPenaltyMultiplier",
+        constants.MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
+    )
+    if isinstance(selectionPenaltyMultiplier, (bool, np.bool_)):
+        raise ValueError("matchingParams.selectionPenaltyMultiplier must be numeric")
+    try:
+        selectionPenaltyMultiplier = float(selectionPenaltyMultiplier)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "matchingParams.selectionPenaltyMultiplier must be numeric"
+        ) from exc
+    if not np.isfinite(selectionPenaltyMultiplier) or selectionPenaltyMultiplier <= 0:
+        raise ValueError(
+            "matchingParams.selectionPenaltyMultiplier must be finite and positive"
+        )
+
     minMeanSignal = _cfgGet(
         configData,
         "matchingParams.minMeanSignal",
@@ -3163,6 +3181,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "matchingParams.selectionPenalty",
             constants.MATCHING_DEFAULT_SELECTION_PENALTY,
         ),
+        selectionPenaltyMultiplier=selectionPenaltyMultiplier,
         gammaScale=float(
             _cfgGet(
                 configData,

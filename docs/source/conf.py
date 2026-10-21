@@ -10,7 +10,10 @@ author = "Nolan H. Hamilton"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []
+extensions = ["sphinx_design", "sphinx_copybutton"]
+
+copybutton_prompt_text = "% "
+copybutton_only_copy_prompt_lines = False
 
 html_theme = "furo"
 html_logo = None

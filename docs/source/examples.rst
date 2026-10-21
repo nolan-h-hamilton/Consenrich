@@ -322,9 +322,9 @@ Consenrich for Single-Cell
 
 In this demo, we use publicly available scATAC-seq data to infer signal and peaks for Goblet, Early Colonocyte, Colonocyte, and BEST4 cells in the ascending colon. Note that Consenrich can also accept data from other single-cell epigenomic assays, e.g., scCut&Tag.
 
-`Zhao/Pott <https://www.nature.com/articles/s41588-026-02755-z>`_
-· `GSE273194 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE273194>`_
-· `Cell annotations <https://zenodo.org/records/21508422>`_
+* **Paper:** `Single-cell analysis of chromatin accessibility in the human intestine identifies regulatory programs and clarifies genetic associations in Crohn’s disease <https://www.nature.com/articles/s41588-026-02755-z>`_
+* **GEO accession:** `GSE273194 <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE273194>`_
+* **Cell annotations:** `Zenodo <https://zenodo.org/records/21508422>`_
 
 .. list-table::
   :header-rows: 1
@@ -372,10 +372,13 @@ Download Fragments and Cell Labels
 
 This will be about 6 GB of data. You can remove donors and adapt the YAML config below as needed to reduce size.
 
+In your terminal (assuming `bash`):
+
 .. code-block:: bash
 
   geoFiles=https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8423nnn
 
+  # you can use wget or curl, depending
   while read -r accession donor; do
       fragmentFile="${accession}_${donor}-AC-CDnonInf_fragments.tsv.gz"
       curl -fLO "$geoFiles/$accession/suppl/$fragmentFile"
@@ -389,12 +392,14 @@ This will be about 6 GB of data. You can remove donors and adapt the YAML config
   GSM8423806 P13
   EOF
 
-  # wget or curl, depending
   curl -fL -o scATAC_cell_metadata.csv \
       'https://zenodo.org/records/21508422/files/scATAC_cell_metadata.csv?download=1'
 
+
 YAML Configuration
-""""""""""""""""""
+""""""""""""""""""""
+
+Copy and paste this into a file named `scATACDemo.yaml`.
 
 .. code-block:: yaml
   :name: scATACDemo.yaml
@@ -444,19 +449,45 @@ YAML Configuration
         format: fragments
         metadataSample: P13-AC-CDnonInf
 
+
+.. dropdown:: AnnData Processing
+
+  You can install Consenrich with all dependencies needed for single-cell data via:
+
+  .. code-block:: bash
+
+    pip install "consenrich[singlecell]"
+
+  Cell metadata can also come from an
+  `AnnData <https://anndata.readthedocs.io/en/stable/generated/anndata.AnnData.html>`_
+  ``.h5ad`` file:
+
+  .. code-block:: yaml
+
+    scParams:
+      cellMetadata:
+        path: scATAC_cell_metadata.h5ad
+        sampleColumn: Sample_ID
+        groupColumn: cluster_label1
+
+  Omitting ``barcodeColumn`` uses ``obs_names`` as fragment barcodes. Set it to
+  a column in ``.obs`` if needed. Sample and group columns are read from ``.obs``.
+  Keep the same ``fits`` and fragment inputs.
+
 Run Consenrich
 """"""""""""""
 
 .. code-block:: console
 
-  % consenrich --config scATACDemo.yaml --verbose
+  % consenrich --config scATACDemo.yaml --verbose2
 
 .. _scatac-results:
 
 Results
 """""""
 
-Browser snapshots for each cell type (uncertainty tracks omitted for spacing)
+Browser snapshots for each cell type (uncertainty tracks omitted for spacing). Note, each method here was run with generic defaults, including Consenrich.
+Signac and ArchR are included as familiar references and not comparators.
 
 Goblet
 ^^^^^^
