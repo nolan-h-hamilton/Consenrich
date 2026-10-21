@@ -606,6 +606,7 @@ MATCHING_DEFAULT_NUM_REGION_REPLAYS: Final[int] = 64
 MATCHING_DEFAULT_THRESHOLD_Z: Final[float] = 2.0
 MATCHING_DEFAULT_GAMMA: Final[float] = 0.25
 MATCHING_DEFAULT_SELECTION_PENALTY: Final[float | None] = None
+MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER: Final[float] = 1.0
 MATCHING_DEFAULT_GAMMA_SCALE: Final[float] = 0.5
 MATCHING_DEFAULT_NESTED_ROCCO_ITERS: Final[int] = 3
 MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE: Final[float] = 0.75
@@ -1059,6 +1060,39 @@ def getEffectiveGenomeSize(genome: str, readLength: int) -> int:
     raise ValueError(f"Defaults not available for {genome}")
 
 
+def getNonNGenomeSize(
+    genome: str, chromSizesFile: str, excludeChroms: list[str] | None = None
+) -> int:
+    physicalSizes = {}
+    with open(getGenomeResourceFile(genome, "sizes"), encoding="ascii") as handle:
+        for line in handle:
+            chrom, length = line.split()
+            physicalSizes[chrom] = int(length)
+    nonNCounts = {}
+    with open(getGenomeResourceFile(genome, "nonN"), encoding="ascii") as handle:
+        for line in handle:
+            chrom, count = line.split()
+            nonNCounts[chrom] = int(count)
+    excluded = set(excludeChroms or ())
+    territory = 0
+    with open(chromSizesFile, encoding="ascii") as handle:
+        for line in handle:
+            chrom, length = line.split()
+            if chrom in excluded:
+                continue
+            if chrom not in nonNCounts or chrom not in physicalSizes:
+                raise ValueError(
+                    f"No bundled non-N count for {genome}: {chrom}. "
+                    "Set genomeParams.effectiveGenomeSize explicitly."
+                )
+            if int(length) != physicalSizes[chrom]:
+                raise ValueError(f"Chromosome length differs from {genome}: {chrom}")
+            territory += nonNCounts[chrom]
+    if territory <= 0:
+        raise ValueError("Effective genome territory must be positive")
+    return territory
+
+
 def getGenomeResourceFile(genome: str, fileType: str, dir_: str = "data") -> str:
     r"""Get the path to a genome resource file.
 
@@ -1071,7 +1105,9 @@ def getGenomeResourceFile(genome: str, fileType: str, dir_: str = "data") -> str
     :raises ValueError: If not a sizes, blacklist, or sparse file.
     :raises FileNotFoundError: If the resource file does not exist.
     """
-    if fileType.lower() in ["sizes"]:
+    if fileType == "nonN":
+        fileName = f"{genome}.nonN.sizes"
+    elif fileType.lower() in ["sizes"]:
         fileName = f"{genome}.sizes"
     elif fileType.lower() in ["blacklist"]:
         fileName = f"{genome}_blacklist.bed"

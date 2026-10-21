@@ -7243,7 +7243,8 @@ def _caseReadSegmentsBamFFPCenterPresetUsesRead1EstimatedMidpoint(tmp_path):
 
     fragmentLengthCalls = []
 
-    def fakeFragmentLength(path, *, samThreads, samFlagExclude, maxInsertSize):
+    def fakeFragmentLength(path, *, samThreads, samFlagExclude, maxInsertSize,
+                           barcodeAllowListFile="", barcodeTag="CB"):
         fragmentLengthCalls.append(
             {
                 "path": path,

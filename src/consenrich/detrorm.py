@@ -54,6 +54,9 @@ def getScaleFactor1x(
     extendBP: int | None = 0,
     intervalSizeBP: int | None = None,
     countReadLength: int | None = None,
+    fragmentsUseReadSupport: bool = False,
+    barcodeTag: str | None = None,
+    effectiveGenomeSizeIsFinal: bool = False,
 ) -> float:
     r"""Generic normalization factor based on effective genome size and number of mapped reads in non-excluded chromosomes.
 
@@ -72,7 +75,7 @@ def getScaleFactor1x(
     :return: Scale factor for 1x normalization.
     :rtype: float
     """
-    if excludeChroms is not None:
+    if excludeChroms is not None and not effectiveGenomeSizeIsFinal:
         if chromSizesFile is None:
             raise ValueError(
                 "`excludeChroms` is provided...so must be `chromSizesFile`."
@@ -87,14 +90,26 @@ def getScaleFactor1x(
             raise ValueError("CRAM inputs are unsupported.")
         sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
-    if sourceKind == "FRAGMENTS":
-        raise ValueError(
-            "EGS/RPGC normalization is not supported for fragments sources use CPM/RPKM instead"
-        )
     resolvedCountMode = str("coverage" if countMode is None else countMode).strip()
     conservedFractional = (
         resolvedCountMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
     )
+    if sourceKind == "FRAGMENTS":
+        if not conservedFractional:
+            raise ValueError(
+                "EGS/RPGC normalization for fragments requires "
+                "conservedFractionalOverlap count mode"
+            )
+        if fragmentsUseReadSupport:
+            raise ValueError(
+                "EGS/RPGC normalization for fragments requires "
+                "fragmentsUseReadSupport=False"
+            )
+        if str(fragmentsGroupNorm).upper() != "NONE":
+            raise ValueError(
+                "EGS/RPGC normalization for fragments requires "
+                "fragmentsGroupNorm=NONE"
+            )
     if int(oneReadPerBin) != 0:
         raise ValueError("EGS/RPGC normalization does not support oneReadPerBin")
     if resolvedCountMode.lower() != "coverage" and not conservedFractional:
@@ -103,12 +118,24 @@ def getScaleFactor1x(
             "conservedFractionalOverlap count mode"
         )
 
+    denominatorExcludeChroms = excludeChroms
+    if sourceKind == "FRAGMENTS":
+        if chromSizesFile is None:
+            raise ValueError("Fragments EGS/RPGC normalization requires chromSizesFile")
+        territoryChroms = getChromSizesDict(chromSizesFile)
+        denominatorExcludeChroms = list(excludeChroms or ())
+        denominatorExcludeChroms.extend(
+            chrom
+            for chrom in ccounts.ccounts_getChromosomeNames(bamFile, sourceKind=sourceKind)
+            if chrom not in territoryChroms and chrom not in denominatorExcludeChroms
+        )
     countReadLength = int(countReadLength if countReadLength is not None else readLength)
     mappedCountArgs = {
-        "excludeChromosomes": excludeChroms,
+        "excludeChromosomes": denominatorExcludeChroms,
         "threadCount": samThreads,
         "sourceKind": sourceKind,
         "barcodeAllowListFile": barcodeAllowListFile or "",
+        "barcodeTag": barcodeTag if barcodeTag is not None else "CB",
         "countMode": resolvedCountMode,
         "oneReadPerBin": oneReadPerBin,
         "flagExclude": _resolveBamFlagExclude(samFlagExclude, bamInputMode),
@@ -120,6 +147,7 @@ def getScaleFactor1x(
         "pairedEndMode": _bamPairedEndMode(bamInputMode),
         "readLength": countReadLength,
         "extendBP": int(extendBP or 0),
+        "fragmentsUseReadSupport": fragmentsUseReadSupport,
     }
     totalMappedSpanBP = 0
     if conservedFractional:
@@ -145,6 +173,7 @@ def getScaleFactor1x(
                 "EGS/RPGC normalization with conservedFractionalOverlap requires "
                 "a positive intervalSizeBP"
             )
+        # Normalize by event-counts, times bin size ( not fragment size!)
         return round(effectiveGenomeSize / (totalMappedReads * int(intervalSizeBP)), 5)
     if totalMappedSpanBP <= 0:
         raise ValueError(
@@ -174,6 +203,7 @@ def getScaleFactorPerMillion(
     readLength: int | None = 0,
     extendBP: int | None = 0,
     fragmentsUseReadSupport: bool = False,
+    barcodeTag: str | None = None,
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -219,6 +249,7 @@ def getScaleFactorPerMillion(
         readLength=int(readLength or 0),
         extendBP=int(extendBP or 0),
         fragmentsUseReadSupport=fragmentsUseReadSupport,
+        barcodeTag=barcodeTag if barcodeTag is not None else "CB",
     )
     if totalMappedReads <= 0:
         raise ValueError(
@@ -275,6 +306,10 @@ def getPairScaleFactors(
     countReadLengthB: int | None = None,
     fragmentsUseReadSupportA: bool = False,
     fragmentsUseReadSupportB: bool = False,
+    barcodeTagA: str | None = None,
+    barcodeTagB: str | None = None,
+    effectiveGenomeSizeIsFinalA: bool = False,
+    effectiveGenomeSizeIsFinalB: bool = False,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data to a common sequencing depth.
 
@@ -330,6 +365,7 @@ def getPairScaleFactors(
             readLength=countReadLengthA if countReadLengthA is not None else readLengthA,
             extendBP=extendBPA,
             fragmentsUseReadSupport=fragmentsUseReadSupportA,
+            barcodeTag=barcodeTagA,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
@@ -351,6 +387,7 @@ def getPairScaleFactors(
             readLength=countReadLengthB if countReadLengthB is not None else readLengthB,
             extendBP=extendBPB,
             fragmentsUseReadSupport=fragmentsUseReadSupportB,
+            barcodeTag=barcodeTagB,
         )
     elif normMethodUpper in ("EGS", "RPGC"):
         scaleFactorA = getScaleFactor1x(
@@ -374,6 +411,9 @@ def getPairScaleFactors(
             extendBP=extendBPA,
             intervalSizeBP=intervalSizeBP,
             countReadLength=countReadLengthA,
+            fragmentsUseReadSupport=fragmentsUseReadSupportA,
+            barcodeTag=barcodeTagA,
+            effectiveGenomeSizeIsFinal=effectiveGenomeSizeIsFinalA,
         )
         scaleFactorB = getScaleFactor1x(
             bamFileB,
@@ -396,6 +436,9 @@ def getPairScaleFactors(
             extendBP=extendBPB,
             intervalSizeBP=intervalSizeBP,
             countReadLength=countReadLengthB,
+            fragmentsUseReadSupport=fragmentsUseReadSupportB,
+            barcodeTag=barcodeTagB,
+            effectiveGenomeSizeIsFinal=effectiveGenomeSizeIsFinalB,
         )
     else:
         raise ValueError(f"Unsupported normalization method `{normMethod}`")

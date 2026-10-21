@@ -31,7 +31,7 @@ def setupGenomeFiles(tmpPath, monkeypatch: pytest.MonkeyPatch) -> None:
     chromSizesPath.write_text("chrTest\t100000\n", encoding="utf-8")
 
     def fakeResolveGenomeName(genomeName: str) -> str:
-        return genomeName
+        return "hg38"
 
     def fakeGetGenomeResourceFile(genomeLabel: str, resourceName: str) -> str:
         if resourceName == "sizes":
@@ -912,8 +912,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     genomeDotted = configDotted["genomeArgs"]
     genomeNested = configNested["genomeArgs"]
 
-    assert genomeDotted.genomeName == "testGenome"
-    assert genomeNested.genomeName == "testGenome"
+    assert genomeDotted.genomeName == "hg38"
+    assert genomeNested.genomeName == "hg38"
     assert genomeDotted.genomeName == genomeNested.genomeName
 
     assert genomeDotted.excludeChroms == ["chrM"]

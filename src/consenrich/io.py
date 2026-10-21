@@ -326,6 +326,8 @@ def _coerceInputSource(
         countMode = None
         bamInputMode = None
         fragmentPositionMode = defaultFragmentPositionMode
+        metadataSample = None
+        cellMetadata = None
     elif isinstance(sourceConfig, Mapping):
         path = str(sourceConfig.get("path", "")).strip()
         sourceKind = sourceConfig.get("format", sourceConfig.get("sourceKind", None))
@@ -335,6 +337,8 @@ def _coerceInputSource(
         barcodeAllowListFile = sourceConfig.get("barcodeAllowListFile", None)
         barcodeGroupMapFile = sourceConfig.get("barcodeGroupMapFile", None)
         selectGroups = sourceConfig.get("selectGroups", None)
+        metadataSample = sourceConfig.get("metadataSample", None)
+        cellMetadata = sourceConfig.get("cellMetadata", None)
         countMode = sourceConfig.get("countMode", None)
         bamInputMode = sourceConfig.get("bamInputMode", None)
         fragmentPositionMode = sourceConfig.get(
@@ -379,6 +383,8 @@ def _coerceInputSource(
         bamInputMode=bamInputMode,
         fragmentPositionMode=fragmentPositionMode,
         fragmentsUseReadSupport=fragmentsUseReadSupport,
+        metadataSample=metadataSample,
+        cellMetadata=cellMetadata,
     )
 
 
@@ -428,14 +434,10 @@ def _prepareFragmentsNormalizationMetadata(
     tempPaths: List[str] = []
 
     for source in sources:
-        if str(source.sourceKind).upper() != core.FRAGMENTS_SOURCE_KIND:
-            allowListPaths.append(None)
-            selectedCellCounts.append(None)
-            continue
         allowListPath, tempPath = core._writeFragmentsAllowList(source)
         allowListPaths.append(allowListPath)
         selectedCellCount = core.getFragmentsSelectedBarcodeCount(source)
-        if selectedCellCount is None:
+        if selectedCellCount is None and str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
             selectedCellCount = core.ccounts.ccounts_getFragmentCellCount(
                 source.path,
                 barcodeAllowListFile=allowListPath or "",
@@ -480,31 +482,33 @@ def getReadLengths(
 
     allowThreads = int(samArgs.samThreads) <= 1
 
-    def _getReadLengthForTask(task) -> int:
-        path, sourceKind = task
+    def _getReadLengthForTask(source) -> int:
+        sourceKind = str(source.sourceKind).upper()
+        if sourceKind != "BAM":
+            return 0
+        countMode = _getSourceCountMode(source, samArgs.defaultCountMode)
+        bamInputMode = core._resolveSourceBamInputModeForCountMode(
+            source, samArgs.bamInputMode, countMode
+        )
+        flagExclude = samArgs.samFlagExclude
+        if source.barcodeAllowListFile:
+            flagExclude = core._resolveSourceFlagExclude(flagExclude, bamInputMode)
+            if bamInputMode == "fragments":
+                flagExclude |= 128
         return core.getReadLength(
-            path,
+            source.path,
             100,
             1000,
             samArgs.samThreads,
-            samArgs.samFlagExclude,
+            flagExclude,
             sourceKind=sourceKind,
+            barcodeAllowListFile=source.barcodeAllowListFile,
+            barcodeTag=source.barcodeTag,
         )
 
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
-    if treatmentSources:
-        return _threadMap(
-            [
-                (source.path, str(source.sourceKind).upper())
-                for source in treatmentSources
-            ],
-            _getReadLengthForTask,
-            "read lengths",
-            allowThreads=allowThreads,
-        )
-
     return _threadMap(
-        [(bamFile, "BAM") for bamFile in inputArgs.bamFiles],
+        treatmentSources or [core.inputSource(path) for path in inputArgs.bamFiles],
         _getReadLengthForTask,
         "read lengths",
         allowThreads=allowThreads,
@@ -528,28 +532,45 @@ def _inferMatchingUncertaintyBedGraph(matchBedGraph: str) -> Optional[str]:
 
 
 def getEffectiveGenomeSizes(
-    genomeArgs: core.genomeParams, readLengths: List[int]
+    genomeArgs: core.genomeParams,
+    readLengths: List[int],
+    sources: Sequence[core.inputSource] | None = None,
 ) -> List[int]:
     r"""Get effective genome sizes for the given genome name and read lengths.
     :param genomeArgs: core.genomeParams object
     :param readLengths: List of read lengths for which to get effective genome sizes.
     :return: List of effective genome sizes corresponding to the read lengths.
     """
-    genomeName = genomeArgs.genomeName
-    if not genomeName or not isinstance(genomeName, str):
-        raise ValueError("Genome name must be a non-empty string.")
-
     if not isinstance(readLengths, list) or len(readLengths) == 0:
         raise ValueError(
             "Read lengths must be a non-empty list. Try calling `getReadLengths` first."
         )
+    explicitSize = getattr(genomeArgs, "effectiveGenomeSize", None)
+    if explicitSize is not None:
+        return [int(explicitSize)] * len(readLengths)
+    genomeName = genomeArgs.genomeName
+    if not genomeName or not isinstance(genomeName, str):
+        raise ValueError("Genome name must be a non-empty string.")
+    if sources is not None and len(sources) != len(readLengths):
+        raise ValueError("Sources and read lengths must have equal lengths")
+    fragmentSize = None
+    if sources is not None and any(source.sourceKind == "FRAGMENTS" for source in sources):
+        fragmentSize = constants.getNonNGenomeSize(
+            genomeName,
+            genomeArgs.chromSizesFile,
+            genomeArgs.excludeForNorm,
+        )
     return [
         (
-            0
-            if int(readLength) <= 0
-            else constants.getEffectiveGenomeSize(genomeName, readLength)
+            fragmentSize
+            if sources is not None and sources[index].sourceKind == "FRAGMENTS"
+            else (
+                0
+                if int(readLength) <= 0
+                else constants.getEffectiveGenomeSize(genomeName, readLength)
+            )
         )
-        for readLength in readLengths
+        for index, readLength in enumerate(readLengths)
     ]
 
 def convertBedGraphToBigWig(

@@ -46,6 +46,7 @@ from .constants import (
     MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
     MATCHING_DEFAULT_NUM_REGION_REPLAYS,
     MATCHING_DEFAULT_PEAK_MODE,
+    MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
     MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     MATCHING_PEAK_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
@@ -1396,11 +1397,17 @@ def solveChromROCCO(
     selectionPenalty: float | None = None,
     maxIter: int = _ROCCO_MAX_ITER_DEFAULT,
     returnDetails: bool = False,
+    selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
 ) -> Tuple[np.ndarray, float] | Tuple[np.ndarray, float, Dict[str, Any]]:
     scores_ = _asFloatVector("scores", scores)
     gamma_ = float(gamma)
     if not np.isfinite(gamma_) or gamma_ < 0.0:
         raise ValueError("`gamma` must be finite and non-negative")
+    if isinstance(selectionPenaltyMultiplier, (bool, np.bool_)):
+        raise ValueError("`selectionPenaltyMultiplier` must be finite and positive")
+    multiplier = float(selectionPenaltyMultiplier)
+    if not np.isfinite(multiplier) or multiplier <= 0.0:
+        raise ValueError("`selectionPenaltyMultiplier` must be finite and positive")
     solution, objective, penalizedObjective, selectedCount, selectionPenalty_ = (
         cconsenrich.csolveChromROCCOExact(
             scores_,
@@ -1410,6 +1417,26 @@ def solveChromROCCO(
             maxIter=int(maxIter),
         )
     )
+    baseSelectionPenalty = float(selectionPenalty_)
+    if multiplier != 1.0:
+        # negative data-derived penalties: divide to tighten selection
+        # this should only arise when calibration requires a reward for selection
+        # FFR: consider raising or warning
+        selectionPenalty_ = (
+            baseSelectionPenalty * multiplier
+            if baseSelectionPenalty >= 0.0
+            else baseSelectionPenalty / multiplier
+        )
+        if not np.isfinite(selectionPenalty_):
+            raise ValueError("Scaled selection penalty must be finite")
+        solution, objective, penalizedObjective, selectedCount, selectionPenalty_ = (
+            cconsenrich.csolveChromROCCOExact(
+                scores_,
+                gamma=gamma_,
+                selectionPenalty=selectionPenalty_,
+                maxIter=int(maxIter),
+            )
+        )
     budgetTargetCount: int | None = None
     if budget is not None and selectionPenalty is None:
         budget_ = float(budget)
@@ -1425,6 +1452,8 @@ def solveChromROCCO(
         "selected_count": int(selectedCount),
         "selected_fraction": float(selectedCount / max(scores_.size, 1)),
         "selection_penalty": float(selectionPenalty_),
+        "base_selection_penalty": baseSelectionPenalty,
+        "selection_penalty_multiplier": multiplier,
         "gamma": float(gamma_),
         "max_iter": int(maxIter),
         "budget_target_count": budgetTargetCount,
@@ -3339,6 +3368,7 @@ def solveRocco(
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
     gamma: float | None = MATCHING_DEFAULT_GAMMA,
     selectionPenalty: float | None = None,
+    selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
     gammaScale: float = 0.5,
     nestedRoccoIters: int = _NESTED_ROCCO_ITERS_DEFAULT,
     nestedRoccoBudgetScale: float = _NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
@@ -3384,6 +3414,14 @@ def solveRocco(
     thresholdZ_ = float(thresholdZ)
     if not np.isfinite(thresholdZ_) or thresholdZ_ < 0.0:
         raise ValueError("thresholdZ must be finite and non-negative")
+    if isinstance(selectionPenaltyMultiplier, (bool, np.bool_)):
+        raise ValueError("selectionPenaltyMultiplier must be finite and positive")
+    selectionPenaltyMultiplier_ = float(selectionPenaltyMultiplier)
+    if (
+        not np.isfinite(selectionPenaltyMultiplier_)
+        or selectionPenaltyMultiplier_ <= 0.0
+    ):
+        raise ValueError("selectionPenaltyMultiplier must be finite and positive")
     if isinstance(numBootstrap, bool) or int(numBootstrap) != numBootstrap:
         raise ValueError("numBootstrap must be an integer of at least 8")
     numBootstrap_ = int(numBootstrap)
@@ -3755,6 +3793,7 @@ def solveRocco(
                 gamma=float(gamma_),
                 selectionPenalty=selectionPenalty,
                 returnDetails=True,
+                selectionPenaltyMultiplier=selectionPenaltyMultiplier_,
             )
             selectedCount = int(np.count_nonzero(solution))
             selectedFraction = float(selectedCount / max(scoreTrack.size, 1))
@@ -3770,6 +3809,7 @@ def solveRocco(
                     "stage": "segmentationSolution",
                     "chromosome": str(chromosome),
                     "selectionPenalty": float(solveDetails["selection_penalty"]),
+                    "selectionPenaltyMultiplier": selectionPenaltyMultiplier_,
                     "gamma": float(gamma_),
                     "selectedCount": selectedCount,
                     "binCount": int(scoreTrack.size),
@@ -4020,6 +4060,7 @@ def solveRocco(
                     "budget": float(budget),
                     "gamma": float(gamma_),
                     "selectionPenalty": float(solveDetails["selection_penalty"]),
+                    "selectionPenaltyMultiplier": selectionPenaltyMultiplier_,
                 },
                 "narrow": (
                     {
@@ -4178,6 +4219,7 @@ def solveRocco(
             "selectionPenalty": (
                 None if selectionPenalty is None else float(selectionPenalty)
             ),
+            "selectionPenaltyMultiplier": selectionPenaltyMultiplier_,
             "gammaScale": float(gammaScale),
             "nestedRoccoIters": int(max(int(nestedRoccoIters), 0)),
             "nestedRoccoBudgetScale": float(nestedRoccoBudgetScale),
