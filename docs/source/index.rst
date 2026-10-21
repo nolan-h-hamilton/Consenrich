@@ -11,11 +11,12 @@ Consenrich
    examples
    params
 
-Consenrich estimates shared latent regulatory signals from noisy, multi-sample epigenomic sequencing measurements.
+Consenrich provides estimation and uncertainty quantification for a shared latent regulatory signal using multi-sample epigenomic sequencing measurements.
 
 .. image:: ../images/fig.svg
    :align: center
    :width: 100%
+   :class: no-scaled-link
 
 .. list-table::
    :widths: 40 50
