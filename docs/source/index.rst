@@ -11,12 +11,12 @@ Consenrich
    examples
    params
 
-Consenrich provides estimation and uncertainty quantification for a shared latent regulatory signal using multi-sample epigenomic sequencing measurements.
-
 .. image:: ../images/fig.svg
    :align: center
    :width: 100%
    :class: no-scaled-link
+
+Consenrich provides estimation and uncertainty quantification of shared latent regulatory signals using multi-sample epigenomic sequencing measurements. Bulk and single-cell data are supported for common chromatin acessibility, transcription factor binding, and histone PTMs assays.
 
 .. list-table::
    :widths: 40 50
