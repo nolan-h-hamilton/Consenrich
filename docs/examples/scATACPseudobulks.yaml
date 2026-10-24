@@ -1,0 +1,34 @@
+experimentName: scATACDemo
+genomeParams:
+  name: hg38
+  chromosomes: [chr21, chr22]
+countingParams:
+  normMethod: CPM
+scParams:
+  fits:
+    - {name: Goblet, selectGroups: [AC_Goblet]}
+    - {name: EarlyColonocyte, selectGroups: [Early_Colonocyte]}
+    - {name: Colonocyte, selectGroups: [Colonocyte]}
+    - {name: BEST4, selectGroups: [BEST4]}
+inputParams:
+  samples:
+    - name: P3
+      path: P3.pseudobulks.h5ad
+      matrixRows: pseudobulks
+      cellMetadata: {path: P3.pseudobulks.h5ad, groupColumn: cluster_label1}
+    - name: P4
+      path: P4.pseudobulks.h5ad
+      matrixRows: pseudobulks
+      cellMetadata: {path: P4.pseudobulks.h5ad, groupColumn: cluster_label1}
+    - name: P6
+      path: P6.pseudobulks.h5ad
+      matrixRows: pseudobulks
+      cellMetadata: {path: P6.pseudobulks.h5ad, groupColumn: cluster_label1}
+    - name: P12
+      path: P12.pseudobulks.h5ad
+      matrixRows: pseudobulks
+      cellMetadata: {path: P12.pseudobulks.h5ad, groupColumn: cluster_label1}
+    - name: P13
+      path: P13.pseudobulks.h5ad
+      matrixRows: pseudobulks
+      cellMetadata: {path: P13.pseudobulks.h5ad, groupColumn: cluster_label1}

@@ -3,23 +3,6 @@ Parameter Guidance
 
 Most parameters can be left at their default values. The following sections provide guidance on key arguments that may be useful to adjust for specific applications.
 
-Fragment Inputs
-~~~~~~~~~~~~~~~
-
-``scParams.fragmentsUseReadSupport``
-    * Defaults to ``false``, assigning each fragment row weight one. Set to
-      ``true`` to weight counts and CPM/RPKM depth by column five (read support).
-
-    * Each ``inputParams.samples`` entry can override ``fragmentsUseReadSupport``.
-
-    * The `10x fragments format
-      <https://www.10xgenomics.com/support/software/cell-ranger-atac/latest/analysis/outputs/fragments-file>`_
-      records read support as the unique read pair plus duplicate read pairs.
-
-Sorted BGZF fragment inputs receive a `tabix <https://www.htslib.org/doc/tabix.html>`_
-index automatically when no index exists. Plain text or ordinary gzip inputs must be BGZF-compressed with
-`bgzip <https://www.htslib.org/doc/bgzip.html>`_ first.
-
 Peak Calling Controls
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -68,12 +51,13 @@ Estimation Controls
 ~~~~~~~~~~~~~~~~~~~
 
 ``countingParams.intervalSizeBP``
-    * Sets the genomic bin size in base pairs. The default is `50` and is appropriate for most cases.
+    * Sets the genomic bin size in base pairs. Read and fragment inputs default to ``50``.
 
-    * Higher-resolution results may be obtained using `25`, `10`, etc.
-
-    * For detecting domain-level enriched-regions in
-      broad marks like H3K27me3, larger values (`100`, `250`, etc.) should suffice.
+    * Higher-resolution results may be obtained for deeply sequenced data using
+      smaller ``intervalSizeBP``: 25 bp, 10 bp, etc. For detecting domain-level
+      enriched-regions in broad marks like H3K27me3, larger values (100, 250, etc.)
+      can be used. Larger ``intervalSizeBP`` is encouraged for shallow sequencing
+      data.
 
 ``observationParams.precisionMultiplierMin`` and ``observationParams.precisionMultiplierMax``
     * Bound observation precision multipliers. The defaults are ``0.1`` and

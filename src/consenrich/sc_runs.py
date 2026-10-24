@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from . import core, io, misc_util
+from . import core, h5ad, io, misc_util
 from . import _normalization as normalization
 from .cellmetadata import MetadataSelections
 
@@ -28,6 +28,8 @@ def executeFits(config, args, runConfigured, configureLogging):
     treatmentCount = len(inputArgs.treatmentSources)
     treatmentSources = resolvedSources[:treatmentCount]
     controlSources = resolvedSources[treatmentCount:]
+    for path in dict.fromkeys(source.path for source in resolvedSources if source.sourceKind == "H5AD"):
+        logger.warning("H5AD .X is assumed to contain raw, unnormalized integer counts: %s", path)
     genomeArgs = config["genomeArgs"]
     genomePaths = {}
     for field in ("chromSizesFile", "blacklistFile", "sparseBedFile"):
@@ -71,6 +73,9 @@ def executeFits(config, args, runConfigured, configureLogging):
                 selectGroups=fit["selectGroups"],
                 grouped=fits is not None,
             )
+            prepared = h5ad.prepareSources(
+                prepared, config["genomeArgs"], config["countingArgs"]
+            )
             selectionPaths = {}
             for sourceIndex, source in enumerate(prepared):
                 if (
@@ -81,6 +86,8 @@ def executeFits(config, args, runConfigured, configureLogging):
                     raise ValueError("Grouped treatment inputs require cell metadata or a barcode group map")
                 if fits is not None and source.barcodeGroupMapFile is not None:
                     source = source._replace(selectGroups=list(fit["selectGroups"]))
+                if source.sourceKind == "H5AD":
+                    continue
                 barcodes = core._resolveFragmentsBarcodeAllowSet(source)
                 if barcodes is not None:
                     selectionKey = (source.path, source.barcodeTag, frozenset(barcodes))
@@ -107,6 +114,14 @@ def executeFits(config, args, runConfigured, configureLogging):
                 pairedSources = [treatment] + ([controls[sourceIndex]] if controls else [])
                 reason = None
                 for source in pairedSources:
+                    if source.sourceKind == "H5AD":
+                        if source.matrixInfo["rowCount"] == 0:
+                            reason = f"empty matrix selection: {source.sampleName or source.path}"
+                        elif source.matrixInfo["totalCounts"] <= 0:
+                            reason = f"zero matrix counts: {source.sampleName or source.path}"
+                        if reason is not None:
+                            break
+                        continue
                     if source.selectedCellCount == 0:
                         reason = f"empty cell selection: {source.sampleName or source.path}"
                         break
@@ -165,6 +180,13 @@ def executeFits(config, args, runConfigured, configureLogging):
                 "outputPath": str(outputDir),
                 "status": "skipped",
             }
+            matrixObservations = {
+                source.sampleName or source.path: source.matrixInfo["rowCount"]
+                for source in treatments + controls
+                if source.sourceKind == "H5AD"
+            }
+            if matrixObservations:
+                summary["observationCounts"] = matrixObservations
             summaries.append(summary)
             if not retainedIndices:
                 summary["reason"] = "zero donors"

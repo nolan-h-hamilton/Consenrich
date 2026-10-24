@@ -48,6 +48,7 @@ from .constants import (
     COUNTING_DEFAULT_TRANSFORM_SHAPE,
     COUNTING_SUPPORTED_CENTER_MB_METHODS,
     FRAGMENTS_SOURCE_KIND,
+    H5AD_SOURCE_KIND,
     FIT_DEFAULT_BACKGROUND,
     FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER,
     FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER,
@@ -807,6 +808,8 @@ class inputSource(NamedTuple):
     selectedBarcodes: frozenset[str] | None = None
     selectedCellCount: int | None = None
     barcodeSelectionPrepared: bool = False
+    matrixRows: str | None = None
+    matrixInfo: dict | None = None
 
 
 class readSegmentsResult(NamedTuple):
@@ -1287,6 +1290,8 @@ def _inferAlignmentSourceKind(path: str) -> str:
         raise ValueError("CRAM inputs are unsupported.")
     if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
         return BEDGRAPH_SOURCE_KIND
+    if lowerPath.endswith(".h5ad"):
+        return H5AD_SOURCE_KIND
     return "BAM"
 
 
@@ -1315,6 +1320,8 @@ def getChromRanges(
 
     :seealso: :func:`getChromRangesJoint`, :func:`consenrich.ccounts.ccounts_getAlignmentChromRange`
     """
+    if sourceKind == H5AD_SOURCE_KIND:
+        return 0, chromLength
     start, end = ccounts.ccounts_getAlignmentChromRange(
         bamFile,
         chromosome,
@@ -1818,12 +1825,24 @@ def readSegments(
                 sourceKind,
                 sourcePath,
             )
-            barcodeAllowListFile, tempPath = _writeFragmentsAllowList(source)
+            barcodeAllowListFile, tempPath = (
+                (None, None)
+                if sourceKind == H5AD_SOURCE_KIND
+                else _writeFragmentsAllowList(source)
+            )
             if tempPath is not None:
                 tempPaths.append(tempPath)
             source = source._replace(barcodeAllowListFile=barcodeAllowListFile)
 
-            if sourceKind == BEDGRAPH_SOURCE_KIND:
+            if sourceKind == H5AD_SOURCE_KIND:
+                from . import h5ad
+
+                counts[sourceIndex, :] = h5ad.readCounts(
+                    source, chromosome, start, end, intervalSizeBP
+                )
+                if rawNoiseMass is not None:
+                    rawNoiseMass[sourceIndex, :] = counts[sourceIndex, :]
+            elif sourceKind == BEDGRAPH_SOURCE_KIND:
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
                     sourcePath,
                     chromosome,

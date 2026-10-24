@@ -1,0 +1,35 @@
+experimentName: scATACDemo
+genomeParams:
+  name: hg38
+  chromosomes: [chr21, chr22]
+countingParams:
+  normMethod: CPM
+scParams:
+  defaultCountMode: center
+  cellMetadata:
+    path: scATAC_cell_metadata.h5ad
+    barcodeColumn: barcode
+    sampleColumn: Sample_ID
+    groupColumn: cluster_label1
+  fits:
+    - {name: Goblet, selectGroups: [AC_Goblet]}
+    - {name: EarlyColonocyte, selectGroups: [Early_Colonocyte]}
+    - {name: Colonocyte, selectGroups: [Colonocyte]}
+    - {name: BEST4, selectGroups: [BEST4]}
+inputParams:
+  samples:
+    - name: P3
+      path: GSM8423799_P3-AC-CDnonInf_fragments.tsv.gz
+      metadataSample: P3-AC-CDnonInf
+    - name: P4
+      path: GSM8423800_P4-AC-CDnonInf_fragments.tsv.gz
+      metadataSample: P4-AC-CDnonInf
+    - name: P6
+      path: GSM8423801_P6-AC-CDnonInf_fragments.tsv.gz
+      metadataSample: P6-AC-CDnonInf
+    - name: P12
+      path: GSM8423805_P12-AC-CDnonInf_fragments.tsv.gz
+      metadataSample: P12-AC-CDnonInf
+    - name: P13
+      path: GSM8423806_P13-AC-CDnonInf_fragments.tsv.gz
+      metadataSample: P13-AC-CDnonInf

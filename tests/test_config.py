@@ -2017,75 +2017,6 @@ def _case_runtime_defaults_are_centralized(
     )
 
     cliDefaults = consenrich_cli._buildArgParser().parse_args([])
-    assert cliDefaults.matchResidualDurationBP is None
-    assert cliDefaults.matchFeatureDurationBP is None
-    assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
-    assert (
-        cliDefaults.matchNumRegionReplays
-        == constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS
-    )
-    assert cliDefaults.matchShrinkChromosomeBudgets is True
-    assert not consenrich_cli._buildArgParser().parse_args(
-        ["--match-no-chromosome-budget-shrinkage"]
-    ).matchShrinkChromosomeBudgets
-    assert cliDefaults.matchUseLocalBootStrapRadius is True
-    assert (
-        consenrich_cli._buildArgParser()
-        .parse_args(["--match-no-local-bootstrap-radius"])
-        .matchUseLocalBootStrapRadius
-        is False
-    )
-    assert (
-        cliDefaults.matchPlotNullCalibrationDiagnostics
-        is constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
-        is True
-    )
-    assert (
-        consenrich_cli._buildArgParser()
-        .parse_args(["--match-no-null-calibration-diagnostics"])
-        .matchPlotNullCalibrationDiagnostics
-        is False
-    )
-    assert cliDefaults.matchThresholdZ == constants.MATCHING_DEFAULT_THRESHOLD_Z
-    assert (
-        cliDefaults.matchNestedRoccoIters
-        == constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS
-    )
-    assert (
-        cliDefaults.matchNestedRoccoBudgetScale
-        == constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE
-    )
-    assert cliDefaults.matchExportFilterUncertaintyMultiplier == (
-        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
-    )
-    assert cliDefaults.matchUncertaintyScoreMode == (
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
-    )
-    assert cliDefaults.matchUncertaintyScoreZ == pytest.approx(
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
-    )
-    assert cliDefaults.matchMinMeanSignal is constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL
-    assert cliDefaults.matchPeakMode == constants.MATCHING_DEFAULT_PEAK_MODE
-    assert cliDefaults.matchPeakMode == "both"
-    cliNarrow = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "narrow"]
-    )
-    cliBroad = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "broad"]
-    )
-    cliBoth = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "both"]
-    )
-    assert cliNarrow.matchPeakMode == "narrow"
-    assert cliBroad.matchPeakMode == "broad"
-    assert cliBoth.matchPeakMode == "both"
-    assert cliDefaults.matchBroadWeakThresholdZ == pytest.approx(
-        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
-    )
-    assert cliDefaults.matchBroadWeakThresholdZ <= cliDefaults.matchThresholdZ
-    assert cliDefaults.matchMergeToleranceBP == 12_000
-    assert cliDefaults.matchMaxRegionBP == 50_000
-    assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
     assert cliDefaults.verbosity is None
     assert cliDefaults.progress is None
@@ -5226,6 +5157,44 @@ def test_dependence_config_rejects_out_of_range_values(
         readConfig(str(configPath))
 
 
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--match-bedGraph", "signal.bedGraph"],
+        ["--match-num-bootstrap", "1"],
+        ["--match-no-local-bootstrap-radius"],
+    ],
+)
+def test_cli_rejects_peak_options(flags, capsys):
+    with pytest.raises(SystemExit) as error:
+        consenrich_cli._buildArgParser().parse_args(flags)
+    assert error.value.code == 2
+    output = capsys.readouterr().err
+    assert "unrecognized arguments: " + " ".join(flags) in output
+    assert "or see CLI help `consenrich -h`" in output
+
+
+@pytest.mark.parametrize(
+    ("flags", "exitCode"),
+    [
+        ([], 1),
+        (["--config", "missing.yaml"], 1),
+        (["--config"], 2),
+        (["--verbosity", "invalid"], 2),
+        (["--set", "experimentName=example"], 2),
+    ],
+)
+def test_cli_failure_guidance(flags, exitCode, monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(consenrich_cli.sys, "argv", ["consenrich", *flags])
+    with pytest.raises(SystemExit) as error:
+        consenrich_cli.main()
+    assert error.value.code == exitCode
+    output = capsys.readouterr().err
+    assert "  * See documentation: https://nolan-h-hamilton.github.io/Consenrich/" in output
+    assert "or see CLI help `consenrich -h`" in output
+
+
 @pytest.mark.parametrize("flags", [[], ["--verbose2"]])
 def test_cli_config_overrides(tmp_path, monkeypatch, flags):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -5253,7 +5222,9 @@ def test_cli_config_overrides(tmp_path, monkeypatch, flags):
         argv.extend(("--set", assignment))
     monkeypatch.setattr(consenrich_cli.sys, "argv", argv + flags)
     consenrich_cli.main()
-    config, args, *_ = captured[0]
+    config, args, runConfigured, configureLogging = captured[0]
+    assert runConfigured is consenrich_cli._runConfigured
+    assert configureLogging is consenrich_cli._configureCliLogging
     assert config["samArgs"].samThreads == 3
     assert config["countingArgs"].intervalSizeBP == 25
     assert args.verbosity == ("debug" if flags else "verbose")

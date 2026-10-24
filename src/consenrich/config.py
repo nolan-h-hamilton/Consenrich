@@ -1708,6 +1708,19 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     loggingParams = getLoggingArgs(configData)
     genomeParams = getGenomeArgs(configData)
     stateParams = getStateArgs(configData)
+    allSources = (inputParams.treatmentSources or []) + (inputParams.controlSources or [])
+    if any(source.sourceKind == core.H5AD_SOURCE_KIND for source in allSources):
+        from . import h5ad
+
+        widthSupplied = _cfgHas(configData, "countingParams.intervalSizeBP")
+        requestedWidth = _cfgGet(configData, "countingParams.intervalSizeBP")
+        if widthSupplied and requestedWidth is None:
+            raise ValueError("countingParams.intervalSizeBP must be a positive integer.")
+        resolvedWidth = h5ad.resolveIntervalSizeBP(
+            allSources, genomeParams, requestedWidth if widthSupplied else None
+        )
+        configData = dict(configData)
+        configData["countingParams.intervalSizeBP"] = resolvedWidth
     countingParams = getCountingArgs(configData)
     scaleFactors = normalization.expandScaleFactors(
         countingParams.scaleFactors,

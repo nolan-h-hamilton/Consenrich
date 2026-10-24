@@ -19,9 +19,11 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 ALIGNMENT_SOURCE_KINDS: Final[StrTuple] = ("BAM",)
 FRAGMENTS_SOURCE_KIND: Final[str] = "FRAGMENTS"  # 10x
 BEDGRAPH_SOURCE_KIND: Final[str] = "BEDGRAPH"
+H5AD_SOURCE_KIND: Final[str] = "H5AD"
 SUPPORTED_SOURCE_KINDS: Final[StrTuple] = ALIGNMENT_SOURCE_KINDS + (
     FRAGMENTS_SOURCE_KIND,
     BEDGRAPH_SOURCE_KIND,
+    H5AD_SOURCE_KIND,
 )
 SUPPORTED_BAM_INPUT_MODES: Final[StrTuple] = ("auto", "fragments", "reads", "read1")
 SUPPORTED_FRAGMENT_POSITION_MODES: Final[StrTuple] = (

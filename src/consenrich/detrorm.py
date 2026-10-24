@@ -311,6 +311,7 @@ def getPairScaleFactors(
     barcodeTagB: str | None = None,
     effectiveGenomeSizeIsFinalA: bool = False,
     effectiveGenomeSizeIsFinalB: bool = False,
+    precomputedScaleFactors: tuple[float | None, float | None] | None = None,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data to a common sequencing depth.
 
@@ -356,9 +357,16 @@ def getPairScaleFactors(
          countModeB, groupCellCountB, bamInputModeB, extendBPB, countReadLengthB,
          fragmentsUseReadSupportB, barcodeTagB, effectiveGenomeSizeIsFinalB),
     )
-    for (bamFile, effectiveGenomeSize, readLength, sourceKind, barcodeAllowListFile,
+    if precomputedScaleFactors is not None and len(precomputedScaleFactors) != 2:
+        raise ValueError("precomputedScaleFactors must contain two values")
+    for sourceIndex, (bamFile, effectiveGenomeSize, readLength, sourceKind, barcodeAllowListFile,
          countMode, groupCellCount, bamInputMode, extendBP, countReadLength,
-         fragmentsUseReadSupport, barcodeTag, effectiveGenomeSizeIsFinal) in sources:
+         fragmentsUseReadSupport, barcodeTag, effectiveGenomeSizeIsFinal) in enumerate(sources):
+        if precomputedScaleFactors is not None and precomputedScaleFactors[sourceIndex] is not None:
+            scaleFactors.append(normalization.validatePositiveFloat(
+                precomputedScaleFactors[sourceIndex], "precomputedScaleFactors"
+            ))
+            continue
         sharedArgs = dict(
             sourceKind=sourceKind,
             barcodeAllowListFile=barcodeAllowListFile,
