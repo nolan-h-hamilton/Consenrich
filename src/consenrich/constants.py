@@ -25,8 +25,8 @@ SUPPORTED_SOURCE_KINDS: Final[StrTuple] = ALIGNMENT_SOURCE_KINDS + (
 )
 SUPPORTED_BAM_INPUT_MODES: Final[StrTuple] = ("auto", "fragments", "reads", "read1")
 SUPPORTED_FRAGMENT_POSITION_MODES: Final[StrTuple] = (
-    "insertionendpoints",
-    "fragmentendpoints",
+    "insertionEndpoints",
+    "fragmentEndpoints",
 )
 SUPPORTED_COUNT_MODES: Final[StrTuple] = (
     "coverage",

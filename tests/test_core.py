@@ -18,6 +18,7 @@ import scipy.ndimage as ndi
 import scipy.stats as stats
 import scipy.signal as spySig  # renamed to avoid conflict with any `signal` variables
 
+from consenrich import _normalization as normalization
 import consenrich.core as core
 import consenrich.constants as constants
 import consenrich.consenrich as consenrichRuntime
@@ -1288,13 +1289,18 @@ def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
 
 
 def test_munc_eb_prior_g_uncertainty_modes_are_limited():
-    assert core._normalizeMuncEBPriorGUncertaintyMode(None) == "proxy"
-    assert core._normalizeMuncEBPriorGUncertaintyMode("proxy") == "proxy"
-    assert core._normalizeMuncEBPriorGUncertaintyMode("diagonal") == "proxy"
-    assert core._normalizeMuncEBPriorGUncertaintyMode("disabled") == "disabled"
-
-    with pytest.raises(ValueError, match="g uncertainty"):
-        core._normalizeMuncEBPriorGUncertaintyMode("exact")
+    params = dict(
+        default=constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
+        supported=constants.MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES,
+        paramName="observationParams.muncEBPrior.gUncertaintyMode",
+    )
+    for value in (None, "proxy", "disabled"):
+        assert normalization.validateChoice(value, **params) == (
+            "proxy" if value is None else value
+        )
+    for value in ("diagonal", "exact"):
+        with pytest.raises(ValueError, match="gUncertaintyMode"):
+            normalization.validateChoice(value, **params)
 
 
 @pytest.mark.parametrize(
@@ -3561,12 +3567,18 @@ def _caseExpectedTransitionResidualSumsMatchesPythonReference():
 
 @pytest.mark.correctness
 def _caseNormalizeStateModelAcceptsCanonicalValuesOnly():
-    assert core._normalizeStateModel(None) == core.STATE_MODEL_LEVEL_TREND
-    assert core._normalizeStateModel("levelTrend") == core.STATE_MODEL_LEVEL_TREND
-    assert core._normalizeStateModel("level") == core.STATE_MODEL_LEVEL
+    params = dict(
+        default=constants.STATE_MODEL_LEVEL_TREND,
+        supported=constants.STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
+    for value in (None, "levelTrend", "level"):
+        assert normalization.validateChoice(value, **params) == (
+            "levelTrend" if value is None else value
+        )
     for badMode in ("level-trend", "two_state", "one-state", "scalar", "levelSlope"):
         with pytest.raises(ValueError, match="stateModel"):
-            core._normalizeStateModel(badMode)
+            normalization.validateChoice(badMode, **params)
 
 
 @pytest.mark.correctness
@@ -4124,7 +4136,7 @@ def _caseMuncSeedQKernelsMatchReference():
 
     def weightedQuantile(values, weights, q):
         return float(
-            core._weightedQuantile(
+            normalization.weightedQuantileInterpolated(
                 np.asarray(values, dtype=np.float64),
                 np.asarray(weights, dtype=np.float64),
                 np.asarray([q], dtype=np.float64),
@@ -6745,6 +6757,8 @@ def _caseSparseNativeChromRangeFallsBackToWholeChromosome(
 @pytest.mark.correctness
 def _caseNormalizeCountModeRejectsNoncanonicalModes():
     for badMode in [
+        "Coverage",
+        " coverage ",
         "cov",
         "cut",
         "cutsites",
@@ -6756,24 +6770,24 @@ def _caseNormalizeCountModeRejectsNoncanonicalModes():
         "conserved_fractional_overlap",
     ]:
         with pytest.raises(ValueError, match="Unsupported countMode"):
-            core._normalizeCountMode(badMode, "coverage")
+            normalization.validateCountMode(badMode, "coverage")
 
 
 @pytest.mark.correctness
 def _caseNormalizeCountModeAcceptsFFP():
-    assert core._normalizeCountMode("ffp", "coverage") == "ffp"
-    assert core._normalizeCountMode("ffp-center", "coverage") == "ffp-center"
-    assert core._nativeCountModeForPreset("ffp-center") == "center"
-    assert core._normalizeCountMode("midpoint", "coverage") == "center"
+    assert normalization.validateCountMode("ffp", "coverage") == "ffp"
+    assert normalization.validateCountMode("ffp-center", "coverage") == "ffp-center"
+    assert normalization.nativeCountModeForPreset("ffp-center") == "center"
+    assert normalization.validateCountMode("midpoint", "coverage") == "center"
     assert (
-        core._normalizeCountMode(
+        normalization.validateCountMode(
             constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
             "coverage",
         )
         == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
     )
     assert (
-        core._nativeCountModeForPreset(
+        normalization.nativeCountModeForPreset(
             constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
         )
         == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP

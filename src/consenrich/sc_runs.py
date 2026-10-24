@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from . import core, io, misc_util
+from . import _normalization as normalization
 from .cellmetadata import MetadataSelections
 
 
@@ -133,7 +134,7 @@ def executeFits(config, args, runConfigured, configureLogging):
                         sourceKind=source.sourceKind,
                         barcodeAllowListFile=source.barcodeAllowListFile or "",
                         barcodeTag=source.barcodeTag or "CB",
-                        countMode=core._nativeCountModeForPreset(mode),
+                        countMode=normalization.nativeCountModeForPreset(mode),
                         flagExclude=core._resolveSourceFlagExclude(
                             config["samArgs"].samFlagExclude, bamMode
                         ),
@@ -169,7 +170,7 @@ def executeFits(config, args, runConfigured, configureLogging):
                 summary["reason"] = "zero donors"
                 logger.warning("fit=%s skipped: zero donors", fit["name"])
                 continue
-            if config["countingArgs"].normMethod.upper() == "SF" and (len(retainedIndices) < 3 or controls):
+            if config["countingArgs"].normMethod == "SF" and (len(retainedIndices) < 3 or controls):
                 summary["reason"] = "SF requires at least three donors without controls"
                 logger.warning("fit=%s skipped: %s", fit["name"], summary["reason"])
                 continue
@@ -180,10 +181,9 @@ def executeFits(config, args, runConfigured, configureLogging):
                 retainedTreatments, retainedControls,
             )
             factors = {}
-            for field, label in (("scaleFactors", "countingParams.scaleFactors"), ("scaleFactorsControl", "countingParams.scaleFactorsControl")):
+            for field in ("scaleFactors", "scaleFactorsControl"):
                 values = getattr(config["countingArgs"], field)
                 if values is not None and (field == "scaleFactors" or controls):
-                    values = io._normalizeScaleFactorList(values, treatmentCount, label)
                     factors[field] = [values[index] for index in retainedIndices]
             fitConfig["countingArgs"] = config["countingArgs"]._replace(**factors)
             extensions = core._resolveExtendFrom5pBP(config["samArgs"].extendFrom5pBP, treatments)

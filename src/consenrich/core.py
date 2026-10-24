@@ -263,15 +263,7 @@ from ._logging import (
     log_field_name as _logFieldName,
     quote_log_string as _quoteLogString,
 )
-from ._normalization import (
-    native_count_mode_for_preset as _sharedNativeCountModeForPreset,
-    normalize_bam_input_mode as _sharedNormalizeBamInputMode,
-    normalize_count_mode as _sharedNormalizeCountMode,
-    normalize_count_transform_method as _sharedNormalizeCountTransformMethod,
-    normalize_fragment_position_mode as _sharedNormalizeFragmentPositionMode,
-    normalize_process_noise_calibration as _sharedNormalizeProcessNoiseCalibration,
-    weighted_quantile_interpolated as _sharedWeightedQuantileInterpolated,
-)
+from . import _normalization as normalization
 
 logger = logging.getLogger(__name__)
 
@@ -1601,17 +1593,6 @@ def getFragmentsSelectedBarcodeCount(source: inputSource) -> int | None:
     return len(allowSet)
 
 
-def _normalizeCountMode(
-    countMode: str | None,
-    defaultMode: str,
-) -> str:
-    return _sharedNormalizeCountMode(countMode, defaultMode)
-
-
-def _nativeCountModeForPreset(countMode: str) -> str:
-    return _sharedNativeCountModeForPreset(countMode)
-
-
 def _resolveSourceBamInputModeForCountMode(
     source: inputSource,
     defaultBamInputMode: str | None,
@@ -1620,21 +1601,13 @@ def _resolveSourceBamInputModeForCountMode(
     sourceBamInputMode = _resolveSourceBamInputMode(source, defaultBamInputMode)
     if countMode != "ffp-center":
         return sourceBamInputMode
-    configuredMode = _normalizeBamInputMode(source.bamInputMode or defaultBamInputMode)
+    configuredMode = normalization.validateBamInputMode(source.bamInputMode or defaultBamInputMode)
     if configuredMode not in {"auto", "read1"}:
         raise ValueError(
             "countMode `ffp-center` resolves to `bamInputMode=read1`; "
             "`bamInputMode` must be `auto` or `read1` when this preset is used"
         )
     return "read1"
-
-
-def _normalizeBamInputMode(bamInputMode: str | None) -> str:
-    return _sharedNormalizeBamInputMode(bamInputMode, default="auto")
-
-
-def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
-    return _sharedNormalizeFragmentPositionMode(fragmentPositionMode)
 
 
 @lru_cache(maxsize=None)
@@ -1657,7 +1630,7 @@ def _resolveSourceBamInputMode(
     source: inputSource,
     defaultBamInputMode: str | None,
 ) -> str:
-    normalizedMode = _normalizeBamInputMode(source.bamInputMode or defaultBamInputMode)
+    normalizedMode = normalization.validateBamInputMode(source.bamInputMode or defaultBamInputMode)
     if str(source.sourceKind).upper() not in ALIGNMENT_SOURCE_KINDS:
         return "reads"
     if normalizedMode != "auto":
@@ -1809,12 +1782,12 @@ def readSegments(
         else None
     )
     tempPaths: list[str] = []
-    defaultBamInputMode = _normalizeBamInputMode(bamInputMode)
-    defaultBamCountMode = _normalizeCountMode(
+    defaultBamInputMode = normalization.validateBamInputMode(bamInputMode)
+    defaultBamCountMode = normalization.validateCountMode(
         defaultCountMode,
         SAM_DEFAULT_COUNT_MODE,
     )
-    defaultFragmentCountMode = _normalizeCountMode(
+    defaultFragmentCountMode = normalization.validateCountMode(
         defaultFragmentCountMode,
         SC_DEFAULT_COUNT_MODE,
     )
@@ -1875,7 +1848,7 @@ def readSegments(
                     countMode="coverage",
                 )
             elif sourceKind == FRAGMENTS_SOURCE_KIND:
-                countMode = _normalizeCountMode(
+                countMode = normalization.validateCountMode(
                     source.countMode, defaultFragmentCountMode
                 )
                 if countMode in {"ffp", "ffp-center"}:
@@ -1888,7 +1861,12 @@ def readSegments(
                         "conservedFractionalOverlap count mode does not support "
                         "oneReadPerBin"
                     )
-                _normalizeFragmentPositionMode(source.fragmentPositionMode)
+                normalization.validateChoice(
+                    source.fragmentPositionMode,
+                    default=SC_DEFAULT_FRAGMENT_POSITION_MODE,
+                    supported=SUPPORTED_FRAGMENT_POSITION_MODES,
+                    paramName="fragmentPositionMode",
+                )
                 if returnRawNoiseMass:
                     countResult = ccounts.ccounts_countAlignmentRegionMass(
                         sourcePath,
@@ -1944,7 +1922,7 @@ def readSegments(
                         fragmentsUseReadSupport=source.fragmentsUseReadSupport,
                     )
             else:
-                countMode = _normalizeCountMode(
+                countMode = normalization.validateCountMode(
                     source.countMode,
                     defaultBamCountMode,
                 )
@@ -1963,7 +1941,7 @@ def readSegments(
                     countMode,
                 )
                 if ffpCenterPreset:
-                    countMode = _nativeCountModeForPreset(countMode)
+                    countMode = normalization.nativeCountModeForPreset(countMode)
                 sourceExtendBP = int(resolvedExtendValues[sourceIndex])
                 sourceFlagExclude = _resolveSourceFlagExclude(
                     samFlagExclude,
@@ -2212,33 +2190,10 @@ def _resolveFixedDeltaF(deltaF: float) -> float:
     return deltaF_
 
 
-def _normalizeStateModel(stateModel: str | None) -> str:
-    if stateModel is None:
-        return STATE_MODEL_LEVEL_TREND
-
-    mode = str(stateModel).strip()
-    if mode == STATE_MODEL_LEVEL_TREND:
-        return STATE_MODEL_LEVEL_TREND
-    if mode == STATE_MODEL_LEVEL:
-        return STATE_MODEL_LEVEL
-
-    raise ValueError(
-        "`stateModel` must be one of "
-        + ", ".join(repr(mode_) for mode_ in STATE_MODEL_MODES)
-    )
-
-
 def _checkFinitePositive(name: str, value: float) -> float:
     value_ = float(value)
     if (not np.isfinite(value_)) or value_ <= 0.0:
         raise ValueError(f"`{name}` must be positive and finite")
-    return value_
-
-
-def _checkFiniteNonnegative(name: str, value: float) -> float:
-    value_ = float(value)
-    if (not np.isfinite(value_)) or value_ < 0.0:
-        raise ValueError(f"`{name}` must be nonnegative and finite")
     return value_
 
 
@@ -2458,7 +2413,12 @@ def _processQTrackArrays(
     if intervalCount_ < 0:
         raise ValueError("intervalCount must be nonnegative")
 
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     stateDim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
     q0 = np.asarray(matrixQ0, dtype=np.float64)
     if q0.ndim != 2 or q0.shape[0] < stateDim or q0.shape[1] < stateDim:
@@ -2556,7 +2516,12 @@ def _processQDiagnosticsMetadata(
     baseLevel = float(np.asarray(matrixQ0, dtype=np.float64)[0, 0])
     baseTrend = (
         0.0
-        if _normalizeStateModel(stateModel) == STATE_MODEL_LEVEL
+        if normalization.validateChoice(
+            stateModel,
+            default=STATE_MODEL_LEVEL_TREND,
+            supported=STATE_MODEL_MODES,
+            paramName="stateModel",
+        ) == STATE_MODEL_LEVEL
         else float(np.asarray(matrixQ0, dtype=np.float64)[1, 1])
     )
     preLevelSummary = _metadataTrackSummary(qTracks["preKappaQLevel"])
@@ -3098,7 +3063,12 @@ def _processNoiseQBoundaryDiagnostics(
     minQ: float,
     maxQ: float,
 ) -> dict[str, Any]:
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     dim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
     qFloor = _resolveProcessNoiseFloor(minQ)
     qCap = _resolveProcessNoiseCap(maxQ, minQ=qFloor)
@@ -3150,7 +3120,12 @@ def _staticProcessNoiseCalibrationDiagnostics(
     support: Mapping[str, Any],
     warmStartProcessNoise: float,
 ) -> dict[str, Any]:
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     dim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
     boundary = _processNoiseQBoundaryDiagnostics(
         matrixQ0,
@@ -3525,10 +3500,6 @@ def _computeExpectedLevelTransitionResidualSums(
     return float(sumLevel), float(sumTrend), int(cTransitionCount)
 
 
-def _normalizeProcessNoiseCalibrationMode(value: str | None) -> str:
-    return _sharedNormalizeProcessNoiseCalibration(value)
-
-
 def _resolveProcessNoiseFloor(minQ: float) -> float:
     return _checkFinitePositive("minQ", minQ)
 
@@ -3565,7 +3536,12 @@ def _clampProcessNoiseMatrix(
     minQ: float,
     maxQ: float,
 ) -> np.ndarray:
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     qFloor = _resolveProcessNoiseFloor(minQ)
     qCap = _resolveProcessNoiseCap(maxQ, minQ=qFloor)
     q0 = np.asarray(matrixQ0, dtype=np.float64)
@@ -3751,7 +3727,12 @@ def _estimateInitialProcessNoiseFromData(
             else "fallback_min_q"
         )
     qInit = _clampProcessNoise(qBeforeGuardrail, qFloor=qFloor, qCap=qCap)
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     if stateModelMode == STATE_MODEL_LEVEL_TREND:
         deltaF_ = max(float(deltaF), 1.0e-12)
         qTrendRaw = qInit / (deltaF_ * deltaF_)
@@ -4011,7 +3992,7 @@ def runConsenrich(
 
     matrixData, matrixMunc = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
     matrixMunc = _applyObservationMaskToMunc(matrixMunc, observationMask)
-    pad = _checkFiniteNonnegative("pad", pad)
+    pad = normalization.validateFiniteNonnegativeFloat(pad, paramName="pad")
 
     trackCount, intervalCount = matrixData.shape
     if intervalCount < 2:
@@ -4035,7 +4016,12 @@ def runConsenrich(
             "ECM_scaleProcessPrecisionToMedian requires "
             "ECM_useProcessPrecisionReweighting=True"
         )
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     stateDim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
     if ECM_processRobustTNu is None or isinstance(
         ECM_processRobustTNu, (bool, np.bool_)
@@ -4133,8 +4119,11 @@ def runConsenrich(
     if np.isnan(maxQ):
         raise ValueError("`maxQ` must not be NaN")
     resolvedMaxQ = np.inf if maxQ < 0.0 else max(maxQ, minQ)
-    processNoiseCalibrationMode = _normalizeProcessNoiseCalibrationMode(
-        processNoiseCalibration
+    processNoiseCalibrationMode = normalization.validateChoice(
+        processNoiseCalibration,
+        default=PROCESS_DEFAULT_NOISE_CALIBRATION,
+        supported=PROCESS_NOISE_CALIBRATION_MODES,
+        paramName="processNoiseCalibration",
     )
     fixedProcessQ = 1.0e-4
     useFixedProcessQ = (
@@ -6349,17 +6338,6 @@ def _muncTrendPredictor(values: np.ndarray) -> np.ndarray:
     return out
 
 
-def _weightedQuantile(
-    values: np.ndarray,
-    weights: np.ndarray,
-    quantiles: np.ndarray,
-) -> np.ndarray:
-    return np.asarray(
-        _sharedWeightedQuantileInterpolated(values, weights, quantiles),
-        dtype=np.float64,
-    )
-
-
 def _psplineKnots(
     xMin: float,
     xMax: float,
@@ -6377,7 +6355,7 @@ def _psplineKnots(
     if internalCount > 0:
         probs = np.linspace(0.0, 1.0, internalCount + 2, dtype=np.float64)[1:-1]
         if x is not None and weights is not None:
-            internal = _weightedQuantile(
+            internal = normalization.weightedQuantileInterpolated(
                 np.asarray(x, dtype=np.float64),
                 np.asarray(weights, dtype=np.float64),
                 probs,
@@ -6820,7 +6798,7 @@ def fitPooledMuncVarianceTrend(
             if not np.any(sampleMask):
                 continue
             newLogFactors[sample] = float(
-                _weightedQuantile(
+                normalization.weightedQuantileInterpolated(
                     residual[sampleMask],
                     weightsArr[sampleMask],
                     np.asarray([0.5], dtype=np.float64),
@@ -7455,7 +7433,12 @@ def _perIntervalOutputDiagnosticTracks(
     munc = np.asarray(matrixMunc)
     q0 = np.asarray(matrixQ0, dtype=np.float64)
     f = np.asarray(matrixF, dtype=np.float64)
-    stateModelMode = _normalizeStateModel(stateModel)
+    stateModelMode = normalization.validateChoice(
+        stateModel,
+        default=STATE_MODEL_LEVEL_TREND,
+        supported=STATE_MODEL_MODES,
+        paramName="stateModel",
+    )
     stateDim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
 
     if covar.ndim != 3 or covar.shape[1] < stateDim or covar.shape[2] < stateDim:
@@ -7637,40 +7620,6 @@ class _MuncRuntimeSizing(NamedTuple):
     localWindowSource: str
     usedDependenceSpan: bool
     dependenceSpanIntervals: int | None
-
-
-def _normalizeMuncVarianceModel(model: str | int | None) -> str:
-    if model is None:
-        return OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
-    if isinstance(model, (int, np.integer)):
-        modelCode = int(model)
-        if modelCode == MUNC_VARIANCE_MODEL_CODE_KALMAN:
-            return MUNC_VARIANCE_MODEL_KALMAN
-    modelName = str(model).strip().lower().replace("-", "").replace("_", "")
-    if modelName in {"kalman", "smoother", "kf"}:
-        return MUNC_VARIANCE_MODEL_KALMAN
-    supportedModels = ", ".join(MUNC_SUPPORTED_VARIANCE_MODELS)
-    raise ValueError(
-        f"unsupported MUNC variance model {model!r}; expected {supportedModels}"
-    )
-
-
-def _normalizeMuncEBPriorGUncertaintyMode(mode: str | None) -> str:
-    if mode is None:
-        return OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
-    key = str(mode).strip().lower().replace("-", "").replace("_", "")
-    if key == "diagonal":
-        return MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY
-    canonicalByKey = {
-        item.replace("-", "").replace("_", "").lower(): item
-        for item in MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES
-    }
-    if key not in canonicalByKey:
-        supported = ", ".join(MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES)
-        raise ValueError(
-            f"unsupported MUNC EB prior g uncertainty mode {mode!r}; expected {supported}"
-        )
-    return canonicalByKey[key]
 
 
 def _resolveMuncRuntimeSizing(
@@ -8175,7 +8124,7 @@ def getMuncTrack(
         if varianceCap_ is not None
         else float(np.finfo(np.float32).max)
     )
-    muncVarianceModelName = _normalizeMuncVarianceModel(muncVarianceModel)
+    muncVarianceModelName = normalization.validateMuncVarianceModel(muncVarianceModel)
     replicateFactor = float(replicateVarianceFactor)
     if not np.isfinite(replicateFactor) or replicateFactor <= 0.0:
         raise ValueError("replicateVarianceFactor must be positive and finite")

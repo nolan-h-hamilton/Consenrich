@@ -25,6 +25,7 @@ import consenrich.peaks as peaks
 import consenrich.shrinkState as shrinkState
 from . import cconsenrich
 from . import constants
+from . import _normalization as normalization
 from . import _logging as logging_utils
 from . import misc_util
 from ._version import __version__
@@ -4612,8 +4613,11 @@ def _logResolvedCountingPresetSources(
         isBAM = sourceKind in core.ALIGNMENT_SOURCE_KINDS
         isFragmentsText = sourceKind == core.FRAGMENTS_SOURCE_KIND
         fragmentPositionMode = (
-            core._normalizeFragmentPositionMode(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
+            normalization.validateChoice(
+                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode,
+                default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
+                supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
+                paramName='fragmentPositionMode',
             )
             if isFragmentsText
             else None
@@ -5778,7 +5782,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
         raise ValueError("observationParams.smoothToFraglen must be boolean")
     smoothToFraglen_ = bool(smoothToFraglenRaw)
-    muncVarianceModel_ = core._normalizeMuncVarianceModel(
+    muncVarianceModel_ = normalization.validateMuncVarianceModel(
         getattr(
             observationArgs,
             "muncVarianceModel",
@@ -5792,7 +5796,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     correlationLengthRow_: dict[str, Any] | None = None
     correlationLengthDiagnostics_: dict[str, Any] | None = None
     waitForMatrix: bool = False
-    normMethod_: Optional[str] = countingArgs.normMethod.upper()
+    normMethod_: Optional[str] = countingArgs.normMethod
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     _logCliSubphase(
         "Diagnostic logs: precision=%s convergence=%s delete-block=%s",
@@ -5873,8 +5877,11 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         )
     for source in treatmentSources + controlSources:
         if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-            core._normalizeFragmentPositionMode(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
+            normalization.validateChoice(
+                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode,
+                default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
+                supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
+                paramName='fragmentPositionMode',
             )
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     automaticTreatmentEGS = (
@@ -6018,14 +6025,14 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         "control",
     )
     treatmentNativeCountModes = [
-        core._nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
+        normalization.nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
     ]
     controlNativeCountModes = [
-        core._nativeCountModeForPreset(countMode) for countMode in controlCountModes
+        normalization.nativeCountModeForPreset(countMode) for countMode in controlCountModes
     ]
     autoInferFragmentLength = (
         samArgs.inferFragmentLength is None
-        and core._normalizeBamInputMode(samArgs.bamInputMode) == "auto"
+        and normalization.validateBamInputMode(samArgs.bamInputMode) == "auto"
     )
     inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
     if autoInferFragmentLength and any(
@@ -6045,18 +6052,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     if args.verbose:
         logger.info(f"peakCallingEnabled: {peakCallingEnabled}")
-    scaleFactors = io_helpers._normalizeScaleFactorList(
-        countingArgs.scaleFactors,
-        len(treatmentSources),
-        "countingParams.scaleFactors",
-    )
+    scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
-    if controlsPresent:
-        scaleFactorsControl = io_helpers._normalizeScaleFactorList(
-            countingArgs.scaleFactorsControl,
-            len(controlSources),
-            "countingParams.scaleFactorsControl",
-        )
     characteristicFragmentLengthsTreatment: List[int] = []
     characteristicFragmentLengthsControl: List[int] = []
     countExtendFrom5pBPTreatment: List[int] = []
@@ -6907,12 +6904,15 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         raise ValueError(
             "observationParams.muncSeedProcess.maxQ must be negative or at least minQ"
         )
-    muncEBPriorGUncertaintyMode = core._normalizeMuncEBPriorGUncertaintyMode(
+    muncEBPriorGUncertaintyMode = normalization.validateChoice(
         getattr(
             observationArgs,
             "muncEBPriorGUncertaintyMode",
             constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
-        )
+        ),
+        default=constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
+        supported=constants.MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES,
+        paramName='observationParams.muncEBPrior.gUncertaintyMode',
     )
     def _inverseMuncTrendPredictor(predictor: np.ndarray) -> np.ndarray:
         arr = np.asarray(predictor, dtype=np.float64)
@@ -7949,7 +7949,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             intervalSizeBP,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
-        seedStateModel = core._normalizeStateModel(processArgs.stateModel)
+        seedStateModel = normalization.validateChoice(
+            processArgs.stateModel,
+            default=constants.PROCESS_DEFAULT_STATE_MODEL,
+            supported=constants.STATE_MODEL_MODES,
+            paramName='stateModel',
+        )
         seedDeltaF = (
             1.0
             if seedStateModel == core.STATE_MODEL_LEVEL
@@ -9847,7 +9852,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             preKappaLevelWarmStart = processNoiseDiagnostics.get("preKappaQLevel")
             preKappaTrendWarmStart = processNoiseDiagnostics.get("preKappaQTrend")
             if (
-                core._normalizeStateModel(processArgs.stateModel)
+                normalization.validateChoice(
+                    processArgs.stateModel,
+                    default=constants.PROCESS_DEFAULT_STATE_MODEL,
+                    supported=constants.STATE_MODEL_MODES,
+                    paramName='stateModel',
+                )
                 == core.STATE_MODEL_LEVEL
                 and preKappaLevelWarmStart is not None
             ):

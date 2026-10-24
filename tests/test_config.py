@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from consenrich import _normalization as normalization
 from consenrich.config import readConfig
 import consenrich.consenrich as consenrich_cli
 import consenrich.config as consenrich_config
@@ -180,18 +181,18 @@ def _case_ensureInput():
 
 
 def _caseScaleFactorNormalizationBroadcastsSingletons():
-    assert consenrich_io._normalizeScaleFactorList(
+    assert normalization.expandScaleFactors(
         [0.25],
         3,
         "countingParams.scaleFactorsControl",
     ) == [0.25, 0.25, 0.25]
-    assert consenrich_io._normalizeScaleFactorList(
+    assert normalization.expandScaleFactors(
         [1.0, 2.0, 3.0],
         3,
         "countingParams.scaleFactors",
     ) == [1.0, 2.0, 3.0]
     with pytest.raises(ValueError, match="must contain 1 value or 3 values"):
-        consenrich_io._normalizeScaleFactorList(
+        normalization.expandScaleFactors(
             [1.0, 2.0],
             3,
             "countingParams.scaleFactorsControl",
@@ -209,7 +210,7 @@ def _case_readConfigGenericCountTransform(
     experimentName: genericTransform
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    countingParams.transformMethod: asinh_sqrt
+    countingParams.transformMethod: asinhSqrt
     countingParams.transformInputOffset: 0.25
     countingParams.transformInputScale: 2.0
     countingParams.transformOutputScale: 2.0
@@ -840,7 +841,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       dependenceMinFinitePairs: 175
       dependenceMinFinitePairCoverage: 0.65
     matchingParams:
-      uncertaintyScoreMode: lower-confidence
+      uncertaintyScoreMode: lower_confidence
       uncertaintyScoreZ: 1.25
       numRegionReplays: 17
       useLocalBootStrapRadius: false
@@ -1007,7 +1008,7 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
         experimentName: testExperiment
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
-        outputParams.diagnosticTracks: [slope, pre-kappa-q-level, effective-q-trend, munc-trace, trend]
+        outputParams.diagnosticTracks: [slope, preKappaQLevel, effectiveQTrend, muncTrace, slope]
         """,
     )
 
@@ -1019,11 +1020,11 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
         "effectiveQTrend",
         "muncTrace",
     )
-    assert consenrich_config._normalizeOutputDiagnosticTracks("all") == tuple(
+    assert normalization.validateDiagnosticTracks("all") == tuple(
         constants.OUTPUT_DIAGNOSTIC_TRACK_NAMES
     )
-    with pytest.raises(ValueError, match="Unsupported output diagnostic track"):
-        consenrich_config._normalizeOutputDiagnosticTracks(["notATrack"])
+    with pytest.raises(ValueError, match="outputParams.diagnosticTracks"):
+        normalization.validateDiagnosticTracks(["notATrack"])
 
 
 def _case_readConfigBroadcastsSharedControlScaleFactor(
@@ -1046,6 +1047,15 @@ def _case_readConfigBroadcastsSharedControlScaleFactor(
     assert parsed["inputArgs"].bamFilesControl == ["control.bam", "control.bam"]
     assert parsed["countingArgs"].scaleFactors is None
     assert parsed["countingArgs"].scaleFactorsControl == [0.25, 0.25]
+    configData = consenrich_config.loadConfig(configPath)
+    for sampleCount in (1, 3):
+        configData["inputParams.bamFiles"] = [
+            f"treat{index}.bam" for index in range(sampleCount)
+        ]
+        configData["countingParams.scaleFactors"] = [0.5]
+        countingArgs = readConfig(configData)["countingArgs"]
+        assert countingArgs.scaleFactors == [0.5] * sampleCount
+        assert countingArgs.scaleFactorsControl == [0.25] * sampleCount
 
 
 def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -2788,7 +2798,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     uncertaintyCalibrationParams.enabled: false
-    uncertaintyCalibrationParams.mode: delete-block-state
+    uncertaintyCalibrationParams.mode: delete_block_state
     uncertaintyCalibrationParams.blockSizeBP: 25000
     uncertaintyCalibrationParams.folds: 3
     uncertaintyCalibrationParams.refitThreads: 1
@@ -2797,10 +2807,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
     uncertaintyCalibrationParams.targetCalibrationDelta: 0.025
     uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
-    uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance-difference
+    uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance_difference
     uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation: true
     uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: 0.35
-    uncertaintyCalibrationParams.deleteBlockTargetSignal: state-plus-background
+    uncertaintyCalibrationParams.deleteBlockTargetSignal: state_plus_background
     uncertaintyCalibrationParams.deleteBlockFactorModel: segShrink
     uncertaintyCalibrationParams.deleteBlockFactorSegmentCount: 7
     uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates: 9
@@ -2809,7 +2819,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8
     uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 1.0e-7
     uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction: 0.5
-    uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrt-information-fraction
+    uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrt_information_fraction
     uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration: true
     """
     parsedExplicit = readConfig(
@@ -5273,9 +5283,9 @@ def test_nonnegativeIntegerValidation(value, expected):
     configName = "outputParams.maxNonTrackFileBytes"
     if expected is None:
         with pytest.raises(ValueError, match=configName):
-            consenrich_config._normalizeNonnegativeInt(value, configName)
+            normalization.validateNonnegativeInt(value, configName)
     else:
-        result = consenrich_config._normalizeNonnegativeInt(value, configName)
+        result = normalization.validateNonnegativeInt(value, configName)
         assert result == expected
         assert type(result) is int
 

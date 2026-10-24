@@ -24,6 +24,7 @@ from consenrich import cconsenrich
 import consenrich.constants as constants
 import consenrich.core as core
 import consenrich.misc_util as misc_util
+from . import _normalization as normalization
 from ._version import __version__
 from ._runtime import (
     get_available_memory_bytes as _sharedGetAvailableMemoryBytes,
@@ -142,26 +143,6 @@ def _listOrEmpty(list_):
     if list_ is None:
         return []
     return list_
-
-
-def _normalizeScaleFactorList(
-    scaleFactors: Optional[Sequence[float]],
-    expectedCount: int,
-    paramName: str,
-) -> Optional[List[float]]:
-    if scaleFactors is None:
-        return None
-    if expectedCount < 1:
-        raise ValueError(f"`{paramName}` was provided but no matching inputs exist.")
-    normalized = [float(scaleFactor) for scaleFactor in scaleFactors]
-    if len(normalized) == expectedCount:
-        return normalized
-    if len(normalized) == 1:
-        return normalized * expectedCount
-    raise ValueError(
-        f"`{paramName}` must contain 1 value or {expectedCount} values; "
-        f"got {len(normalized)}."
-    )
 
 
 def _expandWildCards(pathList: List[str]) -> List[str]:
@@ -411,7 +392,7 @@ def _getSourceCountMode(
 ) -> str:
     if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
         return "coverage"
-    countMode = core._normalizeCountMode(
+    countMode = normalization.validateCountMode(
         source.countMode,
         (
             defaultFragmentCountMode
@@ -422,7 +403,12 @@ def _getSourceCountMode(
     if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
         if countMode in {"ffp", "ffp-center"}:
             raise ValueError(f"countMode `{countMode}` requires BAM input")
-        core._normalizeFragmentPositionMode(source.fragmentPositionMode)
+        normalization.validateChoice(
+            source.fragmentPositionMode,
+            default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
+            supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
+            paramName='fragmentPositionMode',
+        )
     return countMode
 
 
