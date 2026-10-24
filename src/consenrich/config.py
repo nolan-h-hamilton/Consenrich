@@ -7,6 +7,7 @@ import operator
 import os
 from collections import namedtuple
 from collections.abc import Mapping
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -37,6 +38,90 @@ SUPPORTED_COUNTING_PRESETS = constants.SUPPORTED_COUNTING_PRESETS
 COUNTING_PRESET_VALUES = constants.COUNTING_PRESET_VALUES
 
 _PROCESS_ARGS_TYPE_CACHE: dict[tuple[str, ...], type] = {}
+
+# these keys allow dictionary-level overrides in YAML --> cli
+_configOverrideMappings: frozenset[str] = frozenset({
+    "scParams.cellMetadata",
+    "observationParams.muncSeedWeight",
+    "observationParams.muncSeedProcess",
+    "observationParams.muncEBPrior",
+})
+
+# ... and these are flat
+_configOverrideKeys: frozenset[str] = frozenset(DEFAULT_CONFIGURATION_VALUES[GENERIC_DEFAULT_CONFIGURATION]) | {
+    f"{section}.{field}"
+    for section in (
+        "samParams", "countingParams", "scParams", "stateParams", "processParams",
+        "observationParams", "fitParams", "matchingParams", "outputParams",
+        "loggingParams", "uncertaintyCalibrationParams",
+    )
+    for field in getattr(core, section)._fields
+    if section != "observationParams"
+    or not field.startswith(("muncSeedWeight", "muncSeedProcess", "muncEBPrior"))
+} | {
+    f"genomeParams.{'name' if field == 'genomeName' else field}"
+    for field in core.genomeParams._fields
+} | {
+    "experimentName", "countingPreset", *DEFAULT_CONFIGURATION_KEYS,
+    "inputParams.bamFiles", "inputParams.bamFilesControl", "inputParams.samples",
+    "scParams.cellMetadata.path", "scParams.cellMetadata.barcodeColumn",
+    "scParams.cellMetadata.sampleColumn", "scParams.cellMetadata.groupColumn",
+} | _configOverrideMappings
+
+
+def applyConfigOverrides(
+    configData: Mapping[str, Any], assignments: Sequence[str]) -> Dict[str, Any]:
+    r"""Apply configuration overrides to a given configuration dictionary.
+
+    Parameters
+    ----------
+    configData : Mapping[str, Any]
+        The original configuration data per YAML
+    assignments : Sequence[str]
+        A sequence of key=value strings from the cli
+    """
+    result = deepcopy(dict(configData))
+    for assignment in assignments:
+        key, separator, valueText = assignment.partition("=")
+        if not separator or not key or not valueText or valueText.isspace():
+            raise ValueError(f"Config override must use KEY=VALUE: {assignment!r}.")
+        if key not in _configOverrideKeys:
+            raise ValueError(f"Unknown config override key {key!r}.")
+        try:
+            value = yaml.safe_load(valueText)
+        except yaml.YAMLError as error:
+            raise ValueError(f"Invalid YAML value for {key!r}: {error}") from error
+        if isinstance(value, Mapping):
+            if key not in _configOverrideMappings:
+                raise ValueError(f"Config override {key!r} does not accept a mapping.")
+            for field in value:
+                if f"{key}.{field}" not in _configOverrideKeys:
+                    raise ValueError(f"Unknown config override key {key + '.' + str(field)!r}.")
+        if key in _configOverrideMappings:
+            for existingKey in tuple(result):
+                if isinstance(existingKey, str) and existingKey.startswith(key + "."):
+                    del result[existingKey]
+        parts = key.split(".")
+        if len(parts) == 1:
+            result[key] = value
+            continue
+        result.setdefault(parts[0], {})
+        for prefixSize in range(1, len(parts) + 1):
+            prefixKey = ".".join(parts[:prefixSize])
+            if prefixKey not in result:
+                continue
+            if prefixSize == len(parts):
+                result[prefixKey] = value
+                continue
+            parent = result[prefixKey]
+            for field in parts[prefixSize:-1]:
+                if not isinstance(parent, dict):
+                    raise ValueError(f"Cannot descend into a non-mapping for {key!r}.")
+                parent = parent.setdefault(field, {})
+            if not isinstance(parent, dict):
+                raise ValueError(f"Cannot descend into a non-mapping for {key!r}.")
+            parent[parts[-1]] = value
+    return result
 
 
 def loadConfig(
@@ -325,9 +410,14 @@ def _normalizeLoggingProgress(value: Any) -> str:
 
 
 def _normalizeNonnegativeInt(value: Any, configName: str) -> int:
+
+    # ensure booleans cant be treated as nonnegative integers
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{configName} must be a non-negative integer")
+
     try:
-        out = int(value)
-    except (TypeError, ValueError) as exc:
+        out = operator.index(value)
+    except TypeError as exc:
         raise ValueError(f"{configName} must be a non-negative integer") from exc
     if out < 0:
         raise ValueError(f"{configName} must be a non-negative integer")

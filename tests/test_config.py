@@ -5214,3 +5214,73 @@ def test_dependence_config_rejects_out_of_range_values(
     )
     with pytest.raises(ValueError, match=fieldName):
         readConfig(str(configPath))
+
+
+@pytest.mark.parametrize("flags", [[], ["--verbose2"]])
+def test_cli_config_overrides(tmp_path, monkeypatch, flags):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    configPath = writeConfigFile(tmp_path, "overrides.yaml", """
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        samParams: {samThreads: 1}
+        loggingParams: {verbosity: quiet, progress: on}
+    """)
+    sourceText = configPath.read_text()
+    captured = []
+    monkeypatch.setattr(consenrich_cli, "_configureCliLogging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        consenrich_cli, "executeFits", lambda *args: captured.append(args)
+    )
+    argv = ["consenrich", "--config", str(configPath)]
+    for assignment in (
+        "samParams.samThreads=2",
+        "samParams.samThreads=3",
+        "countingParams.intervalSizeBP=25",
+        "loggingParams.verbosity=verbose",
+        "loggingParams.progress=off",
+    ):
+        argv.extend(("--set", assignment))
+    monkeypatch.setattr(consenrich_cli.sys, "argv", argv + flags)
+    consenrich_cli.main()
+    config, args, *_ = captured[0]
+    assert config["samArgs"].samThreads == 3
+    assert config["countingArgs"].intervalSizeBP == 25
+    assert args.verbosity == ("debug" if flags else "verbose")
+    assert args.progress == "off"
+    assert configPath.read_text() == sourceText
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, 0),
+        (7, 7),
+        (np.int64(9), 9),
+        (np.uint64(2**64 - 1), 2**64 - 1),
+        (-1, None),
+        (True, None),
+        (False, None),
+        (np.bool_(True), None),
+        (2.9, None),
+        (-0.5, None),
+        (2.0, None),
+        (np.float64(2.0), None),
+        ("2", None),
+    ],
+)
+def test_nonnegativeIntegerValidation(value, expected):
+    configName = "outputParams.maxNonTrackFileBytes"
+    if expected is None:
+        with pytest.raises(ValueError, match=configName):
+            consenrich_config._normalizeNonnegativeInt(value, configName)
+    else:
+        result = consenrich_config._normalizeNonnegativeInt(value, configName)
+        assert result == expected
+        assert type(result) is int
+
+
+def test_config_override_errors():
+    for assignment in ("samParams.samThread=2", "samParams.samThreads=["):
+        with pytest.raises(ValueError):
+            consenrich_config.applyConfigOverrides({}, [assignment])

@@ -30,7 +30,7 @@ from . import misc_util
 from ._version import __version__
 from . import io as io_helpers
 from .sc_runs import executeFits
-from .config import getLoggingArgs, loadConfig, readConfig
+from .config import applyConfigOverrides, getLoggingArgs, loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
     _checkSF,
@@ -5005,17 +5005,8 @@ def _removeCliHandlers(packageLogger: logging.Logger) -> None:
                 pass
 
 
-def _defaultConfigLogPath(configPath: str) -> Path:
-    experimentName = constants.EXPERIMENT_DEFAULT_NAME
-    try:
-        configData = loadConfig(configPath)
-        if isinstance(configData, Mapping):
-            experimentName = configData.get(
-                "experimentName",
-                constants.EXPERIMENT_DEFAULT_NAME,
-            )
-    except Exception:
-        pass
+def _defaultConfigLogPath(configData: Mapping[str, Any]) -> Path:
+    experimentName = configData.get("experimentName", constants.EXPERIMENT_DEFAULT_NAME)
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return Path(f"consenrichOutput_{experimentToken}_run.v{__version__}.jsonl")
 
@@ -5139,12 +5130,36 @@ def _logCliProgressMilestone(message: str, *args: Any) -> None:
 
 
 def _buildArgParser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Consenrich CLI")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(
+        description="Consenrich CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "CLI examples:\n"
+            "  consenrich --config run.yaml --set countingParams.intervalSizeBP=25\n"
+            "  consenrich --config run.yaml --set 'genomeParams.chromosomes=[chr21, chr22]'\n\n"
+            "- Override values use the same YAML syntax as --config: numbers, booleans, strings, lists, mappings, null.\n"
+            "- Use quotes for args that contain spaces, brackets. To force a string, use YAML quotes:\n"
+            "  --set 'experimentName=\"likeThis\"'\n"
+            "- If there are repeated config keys, the rightmost instance is used\n"
+            "- List indexing and section replacement are unsupported\n"
+            "- Relative paths resolve from the cwd"
+        ),
+    )
+    fittingGroup = parser.add_argument_group("Configured fitting")
+    fittingGroup.add_argument(
         "--config",
         type=str,
         dest="config",
-        help="Path to a YAML config file with parameters + arguments defined in `consenrich.core`",
+        help="Path to a YAML configuration for fitting.",
+    )
+    # --- Config overrides via CLI --set
+    fittingGroup.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="configOverrides",
+        metavar="KEY=VALUE",
+        help="Override a canonical YAML setting. Repeat for multiple settings. Requires configured fitting with --config.",
     )
 
     # --- Post hoc ROCCO peak-calling arguments ---
@@ -5366,6 +5381,8 @@ def _buildArgParser() -> argparse.ArgumentParser:
 def main():
     parser = _buildArgParser()
     args = parser.parse_args()
+    if args.configOverrides and (not args.config or args.matchBedGraph):
+        parser.error("--set requires configured fitting with --config")
     cliVerbose2Set = bool(args.verbose2)
     cliVerbositySet = args.verbosity is not None or args.verbose or args.verbose2
     cliProgressSet = args.progress is not None
@@ -5378,9 +5395,16 @@ def main():
             args.verbosity = "verbose"
         else:
             args.verbosity = constants.LOGGING_DEFAULT_VERBOSITY
+    configData = None
     configLoggingArgs = None
     if not args.matchBedGraph and args.config and os.path.exists(args.config):
-        configLoggingArgs = getLoggingArgs(args.config)
+        try:
+            configData = applyConfigOverrides(
+                loadConfig(args.config), args.configOverrides
+            )
+            configLoggingArgs = getLoggingArgs(configData)
+        except (TypeError, ValueError) as exc:
+            parser.error(str(exc))
         if not cliVerbositySet:
             args.verbosity = configLoggingArgs.verbosity
         if not cliProgressSet:
@@ -5389,7 +5413,11 @@ def main():
             args.logFile = configLoggingArgs.logFile
     if args.progress is None:
         args.progress = constants.LOGGING_DEFAULT_PROGRESS
-    if cliVerbose2Set and not (cliProgressSet and args.progress == "off"):
+    if (
+        cliVerbose2Set
+        and (args.matchBedGraph or not args.config)
+        and not (cliProgressSet and args.progress == "off")
+    ):
         args.progress = "on"
     args.verbose = args.verbosity in {"verbose", "debug"}
     args.verbose2 = args.verbosity == "debug"
@@ -5529,13 +5557,7 @@ def main():
         sys.exit(1)
 
     resolvedLogPath = _configureCliLogging(
-        args.logFile
-        or (
-            configLoggingArgs.logFile
-            if configLoggingArgs is not None
-            else constants.LOGGING_DEFAULT_LOG_FILE
-        )
-        or _defaultConfigLogPath(args.config),
+        args.logFile or _defaultConfigLogPath(configData),
         verbose=bool(args.verbose),
         verbose2=bool(args.verbose2),
         verbosity=args.verbosity,
@@ -5546,7 +5568,11 @@ def main():
     _logCliPhase("Config")
     args.config = str(Path(args.config).resolve())
     args.logFile = str(resolvedLogPath.resolve()) if resolvedLogPath is not None else None
-    executeFits(readConfig(args.config), args, _runConfigured, _configureCliLogging)
+    try:
+        config = readConfig(configData)
+    except (TypeError, ValueError) as exc:
+        parser.error(str(exc))
+    executeFits(config, args, _runConfigured, _configureCliLogging)
 
 
 def _runConfigured(config, args, sharedReferenceGrid=None):
