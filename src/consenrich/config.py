@@ -29,8 +29,6 @@ GENERIC_DEFAULT_CONFIGURATION = constants.GENERIC_DEFAULT_CONFIGURATION
 SUPPORTED_DEFAULT_CONFIGURATIONS = constants.SUPPORTED_DEFAULT_CONFIGURATIONS
 DEFAULT_CONFIGURATION_KEYS = constants.DEFAULT_CONFIGURATION_KEYS
 DEFAULT_CONFIGURATION_VALUES = constants.DEFAULT_CONFIGURATION_VALUES
-SUPPORTED_COUNTING_PRESETS = constants.SUPPORTED_COUNTING_PRESETS
-COUNTING_PRESET_VALUES = constants.COUNTING_PRESET_VALUES
 
 _PROCESS_ARGS_TYPE_CACHE: dict[tuple[str, ...], type] = {}
 
@@ -57,7 +55,7 @@ _configOverrideKeys: frozenset[str] = frozenset(DEFAULT_CONFIGURATION_VALUES[GEN
     f"genomeParams.{'name' if field == 'genomeName' else field}"
     for field in core.genomeParams._fields
 } | {
-    "experimentName", "countingPreset", *DEFAULT_CONFIGURATION_KEYS,
+    "experimentName", *DEFAULT_CONFIGURATION_KEYS,
     "inputParams.bamFiles", "inputParams.bamFilesControl", "inputParams.samples",
     "scParams.cellMetadata.path", "scParams.cellMetadata.barcodeColumn",
     "scParams.cellMetadata.sampleColumn", "scParams.cellMetadata.groupColumn",
@@ -211,72 +209,6 @@ def _getDefaultConfigurationName(configMap: Mapping[str, Any]) -> str:
 def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
     configurationName = _getDefaultConfigurationName(configMap)
     return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
-
-
-def _getCountingPresetName(configMap: Mapping[str, Any]) -> str | None:
-    countingPreset = _cfgGet(configMap, "countingPreset", None)
-    if countingPreset is None:
-        return None
-    return normalization.validateChoice(
-        countingPreset,
-        default=None,
-        supported=SUPPORTED_COUNTING_PRESETS,
-        paramName="countingPreset",
-    )
-
-
-def _countingPresetDefault(
-    configMap: Mapping[str, Any], dottedKey: str, defaultVal: Any
-) -> Any:
-    countingPreset = _getCountingPresetName(configMap)
-    if countingPreset is None:
-        return defaultVal
-    presetValues = COUNTING_PRESET_VALUES[countingPreset]
-    if dottedKey in presetValues and dottedKey in configMap:
-        nestedValue: Any = configMap
-        for keyPart in dottedKey.split("."):
-            if not isinstance(nestedValue, Mapping) or keyPart not in nestedValue:
-                break
-            nestedValue = nestedValue[keyPart]
-        else:
-            if configMap[dottedKey] != nestedValue:
-                raise ValueError(
-                    f"Configuration collision for `{dottedKey}`: dotted and nested "
-                    "forms have unequal values."
-                )
-    return presetValues.get(dottedKey, defaultVal)
-
-
-def _validateCountingPresetEndpointSettings(
-    countingPreset: str | None,
-    normMethod: str | None,
-    oneReadPerBin: int,
-    countModes: Sequence[str],
-) -> None:
-    if countingPreset is None:
-        return
-    endpointModes = sorted(
-        {
-            str(countMode)
-            for countMode in countModes
-            if str(countMode)
-            in {"cutsite", "fiveprime", "ffp", "ffp-center", "center"}
-        }
-    )
-    if not endpointModes:
-        return
-    endpointModeText = ",".join(endpointModes)
-    if normMethod in {"EGS", "RPGC"}:
-        raise ValueError(
-            f"`countingPreset` {countingPreset!r} resolved endpoint count mode(s) "
-            f"{endpointModeText}, which cannot be combined with "
-            f"`countingParams.normMethod={normMethod}`."
-        )
-    if int(oneReadPerBin) != 0:
-        raise ValueError(
-            f"`countingPreset` {countingPreset!r} resolved endpoint count mode(s) "
-            f"{endpointModeText}, which require `samParams.oneReadPerBin=0`."
-        )
 
 
 def _runtimeProcessParamsType(fields: tuple[str, ...]) -> type:
@@ -985,11 +917,7 @@ def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.co
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        _countingPresetDefault(
-            configData,
-            "countingParams.normMethod",
-            constants.COUNTING_DEFAULT_NORM_METHOD,
-        ),
+        constants.COUNTING_DEFAULT_NORM_METHOD,
     )
     normMethod_ = normalization.validateChoice(
         normMethod_,
@@ -1202,11 +1130,7 @@ def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams
     defaultCountMode_ = _cfgGet(
         configData,
         "scParams.defaultCountMode",
-        _countingPresetDefault(
-            configData,
-            "scParams.defaultCountMode",
-            constants.SC_DEFAULT_COUNT_MODE,
-        ),
+        constants.SC_DEFAULT_COUNT_MODE,
     )
     defaultCountMode_ = normalization.validateCountMode(
         defaultCountMode_,
@@ -1701,7 +1625,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     """
     configData = loadConfig(config_path)
     defaultConfiguration = _getDefaultConfigurationName(configData)
-    countingPreset = _getCountingPresetName(configData)
 
     inputParams = getInputArgs(configData)
     outputParams = getOutputArgs(configData)
@@ -1927,13 +1850,9 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     smoothToFraglenRaw = _cfgGet(
         configData,
         "observationParams.smoothToFraglen",
-        _countingPresetDefault(
+        _cfgDefault(
             configData,
             "observationParams.smoothToFraglen",
-            _cfgDefault(
-                configData,
-                "observationParams.smoothToFraglen",
-            ),
         ),
     )
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
@@ -2583,29 +2502,17 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
-        _countingPresetDefault(
-            configData,
-            "samParams.samFlagExclude",
-            constants.SAM_DEFAULT_FLAG_EXCLUDE,
-        ),
+        constants.SAM_DEFAULT_FLAG_EXCLUDE,
     )
     minMappingQuality = _cfgGet(
         configData,
         "samParams.minMappingQuality",
-        _countingPresetDefault(
-            configData,
-            "samParams.minMappingQuality",
-            constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
-        ),
+        constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
     )
     oneReadPerBin = _cfgGet(
         configData,
         "samParams.oneReadPerBin",
-        _countingPresetDefault(
-            configData,
-            "samParams.oneReadPerBin",
-            constants.SAM_DEFAULT_ONE_READ_PER_BIN,
-        ),
+        constants.SAM_DEFAULT_ONE_READ_PER_BIN,
     )
     chunkSize = _cfgGet(
         configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE
@@ -2613,69 +2520,41 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     bamInputMode = _cfgGet(
         configData,
         "samParams.bamInputMode",
-        _countingPresetDefault(
-            configData,
-            "samParams.bamInputMode",
-            constants.SAM_DEFAULT_BAM_INPUT_MODE,
-        ),
+        constants.SAM_DEFAULT_BAM_INPUT_MODE,
     )
     defaultCountMode = _cfgGet(
         configData,
         "samParams.defaultCountMode",
-        _countingPresetDefault(
-            configData,
-            "samParams.defaultCountMode",
-            constants.SAM_DEFAULT_COUNT_MODE,
-        ),
+        constants.SAM_DEFAULT_COUNT_MODE,
     )
     shiftForward5p = int(
         _cfgGet(
             configData,
             "samParams.shiftForward5p",
-            _countingPresetDefault(
-                configData,
-                "samParams.shiftForward5p",
-                constants.SAM_DEFAULT_SHIFT_FORWARD_5P,
-            ),
+            constants.SAM_DEFAULT_SHIFT_FORWARD_5P,
         )
     )
     shiftReverse5p = int(
         _cfgGet(
             configData,
             "samParams.shiftReverse5p",
-            _countingPresetDefault(
-                configData,
-                "samParams.shiftReverse5p",
-                constants.SAM_DEFAULT_SHIFT_REVERSE_5P,
-            ),
+            constants.SAM_DEFAULT_SHIFT_REVERSE_5P,
         )
     )
     extendFrom5pBP = _cfgGet(
         configData,
         "samParams.extendFrom5pBP",
-        _countingPresetDefault(
-            configData,
-            "samParams.extendFrom5pBP",
-            constants.SAM_DEFAULT_EXTEND_FROM_5P_BP,
-        ),
+        constants.SAM_DEFAULT_EXTEND_FROM_5P_BP,
     )
     maxInsertSize = _cfgGet(
         configData,
         "samParams.maxInsertSize",
-        _countingPresetDefault(
-            configData,
-            "samParams.maxInsertSize",
-            constants.SAM_DEFAULT_MAX_INSERT_SIZE,
-        ),
+        constants.SAM_DEFAULT_MAX_INSERT_SIZE,
     )
     inferFragmentLength = _cfgGet(
         configData,
         "samParams.inferFragmentLength",
-        _countingPresetDefault(
-            configData,
-            "samParams.inferFragmentLength",
-            constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
-        ),
+        constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
     )
     normalization.validateBamInputMode(bamInputMode)
     defaultCountMode = normalization.validateCountMode(
@@ -2703,27 +2582,8 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         minTemplateLength=_cfgGet(
             configData,
             "samParams.minTemplateLength",
-            _countingPresetDefault(
-                configData,
-                "samParams.minTemplateLength",
-                constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
-            ),
+            constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
         ),
-    )
-    sourceCountModes = [
-        io_helpers._getSourceCountMode(
-            source,
-            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
-            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
-        )
-        for source in (inputParams.treatmentSources or [])
-        + (inputParams.controlSources or [])
-    ]
-    _validateCountingPresetEndpointSettings(
-        countingPreset,
-        countingParams.normMethod,
-        samArgs.oneReadPerBin,
-        sourceCountModes,
     )
 
     selectionPenaltyMultiplier = _cfgGet(
@@ -2928,7 +2788,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     return {
         "experimentName": experimentName,
         "defaultConfiguration": defaultConfiguration,
-        "countingPreset": countingPreset,
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "outputArgs": outputParams,
@@ -2946,12 +2805,10 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
 
 
 __all__ = [
-    "COUNTING_PRESET_VALUES",
     "DEFAULT_CONFIGURATION_KEYS",
     "DEFAULT_CONFIGURATION_VALUES",
     "GENERIC_DEFAULT_CONFIGURATION",
     "SUPPORTED_DEFAULT_CONFIGURATIONS",
-    "SUPPORTED_COUNTING_PRESETS",
     "_cfgDefault",
     "_cfgGet",
     "_cfgHas",

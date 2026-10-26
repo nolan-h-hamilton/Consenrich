@@ -1222,192 +1222,6 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     assert parsed["matchingArgs"].shrinkChromosomeBudgets is True
 
 
-def _case_readConfigCountingPresets(
-    tmp_path,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    baseConfig = {
-        "experimentName": "countingPresets",
-        "inputParams": {"bamFiles": ["smallTest.bam"]},
-        "genomeParams": {"name": "testGenome"},
-    }
-    baseSnapshot = json.loads(json.dumps(baseConfig))
-    genericParsed = readConfig(baseConfig)
-
-    assert genericParsed["countingPreset"] is None
-    assert genericParsed["samArgs"].bamInputMode == constants.SAM_DEFAULT_BAM_INPUT_MODE
-    assert genericParsed["samArgs"].defaultCountMode == constants.SAM_DEFAULT_COUNT_MODE
-    assert genericParsed["countingArgs"].normMethod == constants.COUNTING_DEFAULT_NORM_METHOD
-    assert baseConfig == baseSnapshot
-
-    expectedRows = {
-        "atac": ("reads", "cutsite", 4, 5, 0, 30, -1, 1000, 3844),
-        "chip-se": ("reads", "coverage", 0, 0, 1, 30, -1, 1000, 3844),
-        "chip-pe": ("fragments", "coverage", 0, 0, 0, 30, 1, 1000, 3844),
-        "dnase": ("auto", "fiveprime", 0, 0, 0, 30, 1, 1000, 3844),
-        "cut-and-run": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
-        "cut-and-tag": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
-    }
-    for countingPreset, expected in expectedRows.items():
-        presetConfig = {**baseConfig, "countingPreset": countingPreset}
-        presetSnapshot = json.loads(json.dumps(presetConfig))
-        parsed = readConfig(presetConfig)
-        samArgs = parsed["samArgs"]
-        resolved = (
-            samArgs.bamInputMode,
-            samArgs.defaultCountMode,
-            samArgs.shiftForward5p,
-            samArgs.shiftReverse5p,
-            samArgs.inferFragmentLength,
-            samArgs.minMappingQuality,
-            samArgs.minTemplateLength,
-            samArgs.maxInsertSize,
-            samArgs.samFlagExclude,
-        )
-        assert resolved == expected, countingPreset
-        assert parsed["countingPreset"] == countingPreset
-        assert parsed["countingArgs"].normMethod == "CPM"
-        assert parsed["scArgs"].defaultCountMode == expected[1]
-        assert parsed["observationArgs"].smoothToFraglen is False
-        assert samArgs.oneReadPerBin == 0
-        assert samArgs.extendFrom5pBP is None
-        assert (
-            parsed["countingArgs"].intervalSizeBP
-            == genericParsed["countingArgs"].intervalSizeBP
-        )
-        assert parsed["countingArgs"].centerMB == genericParsed["countingArgs"].centerMB
-        assert presetConfig == presetSnapshot
-
-    overrideParsed = readConfig(
-        {
-            **baseConfig,
-            "countingPreset": "atac",
-            "inputParams": {
-                "samples": [
-                    {
-                        "path": "smallTest.bam",
-                        "format": "bam",
-                        "countMode": "center",
-                        "bamInputMode": "read1",
-                    }
-                ]
-            },
-            "samParams": {
-                "bamInputMode": "fragments",
-                "defaultCountMode": "coverage",
-                "minMappingQuality": 7,
-                "shiftForward5p": 0,
-            },
-            "countingParams": {"normMethod": "RPKM", "scaleFactors": [0.25]},
-            "scParams": {"defaultCountMode": "center"},
-            "observationParams": {"smoothToFraglen": True},
-        }
-    )
-    overrideSource = overrideParsed["inputArgs"].treatmentSources[0]
-    assert overrideParsed["samArgs"].bamInputMode == "fragments"
-    assert overrideParsed["samArgs"].defaultCountMode == "coverage"
-    assert overrideParsed["samArgs"].minMappingQuality == 7
-    assert overrideParsed["samArgs"].shiftForward5p == 0
-    assert overrideParsed["countingArgs"].normMethod == "RPKM"
-    assert overrideParsed["countingArgs"].scaleFactors == [0.25]
-    assert overrideParsed["scArgs"].defaultCountMode == "center"
-    assert overrideParsed["observationArgs"].smoothToFraglen is True
-    assert overrideSource.bamInputMode == "read1"
-    assert overrideSource.countMode == "center"
-
-    for invalidPreset in ("ATAC", "chip_pe", "", 1):
-        with pytest.raises(ValueError, match="countingPreset"):
-            readConfig({**baseConfig, "countingPreset": invalidPreset})
-    with pytest.raises(ValueError, match="countingPreset: atac"):
-        readConfig({**baseConfig, "configuration": "atac"})
-    with pytest.raises(ValueError, match="Configuration collision"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "samParams": {"defaultCountMode": "coverage"},
-                "samParams.defaultCountMode": "cutsite",
-            }
-        )
-    with pytest.raises(ValueError, match="countingParams.normMethod"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "countingParams": {"normMethod": "unsupported"},
-            }
-        )
-
-    pairedSource = consenrich_core.inputSource(path="paired.bam", sourceKind="BAM")
-    monkeypatch.setattr(
-        consenrich_core,
-        "_isAlignmentSourcePairedEnd",
-        lambda _path: True,
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "chip-se", [pairedSource, pairedSource], ["reads", "reads"], "treatment"
-        )
-    assert caplog.text.count("mates are extended independently") == 1
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "chip-se", [pairedSource], ["fragments"], "treatment"
-        )
-    assert "counts proper templates rather than extending mates independently" in caplog.text
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "atac", [pairedSource], ["read1"], "treatment"
-        )
-    assert "proper-pair-filtered paired-end BAM" in caplog.text
-    caplog.clear()
-
-    monkeypatch.setattr(
-        consenrich_core,
-        "_isAlignmentSourcePairedEnd",
-        lambda _path: False,
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "cut-and-run", [pairedSource], ["fragments"], "treatment"
-        )
-    assert "may yield no proper templates" in caplog.text
-    caplog.clear()
-
-    fragmentsSource = consenrich_core.inputSource(
-        path="sample.fragments.tsv.gz",
-        sourceKind="FRAGMENTS",
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "atac", [fragmentsSource], ["reads"], "treatment"
-        )
-    assert "BAM shifts, MAPQ, SAM flags, and TLEN filters do not apply" in caplog.text
-
-    with pytest.raises(ValueError, match="normMethod=EGS"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "countingParams": {"normMethod": "EGS"},
-            }
-        )
-    with pytest.raises(ValueError, match="oneReadPerBin=0"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "samParams": {"oneReadPerBin": 1},
-            }
-        )
-
-
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     defaults = consenrich_config.DEFAULT_CONFIGURATION_VALUES[
         consenrich_config.GENERIC_DEFAULT_CONFIGURATION
@@ -3872,7 +3686,7 @@ def test_precision_median_scaling_config_options(
 
 
 def test_config_parser_defaults_and_override_contracts(
-    tmp_path, monkeypatch, contract_case, caplog
+    tmp_path, monkeypatch, contract_case
 ):
     for label, func in (
         (
@@ -3930,14 +3744,6 @@ def test_config_parser_defaults_and_override_contracts(
     contract_case(
         "canonical uncertainty default keys",
         _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys,
-    )
-    contract_case(
-        "assay counting presets",
-        _run_with_monkeypatch,
-        monkeypatch,
-        _case_readConfigCountingPresets,
-        tmp_path,
-        caplog,
     )
 
 
@@ -5187,12 +4993,23 @@ def test_cli_rejects_peak_options(flags, capsys):
 def test_cli_failure_guidance(flags, exitCode, monkeypatch, capsys, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(consenrich_cli.sys, "argv", ["consenrich", *flags])
-    with pytest.raises(SystemExit) as error:
-        consenrich_cli.main()
-    assert error.value.code == exitCode
-    output = capsys.readouterr().err
-    assert "  * See documentation: https://nolan-h-hamilton.github.io/Consenrich/" in output
-    assert "or see CLI help `consenrich -h`" in output
+    packageLogger = logging.getLogger("consenrich")
+    savedHandlers = packageLogger.handlers
+    savedLevel = packageLogger.level
+    savedPropagate = packageLogger.propagate
+    packageLogger.handlers = []
+    try:
+        with pytest.raises(SystemExit) as error:
+            consenrich_cli.main()
+        assert error.value.code == exitCode
+        output = capsys.readouterr().err
+        assert "  * See documentation: https://nolan-h-hamilton.github.io/Consenrich/" in output
+        assert "or see CLI help `consenrich -h`" in output
+    finally:
+        consenrich_cli._removeCliHandlers(packageLogger)
+        packageLogger.handlers = savedHandlers
+        packageLogger.setLevel(savedLevel)
+        packageLogger.propagate = savedPropagate
 
 
 @pytest.mark.parametrize("flags", [[], ["--verbose2"]])

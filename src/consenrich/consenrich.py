@@ -4359,7 +4359,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("version", __version__),
         ("experiment", config.get("experimentName", "")),
         ("defaults", config.get("defaultConfiguration", "generic")),
-        ("counting preset", config.get("countingPreset") or "none"),
         ("genome", getattr(genomeArgs, "genomeName", "")),
         ("chromosome count", len(getattr(genomeArgs, "chromosomes", []) or [])),
         ("treatment inputs", len(getattr(inputArgs, "treatmentSources", []) or [])),
@@ -4454,230 +4453,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
     )
     core._logEvent("config.initial", rows, logger_=logger)
-
-
-def _warnCountingPresetSourceSemantics(
-    countingPreset: Optional[str],
-    sources: Sequence[core.inputSource],
-    bamInputModes: Sequence[str],
-    sampleGroup: str,
-) -> None:
-    if countingPreset is None:
-        return
-    pairedExpectedPresets = {"chip-pe", "cut-and-run", "cut-and-tag"}
-    layoutCheckedPresets = pairedExpectedPresets | {"atac", "chip-se"}
-    seenSources: set[tuple[str, str, str]] = set()
-    for sourceIndex, (source, bamInputMode) in enumerate(
-        zip(sources, bamInputModes, strict=True),
-        start=1,
-    ):
-        sourceKind = str(source.sourceKind).upper()
-        sourceKey = (str(source.path), sourceKind, str(bamInputMode))
-        if sourceKey in seenSources:
-            continue
-        seenSources.add(sourceKey)
-        sourceFields = (
-            ("counting preset", countingPreset),
-            ("sample group", sampleGroup),
-            ("source index", sourceIndex),
-            ("path", source.path),
-            ("source kind", sourceKind),
-            (
-                "bam input mode",
-                bamInputMode if sourceKind in core.ALIGNMENT_SOURCE_KINDS else None,
-            ),
-            ("settings rewritten", False),
-        )
-        if sourceKind == core.FRAGMENTS_SOURCE_KIND:
-            core._logEvent(
-                "config.counting_preset.fragments_text_advisory",
-                sourceFields
-                + (
-                    (
-                        "message",
-                        "`FRAGMENTS` text input detected. BAM shifts, MAPQ, SAM "
-                        "flags, and TLEN filters do not apply to this source. "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-            continue
-        if (
-            sourceKind not in core.ALIGNMENT_SOURCE_KINDS
-            or countingPreset not in layoutCheckedPresets
-        ):
-            continue
-        pairedEnd = core._isAlignmentSourcePairedEnd(source.path)
-        detectedLayout = "paired-end" if pairedEnd else "single-end"
-        if countingPreset == "chip-se" and pairedEnd:
-            expectedLayout = "single-end"
-            if bamInputMode == "reads":
-                consequence = (
-                    "In reads mode, paired-end mates are extended independently."
-                )
-            elif bamInputMode == "read1":
-                consequence = "Resolved read1 mode counts only read1 alignments."
-            else:
-                consequence = (
-                    "Resolved fragments mode counts proper templates rather than "
-                    "extending mates independently."
-                )
-        elif countingPreset in pairedExpectedPresets and not pairedEnd:
-            expectedLayout = "paired-end"
-            if bamInputMode == "fragments":
-                consequence = (
-                    "Fragment-mode counting may yield no proper templates for this "
-                    "source."
-                )
-            else:
-                consequence = (
-                    f"Resolved {bamInputMode} mode counts alignments without a "
-                    "proper-template requirement."
-                )
-        else:
-            expectedLayout = None
-            consequence = None
-        if expectedLayout is not None:
-            core._logEvent(
-                "config.counting_preset.layout_mismatch",
-                sourceFields
-                + (
-                    ("expected layout", expectedLayout),
-                    ("detected layout", detectedLayout),
-                    (
-                        "message",
-                        f"`countingPreset={countingPreset}` expects "
-                        f"{expectedLayout} BAM input, but {detectedLayout} reads "
-                        f"were detected in {source.path}. {consequence} "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-        if (
-            countingPreset == "atac"
-            and pairedEnd
-            and bamInputMode in {"reads", "read1"}
-        ):
-            ATACGeometry = "per-end" if bamInputMode == "reads" else "read1"
-            core._logEvent(
-                "config.counting_preset.atac_paired_advisory",
-                sourceFields
-                + (
-                    ("detected layout", detectedLayout),
-                    (
-                        "message",
-                        f"Paired-end ATAC BAM input is counted in {bamInputMode} "
-                        f"mode. {ATACGeometry} Tn5 shifts are applied, but "
-                        "proper-pair flags are not required. Provide a "
-                        "proper-pair-filtered "
-                        "paired-end BAM to ensure only proper pairs contribute. "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-
-
-def _logResolvedCountingPresetSources(
-    countingPreset: str,
-    sources: Sequence[core.inputSource],
-    bamInputModes: Sequence[str],
-    countModes: Sequence[str],
-    extendFrom5pBPValues: Sequence[int],
-    characteristicFragmentLengths: Sequence[int],
-    sampleGroup: str,
-    normMethod: Optional[str],
-    smoothToFraglen: bool,
-    samArgs: core.samParams,
-    scArgs: Any,
-) -> None:
-    for sourceIndex, (
-        source,
-        bamInputMode,
-        countMode,
-        extendFrom5pBP,
-        characteristicFragmentLength,
-    ) in enumerate(
-        zip(
-            sources,
-            bamInputModes,
-            countModes,
-            extendFrom5pBPValues,
-            characteristicFragmentLengths,
-            strict=True,
-        ),
-        start=1,
-    ):
-        sourceKind = str(source.sourceKind).upper()
-        isBAM = sourceKind in core.ALIGNMENT_SOURCE_KINDS
-        isFragmentsText = sourceKind == core.FRAGMENTS_SOURCE_KIND
-        fragmentPositionMode = (
-            normalization.validateChoice(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode,
-                default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-                supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
-                paramName='fragmentPositionMode',
-            )
-            if isFragmentsText
-            else None
-        )
-        sourceFlagExclude = (
-            core._resolveSourceFlagExclude(samArgs.samFlagExclude, bamInputMode)
-            if isBAM
-            else None
-        )
-        core._logEvent(
-            "config.counting_preset.source",
-            (
-                ("counting preset", countingPreset),
-                ("sample group", sampleGroup),
-                ("source index", sourceIndex),
-                ("path", source.path),
-                ("source kind", sourceKind),
-                ("count mode", countMode),
-                ("normalization", normMethod),
-                ("smooth to fragment length", bool(smoothToFraglen)),
-                ("bam input mode", bamInputMode if isBAM else None),
-                ("fragment position mode", fragmentPositionMode),
-                (
-                    "fragments use read support",
-                    source.fragmentsUseReadSupport if isFragmentsText else None,
-                ),
-                (
-                    "one read per bin",
-                    int(samArgs.oneReadPerBin)
-                    if sourceKind != core.BEDGRAPH_SOURCE_KIND
-                    else None,
-                ),
-                ("shift forward 5p", samArgs.shiftForward5p if isBAM else None),
-                ("shift reverse 5p", samArgs.shiftReverse5p if isBAM else None),
-                ("extend from 5p bp", int(extendFrom5pBP) if isBAM else None),
-                (
-                    "characteristic fragment length",
-                    int(characteristicFragmentLength) if isBAM else None,
-                ),
-                (
-                    "infer fragment length",
-                    samArgs.inferFragmentLength if isBAM else None,
-                ),
-                ("sam flag exclude", sourceFlagExclude),
-                (
-                    "minimum mapping quality",
-                    samArgs.minMappingQuality if isBAM else None,
-                ),
-                (
-                    "minimum template length",
-                    samArgs.minTemplateLength if isBAM else None,
-                ),
-                ("maximum insert size", samArgs.maxInsertSize if isBAM else None),
-            ),
-            logger_=logger,
-        )
 
 
 def _resolveCenterMBStatus(
@@ -5293,7 +5068,6 @@ def main():
 def _runConfigured(config, args, sharedReferenceGrid=None):
     cliRunStart = time.perf_counter()
     experimentName = config["experimentName"]
-    countingPreset = config.get("countingPreset")
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
     correlationLengthPath = _correlationLengthPath(str(experimentName))
     correlationLengthPlotPath = _correlationLengthPlotPath(str(experimentName))
@@ -5688,11 +5462,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             if str(countMode) in singleBinCountModes
         }
     )
-    if (
-        bool(smoothToFraglen_)
-        and singleBinActiveCountModes
-        and countingPreset is None
-    ):
+    if bool(smoothToFraglen_) and singleBinActiveCountModes:
         singleBinDisplayModes = [
             "center/midpoint" if mode == "center" else mode
             for mode in singleBinActiveCountModes
@@ -5737,18 +5507,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             controlCountModes,
         )
     ]
-    _warnCountingPresetSourceSemantics(
-        countingPreset,
-        treatmentSources,
-        treatmentBamInputModes,
-        "treatment",
-    )
-    _warnCountingPresetSourceSemantics(
-        countingPreset,
-        controlSources,
-        controlBamInputModes,
-        "control",
-    )
     treatmentNativeCountModes = [
         normalization.nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
     ]
@@ -5973,34 +5731,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 characteristicFragmentLengthsControl,
             )
         ]
-
-    if args.verbose and countingPreset is not None:
-        _logResolvedCountingPresetSources(
-            countingPreset,
-            treatmentSources,
-            treatmentBamInputModes,
-            treatmentCountModes,
-            countExtendFrom5pBPTreatment,
-            characteristicFragmentLengthsTreatment,
-            "treatment",
-            normMethod_,
-            smoothToFraglen_,
-            samArgs,
-            scArgs,
-        )
-        _logResolvedCountingPresetSources(
-            countingPreset,
-            controlSources,
-            controlBamInputModes,
-            controlCountModes,
-            countExtendFrom5pBPControl,
-            characteristicFragmentLengthsControl,
-            "control",
-            normMethod_,
-            smoothToFraglen_,
-            samArgs,
-            scArgs,
-        )
 
     try:
         if controlsPresent:

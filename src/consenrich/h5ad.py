@@ -60,6 +60,8 @@ def _readGrid(fileHandle, chromSizes, intervalSizeBP=None):
     if len(widths) > 1:
         raise ValueError("H5AD bins must have one regular interval width.")
     inferredWidth = next(iter(widths), None)
+
+
     if intervalSizeBP is not None:
         if inferredWidth is not None and inferredWidth != intervalSizeBP:
             raise ValueError(
@@ -103,6 +105,7 @@ def _selectedBlocks(matrix, rowIndices, left, right):
     if getattr(matrix, "format", None) == "csc":
         for colStart in range(left, right, 4096):
             colEnd = min(colStart + 4096, right)
+            # read up to 4096 columns, then select rows
             yield colStart - left, matrix[:, colStart:colEnd][rowIndices, :]
         return
     for rowStart in range(0, matrix.shape[0], 1024):
@@ -111,10 +114,12 @@ def _selectedBlocks(matrix, rowIndices, left, right):
         if selectedRows.size == 0:
             continue
         if getattr(matrix, "format", None) == "csr":
+            # read up to 1024 rows, then select rows and columns
             yield 0, matrix[rowStart:rowEnd, :][selectedRows, left:right]
             continue
         for colStart in range(left, right, 4096):
             colEnd = min(colStart + 4096, right)
+            # read up to 4096 columns from the row block, then select rows
             yield colStart - left, matrix[rowStart:rowEnd, colStart:colEnd][selectedRows, :]
 
 
@@ -202,6 +207,8 @@ def prepareSources(sources, genomeArgs, countingArgs):
                 raise ValueError("H5AD input requires `.obs`.")
             frame = read_elem(fileHandle["obs"])
             spec = source.cellMetadata or {}
+
+            # (barcode, sample) pairs: barcode is identified together with its donor.
             barcodeColumn, sampleColumn = spec.get("barcodeColumn"), spec.get("sampleColumn")
             for column in (barcodeColumn, sampleColumn):
                 if column is not None and column not in frame.columns:
@@ -258,6 +265,7 @@ def readCounts(source, chromosome, start, end, intervalSizeBP):
         raise ValueError("H5AD requested range must follow the stored bin grid.")
     left, _ = info["chromosomeSlices"][chromosome]
     colStart = left + start // intervalSizeBP
+    # includes a shorter chromosome-end bin
     colEnd = left + (end + intervalSizeBP - 1) // intervalSizeBP
     with _openFile(source.path) as fileHandle:
         matrix = _readMatrix(fileHandle)

@@ -26,11 +26,6 @@ def validateChoice(
 
 
 def validateDefaultConfigurationName(value: Any) -> str:
-    if isinstance(value, str) and value in constants.SUPPORTED_COUNTING_PRESETS:
-        raise ValueError(
-            f"Unsupported default configuration {value!r}. "
-            f"Set countingPreset: {value} for assay counting."
-        )
     return validateChoice(
         value,
         default=constants.GENERIC_DEFAULT_CONFIGURATION,
