@@ -29,10 +29,7 @@ import pandas as pd
 from scipy import stats
 
 from . import cconsenrich
-from ._normalization import (
-    normalize_matching_uncertainty_score_mode as _sharedNormalizeUncertaintyScoreMode,
-    validate_uncertainty_score_z as _sharedValidateUncertaintyScoreZ,
-)
+from . import _normalization as normalization
 
 from .constants import (
     EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER,
@@ -49,6 +46,7 @@ from .constants import (
     MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
     MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     MATCHING_PEAK_MODES,
+    MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     NESTED_ROCCO_ITERS_DEFAULT,
     NESTED_ROCCO_JACCARD_DEFAULT,
@@ -181,30 +179,6 @@ def _validateMinMeanSignal(value: float | None) -> float | None:
     if not np.isfinite(score):
         raise ValueError("`minMeanSignal` must be a finite number or None")
     return score
-
-
-def _normalizeUncertaintyScoreMode(value: str | None) -> str:
-    return _sharedNormalizeUncertaintyScoreMode(
-        value,
-        config_name="uncertaintyScoreMode",
-        allow_consenrich_state_alias=True,
-    )
-
-
-def _validateUncertaintyScoreZ(value: float) -> float:
-    return _sharedValidateUncertaintyScoreZ(
-        value,
-        config_name="uncertaintyScoreZ",
-    )
-
-
-def _normalizeRoccoPeakMode(value: str | None) -> str:
-    raw = _MATCHING_DEFAULT_PEAK_MODE if value is None else value
-    peakMode = str(raw)
-    if peakMode in MATCHING_PEAK_MODES:
-        return peakMode
-    supported = ", ".join(MATCHING_PEAK_MODES)
-    raise ValueError(f"Unsupported peakMode {value!r}. Supported values: {supported}.")
 
 
 def _validateBroadWeakThresholdZ(value: float) -> float:
@@ -366,8 +340,16 @@ def consenrichStateScoreTrack(
 ) -> np.ndarray | Tuple[np.ndarray, Dict[str, Any]]:
     r"""Build the Consenrich-derived ROCCO score track."""
     state_ = _asFloatVector("state", state)
-    mode = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
-    z_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
+    mode = normalization.validateChoice(
+        uncertaintyScoreMode,
+        default=_MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+        supported=MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
+        paramName="uncertaintyScoreMode",
+    )
+    z_ = normalization.validateFiniteNonnegativeFloat(
+        uncertaintyScoreZ,
+        paramName="uncertaintyScoreZ",
+    )
     scoreTrack = state_
     seMode = "none"
     uncertaintyAvailable = False
@@ -3399,7 +3381,12 @@ def solveRocco(
         "residualDurationBP", residualDurationBP
     )
     featureDurationBP_ = _validateDurationBP("featureDurationBP", featureDurationBP)
-    peakMode_ = _normalizeRoccoPeakMode(peakMode)
+    peakMode_ = normalization.validateChoice(
+        peakMode,
+        default=_MATCHING_DEFAULT_PEAK_MODE,
+        supported=MATCHING_PEAK_MODES,
+        paramName="peakMode",
+    )
     broadEnabled = peakMode_ in {"broad", "both"}
     mergeToleranceBP_ = _validateBroadSize(
         "mergeToleranceBP", mergeToleranceBP, broadEnabled
@@ -3436,8 +3423,16 @@ def solveRocco(
             thresholdZ_,
         )
         broadWeakThresholdZ_ = thresholdZ_
-    uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
-    uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
+    uncertaintyScoreMode_ = normalization.validateChoice(
+        uncertaintyScoreMode,
+        default=_MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+        supported=MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
+        paramName="uncertaintyScoreMode",
+    )
+    uncertaintyScoreZ_ = normalization.validateFiniteNonnegativeFloat(
+        uncertaintyScoreZ,
+        paramName="uncertaintyScoreZ",
+    )
     if not isinstance(useLocalBootStrapRadius, (bool, np.bool_)):
         raise ValueError("useLocalBootStrapRadius must be boolean")
     useLocalBootStrapRadius_ = bool(useLocalBootStrapRadius)

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from consenrich import _normalization as normalization
 from consenrich.config import readConfig
 import consenrich.consenrich as consenrich_cli
 import consenrich.config as consenrich_config
@@ -180,18 +181,18 @@ def _case_ensureInput():
 
 
 def _caseScaleFactorNormalizationBroadcastsSingletons():
-    assert consenrich_io._normalizeScaleFactorList(
+    assert normalization.expandScaleFactors(
         [0.25],
         3,
         "countingParams.scaleFactorsControl",
     ) == [0.25, 0.25, 0.25]
-    assert consenrich_io._normalizeScaleFactorList(
+    assert normalization.expandScaleFactors(
         [1.0, 2.0, 3.0],
         3,
         "countingParams.scaleFactors",
     ) == [1.0, 2.0, 3.0]
     with pytest.raises(ValueError, match="must contain 1 value or 3 values"):
-        consenrich_io._normalizeScaleFactorList(
+        normalization.expandScaleFactors(
             [1.0, 2.0],
             3,
             "countingParams.scaleFactorsControl",
@@ -209,7 +210,7 @@ def _case_readConfigGenericCountTransform(
     experimentName: genericTransform
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    countingParams.transformMethod: asinh_sqrt
+    countingParams.transformMethod: asinhSqrt
     countingParams.transformInputOffset: 0.25
     countingParams.transformInputScale: 2.0
     countingParams.transformOutputScale: 2.0
@@ -840,7 +841,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       dependenceMinFinitePairs: 175
       dependenceMinFinitePairCoverage: 0.65
     matchingParams:
-      uncertaintyScoreMode: lower-confidence
+      uncertaintyScoreMode: lower_confidence
       uncertaintyScoreZ: 1.25
       numRegionReplays: 17
       useLocalBootStrapRadius: false
@@ -1007,7 +1008,7 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
         experimentName: testExperiment
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
-        outputParams.diagnosticTracks: [slope, pre-kappa-q-level, effective-q-trend, munc-trace, trend]
+        outputParams.diagnosticTracks: [slope, preKappaQLevel, effectiveQTrend, muncTrace, slope]
         """,
     )
 
@@ -1019,11 +1020,11 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
         "effectiveQTrend",
         "muncTrace",
     )
-    assert consenrich_config._normalizeOutputDiagnosticTracks("all") == tuple(
+    assert normalization.validateDiagnosticTracks("all") == tuple(
         constants.OUTPUT_DIAGNOSTIC_TRACK_NAMES
     )
-    with pytest.raises(ValueError, match="Unsupported output diagnostic track"):
-        consenrich_config._normalizeOutputDiagnosticTracks(["notATrack"])
+    with pytest.raises(ValueError, match="outputParams.diagnosticTracks"):
+        normalization.validateDiagnosticTracks(["notATrack"])
 
 
 def _case_readConfigBroadcastsSharedControlScaleFactor(
@@ -1046,6 +1047,15 @@ def _case_readConfigBroadcastsSharedControlScaleFactor(
     assert parsed["inputArgs"].bamFilesControl == ["control.bam", "control.bam"]
     assert parsed["countingArgs"].scaleFactors is None
     assert parsed["countingArgs"].scaleFactorsControl == [0.25, 0.25]
+    configData = consenrich_config.loadConfig(configPath)
+    for sampleCount in (1, 3):
+        configData["inputParams.bamFiles"] = [
+            f"treat{index}.bam" for index in range(sampleCount)
+        ]
+        configData["countingParams.scaleFactors"] = [0.5]
+        countingArgs = readConfig(configData)["countingArgs"]
+        assert countingArgs.scaleFactors == [0.5] * sampleCount
+        assert countingArgs.scaleFactorsControl == [0.25] * sampleCount
 
 
 def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -1210,192 +1220,6 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         is True
     )
     assert parsed["matchingArgs"].shrinkChromosomeBudgets is True
-
-
-def _case_readConfigCountingPresets(
-    tmp_path,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    baseConfig = {
-        "experimentName": "countingPresets",
-        "inputParams": {"bamFiles": ["smallTest.bam"]},
-        "genomeParams": {"name": "testGenome"},
-    }
-    baseSnapshot = json.loads(json.dumps(baseConfig))
-    genericParsed = readConfig(baseConfig)
-
-    assert genericParsed["countingPreset"] is None
-    assert genericParsed["samArgs"].bamInputMode == constants.SAM_DEFAULT_BAM_INPUT_MODE
-    assert genericParsed["samArgs"].defaultCountMode == constants.SAM_DEFAULT_COUNT_MODE
-    assert genericParsed["countingArgs"].normMethod == constants.COUNTING_DEFAULT_NORM_METHOD
-    assert baseConfig == baseSnapshot
-
-    expectedRows = {
-        "atac": ("reads", "cutsite", 4, 5, 0, 30, -1, 1000, 3844),
-        "chip-se": ("reads", "coverage", 0, 0, 1, 30, -1, 1000, 3844),
-        "chip-pe": ("fragments", "coverage", 0, 0, 0, 30, 1, 1000, 3844),
-        "dnase": ("auto", "fiveprime", 0, 0, 0, 30, 1, 1000, 3844),
-        "cut-and-run": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
-        "cut-and-tag": ("fragments", "coverage", 0, 0, 0, 20, 10, 1000, 2820),
-    }
-    for countingPreset, expected in expectedRows.items():
-        presetConfig = {**baseConfig, "countingPreset": countingPreset}
-        presetSnapshot = json.loads(json.dumps(presetConfig))
-        parsed = readConfig(presetConfig)
-        samArgs = parsed["samArgs"]
-        resolved = (
-            samArgs.bamInputMode,
-            samArgs.defaultCountMode,
-            samArgs.shiftForward5p,
-            samArgs.shiftReverse5p,
-            samArgs.inferFragmentLength,
-            samArgs.minMappingQuality,
-            samArgs.minTemplateLength,
-            samArgs.maxInsertSize,
-            samArgs.samFlagExclude,
-        )
-        assert resolved == expected, countingPreset
-        assert parsed["countingPreset"] == countingPreset
-        assert parsed["countingArgs"].normMethod == "CPM"
-        assert parsed["scArgs"].defaultCountMode == expected[1]
-        assert parsed["observationArgs"].smoothToFraglen is False
-        assert samArgs.oneReadPerBin == 0
-        assert samArgs.extendFrom5pBP is None
-        assert (
-            parsed["countingArgs"].intervalSizeBP
-            == genericParsed["countingArgs"].intervalSizeBP
-        )
-        assert parsed["countingArgs"].centerMB == genericParsed["countingArgs"].centerMB
-        assert presetConfig == presetSnapshot
-
-    overrideParsed = readConfig(
-        {
-            **baseConfig,
-            "countingPreset": "atac",
-            "inputParams": {
-                "samples": [
-                    {
-                        "path": "smallTest.bam",
-                        "format": "bam",
-                        "countMode": "center",
-                        "bamInputMode": "read1",
-                    }
-                ]
-            },
-            "samParams": {
-                "bamInputMode": "fragments",
-                "defaultCountMode": "coverage",
-                "minMappingQuality": 7,
-                "shiftForward5p": 0,
-            },
-            "countingParams": {"normMethod": "RPKM", "scaleFactors": [0.25]},
-            "scParams": {"defaultCountMode": "center"},
-            "observationParams": {"smoothToFraglen": True},
-        }
-    )
-    overrideSource = overrideParsed["inputArgs"].treatmentSources[0]
-    assert overrideParsed["samArgs"].bamInputMode == "fragments"
-    assert overrideParsed["samArgs"].defaultCountMode == "coverage"
-    assert overrideParsed["samArgs"].minMappingQuality == 7
-    assert overrideParsed["samArgs"].shiftForward5p == 0
-    assert overrideParsed["countingArgs"].normMethod == "RPKM"
-    assert overrideParsed["countingArgs"].scaleFactors == [0.25]
-    assert overrideParsed["scArgs"].defaultCountMode == "center"
-    assert overrideParsed["observationArgs"].smoothToFraglen is True
-    assert overrideSource.bamInputMode == "read1"
-    assert overrideSource.countMode == "center"
-
-    for invalidPreset in ("ATAC", "chip_pe", "", 1):
-        with pytest.raises(ValueError, match="countingPreset"):
-            readConfig({**baseConfig, "countingPreset": invalidPreset})
-    with pytest.raises(ValueError, match="countingPreset: atac"):
-        readConfig({**baseConfig, "configuration": "atac"})
-    with pytest.raises(ValueError, match="Configuration collision"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "samParams": {"defaultCountMode": "coverage"},
-                "samParams.defaultCountMode": "cutsite",
-            }
-        )
-    with pytest.raises(ValueError, match="countingParams.normMethod"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "countingParams": {"normMethod": "unsupported"},
-            }
-        )
-
-    pairedSource = consenrich_core.inputSource(path="paired.bam", sourceKind="BAM")
-    monkeypatch.setattr(
-        consenrich_core,
-        "_isAlignmentSourcePairedEnd",
-        lambda _path: True,
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "chip-se", [pairedSource, pairedSource], ["reads", "reads"], "treatment"
-        )
-    assert caplog.text.count("mates are extended independently") == 1
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "chip-se", [pairedSource], ["fragments"], "treatment"
-        )
-    assert "counts proper templates rather than extending mates independently" in caplog.text
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "atac", [pairedSource], ["read1"], "treatment"
-        )
-    assert "proper-pair-filtered paired-end BAM" in caplog.text
-    caplog.clear()
-
-    monkeypatch.setattr(
-        consenrich_core,
-        "_isAlignmentSourcePairedEnd",
-        lambda _path: False,
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "cut-and-run", [pairedSource], ["fragments"], "treatment"
-        )
-    assert "may yield no proper templates" in caplog.text
-    caplog.clear()
-
-    fragmentsSource = consenrich_core.inputSource(
-        path="sample.fragments.tsv.gz",
-        sourceKind="FRAGMENTS",
-    )
-    with caplog.at_level(logging.WARNING):
-        consenrich_cli._warnCountingPresetSourceSemantics(
-            "atac", [fragmentsSource], ["reads"], "treatment"
-        )
-    assert "BAM shifts, MAPQ, SAM flags, and TLEN filters do not apply" in caplog.text
-
-    with pytest.raises(ValueError, match="normMethod=EGS"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "countingParams": {"normMethod": "EGS"},
-            }
-        )
-    with pytest.raises(ValueError, match="oneReadPerBin=0"):
-        readConfig(
-            {
-                **baseConfig,
-                "countingPreset": "atac",
-                "samParams": {"oneReadPerBin": 1},
-            }
-        )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -2007,75 +1831,6 @@ def _case_runtime_defaults_are_centralized(
     )
 
     cliDefaults = consenrich_cli._buildArgParser().parse_args([])
-    assert cliDefaults.matchResidualDurationBP is None
-    assert cliDefaults.matchFeatureDurationBP is None
-    assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
-    assert (
-        cliDefaults.matchNumRegionReplays
-        == constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS
-    )
-    assert cliDefaults.matchShrinkChromosomeBudgets is True
-    assert not consenrich_cli._buildArgParser().parse_args(
-        ["--match-no-chromosome-budget-shrinkage"]
-    ).matchShrinkChromosomeBudgets
-    assert cliDefaults.matchUseLocalBootStrapRadius is True
-    assert (
-        consenrich_cli._buildArgParser()
-        .parse_args(["--match-no-local-bootstrap-radius"])
-        .matchUseLocalBootStrapRadius
-        is False
-    )
-    assert (
-        cliDefaults.matchPlotNullCalibrationDiagnostics
-        is constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
-        is True
-    )
-    assert (
-        consenrich_cli._buildArgParser()
-        .parse_args(["--match-no-null-calibration-diagnostics"])
-        .matchPlotNullCalibrationDiagnostics
-        is False
-    )
-    assert cliDefaults.matchThresholdZ == constants.MATCHING_DEFAULT_THRESHOLD_Z
-    assert (
-        cliDefaults.matchNestedRoccoIters
-        == constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS
-    )
-    assert (
-        cliDefaults.matchNestedRoccoBudgetScale
-        == constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE
-    )
-    assert cliDefaults.matchExportFilterUncertaintyMultiplier == (
-        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
-    )
-    assert cliDefaults.matchUncertaintyScoreMode == (
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
-    )
-    assert cliDefaults.matchUncertaintyScoreZ == pytest.approx(
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
-    )
-    assert cliDefaults.matchMinMeanSignal is constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL
-    assert cliDefaults.matchPeakMode == constants.MATCHING_DEFAULT_PEAK_MODE
-    assert cliDefaults.matchPeakMode == "both"
-    cliNarrow = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "narrow"]
-    )
-    cliBroad = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "broad"]
-    )
-    cliBoth = consenrich_cli._buildArgParser().parse_args(
-        ["--match-peak-mode", "both"]
-    )
-    assert cliNarrow.matchPeakMode == "narrow"
-    assert cliBroad.matchPeakMode == "broad"
-    assert cliBoth.matchPeakMode == "both"
-    assert cliDefaults.matchBroadWeakThresholdZ == pytest.approx(
-        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
-    )
-    assert cliDefaults.matchBroadWeakThresholdZ <= cliDefaults.matchThresholdZ
-    assert cliDefaults.matchMergeToleranceBP == 12_000
-    assert cliDefaults.matchMaxRegionBP == 50_000
-    assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
     assert cliDefaults.logFile is None
     assert cliDefaults.verbosity is None
     assert cliDefaults.progress is None
@@ -2788,7 +2543,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     uncertaintyCalibrationParams.enabled: false
-    uncertaintyCalibrationParams.mode: delete-block-state
+    uncertaintyCalibrationParams.mode: delete_block_state
     uncertaintyCalibrationParams.blockSizeBP: 25000
     uncertaintyCalibrationParams.folds: 3
     uncertaintyCalibrationParams.refitThreads: 1
@@ -2797,10 +2552,10 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
     uncertaintyCalibrationParams.targetCalibrationDelta: 0.025
     uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
-    uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance-difference
+    uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance_difference
     uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation: true
     uncertaintyCalibrationParams.deleteBlockReplicateDependenceRho: 0.35
-    uncertaintyCalibrationParams.deleteBlockTargetSignal: state-plus-background
+    uncertaintyCalibrationParams.deleteBlockTargetSignal: state_plus_background
     uncertaintyCalibrationParams.deleteBlockFactorModel: segShrink
     uncertaintyCalibrationParams.deleteBlockFactorSegmentCount: 7
     uncertaintyCalibrationParams.deleteBlockFactorBootstrapReplicates: 9
@@ -2809,7 +2564,7 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8
     uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 1.0e-7
     uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction: 0.5
-    uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrt-information-fraction
+    uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrt_information_fraction
     uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration: true
     """
     parsedExplicit = readConfig(
@@ -3931,7 +3686,7 @@ def test_precision_median_scaling_config_options(
 
 
 def test_config_parser_defaults_and_override_contracts(
-    tmp_path, monkeypatch, contract_case, caplog
+    tmp_path, monkeypatch, contract_case
 ):
     for label, func in (
         (
@@ -3989,14 +3744,6 @@ def test_config_parser_defaults_and_override_contracts(
     contract_case(
         "canonical uncertainty default keys",
         _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys,
-    )
-    contract_case(
-        "assay counting presets",
-        _run_with_monkeypatch,
-        monkeypatch,
-        _case_readConfigCountingPresets,
-        tmp_path,
-        caplog,
     )
 
 
@@ -5214,3 +4961,124 @@ def test_dependence_config_rejects_out_of_range_values(
     )
     with pytest.raises(ValueError, match=fieldName):
         readConfig(str(configPath))
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--match-bedGraph", "signal.bedGraph"],
+        ["--match-num-bootstrap", "1"],
+        ["--match-no-local-bootstrap-radius"],
+    ],
+)
+def test_cli_rejects_peak_options(flags, capsys):
+    with pytest.raises(SystemExit) as error:
+        consenrich_cli._buildArgParser().parse_args(flags)
+    assert error.value.code == 2
+    output = capsys.readouterr().err
+    assert "unrecognized arguments: " + " ".join(flags) in output
+    assert "or see CLI help `consenrich -h`" in output
+
+
+@pytest.mark.parametrize(
+    ("flags", "exitCode"),
+    [
+        ([], 1),
+        (["--config", "missing.yaml"], 1),
+        (["--config"], 2),
+        (["--verbosity", "invalid"], 2),
+        (["--set", "experimentName=example"], 2),
+    ],
+)
+def test_cli_failure_guidance(flags, exitCode, monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(consenrich_cli.sys, "argv", ["consenrich", *flags])
+    packageLogger = logging.getLogger("consenrich")
+    savedHandlers = packageLogger.handlers
+    savedLevel = packageLogger.level
+    savedPropagate = packageLogger.propagate
+    packageLogger.handlers = []
+    try:
+        with pytest.raises(SystemExit) as error:
+            consenrich_cli.main()
+        assert error.value.code == exitCode
+        output = capsys.readouterr().err
+        assert "  * See documentation: https://nolan-h-hamilton.github.io/Consenrich/" in output
+        assert "or see CLI help `consenrich -h`" in output
+    finally:
+        consenrich_cli._removeCliHandlers(packageLogger)
+        packageLogger.handlers = savedHandlers
+        packageLogger.setLevel(savedLevel)
+        packageLogger.propagate = savedPropagate
+
+
+@pytest.mark.parametrize("flags", [[], ["--verbose2"]])
+def test_cli_config_overrides(tmp_path, monkeypatch, flags):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    configPath = writeConfigFile(tmp_path, "overrides.yaml", """
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        samParams: {samThreads: 1}
+        loggingParams: {verbosity: quiet, progress: on}
+    """)
+    sourceText = configPath.read_text()
+    captured = []
+    monkeypatch.setattr(consenrich_cli, "_configureCliLogging", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        consenrich_cli, "executeFits", lambda *args: captured.append(args)
+    )
+    argv = ["consenrich", "--config", str(configPath)]
+    for assignment in (
+        "samParams.samThreads=2",
+        "samParams.samThreads=3",
+        "countingParams.intervalSizeBP=25",
+        "loggingParams.verbosity=verbose",
+        "loggingParams.progress=off",
+    ):
+        argv.extend(("--set", assignment))
+    monkeypatch.setattr(consenrich_cli.sys, "argv", argv + flags)
+    consenrich_cli.main()
+    config, args, runConfigured, configureLogging = captured[0]
+    assert runConfigured is consenrich_cli._runConfigured
+    assert configureLogging is consenrich_cli._configureCliLogging
+    assert config["samArgs"].samThreads == 3
+    assert config["countingArgs"].intervalSizeBP == 25
+    assert args.verbosity == ("debug" if flags else "verbose")
+    assert args.progress == "off"
+    assert configPath.read_text() == sourceText
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0, 0),
+        (7, 7),
+        (np.int64(9), 9),
+        (np.uint64(2**64 - 1), 2**64 - 1),
+        (-1, None),
+        (True, None),
+        (False, None),
+        (np.bool_(True), None),
+        (2.9, None),
+        (-0.5, None),
+        (2.0, None),
+        (np.float64(2.0), None),
+        ("2", None),
+    ],
+)
+def test_nonnegativeIntegerValidation(value, expected):
+    configName = "outputParams.maxNonTrackFileBytes"
+    if expected is None:
+        with pytest.raises(ValueError, match=configName):
+            normalization.validateNonnegativeInt(value, configName)
+    else:
+        result = normalization.validateNonnegativeInt(value, configName)
+        assert result == expected
+        assert type(result) is int
+
+
+def test_config_override_errors():
+    for assignment in ("samParams.samThread=2", "samParams.samThreads=["):
+        with pytest.raises(ValueError):
+            consenrich_config.applyConfigOverrides({}, [assignment])

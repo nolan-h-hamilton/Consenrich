@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import pytest
 
+from consenrich import _normalization as normalization
 import consenrich.cuncertainty as cuncertainty
 import consenrich.consenrich as consenrichRuntime
 import consenrich.core as core
@@ -64,12 +65,18 @@ def _caseDeleteBlockGlobalFactorUsesWeightedQuantile():
 
 
 def _caseSegShrinkFactorModelStrictContract():
-    assert uncertainty._normalizeDeleteBlockFactorModel(None) == "segShrink"
-    assert uncertainty._normalizeDeleteBlockFactorModel("global") == "global"
-    assert uncertainty._normalizeDeleteBlockFactorModel("segShrink") == "segShrink"
+    params = dict(
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS,
+        paramName="deleteBlockFactorModel",
+    )
+    for value in (None, "global", "segShrink"):
+        assert normalization.validateChoice(value, **params) == (
+            "segShrink" if value is None else value
+        )
     for value in ("seg-shrink", "seg_shrink", "segshrink", "SegShrink"):
-        with pytest.raises(ValueError, match="factor model"):
-            uncertainty._normalizeDeleteBlockFactorModel(value)
+        with pytest.raises(ValueError, match="deleteBlockFactorModel"):
+            normalization.validateChoice(value, **params)
 
 
 def _casePacOrderIndexExamples():
@@ -1897,6 +1904,10 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
 
 
 def test_uncertainty_cython_contracts(contract_case):
+    values = np.asarray([0.0, 10.0])
+    weights = np.ones(2)
+    assert normalization.weightedQuantile(values, weights, 0.75) == 10.0
+    assert normalization.weightedQuantileInterpolated(values, weights, 0.75) == 5.0
     for label, func in (
         ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),
         ("factor evaluation", _caseCythonFactorEvaluation),

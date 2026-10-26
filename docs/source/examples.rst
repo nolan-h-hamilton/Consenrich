@@ -1,8 +1,8 @@
 Quickstart + Usage
 ------------------
 
-After installing Consenrich, run it from the command line with
-``consenrich -h`` for usage or programmatically as a Python import.
+After installing Consenrich, check the build and try running from the command line with
+``consenrich -h``
 
 .. _getting-started:
 
@@ -80,35 +80,23 @@ the BAM files:
     samples:
       - name: H3K27ac_1
         path: ENCFF793ZHL.bam
-        format: bam
-        role: treatment
       - name: H3K27ac_2
         path: ENCFF647VPO.bam
-        format: bam
-        role: treatment
       - name: H3K27ac_3
         path: ENCFF809VKT.bam
-        format: bam
-        role: treatment
       - name: H3K27ac_4
         path: ENCFF295EFL.bam
-        format: bam
-        role: treatment
       - name: input_1
         path: ENCFF444WVG.bam
-        format: bam
         role: control
       - name: input_2
         path: ENCFF619NYP.bam
-        format: bam
         role: control
       - name: input_3
         path: ENCFF898LKJ.bam
-        format: bam
         role: control
       - name: input_4
         path: ENCFF490MWV.bam
-        format: bam
         role: control
 
 
@@ -120,7 +108,7 @@ Run Consenrich
 
   % consenrich --config demoHistoneChIPSeq.yaml --verbose
 
-The run writes a state bedGraph, uncertainty bedGraph, state bigWig,
+The run will output a state bigWig,
 uncertainty bigWig, ROCCO narrowPeak file, and ROCCO gappedPeak file. With the
 current package version, the principal output files are:
 
@@ -131,14 +119,15 @@ current package version, the principal output files are:
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.narrowPeak
   consenrichOutput_demoHistoneChIPSeq_state.VERSION_rocco.gappedPeak
 
-The tag switches from `state` to `shrunkState` for ``outputParams.stateShrinkageEnabled``.
+The tags switch from `state` to `stateShrunk` and from `uncertainty` to `uncertaintyShrunk` for ``outputParams.stateShrinkageEnabled``.
+To retain human-readable bedGraph files, set ``outputParams.bedGraphEnabled: true`` in the configuration.
 
 .. _atac-demo:
 
 ATAC-seq Demo
 ~~~~~~~~~~~~~
 
-This demo estimates a consensus chromatin accessibility signal from *ten* ENCODE
+This demo estimates a consensus chromatin accessibility signal, uncertainty, and peaks from *ten* ENCODE
 ATAC-seq alignments.
 
 Download Alignments
@@ -250,52 +239,34 @@ Save the following as ``bigH3K4me1Demo.yaml``:
     samples:
       - name: ENCSR724MJX_H3K4me1
         path: ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR438QZN_H3K4me1
         path: ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR564QBS_H3K4me1
         path: ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR299NYB_H3K4me1
         path: ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR817JNE_H3K4me1
         path: ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
-        format: bam
-        role: treatment
       - name: ENCSR485LPA_H3K4me1
         path: ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
-        format: bam
-        role: treatment
 
       - name: ENCSR109IWL_input_for_ENCSR724MJX
         path: ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
-        format: bam
         role: control
       - name: ENCSR526EXI_input_for_ENCSR438QZN
         path: ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
-        format: bam
         role: control
       - name: ENCSR945LPX_input_for_ENCSR564QBS
         path: ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
-        format: bam
         role: control
       - name: ENCSR261PLD_input_for_ENCSR299NYB
         path: ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
-        format: bam
         role: control
       - name: ENCSR061EXX_input_for_ENCSR817JNE
         path: ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
-        format: bam
         role: control
       - name: ENCSR120ITZ_input_for_ENCSR485LPA
         path: ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
-        format: bam
         role: control
 
 
@@ -400,87 +371,95 @@ In your terminal (assuming `bash`):
 YAML Configuration
 """"""""""""""""""""
 
-Copy and paste this into a file named `scATACDemo.yaml`.
+Select an input format to view its configuration. Each option uses
+five donors, four cell groups, and CPM normalization. The Pott downloads above match the first option.
 
-.. code-block:: yaml
-  :name: scATACDemo.yaml
+See the :ref:`single-cell API reference <single-cell-api>` for field types and defaults.
 
-  experimentName: scATACDemo
+.. tab-set::
 
-  genomeParams:
-    name: hg38
-    chromosomes: [chr21, chr22] # delete this line to run genome-wide
+  .. tab-item:: Fragments + table
 
-  scParams:
-    cellMetadata:
-      path: scATAC_cell_metadata.csv
-      barcodeColumn: barcode
-      sampleColumn: Sample_ID
-      groupColumn: cluster_label1
-    fits:
-      - name: Goblet
-        selectGroups: [AC_Goblet]
-      - name: EarlyColonocyte
-        selectGroups: [Early_Colonocyte]
-      - name: Colonocyte
-        selectGroups: [Colonocyte]
-      - name: BEST4
-        selectGroups: [BEST4]
+    Use fragment files and the downloaded CSV cell labels.
 
-  inputParams:
-    samples:
-      - name: P3
-        path: GSM8423799_P3-AC-CDnonInf_fragments.tsv.gz
-        format: fragments
-        metadataSample: P3-AC-CDnonInf
-      - name: P4
-        path: GSM8423800_P4-AC-CDnonInf_fragments.tsv.gz
-        format: fragments
-        metadataSample: P4-AC-CDnonInf
-      - name: P6
-        path: GSM8423801_P6-AC-CDnonInf_fragments.tsv.gz
-        format: fragments
-        metadataSample: P6-AC-CDnonInf
-      - name: P12
-        path: GSM8423805_P12-AC-CDnonInf_fragments.tsv.gz
-        format: fragments
-        metadataSample: P12-AC-CDnonInf
-      - name: P13
-        path: GSM8423806_P13-AC-CDnonInf_fragments.tsv.gz
-        format: fragments
-        metadataSample: P13-AC-CDnonInf
+    .. literalinclude:: ../examples/scATACFragments.yaml
+      :language: yaml
+      :caption: scATACFragments.yaml
 
+    .. code-block:: console
 
-.. dropdown:: AnnData Processing
+      % consenrich --config scATACFragments.yaml --verbose2
 
-  You can install Consenrich with all dependencies needed for single-cell data via:
+  .. tab-item:: Fragments + H5AD
 
-  .. code-block:: bash
+    Use fragment files and labels stored in ``scATAC_cell_metadata.h5ad``.
+    In this case, the label file supplies ``.obs`` only.
 
-    pip install "consenrich[singlecell]"
+    For an H5AD option, install the optional dependency:
 
-  Cell metadata can also come from an
-  `AnnData <https://anndata.readthedocs.io/en/stable/generated/anndata.AnnData.html>`_
-  ``.h5ad`` file:
+    .. code-block:: bash
 
-  .. code-block:: yaml
+      python -m pip install "consenrich[singlecell]"
 
-    scParams:
-      cellMetadata:
-        path: scATAC_cell_metadata.h5ad
-        sampleColumn: Sample_ID
-        groupColumn: cluster_label1
+    See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
+    requirements and metadata fields.
 
-  Omitting ``barcodeColumn`` uses ``obs_names`` as fragment barcodes. Set it to
-  a column in ``.obs`` if needed. Sample and group columns are read from ``.obs``.
-  Keep the same ``fits`` and fragment inputs.
+    .. literalinclude:: ../examples/scATACFragmentsH5ADMetadata.yaml
+      :language: yaml
+      :caption: scATACFragmentsH5ADMetadata.yaml
 
-Run Consenrich
-""""""""""""""
+    .. code-block:: console
 
-.. code-block:: console
+      % consenrich --config scATACFragmentsH5ADMetadata.yaml --verbose2
 
-  % consenrich --config scATACDemo.yaml --verbose2
+  .. tab-item:: H5AD cells
+
+    This case uses one raw cell-by-bin count matrix per donor, such as
+    ``P3.cells.h5ad``. ``matrixRows: cells`` sums selected cells per donor and
+    cell group into internal pseudobulks.
+
+    For an H5AD option, install the optional dependency:
+
+    .. code-block:: bash
+
+      python -m pip install "consenrich[singlecell]"
+
+    See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
+    requirements and metadata fields.
+
+    .. literalinclude:: ../examples/scATACCells.yaml
+      :language: yaml
+      :caption: scATACCells.yaml
+
+    .. code-block:: console
+
+      % consenrich --config scATACCells.yaml --verbose2
+
+  .. tab-item:: H5AD pseudobulks
+
+    This case uses one raw pseudobulk-by-bin count matrix per donor, such as
+    ``P3.pseudobulks.h5ad``. ``matrixRows: pseudobulks`` selects one prepared
+    pseudobulk per donor and cell group.
+
+    For an H5AD option, install the optional dependency:
+
+    .. code-block:: bash
+
+      python -m pip install "consenrich[singlecell]"
+
+    See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
+    requirements and metadata fields.
+
+    .. literalinclude:: ../examples/scATACPseudobulks.yaml
+      :language: yaml
+      :caption: scATACPseudobulks.yaml
+
+    .. code-block:: console
+
+      % consenrich --config scATACPseudobulks.yaml --verbose2
+
+Run the command shown in the selected tab from the directory containing its
+YAML file and inputs. Outputs are written under ``scATACDemo/<cell group>/``.
 
 .. _scatac-results:
 

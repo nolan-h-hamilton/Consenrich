@@ -11,6 +11,7 @@ import numpy.typing as npt
 from scipy import special
 
 from . import constants
+from . import _normalization as normalization
 from .cconsenrich import (
     cstateShrinkInitialSums as _cstateShrinkInitialSums,
     cstateShrinkMixtureEMStep as _cstateShrinkMixtureEMStep,
@@ -61,11 +62,7 @@ _STATE_SHRINKAGE_DEFAULT_SPIKE_ODDS_MULTIPLIER = (
 )
 _STATE_SHRINKAGE_DEFAULT_SLAB_SCALE_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0)
 _STATE_SHRINKAGE_DEFAULT_STUDENT_T_DF = 1.0
-_STATE_SHRINKAGE_MIN_STUDENT_T_DF = 1.0
-_STATE_SHRINKAGE_MAX_STUDENT_T_DF = 30.0
 _STATE_SHRINKAGE_DEFAULT_STUDENT_T_QUADRATURE_ORDER = 12
-_STATE_SHRINKAGE_MIN_STUDENT_T_QUADRATURE_ORDER = 8
-_STATE_SHRINKAGE_MAX_STUDENT_T_QUADRATURE_ORDER = 96
 _STATE_SHRINKAGE_DEFAULT_STUDENT_T_SLAB_VARIANCE_FLOOR_FACTOR = 4.0
 
 
@@ -108,36 +105,6 @@ class stateShrinkResult(NamedTuple):
 def _metadataFloat(value: float) -> float | None:
     value_ = float(value)
     return value_ if np.isfinite(value_) else None
-
-
-def _stateShrinkageSpikeOddsMultiplierValue(value: Any) -> float:
-    if isinstance(value, (bool, np.bool_)):
-        raise ValueError(
-            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
-        )
-    try:
-        out = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
-        ) from exc
-    if not np.isfinite(out) or out <= 0.0:
-        raise ValueError(
-            "`stateShrinkageSpikeOddsMultiplier` must be finite and positive"
-        )
-    return out
-
-
-def _normalizeModel(model: str | None) -> str:
-    if model is None:
-        return STATE_SHRINKAGE_MODEL
-    model_ = str(model)
-    if model_ in STATE_SHRINKAGE_MODELS:
-        return model_
-    supported = ", ".join(STATE_SHRINKAGE_MODELS)
-    raise ValueError(
-        f"Unsupported state shrinkage model {model!r}; supported values: {supported}."
-    )
 
 
 def _asFloatVector(name: str, values: npt.ArrayLike) -> np.ndarray:
@@ -208,62 +175,6 @@ def _sortedPositiveWeights(
     return variance, weight
 
 
-def _normalizeStudentTDF(studentTDF: float) -> float:
-    if isinstance(studentTDF, bool):
-        raise ValueError("`studentTDF` must be numeric with 1 <= studentTDF <= 30")
-    try:
-        df = float(studentTDF)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`studentTDF` must be numeric with 1 <= studentTDF <= 30"
-        ) from exc
-    if (
-        not np.isfinite(df)
-        or df < _STATE_SHRINKAGE_MIN_STUDENT_T_DF
-        or df > _STATE_SHRINKAGE_MAX_STUDENT_T_DF
-    ):
-        raise ValueError("`studentTDF` must be numeric with 1 <= studentTDF <= 30")
-    return df
-
-
-def _normalizeStudentTQuadratureOrder(studentTQuadratureOrder: int) -> int:
-    if isinstance(studentTQuadratureOrder, bool):
-        raise ValueError(
-            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
-        )
-    try:
-        orderFloat = float(studentTQuadratureOrder)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
-        ) from exc
-    if not np.isfinite(orderFloat) or not orderFloat.is_integer():
-        raise ValueError(
-            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
-        )
-    order = int(orderFloat)
-    if (
-        order < _STATE_SHRINKAGE_MIN_STUDENT_T_QUADRATURE_ORDER
-        or order > _STATE_SHRINKAGE_MAX_STUDENT_T_QUADRATURE_ORDER
-    ):
-        raise ValueError(
-            "`studentTQuadratureOrder` must be an integer with 8 <= order <= 96"
-        )
-    return order
-
-
-def _normalizeNonnegativeFloat(name: str, value: float) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"`{name}` must be nonnegative")
-    try:
-        out = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"`{name}` must be nonnegative") from exc
-    if not np.isfinite(out) or out < 0.0:
-        raise ValueError(f"`{name}` must be nonnegative")
-    return out
-
-
 def _isStudentTModel(model: str) -> bool:
     return model == STATE_SHRINKAGE_MODEL_SPIKE_AND_STUDENT_T
 
@@ -277,8 +188,8 @@ def _studentTSlabArrays(
     scale = float(priorScale)
     if not np.isfinite(scale) or scale <= 0.0:
         raise ValueError("`priorScale` must be finite and positive")
-    df = _normalizeStudentTDF(studentTDF)
-    order = _normalizeStudentTQuadratureOrder(studentTQuadratureOrder)
+    df = normalization.validateStudentTDF(studentTDF)
+    order = normalization.validateStudentTQuadratureOrder(studentTQuadratureOrder)
     alpha = df / 2.0 - 1.0
     nodes, weights = special.roots_genlaguerre(order, alpha)
     nodes = np.asarray(nodes, dtype=np.float64).reshape(-1)
@@ -533,10 +444,15 @@ def fitStateShrinkagePrior(
     shrinkage itself available for every interval.
     """
 
-    model_ = _normalizeModel(model)
+    model_ = normalization.validateChoice(
+        model,
+        default=STATE_SHRINKAGE_MODEL,
+        supported=STATE_SHRINKAGE_MODELS,
+        paramName="state shrinkage model",
+    )
     studentTModel = _isStudentTModel(model_)
-    studentTDF_ = _normalizeStudentTDF(studentTDF)
-    studentTQuadratureOrder_ = _normalizeStudentTQuadratureOrder(
+    studentTDF_ = normalization.validateStudentTDF(studentTDF)
+    studentTQuadratureOrder_ = normalization.validateStudentTQuadratureOrder(
         studentTQuadratureOrder
     )
     chunkItems = list(chunks)
@@ -588,16 +504,10 @@ def fitStateShrinkagePrior(
             )
         )
     else:
-        if isinstance(stateShrinkageSpikePseudoCount, bool):
-            raise ValueError("`stateShrinkageSpikePseudoCount` must be nonnegative")
-        try:
-            spikePseudoCount = float(stateShrinkageSpikePseudoCount)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "`stateShrinkageSpikePseudoCount` must be nonnegative"
-            ) from exc
-        if not np.isfinite(spikePseudoCount) or spikePseudoCount < 0.0:
-            raise ValueError("`stateShrinkageSpikePseudoCount` must be nonnegative")
+        spikePseudoCount = normalization.validateNonnegativeFloat(
+            stateShrinkageSpikePseudoCount,
+            "stateShrinkageSpikePseudoCount",
+        )
     slabPseudoCount = 0.0
     if stateShrinkageScaleAnchorWeight is None:
         scalePriorWeight = max(
@@ -605,9 +515,9 @@ def fitStateShrinkagePrior(
             _STATE_SHRINKAGE_DEFAULT_SCALE_ANCHOR_WEIGHT_FRACTION * totalWeight,
         )
     else:
-        scalePriorWeight = _normalizeNonnegativeFloat(
-            "stateShrinkageScaleAnchorWeight",
+        scalePriorWeight = normalization.validateNonnegativeFloat(
             stateShrinkageScaleAnchorWeight,
+            "stateShrinkageScaleAnchorWeight",
         )
 
     estimateSpikeProp = priorSpikeProp is None
@@ -1010,8 +920,9 @@ def applyStateShrinkagePrior(
     varianceArr = _asFloatVector("stateVariance", stateVariance)
     if stateArr.shape != varianceArr.shape:
         raise ValueError("`state` and `stateVariance` must have the same length")
-    spikeOddsMultiplier = _stateShrinkageSpikeOddsMultiplierValue(
-        stateShrinkageSpikeOddsMultiplier
+    spikeOddsMultiplier = normalization.validatePositiveFloat(
+        stateShrinkageSpikeOddsMultiplier,
+        "stateShrinkageSpikeOddsMultiplier",
     )
     priorSpikeProp = float(prior.priorSpikeProp)
     if (
@@ -1134,8 +1045,9 @@ def shrinkStateEB(
     varianceArr = _asFloatVector("stateVariance", stateVariance)
     if stateArr.shape != varianceArr.shape:
         raise ValueError("`state` and `stateVariance` must have the same length")
-    spikeOddsMultiplier = _stateShrinkageSpikeOddsMultiplierValue(
-        stateShrinkageSpikeOddsMultiplier
+    spikeOddsMultiplier = normalization.validatePositiveFloat(
+        stateShrinkageSpikeOddsMultiplier,
+        "stateShrinkageSpikeOddsMultiplier",
     )
     prior = fitStateShrinkagePrior(
         [(stateArr, varianceArr)],

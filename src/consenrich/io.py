@@ -24,6 +24,7 @@ from consenrich import cconsenrich
 import consenrich.constants as constants
 import consenrich.core as core
 import consenrich.misc_util as misc_util
+from . import _normalization as normalization
 from ._version import __version__
 from ._runtime import (
     get_available_memory_bytes as _sharedGetAvailableMemoryBytes,
@@ -144,26 +145,6 @@ def _listOrEmpty(list_):
     return list_
 
 
-def _normalizeScaleFactorList(
-    scaleFactors: Optional[Sequence[float]],
-    expectedCount: int,
-    paramName: str,
-) -> Optional[List[float]]:
-    if scaleFactors is None:
-        return None
-    if expectedCount < 1:
-        raise ValueError(f"`{paramName}` was provided but no matching inputs exist.")
-    normalized = [float(scaleFactor) for scaleFactor in scaleFactors]
-    if len(normalized) == expectedCount:
-        return normalized
-    if len(normalized) == 1:
-        return normalized * expectedCount
-    raise ValueError(
-        f"`{paramName}` must contain 1 value or {expectedCount} values; "
-        f"got {len(normalized)}."
-    )
-
-
 def _expandWildCards(pathList: List[str]) -> List[str]:
     expandedList: List[str] = []
     for pathEntry in pathList:
@@ -184,6 +165,8 @@ def _inferSourceKind(path: str) -> str:
         raise ValueError("CRAM inputs are unsupported.")
     if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
         return core.BEDGRAPH_SOURCE_KIND
+    if lowerPath.endswith(".h5ad"):
+        return core.H5AD_SOURCE_KIND
     if "fragments" in os.path.basename(lowerPath):
         return "FRAGMENTS"
     return "BAM"
@@ -328,6 +311,7 @@ def _coerceInputSource(
         fragmentPositionMode = defaultFragmentPositionMode
         metadataSample = None
         cellMetadata = None
+        matrixRows = None
     elif isinstance(sourceConfig, Mapping):
         path = str(sourceConfig.get("path", "")).strip()
         sourceKind = sourceConfig.get("format", sourceConfig.get("sourceKind", None))
@@ -339,6 +323,7 @@ def _coerceInputSource(
         selectGroups = sourceConfig.get("selectGroups", None)
         metadataSample = sourceConfig.get("metadataSample", None)
         cellMetadata = sourceConfig.get("cellMetadata", None)
+        matrixRows = sourceConfig.get("matrixRows", None)
         countMode = sourceConfig.get("countMode", None)
         bamInputMode = sourceConfig.get("bamInputMode", None)
         fragmentPositionMode = sourceConfig.get(
@@ -369,10 +354,22 @@ def _coerceInputSource(
             f"Input source `{path}` expanded to {len(pathList)} paths. Use one entry per source."
         )
     normalizedPath = pathList[0]
+    normalizedKind = _normalizeSourceKind(sourceKind, normalizedPath)
+    if normalizedKind == core.H5AD_SOURCE_KIND:
+        if matrixRows not in ("cells", "pseudobulks"):
+            raise ValueError("H5AD input requires matrixRows: cells or pseudobulks.")
+        if countMode is not None or bamInputMode is not None:
+            raise ValueError("H5AD raw counts do not accept countMode or bamInputMode.")
+        if barcodeAllowListFile is not None or barcodeGroupMapFile is not None:
+            logger.warning("Ignoring barcodeAllowListFile and barcodeGroupMapFile for H5AD input %s", normalizedPath)
+            barcodeAllowListFile = None
+            barcodeGroupMapFile = None
+    elif matrixRows is not None:
+        raise ValueError("matrixRows requires H5AD input.")
 
     return core.inputSource(
         path=normalizedPath,
-        sourceKind=_normalizeSourceKind(sourceKind, normalizedPath),
+        sourceKind=normalizedKind,
         role=role,
         sampleName=sampleName,
         barcodeTag=barcodeTag,
@@ -385,6 +382,7 @@ def _coerceInputSource(
         fragmentsUseReadSupport=fragmentsUseReadSupport,
         metadataSample=metadataSample,
         cellMetadata=cellMetadata,
+        matrixRows=matrixRows,
     )
 
 
@@ -409,9 +407,11 @@ def _getSourceCountMode(
     defaultBamCountMode: str = constants.SAM_DEFAULT_COUNT_MODE,
     defaultFragmentCountMode: str = constants.SC_DEFAULT_COUNT_MODE,
 ) -> str:
+    if str(source.sourceKind).upper() == core.H5AD_SOURCE_KIND:
+        return "rawCounts"
     if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
         return "coverage"
-    countMode = core._normalizeCountMode(
+    countMode = normalization.validateCountMode(
         source.countMode,
         (
             defaultFragmentCountMode
@@ -422,7 +422,12 @@ def _getSourceCountMode(
     if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
         if countMode in {"ffp", "ffp-center"}:
             raise ValueError(f"countMode `{countMode}` requires BAM input")
-        core._normalizeFragmentPositionMode(source.fragmentPositionMode)
+        normalization.validateChoice(
+            source.fragmentPositionMode,
+            default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
+            supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
+            paramName='fragmentPositionMode',
+        )
     return countMode
 
 
@@ -434,6 +439,10 @@ def _prepareFragmentsNormalizationMetadata(
     tempPaths: List[str] = []
 
     for source in sources:
+        if source.sourceKind == core.H5AD_SOURCE_KIND:
+            allowListPaths.append(None)
+            selectedCellCounts.append(source.selectedCellCount)
+            continue
         allowListPath, tempPath = core._writeFragmentsAllowList(source)
         allowListPaths.append(allowListPath)
         selectedCellCount = core.getFragmentsSelectedBarcodeCount(source)
@@ -517,18 +526,6 @@ def getReadLengths(
 
 def checkMatchingEnabled(matchingArgs: core.matchingParams) -> bool:
     return bool(getattr(matchingArgs, "enabled", True))
-
-
-def _inferMatchingUncertaintyBedGraph(matchBedGraph: str) -> Optional[str]:
-    statePath = Path(matchBedGraph)
-    if "_state." not in statePath.name:
-        return None
-    uncertaintyPath = statePath.with_name(
-        statePath.name.replace("_state.", "_uncertainty.", 1)
-    )
-    if uncertaintyPath.exists():
-        return str(uncertaintyPath)
-    return None
 
 
 def getEffectiveGenomeSizes(

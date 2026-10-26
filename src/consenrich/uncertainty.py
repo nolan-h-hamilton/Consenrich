@@ -21,7 +21,7 @@ from . import diagnostics
 from . import segshrink
 from . import cuncertainty as _cuncertainty
 from . import _logging as _logging_utils
-from ._normalization import weighted_quantile
+from . import _normalization as normalization
 
 
 logger = logging.getLogger(__name__)
@@ -1356,69 +1356,6 @@ def _coverageLogPayload(rows: list[dict[str, Any]]) -> str:
     return " ".join(parts)
 
 
-def _normalizeUncertaintyCalibrationMode(value: str | None) -> str:
-    if value is None:
-        return core.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
-    normalized = str(value).strip().lower().replace("-", "_")
-    aliases = {
-        "delete_block": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
-        "state_delete_block": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
-        "delete_block_state": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized != core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE:
-        raise ValueError(f"unsupported uncertainty calibration mode: {value!r}")
-    return normalized
-
-
-def _normalizeDeleteBlockVarianceMode(value: str | None) -> str:
-    if value is None:
-        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE
-    normalized = str(value).strip().lower().replace("-", "_")
-    aliases = {
-        "covdiff": "covariance_difference",
-        "p_diff": "covariance_difference",
-        "info": "heldout_information",
-        "information": "heldout_information",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_MODES:
-        raise ValueError(f"unsupported delete-block variance mode: {value!r}")
-    return normalized
-
-
-def _normalizeDeleteBlockTargetSignal(value: str | None) -> str:
-    if value is None:
-        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL
-    normalized = str(value).strip().lower().replace("-", "_")
-    aliases = {"signal": "state_plus_background"}
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS:
-        raise ValueError(f"unsupported delete-block target signal: {value!r}")
-    return normalized
-
-
-def _normalizeDeleteBlockFactorModel(value: str | None) -> str:
-    if value is None:
-        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL
-    normalized = str(value).strip()
-    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS:
-        raise ValueError(
-            f"unsupported delete-block factor model: {value!r}; supported values: "
-            f"{', '.join(core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS)}"
-        )
-    return normalized
-
-
-def _normalizeDeleteBlockScoreWeightMode(value: str | None) -> str:
-    if value is None:
-        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE
-    normalized = str(value).strip().lower().replace("-", "_")
-    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES:
-        raise ValueError(f"unsupported delete-block score weight mode: {value!r}")
-    return normalized
-
-
 def _activeObservationMask(
     matrixData: np.ndarray,
     matrixMunc: np.ndarray,
@@ -1566,7 +1503,12 @@ def _deleteBlockRowWeights(h: np.ndarray, params: core.uncertaintyCalibrationPar
         float(params.deleteBlockMinInformationFraction),
         float(params.deleteBlockMaxInformationFraction),
     )
-    mode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
+    mode = normalization.validateChoice(
+        params.deleteBlockScoreWeightMode,
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES,
+        paramName="deleteBlockScoreWeightMode",
+    )
     if mode == "uniform":
         return np.ones_like(clipped, dtype=np.float64)
     if mode == "information_fraction":
@@ -1652,10 +1594,6 @@ def _deleteBlockScoreSamplingCodes(
     )
 
 
-def _weightedQuantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    return float(weighted_quantile(values, weights, float(q)))
-
-
 def _fitDeleteBlockGlobalFactor(
     *,
     residual: np.ndarray,
@@ -1679,7 +1617,7 @@ def _fitDeleteBlockGlobalFactor(
     weights = rowWeight[valid]
     target = max(tuple(float(t) for t in params.targets))
     z = _normalZ(target)
-    sdMultiplier = _weightedQuantile(ratio, weights, target) / z
+    sdMultiplier = normalization.weightedQuantile(ratio, weights, target) / z
     factorMin, factorMax = _factorBounds(params)
     factor = float(np.clip(sdMultiplier * sdMultiplier, factorMin, factorMax))
     return factor, {
@@ -1797,11 +1735,36 @@ def calibrateChromosomeStateUncertainty(
     )
     if intervalsArr.shape[0] != n:
         raise ValueError("intervals must match the number of matrixData columns")
-    calibrationMode = _normalizeUncertaintyCalibrationMode(getattr(params, "mode", None))
-    varianceMode = _normalizeDeleteBlockVarianceMode(params.deleteBlockVarianceMode)
-    targetSignal = _normalizeDeleteBlockTargetSignal(params.deleteBlockTargetSignal)
-    factorModel = _normalizeDeleteBlockFactorModel(params.deleteBlockFactorModel)
-    weightMode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
+    calibrationMode = normalization.validateChoice(
+        getattr(params, "mode", None),
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_MODE,
+        supported=core.UNCERTAINTY_CALIBRATION_MODES,
+        paramName="uncertaintyCalibrationParams.mode",
+    )
+    varianceMode = normalization.validateChoice(
+        params.deleteBlockVarianceMode,
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_MODES,
+        paramName="deleteBlockVarianceMode",
+    )
+    targetSignal = normalization.validateChoice(
+        params.deleteBlockTargetSignal,
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS,
+        paramName="deleteBlockTargetSignal",
+    )
+    factorModel = normalization.validateChoice(
+        params.deleteBlockFactorModel,
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS,
+        paramName="deleteBlockFactorModel",
+    )
+    weightMode = normalization.validateChoice(
+        params.deleteBlockScoreWeightMode,
+        default=core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE,
+        supported=core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES,
+        paramName="deleteBlockScoreWeightMode",
+    )
     folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
     blockLen = _resolveBlockSizeIntervals(
         params.blockSizeBP,

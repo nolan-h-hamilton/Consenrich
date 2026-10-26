@@ -19,14 +19,16 @@ logger: Final[logging.Logger] = logging.getLogger(__name__)
 ALIGNMENT_SOURCE_KINDS: Final[StrTuple] = ("BAM",)
 FRAGMENTS_SOURCE_KIND: Final[str] = "FRAGMENTS"  # 10x
 BEDGRAPH_SOURCE_KIND: Final[str] = "BEDGRAPH"
+H5AD_SOURCE_KIND: Final[str] = "H5AD"
 SUPPORTED_SOURCE_KINDS: Final[StrTuple] = ALIGNMENT_SOURCE_KINDS + (
     FRAGMENTS_SOURCE_KIND,
     BEDGRAPH_SOURCE_KIND,
+    H5AD_SOURCE_KIND,
 )
 SUPPORTED_BAM_INPUT_MODES: Final[StrTuple] = ("auto", "fragments", "reads", "read1")
 SUPPORTED_FRAGMENT_POSITION_MODES: Final[StrTuple] = (
-    "insertionendpoints",
-    "fragmentendpoints",
+    "insertionEndpoints",
+    "fragmentEndpoints",
 )
 SUPPORTED_COUNT_MODES: Final[StrTuple] = (
     "coverage",
@@ -111,110 +113,6 @@ SC_SUPPORTED_COUNT_MODES: Final[StrTuple] = (
     "midpoint",
     COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
 )
-
-SUPPORTED_COUNTING_PRESETS: Final[StrTuple] = (
-    "atac",
-    "chip-se",
-    "chip-pe",
-    "dnase",
-    "cut-and-run",
-    "cut-and-tag",
-)
-COUNTING_PRESET_VALUES: Final[ConfigurationProfileMap] = {
-    "atac": {
-        "samParams.samFlagExclude": 3844,
-        "samParams.minMappingQuality": 30,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "reads",
-        "samParams.defaultCountMode": "cutsite",
-        "samParams.shiftForward5p": 4,
-        "samParams.shiftReverse5p": 5,
-        "samParams.extendFrom5pBP": None,
-        "samParams.inferFragmentLength": 0,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "cutsite",
-        "observationParams.smoothToFraglen": False,
-    },
-    "chip-se": {
-        "samParams.samFlagExclude": 3844,
-        "samParams.minMappingQuality": 30,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "reads",
-        "samParams.defaultCountMode": "coverage",
-        "samParams.shiftForward5p": 0,
-        "samParams.shiftReverse5p": 0,
-        "samParams.extendFrom5pBP": None,
-        "samParams.maxInsertSize": 1000,
-        "samParams.inferFragmentLength": 1,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "coverage",
-        "observationParams.smoothToFraglen": False,
-    },
-    "chip-pe": {
-        "samParams.samFlagExclude": 3844,
-        "samParams.minMappingQuality": 30,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "fragments",
-        "samParams.defaultCountMode": "coverage",
-        "samParams.shiftForward5p": 0,
-        "samParams.shiftReverse5p": 0,
-        "samParams.extendFrom5pBP": None,
-        "samParams.maxInsertSize": 1000,
-        "samParams.inferFragmentLength": 0,
-        "samParams.minTemplateLength": 1,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "coverage",
-        "observationParams.smoothToFraglen": False,
-    },
-    "dnase": {
-        "samParams.samFlagExclude": 3844,
-        "samParams.minMappingQuality": 30,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "auto",
-        "samParams.defaultCountMode": "fiveprime",
-        "samParams.shiftForward5p": 0,
-        "samParams.shiftReverse5p": 0,
-        "samParams.extendFrom5pBP": None,
-        "samParams.maxInsertSize": 1000,
-        "samParams.inferFragmentLength": 0,
-        "samParams.minTemplateLength": 1,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "fiveprime",
-        "observationParams.smoothToFraglen": False,
-    },
-    "cut-and-run": {
-        "samParams.samFlagExclude": 2820,
-        "samParams.minMappingQuality": 20,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "fragments",
-        "samParams.defaultCountMode": "coverage",
-        "samParams.shiftForward5p": 0,
-        "samParams.shiftReverse5p": 0,
-        "samParams.extendFrom5pBP": None,
-        "samParams.maxInsertSize": 1000,
-        "samParams.inferFragmentLength": 0,
-        "samParams.minTemplateLength": 10,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "coverage",
-        "observationParams.smoothToFraglen": False,
-    },
-    "cut-and-tag": {
-        "samParams.samFlagExclude": 2820,
-        "samParams.minMappingQuality": 20,
-        "samParams.oneReadPerBin": 0,
-        "samParams.bamInputMode": "fragments",
-        "samParams.defaultCountMode": "coverage",
-        "samParams.shiftForward5p": 0,
-        "samParams.shiftReverse5p": 0,
-        "samParams.extendFrom5pBP": None,
-        "samParams.maxInsertSize": 1000,
-        "samParams.inferFragmentLength": 0,
-        "samParams.minTemplateLength": 10,
-        "countingParams.normMethod": "CPM",
-        "scParams.defaultCountMode": "coverage",
-        "observationParams.smoothToFraglen": False,
-    },
-}
 
 GENERIC_DEFAULT_CONFIGURATION: Final[str] = "generic"
 SUPPORTED_DEFAULT_CONFIGURATIONS: Final[StrTuple] = (GENERIC_DEFAULT_CONFIGURATION,)

@@ -25,17 +25,18 @@ import consenrich.peaks as peaks
 import consenrich.shrinkState as shrinkState
 from . import cconsenrich
 from . import constants
+from . import _normalization as normalization
 from . import _logging as logging_utils
 from . import misc_util
 from ._version import __version__
 from . import io as io_helpers
+from . import h5ad
 from .sc_runs import executeFits
-from .config import getLoggingArgs, loadConfig, readConfig
+from .config import applyConfigOverrides, getLoggingArgs, loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
     _checkSF,
     _getSourceCountMode,
-    _inferMatchingUncertaintyBedGraph,
     _listOrEmpty,
     _prepareFragmentsNormalizationMetadata,
     _resolveExtendFrom5pBPPairs,
@@ -51,6 +52,10 @@ from .io import (
 logger = logging.getLogger("consenrich.consenrich")
 
 _CLI_HANDLER_ATTR = "_consenrich_cli_handler"
+_CLI_HELP_HINT = (
+    "See documentation: https://nolan-h-hamilton.github.io/Consenrich/ "
+    "or see CLI help `consenrich -h`"
+)
 _CONSOLE_EVENT_ATTR = "consenrich_console"
 _CONSOLE_VERBOSE_EVENT_ATTR = "consenrich_console_verbose"
 _CONSOLE_PHASE_ATTR = "consenrich_console_phase"
@@ -4354,7 +4359,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("version", __version__),
         ("experiment", config.get("experimentName", "")),
         ("defaults", config.get("defaultConfiguration", "generic")),
-        ("counting preset", config.get("countingPreset") or "none"),
         ("genome", getattr(genomeArgs, "genomeName", "")),
         ("chromosome count", len(getattr(genomeArgs, "chromosomes", []) or [])),
         ("treatment inputs", len(getattr(inputArgs, "treatmentSources", []) or [])),
@@ -4449,227 +4453,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
     )
     core._logEvent("config.initial", rows, logger_=logger)
-
-
-def _warnCountingPresetSourceSemantics(
-    countingPreset: Optional[str],
-    sources: Sequence[core.inputSource],
-    bamInputModes: Sequence[str],
-    sampleGroup: str,
-) -> None:
-    if countingPreset is None:
-        return
-    pairedExpectedPresets = {"chip-pe", "cut-and-run", "cut-and-tag"}
-    layoutCheckedPresets = pairedExpectedPresets | {"atac", "chip-se"}
-    seenSources: set[tuple[str, str, str]] = set()
-    for sourceIndex, (source, bamInputMode) in enumerate(
-        zip(sources, bamInputModes, strict=True),
-        start=1,
-    ):
-        sourceKind = str(source.sourceKind).upper()
-        sourceKey = (str(source.path), sourceKind, str(bamInputMode))
-        if sourceKey in seenSources:
-            continue
-        seenSources.add(sourceKey)
-        sourceFields = (
-            ("counting preset", countingPreset),
-            ("sample group", sampleGroup),
-            ("source index", sourceIndex),
-            ("path", source.path),
-            ("source kind", sourceKind),
-            (
-                "bam input mode",
-                bamInputMode if sourceKind in core.ALIGNMENT_SOURCE_KINDS else None,
-            ),
-            ("settings rewritten", False),
-        )
-        if sourceKind == core.FRAGMENTS_SOURCE_KIND:
-            core._logEvent(
-                "config.counting_preset.fragments_text_advisory",
-                sourceFields
-                + (
-                    (
-                        "message",
-                        "`FRAGMENTS` text input detected. BAM shifts, MAPQ, SAM "
-                        "flags, and TLEN filters do not apply to this source. "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-            continue
-        if (
-            sourceKind not in core.ALIGNMENT_SOURCE_KINDS
-            or countingPreset not in layoutCheckedPresets
-        ):
-            continue
-        pairedEnd = core._isAlignmentSourcePairedEnd(source.path)
-        detectedLayout = "paired-end" if pairedEnd else "single-end"
-        if countingPreset == "chip-se" and pairedEnd:
-            expectedLayout = "single-end"
-            if bamInputMode == "reads":
-                consequence = (
-                    "In reads mode, paired-end mates are extended independently."
-                )
-            elif bamInputMode == "read1":
-                consequence = "Resolved read1 mode counts only read1 alignments."
-            else:
-                consequence = (
-                    "Resolved fragments mode counts proper templates rather than "
-                    "extending mates independently."
-                )
-        elif countingPreset in pairedExpectedPresets and not pairedEnd:
-            expectedLayout = "paired-end"
-            if bamInputMode == "fragments":
-                consequence = (
-                    "Fragment-mode counting may yield no proper templates for this "
-                    "source."
-                )
-            else:
-                consequence = (
-                    f"Resolved {bamInputMode} mode counts alignments without a "
-                    "proper-template requirement."
-                )
-        else:
-            expectedLayout = None
-            consequence = None
-        if expectedLayout is not None:
-            core._logEvent(
-                "config.counting_preset.layout_mismatch",
-                sourceFields
-                + (
-                    ("expected layout", expectedLayout),
-                    ("detected layout", detectedLayout),
-                    (
-                        "message",
-                        f"`countingPreset={countingPreset}` expects "
-                        f"{expectedLayout} BAM input, but {detectedLayout} reads "
-                        f"were detected in {source.path}. {consequence} "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-        if (
-            countingPreset == "atac"
-            and pairedEnd
-            and bamInputMode in {"reads", "read1"}
-        ):
-            ATACGeometry = "per-end" if bamInputMode == "reads" else "read1"
-            core._logEvent(
-                "config.counting_preset.atac_paired_advisory",
-                sourceFields
-                + (
-                    ("detected layout", detectedLayout),
-                    (
-                        "message",
-                        f"Paired-end ATAC BAM input is counted in {bamInputMode} "
-                        f"mode. {ATACGeometry} Tn5 shifts are applied, but "
-                        "proper-pair flags are not required. Provide a "
-                        "proper-pair-filtered "
-                        "paired-end BAM to ensure only proper pairs contribute. "
-                        "Resolved counting settings are unchanged.",
-                    ),
-                ),
-                logger_=logger,
-                level=logging.WARNING,
-            )
-
-
-def _logResolvedCountingPresetSources(
-    countingPreset: str,
-    sources: Sequence[core.inputSource],
-    bamInputModes: Sequence[str],
-    countModes: Sequence[str],
-    extendFrom5pBPValues: Sequence[int],
-    characteristicFragmentLengths: Sequence[int],
-    sampleGroup: str,
-    normMethod: Optional[str],
-    smoothToFraglen: bool,
-    samArgs: core.samParams,
-    scArgs: Any,
-) -> None:
-    for sourceIndex, (
-        source,
-        bamInputMode,
-        countMode,
-        extendFrom5pBP,
-        characteristicFragmentLength,
-    ) in enumerate(
-        zip(
-            sources,
-            bamInputModes,
-            countModes,
-            extendFrom5pBPValues,
-            characteristicFragmentLengths,
-            strict=True,
-        ),
-        start=1,
-    ):
-        sourceKind = str(source.sourceKind).upper()
-        isBAM = sourceKind in core.ALIGNMENT_SOURCE_KINDS
-        isFragmentsText = sourceKind == core.FRAGMENTS_SOURCE_KIND
-        fragmentPositionMode = (
-            core._normalizeFragmentPositionMode(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
-            )
-            if isFragmentsText
-            else None
-        )
-        sourceFlagExclude = (
-            core._resolveSourceFlagExclude(samArgs.samFlagExclude, bamInputMode)
-            if isBAM
-            else None
-        )
-        core._logEvent(
-            "config.counting_preset.source",
-            (
-                ("counting preset", countingPreset),
-                ("sample group", sampleGroup),
-                ("source index", sourceIndex),
-                ("path", source.path),
-                ("source kind", sourceKind),
-                ("count mode", countMode),
-                ("normalization", normMethod),
-                ("smooth to fragment length", bool(smoothToFraglen)),
-                ("bam input mode", bamInputMode if isBAM else None),
-                ("fragment position mode", fragmentPositionMode),
-                (
-                    "fragments use read support",
-                    source.fragmentsUseReadSupport if isFragmentsText else None,
-                ),
-                (
-                    "one read per bin",
-                    int(samArgs.oneReadPerBin)
-                    if sourceKind != core.BEDGRAPH_SOURCE_KIND
-                    else None,
-                ),
-                ("shift forward 5p", samArgs.shiftForward5p if isBAM else None),
-                ("shift reverse 5p", samArgs.shiftReverse5p if isBAM else None),
-                ("extend from 5p bp", int(extendFrom5pBP) if isBAM else None),
-                (
-                    "characteristic fragment length",
-                    int(characteristicFragmentLength) if isBAM else None,
-                ),
-                (
-                    "infer fragment length",
-                    samArgs.inferFragmentLength if isBAM else None,
-                ),
-                ("sam flag exclude", sourceFlagExclude),
-                (
-                    "minimum mapping quality",
-                    samArgs.minMappingQuality if isBAM else None,
-                ),
-                (
-                    "minimum template length",
-                    samArgs.minTemplateLength if isBAM else None,
-                ),
-                ("maximum insert size", samArgs.maxInsertSize if isBAM else None),
-            ),
-            logger_=logger,
-        )
 
 
 def _resolveCenterMBStatus(
@@ -5005,26 +4788,10 @@ def _removeCliHandlers(packageLogger: logging.Logger) -> None:
                 pass
 
 
-def _defaultConfigLogPath(configPath: str) -> Path:
-    experimentName = constants.EXPERIMENT_DEFAULT_NAME
-    try:
-        configData = loadConfig(configPath)
-        if isinstance(configData, Mapping):
-            experimentName = configData.get(
-                "experimentName",
-                constants.EXPERIMENT_DEFAULT_NAME,
-            )
-    except Exception:
-        pass
+def _defaultConfigLogPath(configData: Mapping[str, Any]) -> Path:
+    experimentName = configData.get("experimentName", constants.EXPERIMENT_DEFAULT_NAME)
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return Path(f"consenrichOutput_{experimentToken}_run.v{__version__}.jsonl")
-
-
-def _defaultMatchLogPath(stateBedGraphPath: str) -> Path:
-    stateBedGraph = Path(stateBedGraphPath)
-    return stateBedGraph.with_name(
-        f"{stateBedGraph.stem}_consenrich_run.v{__version__}.jsonl"
-    )
 
 
 def _configureCliLogging(
@@ -5138,191 +4905,44 @@ def _logCliProgressMilestone(message: str, *args: Any) -> None:
     _logCliSubphase(message, *args, verboseOnly=True)
 
 
+class _CLIArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        super().error(f"{message}\n  * {_CLI_HELP_HINT}")
+
+
 def _buildArgParser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Consenrich CLI")
-    parser.add_argument(
+    parser = _CLIArgumentParser(
+        description="Consenrich CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "CLI examples:\n"
+            "  consenrich --config run.yaml --set countingParams.intervalSizeBP=25\n"
+            "  consenrich --config run.yaml --set 'genomeParams.chromosomes=[chr21, chr22]'\n\n"
+            "- Override values use the same YAML syntax as --config: numbers, booleans, strings, lists, mappings, null.\n"
+            "- Use quotes for args that contain spaces, brackets. To force a string, use YAML quotes:\n"
+            "  --set 'experimentName=\"likeThis\"'\n"
+            "- If there are repeated config keys, the rightmost instance is used\n"
+            "- List indexing and section replacement are unsupported\n"
+            "- Relative paths resolve from the cwd"
+        ),
+    )
+    fittingGroup = parser.add_argument_group("Configured fitting")
+    fittingGroup.add_argument(
         "--config",
         type=str,
         dest="config",
-        help="Path to a YAML config file with parameters + arguments defined in `consenrich.core`",
+        help="Path to a YAML configuration for fitting.",
+    )
+    # --- Config overrides via CLI --set
+    fittingGroup.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        dest="configOverrides",
+        metavar="KEY=VALUE",
+        help="Override a canonical YAML setting. Repeat for multiple settings. Requires configured fitting with --config.",
     )
 
-    # --- Post hoc ROCCO peak-calling arguments ---
-    parser.add_argument(
-        "--match-bedGraph",
-        type=str,
-        dest="matchBedGraph",
-        help="Path to a Consenrich state bedGraph file",
-    )
-    parser.add_argument(
-        "--match-uncertainty-bedGraph",
-        type=str,
-        default=None,
-        dest="matchUncertaintyBedGraph",
-        help="Optional uncertainty bedGraph paired with `--match-bedGraph`. If omitted, Consenrich looks for a sibling `_uncertainty` bedGraph.",
-    )
-    parser.add_argument(
-        "--match-blacklist-bed",
-        type=str,
-        default=None,
-        dest="matchBlacklistBed",
-        help="Optional BED blacklist applied to post hoc ROCCO peak export.",
-    )
-    parser.add_argument(
-        "--match-residual-duration-bp",
-        type=int,
-        default=None,
-        dest="matchResidualDurationBP",
-        help="Positive residual duration in bp used for the ROCCO stationary-bootstrap block length.",
-    )
-    parser.add_argument(
-        "--match-feature-duration-bp",
-        type=int,
-        default=None,
-        dest="matchFeatureDurationBP",
-        help="Positive feature duration in bp used for ROCCO morphology and boundary penalties.",
-    )
-    parser.add_argument(
-        "--match-num-bootstrap",
-        type=int,
-        default=constants.MATCHING_DEFAULT_NUM_BOOTSTRAP,
-        dest="matchNumBootstrap",
-        help="Number of stationary-bootstrap null draws used for budget calibration.",
-    )
-    parser.add_argument(
-        "--match-num-region-replays",
-        type=int,
-        default=constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS,
-        dest="matchNumRegionReplays",
-        help="Number of chromosome-local null candidate replays.",
-    )
-    parser.add_argument(
-        "--match-no-chromosome-budget-shrinkage",
-        action="store_false",
-        default=constants.MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS,
-        dest="matchShrinkChromosomeBudgets",
-        help="Disable shared chromosome-budget shrinkage.",
-    )
-    parser.add_argument(
-        "--match-no-local-bootstrap-radius",
-        action="store_false",
-        default=constants.MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
-        dest="matchUseLocalBootStrapRadius",
-        help="Disable local-radius stationary-bootstrap restart-source sampling.",
-    )
-    parser.add_argument(
-        "--match-no-null-calibration-diagnostics",
-        action="store_false",
-        default=constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS,
-        dest="matchPlotNullCalibrationDiagnostics",
-        help="Disable the ROCCO null-calibration and chromosome-budget diagnostic plot.",
-    )
-    parser.add_argument(
-        "--match-threshold-z",
-        type=float,
-        default=constants.MATCHING_DEFAULT_THRESHOLD_Z,
-        dest="matchThresholdZ",
-        help="One-sided Gaussian z-threshold used when calibrating null tail occupancy.",
-    )
-    parser.add_argument(
-        "--match-selection-penalty-multiplier",
-        type=float,
-        default=constants.MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
-        dest="matchSelectionPenaltyMultiplier",
-        help="Positive multiplier for the per-bin selection penalty.",
-    )
-    parser.add_argument(
-        "--match-nested-rocco-iters",
-        type=int,
-        default=constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS,
-        dest="matchNestedRoccoIters",
-        help="Number of monotone nested ROCCO refinement iterations within first-pass peaks. Set to 0 to disable.",
-    )
-    parser.add_argument(
-        "--match-nested-rocco-budget-scale",
-        type=float,
-        default=constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE,
-        dest="matchNestedRoccoBudgetScale",
-        help=(
-            "Soft budget scale for nested ROCCO refinement; values below 1 "
-            "increase the local selection penalty but do not impose a hard quota."
-        ),
-    )
-    parser.add_argument(
-        "--match-export-filter-c",
-        type=float,
-        default=constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER,
-        dest="matchExportFilterUncertaintyMultiplier",
-        help=(
-            "Multiplier c in the final ROCCO export filter "
-            "`medianState < -c * median(local uncertainty)`. "
-            f"Default: {constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER:g}. "
-            "Setting c=0 requires exported peaks to have positive median signal."
-        ),
-    )
-    parser.add_argument(
-        "--match-min-mean-signal",
-        type=float,
-        default=constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL,
-        dest="matchMinMeanSignal",
-        help=(
-            "Minimum mean signalValue required to keep a peak in the exported result."
-        ),
-    )
-    parser.add_argument(
-        "--match-peak-mode",
-        type=str,
-        choices=constants.MATCHING_PEAK_MODES,
-        default=constants.MATCHING_DEFAULT_PEAK_MODE,
-        dest="matchPeakMode",
-        help="ROCCO peak export mode.",
-    )
-    parser.add_argument(
-        "--match-broad-weak-threshold-z",
-        type=float,
-        default=constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z,
-        dest="matchBroadWeakThresholdZ",
-        help="Weak one-sided Gaussian z-threshold used by broad ROCCO mode.",
-    )
-    parser.add_argument(
-        "--match-merge-tolerance-bp",
-        type=int,
-        default=constants.MATCHING_DEFAULT_MERGE_TOLERANCE_BP,
-        dest="matchMergeToleranceBP",
-        help="Maximum separation in bp allowed when forming a broad ROCCO family.",
-    )
-    parser.add_argument(
-        "--match-max-region-bp",
-        type=int,
-        default=constants.MATCHING_DEFAULT_MAX_REGION_BP,
-        dest="matchMaxRegionBP",
-        help="Maximum broad ROCCO family width in bp.",
-    )
-    parser.add_argument(
-        "--match-uncertainty-score-mode",
-        type=str,
-        choices=constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
-        default=constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
-        dest="matchUncertaintyScoreMode",
-        help=(
-            "ROCCO score construction mode. `state` uses the fitted state directly; "
-            "`lower_confidence` uses state - z * uncertainty and requires an "
-            "uncertainty bedGraph."
-        ),
-    )
-    parser.add_argument(
-        "--match-uncertainty-score-z",
-        type=float,
-        default=constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
-        dest="matchUncertaintyScoreZ",
-        help="Multiplier z used by --match-uncertainty-score-mode lower_confidence.",
-    )
-    parser.add_argument(
-        "--match-seed",
-        type=int,
-        default=constants.MATCHING_DEFAULT_RAND_SEED,
-        dest="matchRandSeed",
-    )
     parser.add_argument(
         "--log-file",
         type=str,
@@ -5366,7 +4986,8 @@ def _buildArgParser() -> argparse.ArgumentParser:
 def main():
     parser = _buildArgParser()
     args = parser.parse_args()
-    cliVerbose2Set = bool(args.verbose2)
+    if args.configOverrides and not args.config:
+        parser.error("--set requires configured fitting with --config")
     cliVerbositySet = args.verbosity is not None or args.verbose or args.verbose2
     cliProgressSet = args.progress is not None
     if args.verbosity is not None and (args.verbose or args.verbose2):
@@ -5378,9 +4999,16 @@ def main():
             args.verbosity = "verbose"
         else:
             args.verbosity = constants.LOGGING_DEFAULT_VERBOSITY
+    configData = None
     configLoggingArgs = None
-    if not args.matchBedGraph and args.config and os.path.exists(args.config):
-        configLoggingArgs = getLoggingArgs(args.config)
+    if args.config and os.path.exists(args.config):
+        try:
+            configData = applyConfigOverrides(
+                loadConfig(args.config), args.configOverrides
+            )
+            configLoggingArgs = getLoggingArgs(configData)
+        except (TypeError, ValueError) as exc:
+            parser.error(str(exc))
         if not cliVerbositySet:
             args.verbosity = configLoggingArgs.verbosity
         if not cliProgressSet:
@@ -5389,114 +5017,8 @@ def main():
             args.logFile = configLoggingArgs.logFile
     if args.progress is None:
         args.progress = constants.LOGGING_DEFAULT_PROGRESS
-    if cliVerbose2Set and not (cliProgressSet and args.progress == "off"):
-        args.progress = "on"
     args.verbose = args.verbosity in {"verbose", "debug"}
     args.verbose2 = args.verbosity == "debug"
-
-    if args.matchBedGraph:
-        if args.matchResidualDurationBP is None:
-            parser.error(
-                "--match-residual-duration-bp is required with --match-bedGraph"
-            )
-        if args.matchFeatureDurationBP is None:
-            parser.error(
-                "--match-feature-duration-bp is required with --match-bedGraph"
-            )
-        if args.matchResidualDurationBP <= 0:
-            parser.error("--match-residual-duration-bp must be positive")
-        if args.matchFeatureDurationBP <= 0:
-            parser.error("--match-feature-duration-bp must be positive")
-        if args.matchNumRegionReplays <= 0:
-            parser.error("--match-num-region-replays must be positive")
-        if (
-            not np.isfinite(args.matchSelectionPenaltyMultiplier)
-            or args.matchSelectionPenaltyMultiplier <= 0
-        ):
-            parser.error(
-                "--match-selection-penalty-multiplier must be finite and positive"
-            )
-        if args.matchPeakMode in {"broad", "both"}:
-            if args.matchMergeToleranceBP is None:
-                parser.error(
-                    "--match-merge-tolerance-bp is required for broad peak calling"
-                )
-            if args.matchMaxRegionBP is None:
-                parser.error("--match-max-region-bp is required for broad peak calling")
-            if args.matchMergeToleranceBP <= 0:
-                parser.error("--match-merge-tolerance-bp must be positive")
-            if args.matchMaxRegionBP <= 0:
-                parser.error("--match-max-region-bp must be positive")
-        if not os.path.exists(args.matchBedGraph):
-            raise FileNotFoundError(
-                f"bedGraph file {args.matchBedGraph} couldn't be found."
-            )
-        uncertaintyBedGraph = args.matchUncertaintyBedGraph
-        if uncertaintyBedGraph is not None and not os.path.exists(uncertaintyBedGraph):
-            raise FileNotFoundError(
-                f"uncertainty bedGraph file {uncertaintyBedGraph} couldn't be found."
-            )
-        if args.matchBlacklistBed is not None and not os.path.exists(
-            args.matchBlacklistBed
-        ):
-            raise FileNotFoundError(
-                f"blacklist BED file {args.matchBlacklistBed} couldn't be found."
-            )
-        resolvedLogPath = _configureCliLogging(
-            args.logFile or _defaultMatchLogPath(args.matchBedGraph),
-            verbose=bool(args.verbose),
-            verbose2=bool(args.verbose2),
-            verbosity=args.verbosity,
-            progress=args.progress,
-        )
-        if resolvedLogPath is not None:
-            _logCliMilestone("Canonical log: %s", resolvedLogPath)
-        if uncertaintyBedGraph is None:
-            uncertaintyBedGraph = _inferMatchingUncertaintyBedGraph(args.matchBedGraph)
-        matchStart = time.perf_counter()
-        _logCliPhase("Post-hoc ROCCO")
-        _logCliSubphase(
-            "State input: %s",
-            args.matchBedGraph,
-        )
-        logger.info(
-            "Running post hoc ROCCO peak caller using state bedGraph %s...",
-            args.matchBedGraph,
-        )
-        artifacts = peaks.solveRocco(
-            args.matchBedGraph,
-            int(args.matchResidualDurationBP),
-            int(args.matchFeatureDurationBP),
-            uncertaintyBedGraphFile=uncertaintyBedGraph,
-            numBootstrap=args.matchNumBootstrap,
-            numRegionReplays=args.matchNumRegionReplays,
-            shrinkChromosomeBudgets=args.matchShrinkChromosomeBudgets,
-            useLocalBootStrapRadius=args.matchUseLocalBootStrapRadius,
-            plotNullCalibrationDiagnostics=args.matchPlotNullCalibrationDiagnostics,
-            thresholdZ=args.matchThresholdZ,
-            selectionPenaltyMultiplier=args.matchSelectionPenaltyMultiplier,
-            nestedRoccoIters=args.matchNestedRoccoIters,
-            nestedRoccoBudgetScale=args.matchNestedRoccoBudgetScale,
-            exportFilterUncertaintyMultiplier=(
-                args.matchExportFilterUncertaintyMultiplier
-            ),
-            minMeanSignal=args.matchMinMeanSignal,
-            peakMode=args.matchPeakMode,
-            broadWeakThresholdZ=args.matchBroadWeakThresholdZ,
-            mergeToleranceBP=args.matchMergeToleranceBP,
-            maxRegionBP=args.matchMaxRegionBP,
-            uncertaintyScoreMode=args.matchUncertaintyScoreMode,
-            uncertaintyScoreZ=args.matchUncertaintyScoreZ,
-            blacklistBedFile=args.matchBlacklistBed,
-            randSeed=args.matchRandSeed,
-        )
-        logger.info("Finished post hoc ROCCO peak calling. Written to %s", artifacts)
-        _logCliMilestone(
-            "Consenrich post-hoc ROCCO done: output=%s elapsed=%.1fs",
-            artifacts,
-            time.perf_counter() - matchStart,
-        )
-        sys.exit(0)
 
     if not args.config:
         _configureCliLogging(
@@ -5509,9 +5031,7 @@ def main():
         _logCliMilestone(
             "No config file provided, run with `--config <path_to_config.yaml>`"
         )
-        _logCliMilestone(
-            "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
-        )
+        _logCliMilestone(_CLI_HELP_HINT)
         sys.exit(1)
 
     if not os.path.exists(args.config):
@@ -5523,19 +5043,11 @@ def main():
             progress=args.progress,
         )
         _logCliMilestone("Config file %s does not exist.", args.config)
-        _logCliMilestone(
-            "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
-        )
+        _logCliMilestone(_CLI_HELP_HINT)
         sys.exit(1)
 
     resolvedLogPath = _configureCliLogging(
-        args.logFile
-        or (
-            configLoggingArgs.logFile
-            if configLoggingArgs is not None
-            else constants.LOGGING_DEFAULT_LOG_FILE
-        )
-        or _defaultConfigLogPath(args.config),
+        args.logFile or _defaultConfigLogPath(configData),
         verbose=bool(args.verbose),
         verbose2=bool(args.verbose2),
         verbosity=args.verbosity,
@@ -5546,13 +5058,16 @@ def main():
     _logCliPhase("Config")
     args.config = str(Path(args.config).resolve())
     args.logFile = str(resolvedLogPath.resolve()) if resolvedLogPath is not None else None
-    executeFits(readConfig(args.config), args, _runConfigured, _configureCliLogging)
+    try:
+        config = readConfig(configData)
+    except (TypeError, ValueError) as exc:
+        parser.error(str(exc))
+    executeFits(config, args, _runConfigured, _configureCliLogging)
 
 
 def _runConfigured(config, args, sharedReferenceGrid=None):
     cliRunStart = time.perf_counter()
     experimentName = config["experimentName"]
-    countingPreset = config.get("countingPreset")
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
     correlationLengthPath = _correlationLengthPath(str(experimentName))
     correlationLengthPlotPath = _correlationLengthPlotPath(str(experimentName))
@@ -5752,7 +5267,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
         raise ValueError("observationParams.smoothToFraglen must be boolean")
     smoothToFraglen_ = bool(smoothToFraglenRaw)
-    muncVarianceModel_ = core._normalizeMuncVarianceModel(
+    muncVarianceModel_ = normalization.validateMuncVarianceModel(
         getattr(
             observationArgs,
             "muncVarianceModel",
@@ -5766,7 +5281,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     correlationLengthRow_: dict[str, Any] | None = None
     correlationLengthDiagnostics_: dict[str, Any] | None = None
     waitForMatrix: bool = False
-    normMethod_: Optional[str] = countingArgs.normMethod.upper()
+    normMethod_: Optional[str] = countingArgs.normMethod
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     _logCliSubphase(
         "Diagnostic logs: precision=%s convergence=%s delete-block=%s",
@@ -5827,6 +5342,20 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
         for source in treatmentSources + controlSources
     )
+    anyH5AD = any(
+        source.sourceKind == "H5AD" for source in treatmentSources + controlSources
+    )
+    if anyH5AD and smoothToFraglen_:
+        raise ValueError("H5AD raw counts do not support fragment-length smoothing")
+    if normMethod_ in ("EGS", "RPGC"):
+        for sources, factors, setting in (
+            (treatmentSources, countingArgs.scaleFactors, "scaleFactors"),
+            (controlSources, countingArgs.scaleFactorsControl, "scaleFactorsControl"),
+        ):
+            if factors is None and any(source.sourceKind == "H5AD" for source in sources):
+                raise ValueError(
+                    f"H5AD {normMethod_} normalization requires explicit countingParams.{setting}"
+                )
     if (
         anyBedGraph
         and not allBedGraph
@@ -5847,8 +5376,11 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         )
     for source in treatmentSources + controlSources:
         if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-            core._normalizeFragmentPositionMode(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode
+            normalization.validateChoice(
+                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode,
+                default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
+                supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
+                paramName='fragmentPositionMode',
             )
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     automaticTreatmentEGS = (
@@ -5930,11 +5462,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             if str(countMode) in singleBinCountModes
         }
     )
-    if (
-        bool(smoothToFraglen_)
-        and singleBinActiveCountModes
-        and countingPreset is None
-    ):
+    if bool(smoothToFraglen_) and singleBinActiveCountModes:
         singleBinDisplayModes = [
             "center/midpoint" if mode == "center" else mode
             for mode in singleBinActiveCountModes
@@ -5979,27 +5507,15 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             controlCountModes,
         )
     ]
-    _warnCountingPresetSourceSemantics(
-        countingPreset,
-        treatmentSources,
-        treatmentBamInputModes,
-        "treatment",
-    )
-    _warnCountingPresetSourceSemantics(
-        countingPreset,
-        controlSources,
-        controlBamInputModes,
-        "control",
-    )
     treatmentNativeCountModes = [
-        core._nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
+        normalization.nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
     ]
     controlNativeCountModes = [
-        core._nativeCountModeForPreset(countMode) for countMode in controlCountModes
+        normalization.nativeCountModeForPreset(countMode) for countMode in controlCountModes
     ]
     autoInferFragmentLength = (
         samArgs.inferFragmentLength is None
-        and core._normalizeBamInputMode(samArgs.bamInputMode) == "auto"
+        and normalization.validateBamInputMode(samArgs.bamInputMode) == "auto"
     )
     inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
     if autoInferFragmentLength and any(
@@ -6019,18 +5535,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     if args.verbose:
         logger.info(f"peakCallingEnabled: {peakCallingEnabled}")
-    scaleFactors = io_helpers._normalizeScaleFactorList(
-        countingArgs.scaleFactors,
-        len(treatmentSources),
-        "countingParams.scaleFactors",
-    )
+    scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
-    if controlsPresent:
-        scaleFactorsControl = io_helpers._normalizeScaleFactorList(
-            countingArgs.scaleFactorsControl,
-            len(controlSources),
-            "countingParams.scaleFactorsControl",
-        )
     characteristicFragmentLengthsTreatment: List[int] = []
     characteristicFragmentLengthsControl: List[int] = []
     countExtendFrom5pBPTreatment: List[int] = []
@@ -6226,34 +5732,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             )
         ]
 
-    if args.verbose and countingPreset is not None:
-        _logResolvedCountingPresetSources(
-            countingPreset,
-            treatmentSources,
-            treatmentBamInputModes,
-            treatmentCountModes,
-            countExtendFrom5pBPTreatment,
-            characteristicFragmentLengthsTreatment,
-            "treatment",
-            normMethod_,
-            smoothToFraglen_,
-            samArgs,
-            scArgs,
-        )
-        _logResolvedCountingPresetSources(
-            countingPreset,
-            controlSources,
-            controlBamInputModes,
-            controlCountModes,
-            countExtendFrom5pBPControl,
-            characteristicFragmentLengthsControl,
-            "control",
-            normMethod_,
-            smoothToFraglen_,
-            samArgs,
-            scArgs,
-        )
-
     try:
         if controlsPresent:
 
@@ -6303,6 +5781,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                         sourceList, sizes, fragmentLengths, readLengths, allowLists,
                         countModes, cellCounts, bamModes, extensions,
                     ):
+                        if source.sourceKind == "H5AD":
+                            values.append(h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, size))
+                            continue
                         options = {
                             "sourceKind": source.sourceKind,
                             "barcodeAllowListFile": allowList,
@@ -6369,6 +5850,13 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                         countReadLengthA,
                         countReadLengthB,
                     ) = task
+                    precomputedScaleFactors = tuple(
+                        h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, size)
+                        if source.sourceKind == "H5AD" else None
+                        for source, size in (
+                            (sourceA, effectiveGenomeSizeA), (sourceB, effectiveGenomeSizeB)
+                        )
+                    )
                     return detrorm.getPairScaleFactors(
                         sourceA.path,
                         sourceB.path,
@@ -6408,6 +5896,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                         barcodeTagB=sourceB.barcodeTag,
                         effectiveGenomeSizeIsFinalA=(sourceA.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
                         effectiveGenomeSizeIsFinalB=(sourceB.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
+                        precomputedScaleFactors=precomputedScaleFactors,
                     )
 
                 pairScalingFactors = io_helpers._threadMap(
@@ -6460,6 +5949,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                         extendBP,
                         readLength,
                     ) = task
+                    if source.sourceKind == "H5AD":
+                        return h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, 0)
                     return detrorm.getScaleFactorPerMillion(
                         source.path,
                         excludeForNorm,
@@ -6511,6 +6002,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                         extendBP,
                         countReadLength,
                     ) = task
+                    if source.sourceKind == "H5AD":
+                        return h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, effectiveGenomeSize)
                     return detrorm.getScaleFactor1x(
                         source.path,
                         effectiveGenomeSize,
@@ -6881,12 +6374,15 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         raise ValueError(
             "observationParams.muncSeedProcess.maxQ must be negative or at least minQ"
         )
-    muncEBPriorGUncertaintyMode = core._normalizeMuncEBPriorGUncertaintyMode(
+    muncEBPriorGUncertaintyMode = normalization.validateChoice(
         getattr(
             observationArgs,
             "muncEBPriorGUncertaintyMode",
             constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
-        )
+        ),
+        default=constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
+        supported=constants.MUNC_SUPPORTED_EB_PRIOR_G_UNCERTAINTY_MODES,
+        paramName='observationParams.muncEBPrior.gUncertaintyMode',
     )
     def _inverseMuncTrendPredictor(predictor: np.ndarray) -> np.ndarray:
         arr = np.asarray(predictor, dtype=np.float64)
@@ -7923,7 +7419,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             intervalSizeBP,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
-        seedStateModel = core._normalizeStateModel(processArgs.stateModel)
+        seedStateModel = normalization.validateChoice(
+            processArgs.stateModel,
+            default=constants.PROCESS_DEFAULT_STATE_MODEL,
+            supported=constants.STATE_MODEL_MODES,
+            paramName='stateModel',
+        )
         seedDeltaF = (
             1.0
             if seedStateModel == core.STATE_MODEL_LEVEL
@@ -9821,7 +9322,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             preKappaLevelWarmStart = processNoiseDiagnostics.get("preKappaQLevel")
             preKappaTrendWarmStart = processNoiseDiagnostics.get("preKappaQTrend")
             if (
-                core._normalizeStateModel(processArgs.stateModel)
+                normalization.validateChoice(
+                    processArgs.stateModel,
+                    default=constants.PROCESS_DEFAULT_STATE_MODEL,
+                    supported=constants.STATE_MODEL_MODES,
+                    paramName='stateModel',
+                )
                 == core.STATE_MODEL_LEVEL
                 and preKappaLevelWarmStart is not None
             ):
@@ -10857,6 +10363,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 "donor": source.sampleName or source.path,
                 "basis": (
                     "explicitScaleFactor" if countingArgs.scaleFactors is not None else
+                    "matrixSizeFactors" if waitForMatrix else
+                    "suppliedBinCounts" if source.sourceKind == "H5AD" else
                     ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
                     if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
                     "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"
@@ -10874,7 +10382,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             }
             for source, mode, bamMode, size, factor in zip(
                 treatmentSources, treatmentNativeCountModes, treatmentBamInputModes, effectiveGenomeSizes,
-                treatScaleFactors if controlsPresent else scaleFactors,
+                treatScaleFactors if controlsPresent else (sf if waitForMatrix else scaleFactors),
             )
         ],
     }
@@ -10884,6 +10392,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 "donor": source.sampleName or source.path,
                 "basis": (
                     "explicitScaleFactor" if countingArgs.scaleFactorsControl is not None else
+                    "suppliedBinCounts" if source.sourceKind == "H5AD" else
                     ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
                     if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
                     "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import csv
 import gzip
+import logging
 import re
 from collections.abc import Mapping
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def parseMetadataSpec(spec):
@@ -180,6 +183,13 @@ class MetadataSelections:
     def prepareSources(
         self, sources, sharedMetadata=None, selectGroups=None, grouped=False
     ):
+        sources = list(sources)
+        for index, source in enumerate(sources):
+            if source.sourceKind == "H5AD" and (
+                source.barcodeAllowListFile is not None or source.barcodeGroupMapFile is not None
+            ):
+                logger.warning("Ignoring barcodeAllowListFile and barcodeGroupMapFile for H5AD input %s", source.path)
+                sources[index] = source._replace(barcodeAllowListFile=None, barcodeGroupMapFile=None)
         sharedMetadata = parseMetadataSpec(sharedMetadata)
         specs = [
             (

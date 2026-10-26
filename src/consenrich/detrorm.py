@@ -15,20 +15,17 @@ from .misc_util import getChromSizesDict
 from .constants import COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP, EFFECTIVE_GENOME_SIZES
 from .cconsenrich import cgetFragmentLength, cEMA
 from . import ccounts
-from ._normalization import normalize_bam_input_mode as _sharedNormalizeBamInputMode
-
-
-def _normalizeBamInputMode(bamInputMode: str | None) -> str:
-    return _sharedNormalizeBamInputMode(bamInputMode, default="reads", auto_as_reads=True)
+from . import constants
+from . import _normalization as normalization
 
 
 def _bamPairedEndMode(bamInputMode: str | None) -> int:
-    return 1 if _normalizeBamInputMode(bamInputMode) == "fragments" else 0
+    return 1 if normalization.validateBamInputMode(bamInputMode, default="reads", autoAsReads=True) == "fragments" else 0
 
 
 def _resolveBamFlagExclude(samFlagExclude: int, bamInputMode: str | None) -> int:
     resolvedFlagExclude = int(samFlagExclude or 0)
-    if _normalizeBamInputMode(bamInputMode) == "read1":
+    if normalization.validateBamInputMode(bamInputMode, default="reads", autoAsReads=True) == "read1":
         resolvedFlagExclude |= 8 | 128
     return resolvedFlagExclude
 
@@ -89,8 +86,10 @@ def getScaleFactor1x(
         if str(bamFile).lower().endswith(".cram"):
             raise ValueError("CRAM inputs are unsupported.")
         sourceKind = "BAM"
-    sourceKind = str(sourceKind).upper()
-    resolvedCountMode = str("coverage" if countMode is None else countMode).strip()
+    sourceKind = normalization.validateChoice(
+        sourceKind, default="BAM", supported=constants.SUPPORTED_SOURCE_KINDS, paramName="sourceKind"
+    )
+    resolvedCountMode = normalization.validateCountMode(countMode, "coverage")
     conservedFractional = (
         resolvedCountMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
     )
@@ -105,14 +104,16 @@ def getScaleFactor1x(
                 "EGS/RPGC normalization for fragments requires "
                 "fragmentsUseReadSupport=False"
             )
-        if str(fragmentsGroupNorm).upper() != "NONE":
+        if normalization.validateChoice(
+            fragmentsGroupNorm, default="NONE", supported=constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS, paramName="fragmentsGroupNorm"
+        ) != "NONE":
             raise ValueError(
                 "EGS/RPGC normalization for fragments requires "
                 "fragmentsGroupNorm=NONE"
             )
     if int(oneReadPerBin) != 0:
         raise ValueError("EGS/RPGC normalization does not support oneReadPerBin")
-    if resolvedCountMode.lower() != "coverage" and not conservedFractional:
+    if resolvedCountMode != "coverage" and not conservedFractional:
         raise ValueError(
             "EGS/RPGC normalization requires coverage or "
             "conservedFractionalOverlap count mode"
@@ -216,26 +217,24 @@ def getScaleFactorPerMillion(
     """
     if not os.path.exists(bamFile):
         raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
-    normMethodUpper = str(normMethod or "RPKM").strip().upper()
-    if sourceKind is None and normMethodUpper in {"BAM", "FRAGMENTS", "BEDGRAPH"}:
-        # Backward compatibility for callers that passed sourceKind as the
-        # fourth positional argument before normMethod was added.
-        sourceKind = normMethodUpper
-        normMethodUpper = "RPKM"
+    normMethodUpper = normalization.validateChoice(
+        normMethod, default="RPKM", supported=("CPM", "RPKM"), paramName="normMethod"
+    )
     if sourceKind is None:
         if str(bamFile).lower().endswith(".cram"):
             raise ValueError("CRAM inputs are unsupported.")
         sourceKind = "BAM"
-    sourceKind = str(sourceKind).upper()
-    if normMethodUpper not in {"CPM", "RPKM"}:
-        raise ValueError(f"Unsupported per-million normalization method `{normMethod}`")
+    sourceKind = normalization.validateChoice(
+        sourceKind, default="BAM", supported=constants.SUPPORTED_SOURCE_KINDS, paramName="sourceKind"
+    )
+    resolvedCountMode = normalization.validateCountMode(countMode, "coverage")
     totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
         bamFile,
         excludeChromosomes=excludeChroms,
         threadCount=samThreads,
         sourceKind=sourceKind,
         barcodeAllowListFile=barcodeAllowListFile or "",
-        countMode=countMode or "coverage",
+        countMode=resolvedCountMode,
         oneReadPerBin=oneReadPerBin,
         flagExclude=(
             _resolveBamFlagExclude(samFlagExclude, bamInputMode)
@@ -261,7 +260,9 @@ def getScaleFactorPerMillion(
             raise ValueError("RPKM normalization requires a positive intervalSizeBP")
         scalePM *= 1000 / intervalSizeBP
     scalePM = round(scalePM, 5)
-    fragmentsGroupNorm = str(fragmentsGroupNorm or "NONE").strip().upper()
+    fragmentsGroupNorm = normalization.validateChoice(
+        fragmentsGroupNorm, default="NONE", supported=constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS, paramName="fragmentsGroupNorm"
+    )
     if sourceKind == "FRAGMENTS" and fragmentsGroupNorm == "CELLS":
         if groupCellCount is None or groupCellCount <= 0:
             raise ValueError(
@@ -310,6 +311,7 @@ def getPairScaleFactors(
     barcodeTagB: str | None = None,
     effectiveGenomeSizeIsFinalA: bool = False,
     effectiveGenomeSizeIsFinalB: bool = False,
+    precomputedScaleFactors: tuple[float | None, float | None] | None = None,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data to a common sequencing depth.
 
@@ -343,105 +345,63 @@ def getPairScaleFactors(
     :rtype: Tuple[float, float]
     """
 
-    normMethodUpper = str(normMethod).upper()
-    if normMethodUpper in ("RPKM", "CPM"):
-        scaleFactorA = getScaleFactorPerMillion(
-            bamFileA,
-            excludeChroms,
-            intervalSizeBP,
-            normMethod=normMethodUpper,
-            sourceKind=sourceKindA,
-            barcodeAllowListFile=barcodeAllowListFileA,
-            countMode=countModeA,
+    normMethodUpper = normalization.validateChoice(
+        normMethod, default="EGS", supported=("RPKM", "CPM", "EGS", "RPGC"), paramName="normMethod"
+    )
+    scaleFactors = []
+    sources = (
+        (bamFileA, effectiveGenomeSizeA, readLengthA, sourceKindA, barcodeAllowListFileA,
+         countModeA, groupCellCountA, bamInputModeA, extendBPA, countReadLengthA,
+         fragmentsUseReadSupportA, barcodeTagA, effectiveGenomeSizeIsFinalA),
+        (bamFileB, effectiveGenomeSizeB, readLengthB, sourceKindB, barcodeAllowListFileB,
+         countModeB, groupCellCountB, bamInputModeB, extendBPB, countReadLengthB,
+         fragmentsUseReadSupportB, barcodeTagB, effectiveGenomeSizeIsFinalB),
+    )
+    if precomputedScaleFactors is not None and len(precomputedScaleFactors) != 2:
+        raise ValueError("precomputedScaleFactors must contain two values")
+    for sourceIndex, (bamFile, effectiveGenomeSize, readLength, sourceKind, barcodeAllowListFile,
+         countMode, groupCellCount, bamInputMode, extendBP, countReadLength,
+         fragmentsUseReadSupport, barcodeTag, effectiveGenomeSizeIsFinal) in enumerate(sources):
+        if precomputedScaleFactors is not None and precomputedScaleFactors[sourceIndex] is not None:
+            scaleFactors.append(normalization.validatePositiveFloat(
+                precomputedScaleFactors[sourceIndex], "precomputedScaleFactors"
+            ))
+            continue
+        sharedArgs = dict(
+            sourceKind=sourceKind,
+            barcodeAllowListFile=barcodeAllowListFile,
+            countMode=countMode,
             oneReadPerBin=oneReadPerBin,
-            samThreads=samThreads,
-            groupCellCount=groupCellCountA,
+            groupCellCount=groupCellCount,
             fragmentsGroupNorm=fragmentsGroupNorm,
-            bamInputMode=bamInputModeA,
+            bamInputMode=bamInputMode,
             samFlagExclude=samFlagExclude,
             minMappingQuality=minMappingQuality,
             minTemplateLength=minTemplateLength,
             maxInsertSize=maxInsertSize,
-            readLength=countReadLengthA if countReadLengthA is not None else readLengthA,
-            extendBP=extendBPA,
-            fragmentsUseReadSupport=fragmentsUseReadSupportA,
-            barcodeTag=barcodeTagA,
+            extendBP=extendBP,
+            fragmentsUseReadSupport=fragmentsUseReadSupport,
+            barcodeTag=barcodeTag,
         )
-        scaleFactorB = getScaleFactorPerMillion(
-            bamFileB,
-            excludeChroms,
-            intervalSizeBP,
-            normMethod=normMethodUpper,
-            sourceKind=sourceKindB,
-            barcodeAllowListFile=barcodeAllowListFileB,
-            countMode=countModeB,
-            oneReadPerBin=oneReadPerBin,
-            samThreads=samThreads,
-            groupCellCount=groupCellCountB,
-            fragmentsGroupNorm=fragmentsGroupNorm,
-            bamInputMode=bamInputModeB,
-            samFlagExclude=samFlagExclude,
-            minMappingQuality=minMappingQuality,
-            minTemplateLength=minTemplateLength,
-            maxInsertSize=maxInsertSize,
-            readLength=countReadLengthB if countReadLengthB is not None else readLengthB,
-            extendBP=extendBPB,
-            fragmentsUseReadSupport=fragmentsUseReadSupportB,
-            barcodeTag=barcodeTagB,
-        )
-    elif normMethodUpper in ("EGS", "RPGC"):
-        scaleFactorA = getScaleFactor1x(
-            bamFileA,
-            effectiveGenomeSizeA,
-            readLengthA,
-            excludeChroms,
-            chromSizesFile,
-            samThreads,
-            sourceKind=sourceKindA,
-            barcodeAllowListFile=barcodeAllowListFileA,
-            countMode=countModeA,
-            oneReadPerBin=oneReadPerBin,
-            groupCellCount=groupCellCountA,
-            fragmentsGroupNorm=fragmentsGroupNorm,
-            bamInputMode=bamInputModeA,
-            samFlagExclude=samFlagExclude,
-            minMappingQuality=minMappingQuality,
-            minTemplateLength=minTemplateLength,
-            maxInsertSize=maxInsertSize,
-            extendBP=extendBPA,
-            intervalSizeBP=intervalSizeBP,
-            countReadLength=countReadLengthA,
-            fragmentsUseReadSupport=fragmentsUseReadSupportA,
-            barcodeTag=barcodeTagA,
-            effectiveGenomeSizeIsFinal=effectiveGenomeSizeIsFinalA,
-        )
-        scaleFactorB = getScaleFactor1x(
-            bamFileB,
-            effectiveGenomeSizeB,
-            readLengthB,
-            excludeChroms,
-            chromSizesFile,
-            samThreads,
-            sourceKind=sourceKindB,
-            barcodeAllowListFile=barcodeAllowListFileB,
-            countMode=countModeB,
-            oneReadPerBin=oneReadPerBin,
-            groupCellCount=groupCellCountB,
-            fragmentsGroupNorm=fragmentsGroupNorm,
-            bamInputMode=bamInputModeB,
-            samFlagExclude=samFlagExclude,
-            minMappingQuality=minMappingQuality,
-            minTemplateLength=minTemplateLength,
-            maxInsertSize=maxInsertSize,
-            extendBP=extendBPB,
-            intervalSizeBP=intervalSizeBP,
-            countReadLength=countReadLengthB,
-            fragmentsUseReadSupport=fragmentsUseReadSupportB,
-            barcodeTag=barcodeTagB,
-            effectiveGenomeSizeIsFinal=effectiveGenomeSizeIsFinalB,
-        )
-    else:
-        raise ValueError(f"Unsupported normalization method `{normMethod}`")
+        if normMethodUpper in ("RPKM", "CPM"):
+            scaleFactor = getScaleFactorPerMillion(
+                bamFile, excludeChroms, intervalSizeBP,
+                normMethod=normMethodUpper,
+                samThreads=samThreads,
+                readLength=countReadLength if countReadLength is not None else readLength,
+                **sharedArgs,
+            )
+        else:
+            scaleFactor = getScaleFactor1x(
+                bamFile, effectiveGenomeSize, readLength, excludeChroms,
+                chromSizesFile, samThreads,
+                intervalSizeBP=intervalSizeBP,
+                countReadLength=countReadLength,
+                effectiveGenomeSizeIsFinal=effectiveGenomeSizeIsFinal,
+                **sharedArgs,
+            )
+        scaleFactors.append(scaleFactor)
+    scaleFactorA, scaleFactorB = scaleFactors
 
     depthA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
     depthB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0
