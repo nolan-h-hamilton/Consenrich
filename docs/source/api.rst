@@ -163,3 +163,4 @@ Normalization uses ``countingParams.normMethod``. H5AD supports ``CPM``, ``RPKM`
 Fragment barcode-file options on H5AD inputs are ignored with a warning.
 
 See the :ref:`single-cell examples <scatac-demo>` for complete configurations.
+ 

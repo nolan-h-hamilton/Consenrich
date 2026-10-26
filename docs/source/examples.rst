@@ -399,7 +399,7 @@ See the :ref:`single-cell API reference <single-cell-api>` for field types and d
 
     .. code-block:: bash
 
-      pip install "consenrich[singlecell]"
+      python -m pip install "consenrich[singlecell]"
 
     See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
     requirements and metadata fields.
@@ -422,7 +422,7 @@ See the :ref:`single-cell API reference <single-cell-api>` for field types and d
 
     .. code-block:: bash
 
-      pip install "consenrich[singlecell]"
+      python -m pip install "consenrich[singlecell]"
 
     See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
     requirements and metadata fields.
@@ -445,7 +445,7 @@ See the :ref:`single-cell API reference <single-cell-api>` for field types and d
 
     .. code-block:: bash
 
-      pip install "consenrich[singlecell]"
+      python -m pip install "consenrich[singlecell]"
 
     See the :ref:`single-cell API reference <single-cell-api>` for H5AD input
     requirements and metadata fields.
