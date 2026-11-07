@@ -38,6 +38,11 @@ def testH5ADInputContract(tmp_path, caplog):
         np.testing.assert_array_equal(h5ad.readCounts(prepared, "chr1", 0, 1200, 500), [1, 0, 3])
         assert h5ad.getScaleFactor(prepared, "CPM", 500, 0) == pytest.approx(250000)
         assert h5ad.getScaleFactor(prepared, "RPKM", 500, 0) == pytest.approx(500000)
+        for depth in (3_000_000_000, 30_000_000_000, 300_000_000_000):
+            prepared.matrixInfo["normalizationCount"] = depth
+            assert h5ad.getScaleFactor(prepared, "CPM", 500) == pytest.approx(1e6 / depth, rel=1e-15, abs=0.0)
+            assert h5ad.getScaleFactor(prepared, "RPKM", 500) == pytest.approx(2e6 / depth, rel=1e-15, abs=0.0)
+        prepared.matrixInfo["normalizationCount"] = 4.0
         for method in ("EGS", "RPGC"):
             with pytest.raises(ValueError):
                 h5ad.getScaleFactor(prepared, method, 500, 10000)

@@ -24,7 +24,7 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special
+from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special, linalg
 from scipy.sparse import linalg as sparse_linalg
 from itrigamma import itrigamma, trigamma
 from . import cconsenrich
@@ -90,14 +90,19 @@ from .constants import (
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
     OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP,
     OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS,
+    OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT,
     OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
+    OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT,
     OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS,
     OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
+    OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP,
     OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
     OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
     OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
+    OBSERVATION_MAX_DEPENDENCE_SPAN_BP,
+    OBSERVATION_MAX_MUNC_WINDOW_BP,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
@@ -461,6 +466,8 @@ class observationParams(NamedTuple):
     dependenceCrossingPersistenceBP: int | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
     )
+    dependenceCrossingCount: int | None = OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT
+    dependenceAdaptiveSupport: bool = OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT
     dependenceMinFinitePairs: int | None = (
         OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
     )
@@ -507,6 +514,7 @@ class observationParams(NamedTuple):
         OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
     )
     smoothToFraglen: bool | None = OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN
+    dependenceSpanBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP
 
 
 class stateParams(NamedTuple):
@@ -6418,16 +6426,12 @@ def _supportLimitedBasisCount(
     return int(max(minBasis, min(requested, basisBySupport))), float(nEff), uniqueCount
 
 
-def _bsplineDesign(x: np.ndarray, knots: np.ndarray, degree: int) -> np.ndarray:
-    xArr = np.asarray(x, dtype=np.float64).ravel()
-    return np.asarray(
-        interpolate.BSpline.design_matrix(
-            xArr,
-            np.asarray(knots, dtype=np.float64),
-            int(degree),
-            extrapolate=False,
-        ).toarray(),
-        dtype=np.float64,
+def _bsplineDesign(x: np.ndarray, knots: np.ndarray, degree: int) -> sparse.csr_array:
+    return interpolate.BSpline.design_matrix(
+        np.asarray(x, dtype=np.float64).ravel(),
+        np.asarray(knots, dtype=np.float64),
+        int(degree),
+        extrapolate=False,
     )
 
 
@@ -6440,6 +6444,145 @@ def _coefficientDiffPenalty(numBasis: int, order: int) -> np.ndarray:
         return np.zeros((numBasis, numBasis), dtype=np.float64)
     diff = np.diff(np.eye(numBasis, dtype=np.float64), n=order, axis=0)
     return diff.T @ diff
+
+
+class _PSplineFit:
+    def __init__(
+        self,
+        blockMeans: np.ndarray,
+        weights: np.ndarray | None,
+        trendNumBasis: int,
+        trendMinObsPerBasis: float,
+        trendSplineDegree: int,
+        trendPenaltyOrder: int,
+        trendLambdaMin: float,
+        trendLambdaMax: float,
+        trendLambdaGridSize: int,
+        trendMinEdf: float,
+        trendMaxEdf: float | None,
+    ):
+        means = np.asarray(blockMeans, dtype=np.float64).ravel()
+        self.inputCount = means.size
+        weightsArr = np.ones_like(means) if weights is None else np.asarray(weights, dtype=np.float64).ravel()
+        if weightsArr.size != means.size:
+            raise ValueError("weights must have the same length as blockMeans")
+        x = _muncTrendPredictor(means)
+        mask = np.isfinite(x) & np.isfinite(weightsArr) & (weightsArr > 0.0)
+        self.order = np.flatnonzero(mask)[np.argsort(x[mask])]
+        x = x[self.order]
+        self.weights = weightsArr[self.order]
+        self.finiteCount = x.size
+        self.xMin = float(x[0]) if x.size else 0.0
+        self.xMax = float(x[-1]) if x.size else 0.0
+        self.constant = x.size < max(4, int(trendSplineDegree) + 2) or self.xMax <= self.xMin
+        self.factors = []
+        if self.constant:
+            return
+
+        self.degree = int(max(0, trendSplineDegree))
+        requestedBasis = int(max(int(trendNumBasis), self.degree + 1))
+        numBasis, nEff, uniqueXCount = _supportLimitedBasisCount(
+            x, self.weights, requestedBasis, self.degree, trendMinObsPerBasis,
+        )
+        self.knots = _psplineKnots(
+            self.xMin, self.xMax, numBasis, self.degree, x=x, weights=self.weights,
+        )
+        self.design = _bsplineDesign(x, self.knots, self.degree)
+        numBasis = int(self.design.shape[1])
+        penalty = _coefficientDiffPenalty(numBasis, int(trendPenaltyOrder))
+        self.sqrtWeights = np.sqrt(self.weights)
+        self.weightedDesign = self.design.multiply(self.sqrtWeights[:, None]).tocsr()
+        gram = (self.weightedDesign.T @ self.weightedDesign).toarray()
+        lamMin = float(trendLambdaMin)
+        lamMax = float(trendLambdaMax)
+        if (not np.isfinite(lamMin)) or lamMin <= 0.0:
+            lamMin = 1.0e-6
+        if (not np.isfinite(lamMax)) or lamMax <= lamMin:
+            lamMax = 1.0e6
+        self.lambdaGrid = np.logspace(
+            np.log10(lamMin), np.log10(lamMax), int(max(3, trendLambdaGridSize)),
+        )
+        self.minEdf = float(min(max(1.0, trendMinEdf), max(float(numBasis), 1.0)))
+        if trendMaxEdf is None or not np.isfinite(float(trendMaxEdf)):
+            maxEdf = min(float(numBasis - 1), 30.0)
+        else:
+            maxEdf = float(trendMaxEdf)
+        self.maxEdf = max(self.minEdf, min(maxEdf, float(numBasis)))
+        ridge = 1.0e-10 * max(float(np.trace(gram)) / max(numBasis, 1), 1.0)
+        diagonal = np.diag_indices(numBasis)
+        for lam in self.lambdaGrid:
+            system = gram + float(lam) * penalty
+            system[diagonal] += ridge
+            try:
+                factor = linalg.cho_factor(system, lower=True, check_finite=False)
+                edf = float(np.trace(linalg.cho_solve(factor, gram, check_finite=False)))
+            except np.linalg.LinAlgError:
+                continue
+            self.factors.append((float(lam), factor, edf))
+        self.diagnostics = {
+            "lambda_grid_min": float(self.lambdaGrid[0]),
+            "lambda_grid_max": float(self.lambdaGrid[-1]),
+            "num_basis": numBasis,
+            "requested_num_basis": requestedBasis,
+            "support_limited_num_basis": numBasis,
+            "trend_n_eff": float(nEff),
+            "trend_unique_x": int(uniqueXCount),
+            "trend_min_obs_per_basis": float(max(trendMinObsPerBasis, 1.0)),
+            "trend_min_edf": self.minEdf,
+            "trend_max_edf": self.maxEdf,
+            "knot_mode": "weighted_quantile",
+            "degree": self.degree,
+            "penalty_order": int(trendPenaltyOrder),
+        }
+
+    def fit(self, blockVariances: np.ndarray, eps: float) -> PSplineLogVarianceTrend:
+        variances = np.asarray(blockVariances, dtype=np.float64).ravel()
+        if variances.size != self.inputCount:
+            raise ValueError("blockMeans and blockVariances must have the same length")
+        if variances.size and (
+            (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
+        ):
+            raise ValueError("blockVariances must contain only finite positive values")
+        floor = float(max(float(eps), 1.0e-12))
+        y = np.log(np.maximum(variances[self.order], floor))
+        best = None
+        bestRejected = None
+        if not self.constant:
+            rhs = self.weightedDesign.T @ (y * self.sqrtWeights)
+            for lam, factor, edf in self.factors:
+                beta = linalg.cho_solve(factor, rhs, check_finite=False)
+                fitted = self.design @ beta
+                residSS = float(np.sum(self.weights * np.square(y - fitted)))
+                denom = 1.0 - edf / self.finiteCount
+                gcv = float("inf") if abs(denom) < 1.0e-8 else (residSS / self.finiteCount) / (denom * denom)
+                if not np.isfinite(gcv):
+                    continue
+                candidate = (gcv, lam, edf, beta)
+                if bestRejected is None or gcv < bestRejected[0]:
+                    bestRejected = candidate
+                if self.minEdf <= edf <= self.maxEdf and (best is None or gcv < best[0]):
+                    best = candidate
+            if best is None:
+                best = bestRejected
+        if best is None:
+            y0 = float(np.average(y, weights=self.weights)) if y.size else float(np.log(floor))
+            reason = "no_finite_pairs" if not y.size else (
+                "constant_trend" if self.constant else "constant_after_solve_failure"
+            )
+            return PSplineLogVarianceTrend(
+                knots=np.empty(0, dtype=np.float64), degree=-1,
+                beta=np.array([y0], dtype=np.float64), xMin=self.xMin, xMax=self.xMax,
+                lambdaHat=0.0, edf=1.0, gcv=0.0, lambdaAtBoundary=False,
+                finiteCount=self.finiteCount, diagnostics={"fallback": reason},
+            )
+        gcv, lam, edf, beta = best
+        atBoundary = bool(np.isclose(lam, self.lambdaGrid[0]) or np.isclose(lam, self.lambdaGrid[-1]))
+        return PSplineLogVarianceTrend(
+            knots=self.knots, degree=self.degree, beta=np.asarray(beta, dtype=np.float64),
+            xMin=self.xMin, xMax=self.xMax, lambdaHat=lam, edf=edf, gcv=gcv,
+            lambdaAtBoundary=atBoundary, finiteCount=self.finiteCount,
+            diagnostics={**self.diagnostics, "lambda_at_boundary": atBoundary},
+        )
 
 
 def fitPSplineLogVarianceTrend(
@@ -6463,197 +6606,11 @@ def fitPSplineLogVarianceTrend(
     imposes no monotonicity constraint and no signal-dependent linear floor.
     """
 
-    means = np.asarray(blockMeans, dtype=np.float64).ravel()
-    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
-    if weights is None:
-        weightsArr = np.ones_like(means, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-        if weightsArr.size != means.size:
-            raise ValueError("weights must have the same length as blockMeans")
-
-    if variances.size != means.size:
-        raise ValueError("blockMeans and blockVariances must have the same length")
-    if variances.size and (
-        (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
-    ):
-        raise ValueError("blockVariances must contain only finite positive values")
-
-    floor = float(max(float(eps), 1.0e-12))
-    x = _muncTrendPredictor(means)
-    y = np.log(np.maximum(variances, floor))
-    mask = (
-        np.isfinite(x) & np.isfinite(y) & np.isfinite(weightsArr) & (weightsArr > 0.0)
-    )
-    x = x[mask]
-    y = y[mask]
-    weightsArr = weightsArr[mask]
-
-    if x.size == 0:
-        y0 = float(np.log(floor))
-        return PSplineLogVarianceTrend(
-            knots=np.empty(0, dtype=np.float64),
-            degree=-1,
-            beta=np.array([y0], dtype=np.float64),
-            xMin=0.0,
-            xMax=0.0,
-            lambdaHat=0.0,
-            edf=1.0,
-            gcv=0.0,
-            lambdaAtBoundary=False,
-            finiteCount=0,
-            diagnostics={"fallback": "no_finite_pairs"},
-        )
-
-    order = np.argsort(x)
-    x = x[order]
-    y = y[order]
-    weightsArr = weightsArr[order]
-
-    xMin = float(x[0])
-    xMax = float(x[-1])
-    if x.size < max(4, int(trendSplineDegree) + 2) or xMax <= xMin:
-        y0 = float(np.average(y, weights=weightsArr))
-        return PSplineLogVarianceTrend(
-            knots=np.empty(0, dtype=np.float64),
-            degree=-1,
-            beta=np.array([y0], dtype=np.float64),
-            xMin=xMin,
-            xMax=xMax,
-            lambdaHat=0.0,
-            edf=1.0,
-            gcv=0.0,
-            lambdaAtBoundary=False,
-            finiteCount=int(x.size),
-            diagnostics={"fallback": "constant_trend"},
-        )
-
-    degree = int(max(0, trendSplineDegree))
-    requestedBasis = int(max(int(trendNumBasis), degree + 1))
-    numBasis, nEff, uniqueXCount = _supportLimitedBasisCount(
-        x=x,
-        weights=weightsArr,
-        requestedBasis=requestedBasis,
-        degree=degree,
-        minObsPerBasis=trendMinObsPerBasis,
-    )
-    knots = _psplineKnots(
-        xMin,
-        xMax,
-        numBasis,
-        degree,
-        x=x,
-        weights=weightsArr,
-    )
-    B = _bsplineDesign(np.clip(x, xMin, xMax), knots, degree)
-    numBasis = int(B.shape[1])
-    penalty = _coefficientDiffPenalty(numBasis, int(trendPenaltyOrder))
-
-    sqrtW = np.sqrt(weightsArr)
-    BW = B * sqrtW[:, None]
-    yW = y * sqrtW
-    gram = BW.T @ BW
-    rhs = BW.T @ yW
-
-    lamMin = float(trendLambdaMin)
-    lamMax = float(trendLambdaMax)
-    if (not np.isfinite(lamMin)) or lamMin <= 0.0:
-        lamMin = 1.0e-6
-    if (not np.isfinite(lamMax)) or lamMax <= lamMin:
-        lamMax = 1.0e6
-    gridSize = int(max(3, trendLambdaGridSize))
-    lambdaGrid = np.logspace(np.log10(lamMin), np.log10(lamMax), gridSize)
-
-    minEdf = float(min(max(1.0, trendMinEdf), max(float(numBasis), 1.0)))
-    if trendMaxEdf is None or not np.isfinite(float(trendMaxEdf)):
-        maxEdf = min(float(numBasis - 1), 30.0)
-    else:
-        maxEdf = float(trendMaxEdf)
-    maxEdf = max(minEdf, min(maxEdf, float(numBasis)))
-    best: tuple[float, float, float, np.ndarray] | None = None
-    bestRejected: tuple[float, float, float, np.ndarray] | None = None
-    ridge = 1.0e-10 * max(float(np.trace(gram)) / max(numBasis, 1), 1.0)
-
-    for lam in lambdaGrid:
-        A = gram + (float(lam) * penalty)
-        try:
-            beta = np.linalg.solve(A + ridge * np.eye(numBasis), rhs)
-            edf = float(np.trace(np.linalg.solve(A + ridge * np.eye(numBasis), gram)))
-        except np.linalg.LinAlgError:
-            continue
-
-        fitted = B @ beta
-        residSS = float(np.sum(weightsArr * np.square(y - fitted)))
-        R = float(max(x.size, 1))
-        denom = 1.0 - (edf / R)
-        if abs(denom) < 1.0e-8:
-            gcv = float("inf")
-        else:
-            gcv = float((residSS / R) / (denom * denom))
-        if not np.isfinite(gcv):
-            continue
-
-        candidate = (gcv, float(lam), edf, beta)
-        if bestRejected is None or gcv < bestRejected[0]:
-            bestRejected = candidate
-
-        if edf < minEdf:
-            continue
-        if maxEdf is not None and edf > maxEdf:
-            continue
-        if best is None or gcv < best[0]:
-            best = candidate
-
-    if best is None:
-        if bestRejected is None:
-            y0 = float(np.average(y, weights=weightsArr))
-            return PSplineLogVarianceTrend(
-                knots=np.empty(0, dtype=np.float64),
-                degree=-1,
-                beta=np.array([y0], dtype=np.float64),
-                xMin=xMin,
-                xMax=xMax,
-                lambdaHat=0.0,
-                edf=1.0,
-                gcv=0.0,
-                lambdaAtBoundary=False,
-                finiteCount=int(x.size),
-                diagnostics={"fallback": "constant_after_solve_failure"},
-            )
-        best = bestRejected
-
-    gcvHat, lambdaHat, edfHat, betaHat = best
-    lambdaAtBoundary = bool(
-        np.isclose(lambdaHat, lambdaGrid[0]) or np.isclose(lambdaHat, lambdaGrid[-1])
-    )
-    return PSplineLogVarianceTrend(
-        knots=knots.astype(np.float64, copy=False),
-        degree=degree,
-        beta=np.asarray(betaHat, dtype=np.float64),
-        xMin=xMin,
-        xMax=xMax,
-        lambdaHat=float(lambdaHat),
-        edf=float(edfHat),
-        gcv=float(gcvHat),
-        lambdaAtBoundary=lambdaAtBoundary,
-        finiteCount=int(x.size),
-        diagnostics={
-            "lambda_grid_min": float(lambdaGrid[0]),
-            "lambda_grid_max": float(lambdaGrid[-1]),
-            "lambda_at_boundary": lambdaAtBoundary,
-            "num_basis": int(numBasis),
-            "requested_num_basis": int(requestedBasis),
-            "support_limited_num_basis": int(numBasis),
-            "trend_n_eff": float(nEff),
-            "trend_unique_x": int(uniqueXCount),
-            "trend_min_obs_per_basis": float(max(trendMinObsPerBasis, 1.0)),
-            "trend_min_edf": float(minEdf),
-            "trend_max_edf": float(maxEdf),
-            "knot_mode": "weighted_quantile",
-            "degree": int(degree),
-            "penalty_order": int(trendPenaltyOrder),
-        },
-    )
+    return _PSplineFit(
+        blockMeans, weights, trendNumBasis, trendMinObsPerBasis, trendSplineDegree,
+        trendPenaltyOrder, trendLambdaMin, trendLambdaMax, trendLambdaGridSize,
+        trendMinEdf, trendMaxEdf,
+    ).fit(blockVariances, eps)
 
 
 def evalPSplineLogVarianceTrend(
@@ -6776,6 +6733,10 @@ def fitPooledMuncVarianceTrend(
             },
         )
 
+    splineFit = _PSplineFit(
+        means, weightsArr, trendNumBasis, trendMinObsPerBasis, 2, 2,
+        trendLambdaMin, trendLambdaMax, trendLambdaGridSize, trendMinEdf, trendMaxEdf,
+    )
     logFactors = np.zeros(sampleCount_, dtype=np.float64)
     sampleWeights = np.bincount(
         samples,
@@ -6790,19 +6751,7 @@ def fitPooledMuncVarianceTrend(
     tol_ = float(max(tol, 0.0))
     for iteration in range(maxIters_):
         scaledVariances = variances / np.exp(logFactors[samples])
-        trend = fitPSplineLogVarianceTrend(
-            means,
-            scaledVariances,
-            weights=weightsArr,
-            eps=eps,
-            trendNumBasis=trendNumBasis,
-            trendMinObsPerBasis=trendMinObsPerBasis,
-            trendMinEdf=trendMinEdf,
-            trendMaxEdf=trendMaxEdf,
-            trendLambdaMin=trendLambdaMin,
-            trendLambdaMax=trendLambdaMax,
-            trendLambdaGridSize=trendLambdaGridSize,
-        )
+        trend = splineFit.fit(scaledVariances, eps)
         prior = evalPSplineLogVarianceTrend(
             trend,
             means,
@@ -6841,19 +6790,7 @@ def fitPooledMuncVarianceTrend(
     if trend is None:
         raise RuntimeError("pooled MUNC trend fit did not run")
     scaledVariances = variances / np.exp(logFactors[samples])
-    trend = fitPSplineLogVarianceTrend(
-        means,
-        scaledVariances,
-        weights=weightsArr,
-        eps=eps,
-        trendNumBasis=trendNumBasis,
-        trendMinObsPerBasis=trendMinObsPerBasis,
-        trendMinEdf=trendMinEdf,
-        trendMaxEdf=trendMaxEdf,
-        trendLambdaMin=trendLambdaMin,
-        trendLambdaMax=trendLambdaMax,
-        trendLambdaGridSize=trendLambdaGridSize,
-    )
+    trend = splineFit.fit(scaledVariances, eps)
     factors = np.exp(logFactors)
     if not np.all(np.isfinite(factors)) or np.any(factors <= 0.0):
         raise FloatingPointError("pooled MUNC replicate variance factors are invalid")
@@ -7332,13 +7269,13 @@ def centerMBInPlace(
             )
         elif centerMBMethod == COUNTING_CENTER_MB_METHOD_SAVGOL:
             halfWindow = filterWindowIntervals // 2
-            paddedTrack = np.pad(track, (halfWindow, halfWindow), mode="edge")
-            cumulative = np.empty(paddedTrack.size + 1, dtype=np.float64)
-            cumulative[0] = 0.0
-            np.cumsum(paddedTrack, dtype=np.float64, out=cumulative[1:])
-            filtered = (
-                cumulative[filterWindowIntervals:] - cumulative[:-filterWindowIntervals]
-            ) / float(filterWindowIntervals)
+            if halfWindow == 0:
+                filtered = np.asarray(track, dtype=np.float64)
+            else:
+                paddedTrack = np.pad(track, (halfWindow, halfWindow), mode="edge")
+                filtered = cconsenrich.cWindowSums(
+                    paddedTrack, filterWindowIntervals,
+                )[halfWindow:-halfWindow] / float(filterWindowIntervals)
         else:
             raise ValueError(f"centerMBMethod must be one of: {supported}")
         np.subtract(track, filtered, out=track, casting="unsafe")
@@ -7630,6 +7567,28 @@ def _sparseSupportWeights(
     return weights.astype(np.float32, copy=False)
 
 
+def _resolveDependenceSpanBP(value: int | None, intervalSizeBP: int) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ValueError("observationParams.dependenceSpanBP must be an integer or null")
+    binBP = max(1, int(intervalSizeBP))
+    maxSpanBP = (OBSERVATION_MAX_DEPENDENCE_SPAN_BP // binBP) * binBP
+    if maxSpanBP < binBP:
+        raise ValueError(
+            "countingParams.intervalSizeBP cannot exceed the 1 Mb dependence span cap"
+        )
+    requestedBP = int(value)
+    spanBP = min(maxSpanBP, max(binBP, requestedBP))
+    if spanBP != requestedBP:
+        logger.warning(
+            "Clipping observationParams.dependenceSpanBP from %d to %d bp "
+            "(allowed %d to %d bp at %d bp bins).",
+            requestedBP, spanBP, binBP, maxSpanBP, binBP,
+        )
+    return spanBP
+
+
 class _MuncRuntimeSizing(NamedTuple):
     trendBlockSizeBP: int
     trendBlockIntervals: int
@@ -7639,6 +7598,8 @@ class _MuncRuntimeSizing(NamedTuple):
     localWindowSource: str
     usedDependenceSpan: bool
     dependenceSpanIntervals: int | None
+    requestedTrendBlockSizeBP: int
+    requestedLocalWindowSizeBP: int
 
 
 def _resolveMuncRuntimeSizing(
@@ -7655,6 +7616,12 @@ def _resolveMuncRuntimeSizing(
     ),
 ) -> _MuncRuntimeSizing:
     intervalSizeBP_ = max(1, int(intervalSizeBP))
+    maxWindowIntervals = OBSERVATION_MAX_MUNC_WINDOW_BP // intervalSizeBP_
+    if maxWindowIntervals < 4:
+        raise ValueError(
+            "countingParams.intervalSizeBP must be at most 250000 bp "
+            "to fit four MUNC bins under the 1 Mb cap"
+        )
     dependenceIntervals = (
         None if dependenceSpanIntervals is None else int(dependenceSpanIntervals)
     )
@@ -7684,9 +7651,10 @@ def _resolveMuncRuntimeSizing(
     def resolveDependenceIntervals(multiplier: float, minIntervals: int) -> int | None:
         if dependenceIntervals is None:
             return None
+        numerator, denominator = multiplier.as_integer_ratio()
         return max(
             int(minIntervals),
-            int(math.ceil(float(multiplier) * float(dependenceIntervals))),
+            (dependenceIntervals * numerator + denominator - 1) // denominator,
         )
 
     def resolveExplicitIntervals(value: int | None) -> int | None:
@@ -7695,7 +7663,7 @@ def _resolveMuncRuntimeSizing(
         valueBP = int(value)
         if valueBP <= 0:
             return None
-        return max(1, int(valueBP / intervalSizeBP_))
+        return max(1, valueBP // intervalSizeBP_)
 
     trendIntervals = resolveExplicitIntervals(muncTrendBlockSizeBP)
     usedDependenceSpan = False
@@ -7722,6 +7690,10 @@ def _resolveMuncRuntimeSizing(
 
     trendIntervals = max(1, int(trendIntervals))
     localIntervals = max(4, int(localIntervals))
+    requestedTrendBP = trendIntervals * intervalSizeBP_
+    requestedLocalBP = localIntervals * intervalSizeBP_
+    trendIntervals = min(trendIntervals, maxWindowIntervals)
+    localIntervals = min(localIntervals, maxWindowIntervals)
     return _MuncRuntimeSizing(
         trendBlockSizeBP=int(trendIntervals * intervalSizeBP_),
         trendBlockIntervals=int(trendIntervals),
@@ -7731,6 +7703,8 @@ def _resolveMuncRuntimeSizing(
         localWindowSource=localSource,
         usedDependenceSpan=bool(usedDependenceSpan),
         dependenceSpanIntervals=dependenceIntervals,
+        requestedTrendBlockSizeBP=requestedTrendBP,
+        requestedLocalWindowSizeBP=requestedLocalBP,
     )
 
 
@@ -7833,10 +7807,14 @@ def solveZeroCenteredBackground(
         or spectralScaleRatio <= 0.0
     ):
         raise RuntimeError("roughness-penalized LDL scale is invalid")
-    roundoffIndex = float(np.finfo(np.float64).eps * spectralScaleRatio)
+    # Two-component LDL arithmetic, followed by a float64 result rounding.
+    arithmeticEpsilon = float(np.finfo(np.float64).eps)
+    roundoffIndex = float(
+        arithmeticEpsilon + arithmeticEpsilon**2 * spectralScaleRatio
+    )
     if roundoffIndex >= 1.0:
         raise RuntimeError(
-            "roughness-penalized LDL system exceeds float64 reliability: "
+            "roughness-penalized system exceeds compensated LDL reliability: "
             f"spanIntervals={int(blockLenIntervals)} "
             f"smoothness={float(backgroundSmoothness):.6g} "
             f"meanPositivePrecision={meanPositivePrecision:.6g} "
@@ -7847,7 +7825,7 @@ def solveZeroCenteredBackground(
         )
     if roundoffIndex >= 1.0e-2 and initialBackground is None:
         logger.warning(
-            "roughness-penalized LDL system is ill-conditioned: "
+            "roughness-penalized system strains compensated LDL precision: "
             "spanIntervals=%d smoothness=%.6g meanPositivePrecision=%.6g "
             "lambdaFirst=%.6g lambdaSecond=%.6g "
             "spectralScaleRatio=%.6g roundoffIndex=%.6g. "
@@ -8891,7 +8869,13 @@ def chooseFeatureLength(
         )
 
     smoothSize = min(int(max(1, minSpan_)), int(maxSpan_ / 2))
-    yLogSmooth = ndimage.uniform_filter1d(yLog, size=smoothSize, mode="nearest")
+    leftPad = smoothSize // 2
+    rightPad = smoothSize - 1 - leftPad
+    paddedLog = np.pad(yLog, (leftPad, rightPad), mode="edge")
+    yLogSmooth = cconsenrich.cWindowSums(
+        paddedLog, smoothSize, leftOffset=leftPad,
+    )[leftPad:leftPad + n] / float(smoothSize)
+    del paddedLog
     kMinFeatures = int(max(1, (2 * np.log2(n + 1))))
     thrLog = float(np.mean(posLog))
     startOrder = int(max(1, maxOrder))

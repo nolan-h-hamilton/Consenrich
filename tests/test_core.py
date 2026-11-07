@@ -4,6 +4,7 @@
 # 'core' as in 'central' or 'basic', not the literal
 # `consenrich.core` module
 
+import inspect
 import logging
 import math
 import os
@@ -28,14 +29,69 @@ import consenrich.diagnostics as diagnostics
 import consenrich.detrorm as detrorm
 import consenrich.misc_util as misc_util
 import consenrich.peaks as peaks
+import consenrich.shrinkState as shrinkState
 
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
-def test_roughness_ldl_guardrails(caplog):
-    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP == 100_000
+def test_stateShrinkageCenteredMomentsAndFittedLikelihood():
+    state = np.asarray([0.0, -0.2, 1.0, 1e4, 1e5, 1e6, -1e7])
+    variance = np.full(state.size, 1e-6)
+    for tau, slabWeight in (
+        (np.asarray([1.44]), np.asarray([1.0])),
+        (np.asarray([0.02, 1.44, 25.0]), np.asarray([0.2, 0.5, 0.3])),
+    ):
+        result = cconsenrich.cstateShrinkMixturePosterior(
+            state, variance, 0.4, tau, slabWeight
+        )
+        expectedMean, expectedSD = [], []
+        for x, v in zip(state, variance):
+            componentVariance = np.concatenate(([0.0], tau))
+            priorWeight = np.concatenate(([0.4], 0.6 * slabWeight))
+            logWeight = np.log(priorWeight) + stats.norm.logpdf(
+                x, scale=np.sqrt(v + componentVariance)
+            )
+            weight = np.exp(logWeight - np.max(logWeight))
+            weight /= math.fsum(weight)
+            componentMean = componentVariance / (v + componentVariance) * x
+            conditionalVariance = componentVariance / (v + componentVariance) * v
+            mean = math.fsum(weight * componentMean)
+            postVariance = math.fsum(
+                weight * (conditionalVariance + (componentMean - mean) ** 2)
+            )
+            expectedMean.append(mean)
+            expectedSD.append(math.sqrt(max(postVariance, 1e-12)))
+        np.testing.assert_allclose(result[0], expectedMean, rtol=1e-6, atol=1e-12)
+        np.testing.assert_allclose(result[1], expectedSD, rtol=1e-6)
+    repeatedSlab = cconsenrich.cstateShrinkMixturePosterior(
+        [1e20, -1e20], [1e-6, 1e-6], 0.4, [1.44] * 4, [0.1, 0.2, 0.3, 0.4]
+    )
+    np.testing.assert_allclose(repeatedSlab[1], math.sqrt(1.44e-6 / (1.44 + 1e-6)), rtol=1e-6)
+
+    rng = np.random.default_rng(42)
+    state = np.concatenate((rng.normal(0.0, 0.3, 200), rng.normal(4.0, 1.0, 100)))
+    variance = np.full(state.size, 0.09)
+    for family in shrinkState.STATE_SHRINKAGE_MODELS:
+        for fixed in (False, True):
+            prior = shrinkState.fitStateShrinkagePrior(
+                [(state, variance)], model=family, maxIter=1, blockSize=2,
+                priorSpikeProp=0.4 if fixed else None,
+                priorScale=1.2 if fixed else None,
+                stateShrinkageSpikePseudoCount=0.0,
+                stateShrinkageScaleAnchorWeight=0.0,
+            )
+            tau, slabWeight = shrinkState._priorSlabArrays(prior)
+            logDensity = stats.norm.logpdf(
+                state[:, None], scale=np.sqrt(variance[:, None] + np.r_[0.0, tau])
+            )
+            logDensity += np.log(np.r_[prior.priorSpikeProp, (1-prior.priorSpikeProp)*slabWeight])
+            expected = np.logaddexp.reduce(logDensity, axis=1).reshape(-1, 2).mean(axis=1).sum()
+            assert prior.metadata["log_likelihood"] == pytest.approx(expected, rel=1e-12)
+
+
+def test_roughness_ldl_guardrails():
     assert constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP == 125_000
     assert consenrichRuntime._resolveRuntimeBackgroundBlockLen(
         171,
@@ -59,39 +115,19 @@ def test_roughness_ldl_guardrails(caplog):
     residualMatrix = np.ones((1, 64), dtype=np.float32)
     invVarMatrix = np.full((1, 64), 8.53348, dtype=np.float32)
 
-    healthy = core.solveZeroCenteredBackground(
-        residualMatrix=residualMatrix,
-        invVarMatrix=invVarMatrix,
-        blockLenIntervals=401,
-        backgroundSmoothness=64.0,
-        zeroCenter=False,
-        useNonnegative=False,
-    )
-    np.testing.assert_allclose(healthy, 1.0, rtol=1.0e-3)
-
-    with caplog.at_level(logging.WARNING, logger="consenrich.core"):
-        warned = core.solveZeroCenteredBackground(
+    for span, smoothness in ((401, 64.0), (1771, 64.0), (2499, 64.0), (6427, 128.0)):
+        fitted = core.solveZeroCenteredBackground(
             residualMatrix=residualMatrix,
             invVarMatrix=invVarMatrix,
-            blockLenIntervals=1771,
-            backgroundSmoothness=64.0,
+            blockLenIntervals=span,
+            backgroundSmoothness=smoothness,
             zeroCenter=False,
             useNonnegative=False,
         )
-    assert np.isfinite(warned).all()
-    assert "roundoffIndex" in caplog.text
+        assert fitted.dtype == np.float32
+        np.testing.assert_allclose(fitted, 1.0, atol=1.0e-7, rtol=0.0)
 
-    with pytest.raises(RuntimeError, match="exceeds float64 reliability"):
-        core.solveZeroCenteredBackground(
-            residualMatrix=residualMatrix,
-            invVarMatrix=invVarMatrix,
-            blockLenIntervals=6427,
-            backgroundSmoothness=128.0,
-            zeroCenter=False,
-            useNonnegative=False,
-        )
-
-    with pytest.raises(RuntimeError, match="required pivot modification"):
+    with pytest.raises(RuntimeError, match="rank deficient"):
         cconsenrich.csolveZeroCenteredBackground(
             np.zeros(3, dtype=np.float64),
             np.zeros(3, dtype=np.float64),
@@ -108,6 +144,8 @@ def test_roughness_ldl_guardrails(caplog):
         lamFirst=6.0,
     )
     np.testing.assert_allclose(singleton, np.asarray([4.0]))
+    empty = cconsenrich.csolveZeroCenteredBackground(np.empty(0), np.empty(0), 0.0, False)
+    assert empty.shape == (0,)
 
 
 def test_background_difference_penalties_match_sparse_reference():
@@ -175,154 +213,72 @@ def test_background_difference_penalties_match_sparse_reference():
     )
 
 
-def test_dependence_span_rank_weighted_sampling_contract():
-    windowBins = 64
-    candidateCount = 300
-    baseShape = ndi.gaussian_filter1d(
-        np.random.default_rng(9).normal(size=windowBins),
-        1.5,
-    )
-    baseShape = baseShape - np.min(baseShape) + 1.0
-    blocks = [np.full(windowBins, 400.0, dtype=np.float32)]
-    for index in range(1, candidateCount):
-        offset = 2.0 + np.floor((candidateCount - index) / 2.0)
-        blocks.append(np.asarray(baseShape + offset, dtype=np.float32))
-    matrix = np.concatenate(blocks)[None, :]
-
-    estimatorArgs = {
-        "windowBP": windowBins,
-        "maxLagBP": 24,
-        "workingQuantile": constants.OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
-        "bootstrapDraws": 20,
-        "randSeed": 21,
-        "minWindowCount": 20,
-        "acfThreshold": 0.15,
-        "acfSmoothingBP": 1,
-        "crossingPersistenceBP": 1,
-        "minFinitePairs": 8,
-        "minFinitePairCoverage": 0.5,
-    }
-    result = cconsenrich.cchooseDependenceSpan(
-        ["chr11"],
-        [matrix],
-        1,
-        **estimatorArgs,
-    )
+def test_dependence_span_native_defaults_and_report_floor():
+    signature = inspect.signature(cconsenrich.cchooseDependenceSpan)
+    for name, value in dict(windowBP=500_000, windowCount=512, maxLagBP=250_000, workingQuantile=0.9,
+                            crossingCount=5, adaptiveSupport=True).items():
+        assert signature.parameters[name].default == value
+    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP == 500_000
+    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT == 512
+    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP == 250_000
+    assert constants.OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT is True
+    assert constants.OBSERVATION_MIN_DEPENDENCE_RADIUS_BP == 2500
+    rng = np.random.default_rng(91)
+    matrices = []
+    for _ in range(2):
+        common = ndi.gaussian_filter1d(rng.normal(size=12 * 20000), 4)
+        matrices.append((4.0 + common[None, :] + rng.normal(0, 0.04, (3, common.size))).astype(np.float32))
+    arguments = dict(windowCount=24, minWindowCount=20, bootstrapDraws=24, randSeed=21)
+    result = cconsenrich.cchooseDependenceSpan(["chr2", "chr11"], matrices, 50, **arguments)
     details = result[3]
-    assert constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP == 1500
-    assert details["workingQuantile"] == 0.9
-    assert details["fullSampleWorkingSpanBP"] < 1500.0
-    assert details["workingSpanBP"] == 1500.0
-    assert result[:3] == (5, 5, 5)
-    for intervalSizeBP in (50, 500):
-        scaledArgs = dict(estimatorArgs)
-        for key in (
-            "windowBP", "maxLagBP", "acfSmoothingBP", "crossingPersistenceBP"
-        ):
-            scaledArgs[key] *= intervalSizeBP
-        scaledResult = cconsenrich.cchooseDependenceSpan(
-            ["chr11"], [matrix], intervalSizeBP, **scaledArgs
-        )
-        scaledDetails = scaledResult[3]
-        assert scaledResult[:3] == result[:3]
-        for key in (
-            "estimateBP", "lowerBP", "upperBP", "fullSampleMedianRadiusBP",
-            "fullSampleWorkingSpanBP", "bootstrapMedianRadiusBP",
-            "bootstrapWorkingSpanBP",
-        ):
-            np.testing.assert_allclose(
-                np.asarray(scaledDetails[key]) / intervalSizeBP, details[key],
-                rtol=1.0e-12,
-            )
-        assert scaledDetails["workingSpanBP"] == max(
-            1500.0, scaledDetails["fullSampleWorkingSpanBP"]
-        )
-    assert scaledDetails["workingSpanBP"] > 1500.0
+    assert result[:3] == (50, 50, 50)
+    assert details["method"] == "clippedCovarianceShrinkage"
+    assert details["replicateAggregation"] == "pointwiseMean"
+    assert details["inputRowCount"] == details["uniqueRowCount"] == 3
+    assert details["covarianceRowCount"] == 1
+    assert details["windowBP"] == 500_000
+    assert details["maxLagBP"] == 250_000
+    assert details["crossingCount"] == 5
+    assert details["totalPersistenceBP"] == 2500
+    assert details["adaptiveSupport"] is True
+    assert details["unboundedEstimateBP"] < 2500
+    assert details["workingSpanBP"] == 2500
+    assert details["bootstrapResolvedPooledDraws"] == arguments["bootstrapDraws"]
+    assert all(row["donorCount"] >= 4 for row in details["selectedWindows"])
+    assert result == cconsenrich.cchooseDependenceSpan(["chr2", "chr11"], matrices, 50, **arguments)
 
-    candidateMatrix = matrix.reshape(candidateCount, windowBins).astype(np.float64)
-    scores = np.sum(np.maximum(candidateMatrix, 0.0), axis=1)
-    starts = np.arange(candidateCount, dtype=np.int64) * windowBins
-    scoreOrder = np.lexsort((starts, -scores))
-    rankedScores = scores[scoreOrder]
-    ranks = np.empty(candidateCount, dtype=np.float64)
-    rankStart = 0
-    while rankStart < candidateCount:
-        rankEnd = rankStart + 1
-        while (
-            rankEnd < candidateCount
-            and rankedScores[rankEnd] == rankedScores[rankStart]
-        ):
-            rankEnd += 1
-        ranks[rankStart:rankEnd] = 0.5 * ((rankStart + 1) + rankEnd)
-        rankStart = rankEnd
 
-    selectionSeed = np.random.SeedSequence(21).spawn(2)[0]
-    weights = candidateCount - ranks + 1.0
-    selectionKeys = (
-        np.random.default_rng(selectionSeed).exponential(size=candidateCount)
-        / weights
-    )
-    weightedOrder = np.lexsort((starts[scoreOrder], selectionKeys))
-    expectedStarts = []
-    expectedRanks = []
-    expectedEvaluationCount = 0
-    for rankedIndex in weightedOrder:
-        expectedEvaluationCount += 1
-        startBP = int(starts[scoreOrder[rankedIndex]])
-        if startBP == 0:
-            continue
-        expectedStarts.append(startBP)
-        expectedRanks.append(float(ranks[rankedIndex]))
-        if len(expectedStarts) == constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT:
-            break
-
-    selectedWindows = details["selectedWindows"]
-    actualStarts = [int(window["startBP"]) for window in selectedWindows]
-    actualRanks = [
-        float(window["positiveSignalRank"]) for window in selectedWindows
+@pytest.mark.parametrize("wideSigma", [8, 20])
+def test_pooled_working_span_is_independent_of_local_quantile(wideSigma):
+    rng = np.random.default_rng(409)
+    matrices = []
+    for sigma in (4, wideSigma):
+        common = ndi.gaussian_filter1d(rng.normal(size=12 * 512), sigma)
+        values = 4 + common + rng.normal(0, 0.03, (3, common.size))
+        matrices.append(values.astype(np.float32))
+    arguments = dict(windowBP=256000, maxLagBP=128000, windowCount=20,
+                     minWindowCount=12, bootstrapDraws=32, randSeed=91,
+                     acfSmoothingBP=5000, crossingPersistenceBP=5000,
+                     minFinitePairs=64, minFinitePairCoverage=0.5)
+    median, upper = [
+        cconsenrich.cchooseDependenceSpan(
+            ["chr2", "chr11"], matrices, 500, workingQuantile=q, **arguments
+        ) for q in (0.5, 0.9)
     ]
-    assert details["method"] == "rankWeightedFinitePairWindowACF"
-    assert details["randomSeed"] == 21
-    assert details["candidateWindowCount"] == candidateCount
-    assert details["evaluatedCandidateWindowCount"] == expectedEvaluationCount
-    assert details["selectedWindowCount"] == details["windowCountRequested"] == 256
-    assert details["selectedAutosomeCount"] == 1
-    assert details["chromosomesUsed"] == ["chr11"]
-    assert actualStarts == expectedStarts
-    assert actualRanks == expectedRanks
-    assert len(set(actualStarts)) == len(actualStarts)
-    assert 0 not in actualStarts
-    assert max(actualRanks) > 256.0
-    assert (
-        cconsenrich.cchooseDependenceSpan(
-            ["chr11"],
-            [matrix],
-            1,
-            **estimatorArgs,
-        )
-        == result
-    )
-
-    shortened = matrix[:, : 12 * windowBins]
-    shortenedDetails = cconsenrich.cchooseDependenceSpan(
-        ["chr11"],
-        [shortened],
-        1,
-        windowCount=20,
-        **{**estimatorArgs, "minWindowCount": 10},
-    )[3]
-    assert shortenedDetails["candidateWindowCount"] == 12
-    assert shortenedDetails["evaluatedCandidateWindowCount"] == 12
-    assert shortenedDetails["selectedWindowCount"] == 11
-
-    with pytest.raises(RuntimeError, match="needs at least 20 windows"):
-        cconsenrich.cchooseDependenceSpan(
-            ["chr11"],
-            [matrix[:, : 20 * windowBins]],
-            1,
-            windowCount=20,
-            **estimatorArgs,
-        )
+    assert median[:3] == upper[:3]
+    details = upper[3]
+    assert details["workingSpanBP"] == details["estimateBP"] == details["unboundedEstimateBP"]
+    assert details["bootstrapResolvedPooledDraws"] == arguments["bootstrapDraws"]
+    for key in ("estimateBP", "lowerBP", "upperBP", "bootstrapPooledRadiusBP",
+                "bootstrapPooledRadiusCensored", "supportAttempts"):
+        assert details[key] == median[3][key]
+    local = details["localRadiusSummary"]
+    assert local["localQuantile"] == 0.9
+    if wideSigma == 8:
+        assert local["localQuantileBP"] > details["workingSpanBP"]
+    else:
+        assert local["localQuantileBP"] is None
+        assert median[3]["localRadiusSummary"]["localQuantileBP"] > details["workingSpanBP"]
 
 
 def test_process_precision_auto_min_rejects_too_small_max():
@@ -343,7 +299,93 @@ def test_process_precision_auto_min_rejects_too_small_max():
         )
 
 
+def test_localSumsRetainSmallTotals():
+    samples = (
+        [1.0e16, 1.0, 1.0e-12, 2.0, 0.0, 3.0e-8, 4.0, 1.0e-12],
+        [1.0e16, 1.0, -1.0e16, 2.0, -2.0, 1.0e-12, 0.0, -1.0e-12],
+    )
+    for dtype in (np.float32, np.float64):
+        for sample in samples:
+            storage = np.empty(2 * len(sample), dtype=dtype)
+            storage[::2] = sample
+            values = storage[::2]
+            values.flags.writeable = False
+            size = values.size
+            for width in (1, 2, 3, 5, size, size + 7):
+                effectiveWidth = min(width, size)
+                for shiftEdges in (False, True):
+                    for leftOffset in (-1, effectiveWidth // 2):
+                        offset = leftOffset if leftOffset >= 0 else (
+                            effectiveWidth // 2 if shiftEdges else (effectiveWidth - 1) // 2
+                        )
+                        expected = []
+                        for index in range(size):
+                            left = index - offset
+                            if shiftEdges:
+                                left = min(max(left, 0), size - effectiveWidth)
+                            right = min(size, left + effectiveWidth)
+                            expected.append(math.fsum(values[max(0, left):right]))
+                        actual = cconsenrich.cWindowSums(
+                            values, width, shiftEdges=shiftEdges, leftOffset=leftOffset
+                        )
+                        assert actual.dtype == np.float64
+                        np.testing.assert_allclose(actual, expected, rtol=2.0e-15, atol=0.0)
+            starts = np.asarray([4, 0, 2, size, size - 2], dtype=np.int64)
+            ends = np.asarray([size, 4, 2, size, size], dtype=np.int64)
+            expected = [math.fsum(values[left:right]) for left, right in zip(starts, ends)]
+            np.testing.assert_allclose(
+                cconsenrich.cRangeSums(values, starts, ends), expected, rtol=2.0e-15, atol=0.0
+            )
+
+    values = np.full(8192, 1.0e-12, dtype=np.float32)
+    values[:4096] = 4.0
+    np.testing.assert_array_equal(
+        cconsenrich.cWindowSums(values, 3)[4098:-2],
+        np.full(values.size - 4100, 3.0 * float(values[-1])),
+    )
+    assert cconsenrich.cWindowSums([], 3).size == 0
+    assert cconsenrich.cRangeSums([], [], []).size == 0
+    for width in (0, -1):
+        with pytest.raises(ValueError):
+            cconsenrich.cWindowSums(values, width)
+    for args, kwargs in ((([[1.0]], 1), {}), ((values, 3), {"leftOffset": 3})):
+        with pytest.raises(ValueError):
+            cconsenrich.cWindowSums(*args, **kwargs)
+    for starts, ends in (([-1], [1]), ([0], [values.size + 1]), ([2], [1]),
+                         ([0, 1], [1]), ([[0]], [[1]]), ([0.5], [1])):
+        with pytest.raises((TypeError, ValueError)):
+            cconsenrich.cRangeSums(values, starts, ends)
+
+    values = np.full(301, 1.0e-5)
+    values[0] = 1.0e12
+    for function in (cconsenrich.cMovingAverageSame, cconsenrich.cmovingAverageSame):
+        for width in (2, 3, 256, 257):
+            offset = (
+                width // 2 if function is cconsenrich.cmovingAverageSame and width <= 256
+                else (width - 1) // 2
+            )
+            expected = [
+                math.fsum(values[max(0, index - offset):min(values.size, index - offset + width)])
+                / width
+                for index in range(values.size)
+            ]
+            np.testing.assert_allclose(function(values, width), expected, rtol=2.0e-15, atol=0.0)
+
+    result = cconsenrich.cMultiscaleCandidateSegmentStats(
+        [1.0e12, 0.0, 1.0e-5, 1.0e-5, 0.0], [1], [0.0], [1.0]
+    )
+    np.testing.assert_array_equal(result[0], [0, 2])
+    np.testing.assert_array_equal(result[1], [0, 3])
+    np.testing.assert_array_equal(result[5], [1.0e12, 2.0e-5])
+
+
 def test_transform_count_variance_floor_is_transform_dependent_and_applied():
+    for method in ("asinh", "generalized_log"):
+        observed = core.transformCountVarianceFloor(
+            np.asarray([1.0]), [1.0], transformMethod=method,
+            transformInputOffset=-10.0,
+        )
+        np.testing.assert_allclose(observed, [1.5 / (1.0 + 8.5 ** 2)], rtol=1e-7)
     counts = np.array([0.0, 1.0, 4.0], dtype=np.float32)
     log1Floor = core.transformCountVarianceFloor(
         counts,
@@ -534,7 +576,7 @@ def _countTransformReference(
         core_ = np.arcsinh(np.sqrt(np.maximum(z, 0.0)) / inputScale_)
     elif key == "generalizedlog":
         u = z / inputScale_
-        core_ = np.log((u + np.sqrt((u * u) + (shape_ * shape_))) / shape_)
+        core_ = np.arcsinh(u / shape_)
     elif key == "identity":
         core_ = z / inputScale_
     else:
@@ -550,8 +592,8 @@ def _countTransformDiffReference(
     noOutputOffset = dict(kwargs)
     noOutputOffset["outputOffset"] = 0.0
     return (
-        _countTransformReference(treatment, **noOutputOffset)
-        - _countTransformReference(control, **noOutputOffset)
+        _countTransformReference(treatment.astype(np.float64), **noOutputOffset)
+        - _countTransformReference(control.astype(np.float64), **noOutputOffset)
     ).astype(treatment.dtype)
 
 
@@ -645,7 +687,7 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
 @pytest.mark.correctness
 def test_runtime_munc_dense_seed_builds_pooled_prior(tmp_path, monkeypatch):
     intervalCount = 20
-    intervalSizeBP = 1_000_000
+    intervalSizeBP = 200_000
     sampleCount = 2
     chromSize = intervalCount * intervalSizeBP
     chromSizesPath = tmp_path / "chrom.sizes"
@@ -1636,6 +1678,20 @@ def _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors():
         for observed, expected in zip(branchOut, branchExpected):
             np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
 
+    smallData = np.full((1, 1), 1.0e-5, dtype=np.float32)
+    smallFloor = np.full((1, 1), 0.01, dtype=np.float32)
+    smallMoment = float(smallData[0, 0]) ** 2 + float(smallFloor[0, 0])
+    for studentT, updateWeights in ((False, True), (True, False), (True, True)):
+        weighted = (9.0 / (8.0 + smallMoment / float(smallFloor[0, 0]))) ** 2 if studentT and updateWeights else 1.0
+        result = cconsenrich.cMuncObservationMomentSeedPass(
+            smallData, smallFloor, np.zeros(1, dtype=np.float32), smallFloor[0],
+            countFloor=smallFloor, pad=0.0, studentTdf=8.0, dOmega=8.0,
+            studentT=studentT, updateWeights=updateWeights,
+            rhoIn=np.ones((1, 1), dtype=np.float32),
+        )
+        expectedLocal = weighted * smallMoment - float(smallFloor[0, 0])
+        np.testing.assert_allclose(result[4], expectedLocal, rtol=1.0e-7, atol=0.0)
+
 
 @pytest.mark.correctness
 def _caseFinalizeMuncEBTrackPreservesCountFloorSentinel():
@@ -1713,9 +1769,66 @@ def _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows():
     )
     np.testing.assert_allclose(observed, expected, rtol=1.0e-6, atol=1.0e-6)
 
+    floor = np.float32(1.0e-12)
+    tinyExcess = np.nextafter(np.nextafter(floor, np.float32(np.inf)), np.float32(np.inf))
+    intervalCount = 16384
+    localEvidence = np.full((2, intervalCount), floor, dtype=np.float32)
+    localEvidence[1, :] = tinyExcess
+    localEvidence[0, 53::331] = np.float32(987654321.0)
+    localEvidence[1, 71::283] = np.float32(123456789.0)
+    localEvidence[1, 5000:5300] = floor / np.float32(4.0)
+    excludeMask = np.zeros(intervalCount, dtype=np.uint8)
+    excludeMask[2000:2250] = 1
+    excludeMask[53::331] = 1
+    rowExcludeMask = np.stack((excludeMask, np.roll(excludeMask, 127)))
+    cases = [(localEvidence, width, excluded) for width, excluded in
+             ((100, None), (101, excludeMask), (100, rowExcludeMask))]
+    extreme = np.full((5, 65), 2.0 * floor, dtype=np.float32)
+    scales = np.asarray([1.0e10, 1.0e20, 1.0e25, 1.0e30, 3.0e38], dtype=np.float32)
+    extreme[:, ::17] = scales[:, None]
+    extreme[:, 1::17] = (scales * np.float32(1.0e-15))[:, None]
+    excluded = np.zeros_like(extreme, dtype=np.uint8)
+    excluded[:, 20:35] = 1
+    excluded[::2, ::17] = 1
+    cases.extend((extreme, width, excludedCells) for width in (1, 2, 3, 7, 16, 65, 70)
+                 for excludedCells in (None, excluded[0], excluded))
+    cases.extend((np.empty(shape, dtype=np.float32), 3, None) for shape in ((2, 0), (0, 65)))
+    for evidence, windowIntervals, excluded in cases:
+        intervalCount = evidence.shape[1]
+        allowed = np.ones_like(evidence, dtype=bool) if excluded is None else np.broadcast_to(
+            excluded == 0, evidence.shape
+        )
+        expected = np.empty_like(evidence)
+        for row in range(evidence.shape[0]):
+            for index in range(intervalCount):
+                left = min(max(0, index - windowIntervals // 2), max(0, intervalCount - windowIntervals))
+                right = min(intervalCount, left + windowIntervals)
+                values = evidence[row, left:right][allowed[row, left:right]]
+                expected[row, index] = max(
+                    float(floor),
+                    math.fsum(values) / values.size if values.size else float(evidence[row, index]),
+                )
+        actual = cconsenrich.cMuncSmoothDenseLocalEvidence(
+            evidence, windowIntervals, excludeMask=excluded, eps=float(floor)
+        )
+        np.testing.assert_array_equal(actual, expected)
+
+
+
+
 
 @pytest.mark.correctness
 def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
+    for dtype in (np.float32, np.float64):
+        constant = np.full(10000, 0.1, dtype=dtype)
+        original = constant.copy()
+        constant.flags.writeable = False
+        assert cconsenrich.cEstimateEffectiveSampleSize(
+            constant, 100, activeMask=np.ones(constant.size, dtype=np.uint8),
+            logPositive=True, windowIntervals=101,
+        ) == (float(constant.size), 1.0, 0)
+        np.testing.assert_array_equal(constant, original)
+
     oscillatingEvidence = np.exp(
         np.asarray([1.0, -1.0, 1.0, -1.0, 1.0, -1.0], dtype=np.float64)
     )
@@ -1743,6 +1856,7 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
     assert lagsCorr > 0
 
     maskedEvidence = np.asarray([1.0, 2.0, 0.0, 4.0, 8.0], dtype=np.float64)
+    maskedOriginal = maskedEvidence.copy()
     maskedActive = np.asarray([1, 1, 0, 1, 1], dtype=np.uint8)
     _essMasked, etaMasked, _lagsMasked = cconsenrich.cEstimateEffectiveSampleSize(
         maskedEvidence,
@@ -1752,6 +1866,7 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
         windowIntervals=4,
     )
     assert 1.0 <= etaMasked <= 4.0
+    np.testing.assert_array_equal(maskedEvidence, maskedOriginal)
     with pytest.raises(ValueError, match="positive"):
         cconsenrich.cEstimateEffectiveSampleSize(
             maskedEvidence,
@@ -1760,6 +1875,25 @@ def _caseEffectiveSampleSizeSupportsMuncEvidenceMode():
             logPositive=True,
             windowIntervals=4,
         )
+
+    rng = np.random.default_rng(130)
+    series = np.cumsum(rng.normal(size=2048))
+    active = rng.uniform(size=series.size) > 0.05
+    centered = series - math.fsum(series[active]) / active.sum()
+    variance = math.fsum(centered[active] ** 2) / active.sum()
+    tau = 1.0
+    lastLag = 0
+    for lag in range(1, 513):
+        pairs = active[:-lag] & active[lag:]
+        rho = math.fsum((centered[:-lag] * centered[lag:])[pairs]) / pairs.sum() / variance
+        if rho > 0.0:
+            tau += 2.0 * (1.0 - lag / 513.0) * rho
+            lastLag = lag
+    observed = cconsenrich.cEstimateEffectiveSampleSize(
+        series, 512, activeMask=active, windowIntervals=513,
+    )
+    np.testing.assert_allclose(observed[:2], [active.sum() / tau, tau], rtol=1.0e-12)
+    assert observed[2] == lastLag
 
 
 @pytest.mark.correctness
@@ -1832,6 +1966,12 @@ def _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def _caseGenericTransformModesMatchReference(dtype):
+    extremes = np.array([-1.0e8, -1.0e-12, 0.0, 1.0e-12, 1.0e8], dtype=dtype)
+    np.testing.assert_allclose(
+        cconsenrich.cTransform(extremes, mode="generalized_log"),
+        np.arcsinh(extremes.astype(np.float64)).astype(dtype),
+        rtol=2.0 * np.finfo(dtype).eps, atol=0.0,
+    )
     x = np.array([-1.0, 0.0, 1.0, 4.0, 16.0], dtype=dtype)
     modeCases = (
         (
@@ -1911,6 +2051,36 @@ def _caseGenericTransformModesMatchReference(dtype):
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 def _caseGenericTransformWithInputUsesTransformDifferences(dtype):
+    from decimal import Decimal, localcontext
+
+    closeControl = np.array([1.0e-4, 1.0, 1.0e8, 1.0e30], dtype=dtype)
+    closeTreatment = np.nextafter(closeControl, dtype(np.inf))
+    with localcontext() as context:
+        context.prec = 90
+        for mode in ("log", "sqrt", "anscombe", "asinh", "asinh_sqrt", "generalized_log", "identity"):
+            offset = Decimal("0.375") if mode == "anscombe" else Decimal(1 if mode == "log" else 0)
+            scale = Decimal(2) if mode == "anscombe" else Decimal(1)
+            expected = []
+            for t, c in zip(closeTreatment, closeControl):
+                transformed = []
+                for value in (t, c):
+                    shifted = Decimal(float(value)) + offset
+                    if mode == "log":
+                        result = shifted.ln()
+                    elif mode in ("sqrt", "anscombe"):
+                        result = scale * shifted.sqrt()
+                    elif mode in ("asinh", "asinh_sqrt", "generalized_log"):
+                        u = shifted.sqrt() if mode == "asinh_sqrt" else shifted
+                        result = (u + (u * u + 1).sqrt()).ln()
+                    else:
+                        result = shifted
+                    transformed.append(result)
+                expected.append(float(transformed[0] - transformed[1]))
+            observed = cconsenrich.cTransformWithInput(
+                closeTreatment, closeControl, mode=mode, inputOffset=float(offset),
+            )
+            np.testing.assert_allclose(observed, np.asarray(expected, dtype=dtype),
+                                       rtol=4.0 * np.finfo(dtype).eps, atol=0.0)
     treatment = np.array([0.0, 4.0, 16.0, 25.0], dtype=dtype)
     control = np.array([0.0, 1.0, 4.0, 36.0], dtype=dtype)
     modeCases = (
@@ -1992,6 +2162,30 @@ def _caseAnscombePresetUsesCanonicalDefaults(dtype):
     else:
         np.testing.assert_allclose(transformed, expected, rtol=1.0e-12, atol=1.0e-12)
         np.testing.assert_allclose(diff, expectedDiff, rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_stableTransformsAndWeightedQuantiles():
+    from decimal import Decimal, localcontext
+
+    for dtype in (np.float32, np.float64):
+        _caseGenericTransformModesMatchReference(dtype)
+        _caseGenericTransformWithInputUsesTransformDifferences(dtype)
+        _caseAnscombePresetUsesCanonicalDefaults(dtype)
+    with localcontext() as context:
+        context.prec = 90
+        values = np.arange(1001, dtype=np.float64)
+        weights = np.concatenate(([1e16], np.ones(1000)))
+        q = 0.99999999999995
+        target = sum(Decimal(float(w)) for w in weights) * Decimal(q)
+        expected = float((target - Decimal(1e16)).to_integral_value(rounding="ROUND_CEILING"))
+        assert normalization.weightedQuantile(values, weights, q) == expected
+        assert normalization.weightedQuantileInterpolated(values, weights, q) == pytest.approx(
+            float(target - Decimal(1e16)), rel=1e-15,
+        )
+    for function in (normalization.weightedQuantile, normalization.weightedQuantileInterpolated):
+        for scale in (1.0, 1e308, 1e-308):
+            np.testing.assert_array_equal(function([0., 1.], [scale, scale], [[0., 0.5, 1.]]), [[0., 0., 1.]])
+        np.testing.assert_array_equal(function([2., 0., 1.], [1., 1., 2.], [0., 0.25, 0.75, 1.]), [0., 0., 1., 2.])
 
 
 @pytest.mark.correctness
@@ -2302,6 +2496,11 @@ def test_core_center_mb_applies_default_savgol_filter_in_place(monkeypatch):
         savgolOriginal - savgolFilter,
         atol=8.0 * np.finfo(np.float64).eps,
     )
+
+    plateauTrack = np.full(8192, 1.0e-12, dtype=np.float64)
+    plateauTrack[:4096] = 4.0
+    core.centerMBInPlace(plateauTrack, intervalSizeBP=50, filterWindowBP=150)
+    np.testing.assert_allclose(plateauTrack[4098:], 0.0, rtol=0.0, atol=1.0e-27)
 
     with pytest.raises(ValueError, match="centerMBMethod"):
         core.centerMBInPlace(
@@ -3616,6 +3815,23 @@ def _caseExpectedLevelTransitionResidualSumsMatchesPythonReference():
     assert sumLevel == pytest.approx(expected, rel=1.0e-12, abs=1.0e-12)
     assert sumTrend == pytest.approx(0.0)
 
+    for stateDim in (1, 2):
+        for meanValue, varianceValue in ((1.0e8, 1.0), (100.0, 1.0e-12)):
+            means = np.full((2, stateDim), meanValue, dtype=np.float64)
+            covariance = np.repeat((np.eye(stateDim) * varianceValue)[None], 2, axis=0)
+            lagCovariance = covariance[:1] * 0.5
+            if stateDim == 1:
+                result = cconsenrich.cExpectedTransitionResidualSumsLevel(
+                    means, covariance, lagCovariance,
+                )
+            else:
+                result = cconsenrich.cExpectedTransitionResidualSums(
+                    means, covariance, lagCovariance, np.eye(2),
+                )
+            assert result[0] == pytest.approx(varianceValue, rel=1.0e-14, abs=0.0)
+            assert result[1] == pytest.approx(varianceValue if stateDim == 2 else 0.0, rel=1.0e-14, abs=0.0)
+            assert result[2] == 1
+
 
 @pytest.mark.correctness
 def _caseLevelForwardBackwardMatchesPythonReference():
@@ -3768,9 +3984,41 @@ def test_observationSufficientStats(stateDim):
         ))
         assert empty == ((0.0, 0, None, 0.0) if computeNLL else (0.0, 0, None))
 
+    for observedValue in (0.0, 100.0, 1.0e4):
+        tinyVariance = np.float32(1.0e-12)
+        measurementVariance = max(float(tinyVariance), 1.0e-12)
+        totalVariance = 1.0e4 + float(tinyVariance) + measurementVariance
+        expectedNIS = observedValue ** 2 / totalVariance
+        expectedNLL = 0.5 * (np.log(2.0 * np.pi * totalVariance) + expectedNIS)
+        singleArgs = dict(
+            matrixData=np.array([[observedValue]], dtype=np.float32),
+            matrixPluginMuncInit=np.array([[tinyVariance]], dtype=np.float32),
+            matrixQ0=np.eye(stateDim, dtype=np.float32) * tinyVariance,
+            intervalToBlockMap=np.zeros(1, dtype=np.int32), blockCount=1,
+            stateInit=0.0, stateCovarInit=1.0e4, pad=0.0, returnNLL=True,
+            ECM_useObsPrecisionReweighting=False,
+            ECM_useProcessPrecisionReweighting=False,
+        )
+        if stateDim == 2:
+            singleArgs["matrixF"] = np.eye(2, dtype=np.float32)
+        singleStats = np.array([[1.0 / measurementVariance, observedValue, 0.0,
+                                 np.log(measurementVariance), 1.0]])
+        for observationStats in (None, singleStats):
+            result = forward(**singleArgs, observationStats=observationStats,
+                             vectorD=np.empty(1, dtype=np.float32))
+            np.testing.assert_allclose(result[2], expectedNIS, rtol=1.0e-7, atol=0.0)
+            assert result[3] == pytest.approx(expectedNLL, rel=1.0e-13)
+
 
 @pytest.mark.correctness
 def test_forwardBackwardResidualBuffers():
+    for check in (
+        _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF,
+        _caseExpectedTransitionResidualSumsMatchesPythonReference,
+        _caseExpectedLevelTransitionResidualSumsMatchesPythonReference,
+        _caseLevelForwardBackwardMatchesPythonReference,
+    ):
+        check()
     matrixData = np.asarray(
         [
             [0.25, 0.10, 0.45, 0.75, 0.20, -0.10, 0.05],
@@ -3901,6 +4149,48 @@ def test_forwardBackwardResidualBuffers():
             else:
                 assert withoutResiduals[2] is None
                 np.testing.assert_array_equal(lagBuffer, -456.0)
+
+    for stateDim in (1, 2):
+        forward = cconsenrich.cforwardPassLevel if stateDim == 1 else cconsenrich.cforwardPass
+        backward = cconsenrich.cbackwardPassLevel if stateDim == 1 else cconsenrich.cbackwardPass
+        extraArgs = {} if stateDim == 1 else {"matrixF": np.eye(2, dtype=np.float32)}
+        for processVariance in (1.0e-12, 0.01):
+            data = np.zeros((1, 2), dtype=np.float32)
+            stored = dict(
+                stateForward=np.empty((2, stateDim), dtype=np.float32),
+                stateCovarForward=np.empty((2, stateDim, stateDim), dtype=np.float32),
+                pNoiseForward=np.empty((2, stateDim, stateDim), dtype=np.float32),
+            )
+            forward(
+                matrixData=data,
+                matrixPluginMuncInit=np.array([[1.0e30, 1.0e-12]], dtype=np.float32),
+                matrixQ0=np.eye(stateDim, dtype=np.float32) * processVariance,
+                intervalToBlockMap=np.zeros(2, dtype=np.int32), blockCount=1,
+                stateInit=0.0, stateCovarInit=1.0e4, pad=0.0,
+                ECM_useObsPrecisionReweighting=False,
+                ECM_useProcessPrecisionReweighting=False,
+                **stored, **extraArgs,
+            )
+            smoothed = backward(matrixData=data, **stored, **extraArgs)
+            filteredVariance = float(stored["stateCovarForward"][0, 0, 0])
+            nextVariance = float(stored["stateCovarForward"][1, 0, 0])
+            noiseVariance = float(stored["pNoiseForward"][0, 0, 0])
+            gain = filteredVariance / (filteredVariance + noiseVariance)
+            expectedVariance = gain * noiseVariance + gain ** 2 * nextVariance
+            assert smoothed[1][0, 0, 0] == pytest.approx(expectedVariance, rel=2.0e-7, abs=0.0)
+            assert smoothed[2][0, 0, 0] == pytest.approx(gain * nextVariance, rel=2.0e-7, abs=0.0)
+        if stateDim == 2:
+            filteredCovariance = np.array([
+                [[1.0, 0.0], [0.0, 1.0e-16]],
+                [[0.5, 0.0], [0.0, 1.0e-16]],
+            ], dtype=np.float32)
+            rankDeficient = backward(
+                matrixData=data, stateForward=np.zeros((2, 2), dtype=np.float32),
+                stateCovarForward=filteredCovariance,
+                pNoiseForward=np.zeros((2, 2, 2), dtype=np.float32), **extraArgs,
+            )
+            np.testing.assert_allclose(rankDeficient[1][0], filteredCovariance[1], rtol=1.0e-7, atol=0.0)
+            np.testing.assert_allclose(rankDeficient[2][0], filteredCovariance[1], rtol=1.0e-7, atol=0.0)
 
 
 
@@ -5267,11 +5557,24 @@ def _casePSplineEvaluationMatchesDenseDesign():
     )
 
     x = np.clip(signedPredictor, trend.xMin, trend.xMax)
-    expected = np.exp(core._bsplineDesign(x, trend.knots, trend.degree) @ trend.beta)
+    design = core._bsplineDesign(x, trend.knots, trend.degree)
+    assert design.nnz <= amplitudes.size * (trend.degree + 1)
+    denseDesign = design.toarray()
+    expected = np.exp(denseDesign @ trend.beta)
     observed = core.evalPSplineLogVarianceTrend(trend, amplitudes, eps=1.0e-8)
 
     assert hasattr(cconsenrich, "cEvalPSplineLogVarianceTrend")
     assert np.allclose(observed, expected.astype(np.float32), rtol=1.0e-6)
+    gram = denseDesign.T @ denseDesign
+    penalty = core._coefficientDiffPenalty(gram.shape[0], 2)
+    ridge = 1.0e-10 * max(np.trace(gram) / gram.shape[0], 1.0)
+    system = gram + trend.lambdaHat * penalty + ridge * np.eye(gram.shape[0])
+    denseBeta = np.linalg.solve(system, denseDesign.T @ np.log(variances))
+    denseEDF = np.trace(np.linalg.solve(system, gram))
+    residual = np.log(variances) - denseDesign @ denseBeta
+    denseGCV = np.mean(residual ** 2) / (1.0 - denseEDF / variances.size) ** 2
+    np.testing.assert_allclose(trend.beta, denseBeta, rtol=1.0e-10, atol=1.0e-12)
+    np.testing.assert_allclose([trend.edf, trend.gcv], [denseEDF, denseGCV], rtol=1.0e-9)
 
 
 @pytest.mark.correctness
@@ -5308,17 +5611,28 @@ def _casePooledMuncTrendUsesSharedShapeAndSampleStrength():
         * np.exp(rng.normal(0.0, residualSd[sampleIndex], means.size))
     )
 
-    pooled = core.fitPooledMuncVarianceTrend(
-        means,
-        blockVariances,
-        sampleIndex,
-        trendNumBasis=30,
-        trendMinObsPerBasis=8.0,
-        trendMinEdf=3.0,
-        trendMaxEdf=20.0,
-        trendLambdaGridSize=21,
-        eps=1.0e-8,
-    )
+    factorCount = 0
+    factorize = core.linalg.cho_factor
+
+    def countedFactorize(*args, **kwargs):
+        nonlocal factorCount
+        factorCount += 1
+        return factorize(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(core.linalg, "cho_factor", countedFactorize)
+        pooled = core.fitPooledMuncVarianceTrend(
+            means,
+            blockVariances,
+            sampleIndex,
+            trendNumBasis=30,
+            trendMinObsPerBasis=8.0,
+            trendMinEdf=3.0,
+            trendMaxEdf=20.0,
+            trendLambdaGridSize=21,
+            eps=1.0e-8,
+        )
+    assert factorCount == 21
 
     predicted = core.evalPSplineLogVarianceTrend(
         pooled.trend,
@@ -6274,6 +6588,25 @@ def _caseMuncSizingAndVarianceModels():
     assert dependenceSizing.trendBlockIntervals == 26
     assert dependenceSizing.localWindowIntervals == 43
 
+    for binBP, spanIntervals, explicitBP, expectedBP in (
+        (50, 200, None, (20000, 40000)),
+        (50, 8000, None, (800000, 1000000)),
+        (50, 10**400, None, (1000000, 1000000)),
+        (300, 1667, None, (999900, 999900)),
+        (300, None, 10**400, (999900, 999900)),
+    ):
+        boundedSizing = core._resolveMuncRuntimeSizing(
+            intervalSizeBP=binBP,
+            dependenceSpanIntervals=spanIntervals,
+            muncTrendBlockSizeBP=explicitBP,
+            muncLocalWindowSizeBP=explicitBP,
+        )
+        assert (
+            boundedSizing.trendBlockSizeBP, boundedSizing.localWindowSizeBP
+        ) == expectedBP
+        assert boundedSizing.trendBlockIntervals * binBP == expectedBP[0]
+        assert boundedSizing.localWindowIntervals * binBP == expectedBP[1]
+
 
 @pytest.mark.correctness
 def _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
@@ -6455,6 +6788,43 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
             result.rawNoiseMass, expectedNoiseByMode[countMode], rtol=1e-6,
             err_msg=countMode,
         )
+
+    pysam = pytest.importorskip("pysam")
+    for countMode, content, expectedCounts, expectedNoise in (
+        (
+            "coverage",
+            b"chr1\t0\t100\tBC_A\t16777216\nchr1\t0\t150\tBC_A\t1\n",
+            [16777216, 16777216, 1, 0],
+            [16777216, 16777216, 1, 0],
+        ),
+        (
+            constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
+            b"chr1\t0\t150\tBC_A\t1\n" * 100000,
+            [100000 / 3, 100000 / 3, 100000 / 3, 0],
+            [100000 / 9, 100000 / 9, 100000 / 9, 0],
+        ),
+    ):
+        path = tmp_path / f"{countMode}.fragments.tsv.gz"
+        with pysam.BGZFile(str(path), "wb") as output:
+            output.write(content)
+        assert ccounts.ccounts_checkAlignmentPath(
+            str(path), sourceKind="FRAGMENTS", buildIndex=True,
+        )
+        kwargs = dict(
+            sourceKind="FRAGMENTS", countMode=countMode,
+            fragmentsUseReadSupport=True, oneReadPerBin=0, threadCount=1,
+            readLength=1, flagExclude=0,
+        )
+        result = ccounts.ccounts_countAlignmentRegionMass(
+            str(path), "chr1", 0, 200, 50, **kwargs,
+        )
+        direct = ccounts.ccounts_countAlignmentRegion(
+            str(path), "chr1", 0, 200, 50, **kwargs,
+        )
+        assert result.counts.dtype == result.rawNoiseMass.dtype == direct.dtype == np.float32
+        np.testing.assert_array_equal(result.counts, np.asarray(expectedCounts, dtype=np.float32))
+        np.testing.assert_array_equal(result.rawNoiseMass, np.asarray(expectedNoise, dtype=np.float32))
+        np.testing.assert_array_equal(direct, result.counts)
 
 
 @pytest.mark.correctness
@@ -7405,7 +7775,7 @@ def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
                             fragmentsGroupNorm=groupNorm,
                             fragmentsUseReadSupport=useReadSupport,
                         )
-                        expectedScale = round(1_000_000 / expectedDepth * binScale, 5)
+                        expectedScale = 1_000_000 / expectedDepth * binScale
                         if groupNorm == "CELLS":
                             expectedScale /= expectedCells
                         assert scaleFactor == pytest.approx(expectedScale)
@@ -7480,6 +7850,15 @@ def _caseNormalizationCpmAndRpkmUseDistinctBinLengthScaling(tmp_path):
 
     assert cpmScale == pytest.approx(250_000.0)
     assert rpkmScale == pytest.approx(5_000_000.0)
+
+    with pytest.MonkeyPatch.context() as patch:
+        for depth in (3_000_000_000, 30_000_000_000, 300_000_000_000):
+            patch.setattr(ccounts, "ccounts_getAlignmentMappedReadCount", lambda *a, **k: (depth, 0))
+            for method, numerator in (("CPM", 1e6), ("RPKM", 2e7)):
+                observed = detrorm.getScaleFactorPerMillion(
+                    str(bamPath), [], 50, normMethod=method, sourceKind="BAM", bamInputMode="reads",
+                )
+                assert observed == pytest.approx(numerator / depth, rel=1e-15, abs=0.0)
 
 
 @pytest.mark.correctness
@@ -7980,6 +8359,10 @@ def test_core_pspline_sparse_support_and_trend_contracts(
             "MUNC trend invalid variance rejection",
             _caseMuncTrendRejectsInvalidVarianceValues,
         ),
+        ("MUNC centered evidence windows", _caseMuncSmoothDenseLocalEvidenceUsesCenteredWindows),
+        ("MUNC observation moments", _caseMuncObservationMomentSeedPassUsesOmegaMomentsAndFloors),
+        ("MUNC evidence effective sample size", _caseEffectiveSampleSizeSupportsMuncEvidenceMode),
+        ("MUNC window bounds", _caseMuncSizingAndVarianceModels),
         (
             "EB prior strength thinning",
             _caseEBPriorStrengthUsesThinnedVariancePairs,

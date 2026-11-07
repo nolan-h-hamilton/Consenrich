@@ -772,8 +772,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputParams.plotPrecisionReweightingHistograms: false
     outputParams.precisionReweightingHistogramSampleSize: 123
     outputParams.maxNonTrackFileBytes: 1024
-    observationParams.muncTrendBlockDependenceMultiplier: 1.75
-    observationParams.muncLocalWindowDependenceMultiplier: 2.25
+    observationParams.dependenceSpanBP: 10000
     observationParams.dependenceWindowCount: 32
     observationParams.dependenceWindowBP: 100000
     observationParams.dependenceMaxLagBP: 40000
@@ -827,8 +826,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       precisionReweightingHistogramSampleSize: 123
       maxNonTrackFileBytes: 1024
     observationParams:
-      muncTrendBlockDependenceMultiplier: 1.75
-      muncLocalWindowDependenceMultiplier: 2.25
+      dependenceSpanBP: 10000
       dependenceWindowCount: 32
       dependenceWindowBP: 100000
       dependenceMaxLagBP: 40000
@@ -910,8 +908,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     assert type(processDotted) is type(processNested)
     assert observationDotted == observationNested
     assert processDotted == processNested
-    assert observationDotted.muncTrendBlockDependenceMultiplier == pytest.approx(1.75)
-    assert observationDotted.muncLocalWindowDependenceMultiplier == pytest.approx(2.25)
+    assert observationDotted.dependenceSpanBP == 10000
     assert observationDotted.dependenceWindowCount == 32
     assert observationDotted.dependenceWindowBP == 100_000
     assert observationDotted.dependenceMaxLagBP == 40_000
@@ -1379,6 +1376,7 @@ def _case_runtime_defaults_are_centralized(
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
         matchingParams.peakMode: narrow
+        observationParams.dependenceSpanBP: null
         """,
     )
     broadConfigPath = writeConfigFile(
@@ -1477,23 +1475,16 @@ def _case_runtime_defaults_are_centralized(
         parsed["observationArgs"].muncVarianceModel
         == profile["observationParams.muncVarianceModel"]
     )
-    assert (
-        parsed["observationArgs"].muncTrendBlockSizeBP
-        == profile["observationParams.muncTrendBlockSizeBP"]
-    )
-    assert (
-        parsed["observationArgs"].muncLocalWindowSizeBP
-        == profile["observationParams.muncLocalWindowSizeBP"]
-    )
-    assert (
-        parsed["observationArgs"].muncTrendBlockDependenceMultiplier
-        == profile["observationParams.muncTrendBlockDependenceMultiplier"]
-    )
-    assert (
-        parsed["observationArgs"].muncLocalWindowDependenceMultiplier
-        == profile["observationParams.muncLocalWindowDependenceMultiplier"]
-    )
+    for fieldName, expectedValue in (
+        ("muncTrendBlockSizeBP", None),
+        ("muncLocalWindowSizeBP", None),
+        ("muncTrendBlockDependenceMultiplier", 2.0),
+        ("muncLocalWindowDependenceMultiplier", 4.0),
+    ):
+        assert getattr(parsed["observationArgs"], fieldName) == expectedValue
+        assert f"observationParams.{fieldName}" not in profile
     dependenceDefaults = {
+        "dependenceSpanBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP,
         "dependenceWindowCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
         "dependenceWindowBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
         "dependenceMaxLagBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
@@ -1512,6 +1503,8 @@ def _case_runtime_defaults_are_centralized(
         "dependenceCrossingPersistenceBP": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
         ),
+        "dependenceCrossingCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT,
+        "dependenceAdaptiveSupport": constants.OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT,
         "dependenceMinFinitePairs": (
             constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
         ),
@@ -1523,6 +1516,7 @@ def _case_runtime_defaults_are_centralized(
         configKey = f"observationParams.{fieldName}"
         assert getattr(parsed["observationArgs"], fieldName) == expectedValue
         assert profile[configKey] == expectedValue
+    assert narrowParsed["observationArgs"].dependenceSpanBP is None
     assert (
         parsed["observationArgs"].dependenceAcfPointThreshold
         == profile["observationParams.dependenceAcfPointThreshold"]
@@ -2025,6 +2019,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.processNoiseCalibration: fixed
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
+    observationParams.dependenceSpanBP: 12345
     observationParams.dependenceWindowCount: 48
     observationParams.dependenceWindowBP: 120000
     observationParams.dependenceMaxLagBP: 45000
@@ -2034,6 +2029,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     observationParams.dependenceAcfPointThreshold: 0.02
     observationParams.dependenceAcfSmoothingBP: 300
     observationParams.dependenceCrossingPersistenceBP: 400
+    observationParams.dependenceCrossingCount: 3
+    observationParams.dependenceAdaptiveSupport: true
     observationParams.dependenceMinFinitePairs: 150
     observationParams.dependenceMinFinitePairCoverage: 0.60
     observationParams.precisionMultiplierMax: 4.0
@@ -2071,6 +2068,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].processNoiseCalibration == "fixed"
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
+    assert parsed["observationArgs"].dependenceSpanBP == 12345
     assert parsed["observationArgs"].dependenceWindowCount == 48
     assert parsed["observationArgs"].dependenceWindowBP == 120_000
     assert parsed["observationArgs"].dependenceMaxLagBP == 45_000
@@ -2080,6 +2078,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
     assert parsed["observationArgs"].dependenceAcfSmoothingBP == 300
     assert parsed["observationArgs"].dependenceCrossingPersistenceBP == 400
+    assert parsed["observationArgs"].dependenceCrossingCount == 3
+    assert parsed["observationArgs"].dependenceAdaptiveSupport is True
     assert parsed["observationArgs"].dependenceMinFinitePairs == 150
     assert parsed["observationArgs"].dependenceMinFinitePairCoverage == pytest.approx(
         0.60
@@ -2831,10 +2831,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     genomeParams.sparseBedFile: {sparseBedPath}
     observationParams.restrictLocalVarianceToSparseBed: true
     observationParams.muncVarianceModel: kalman
-    observationParams.muncTrendBlockSizeBP: 250
-    observationParams.muncLocalWindowSizeBP: 500
-    observationParams.muncTrendBlockDependenceMultiplier: 1.5
-    observationParams.muncLocalWindowDependenceMultiplier: 2.5
+    observationParams.dependenceSpanBP: 10000
     observationParams.muncEBPrior.tileSizeBP: 1000
     observationParams.muncEBPrior.tileCount: 17
     observationParams.muncEBPrior.strata: 4
@@ -2858,10 +2855,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert (
         explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_KALMAN
     )
-    assert explicitObservationArgs.muncTrendBlockSizeBP == 250
-    assert explicitObservationArgs.muncLocalWindowSizeBP == 500
-    assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
-    assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
+    assert explicitObservationArgs.dependenceSpanBP == 10000
     assert explicitObservationArgs.muncEBPriorTileSizeBP == 1000
     assert explicitObservationArgs.muncEBPriorTileCount == 17
     assert explicitObservationArgs.muncEBPriorStrata == 4
@@ -4502,30 +4496,46 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
     )
 
 
+@pytest.mark.parametrize("intervalSizeBP,reportingMinimum,reportingMaximum", [
+    (50, 2500.0, 250000.0), (110000, 110000.0, 220000.0),
+])
 def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matplotlib(
     tmp_path,
     monkeypatch,
+    intervalSizeBP,
+    reportingMinimum,
+    reportingMaximum,
 ):
     details = {
         "status": "estimated",
-        "method": "rankWeightedFinitePairWindowACF",
+        "method": "clippedCovarianceShrinkage",
         "randomSeed": 1729,
-        "inferenceScope": "conditionalOnInputTracksAndSelectedWindows",
+        "inferenceScope": "conditionalOnInputTracksSelectedWindowsAndChromosomeReferenceMeans",
         "confidenceIntervalMethod": (
-            "centralInterquartileSimultaneousLogLogKMSurvivalBand"
+            "hierarchicalStationaryPooledCovariancePercentile"
         ),
-        "survivalBandRegionLower": 0.25,
-        "survivalBandRegionUpper": 0.75,
-        "survivalBandJumpClosureUsed": True,
-        "survivalBandJumpClosureCount": 1,
         "confidenceLevel": 0.95,
-        "estimateBP": 400.0,
+        "estimateBP": reportingMinimum,
         "fullSampleMedianRadiusBP": 400.0,
-        "lowerBP": 300.0,
-        "upperBP": 550.0,
-        "workingSpanBP": 1500.0,
-        "fullSampleWorkingSpanBP": 800.0,
-        "workingQuantile": 0.9,
+        "lowerBP": reportingMinimum,
+        "upperBP": reportingMaximum,
+        "workingSpanBP": reportingMinimum,
+        "fullSampleWorkingSpanBP": 2000.0,
+        "unboundedEstimateBP": 2000.0,
+        "unboundedLowerBP": 1500.0,
+        "unboundedUpperBP": 300000.0,
+        "unboundedWorkingSpanBP": 2000.0,
+        "radiusMinimumBP": 2500,
+        "radiusMaximumBP": 250000,
+        "reportingRadiusMinimumBP": reportingMinimum,
+        "reportingRadiusMaximumBP": reportingMaximum,
+        "radiusBoundsApplied": True,
+        "estimationTarget": "pooledChromosomeCenteredCovariance",
+        "replicateAggregation": "pointwiseMean",
+        "workingSpanRule": "clip(pooledRadius,minimumRadius,maximumRadius)",
+        "localRadiusSummary": {
+            "fullSampleMedianRadiusBP": 400.0, "localQuantile": 0.9, "localQuantileBP": None,
+        },
         "chromosomesUsed": ["chr1", "chr2", "chr3", "chr4"],
         "candidateWindowCount": 24,
         "evaluatedCandidateWindowCount": 21,
@@ -4542,12 +4552,13 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         "inputRowCount": 3,
         "uniqueRowCount": 2,
         "duplicateRowCount": 1,
-        "rowDeduplication": "exactBytes",
+        "rowDeduplication": "exactEquality",
         "acfThreshold": 0.1,
         "acfSmoothingBP": 250,
         "acfSmoothingBins": 5,
         "crossingPersistenceBP": 250,
         "crossingPersistenceBins": 5,
+        "crossingCount": 5,
         "minFinitePairs": 200,
         "minFinitePairCoverage": 0.5,
         "finitePairMinimumUsed": 500.0,
@@ -4562,9 +4573,7 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         "bootstrapMethod": "hierarchicalAutosomeStationaryWindow",
         "bootstrapBlockLengthWindows": 3,
         "bootstrapDrawsRequested": 4,
-        "bootstrapResolvedMedianDraws": 4,
-        "bootstrapResolvedWorkingDraws": 4,
-        "bootstrapResolvedJointDraws": 4,
+        "bootstrapResolvedPooledDraws": 3,
         "radiusDistributionBP": [250.0, 400.0, 550.0, 1000.0],
         "radiusCensored": [False, False, False, True],
         "selectedWindows": [
@@ -4587,34 +4596,40 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
                 "dominantACFPeriodBP": 200.0,
                 "oscillationStrength": 0.2,
                 "postCrossingRevival": 0.15,
+                "donorCount": 4,
+                "borrowingWeight": 0.5,
+                "localVariance": 0.01,
+                "residualVariance": 0.02,
+                "priorVariance": 0.005,
+                "crossingCount": 5,
             }
             for index, radiusBP in enumerate((250.0, 400.0, 550.0, 1000.0))
         ],
-        "bootstrapMedianRadiusBP": [350.0, 400.0, 450.0, 425.0],
-        "bootstrapWorkingSpanBP": [700.0, 800.0, 900.0, 850.0],
+        "bootstrapPooledRadiusBP": [2000.0, 3000.0, 4000.0, 300000.0],
+        "bootstrapPooledRadiusCensored": [False, False, False, True],
     }
     row = consenrich_cli._correlationLengthRow(
-        intervalSizeBP=50,
-        pointIntervals=8,
-        contextBP=3001,
+        intervalSizeBP=intervalSizeBP,
+        pointIntervals=int(reportingMinimum / intervalSizeBP),
+        contextBP=int(2 * reportingMinimum + 1),
         details=details,
     )
-    assert row["correlation_length_bp"] == pytest.approx(400.0)
-    assert row["working_span_bp"] == pytest.approx(1500.0)
-    assert row["full_sample_working_span_bp"] == pytest.approx(800.0)
-    assert row["context_bp"] == 3001
+    assert row["correlation_length_bp"] == pytest.approx(reportingMinimum)
+    assert row["working_span_bp"] == pytest.approx(reportingMinimum)
+    assert row["unbounded_correlation_length_bp"] == pytest.approx(2000.0)
+    assert row["working_span_rule"] == details["workingSpanRule"]
+    assert row["local_quantile"] == pytest.approx(0.9)
+    assert row["local_quantile_bp"] is None
+    assert row["bootstrap_resolved_pooled_draws"] == 3
+    assert row["context_bp"] == int(2 * reportingMinimum + 1)
     assert row["random_seed"] == 1729
     assert row["evaluated_candidate_window_count"] == 21
-    assert row["survival_band_region_lower"] == pytest.approx(0.25)
-    assert row["survival_band_region_upper"] == pytest.approx(0.75)
     assert row["selected_window_count"] == 20
     assert row["duplicate_row_count"] == 1
     assert row["dominant_acf_period_bp_median"] is None
     assert row["oscillation_strength"] is None
     assert row["post_crossing_revival"] is None
     assert consenrich_cli._formatOptionalLogValue(None) == "NA"
-    assert row["survival_band_jump_closure_used"] is True
-    assert row["survival_band_jump_closure_count"] == 1
     windowRows = consenrich_cli._correlationLengthWindowRows(details)
     assert len(windowRows) == 4
     assert tuple(windowRows[0]) == tuple(
@@ -4623,6 +4638,8 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
     assert windowRows[-1]["censor_reason"] == "support"
     assert windowRows[-1]["positive_signal_rank"] == pytest.approx(4.0)
     assert windowRows[-1]["raw_crossing_lag_bp"] is None
+    assert windowRows[0]["donor_count"] == 4
+    assert windowRows[0]["borrowing_weight"] == pytest.approx(0.5)
     plotPath = tmp_path / "correlation_length.png"
 
     with monkeypatch.context() as mp:
@@ -4742,14 +4759,14 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
         )
 
     assert saveCalls == [(str(plotPath), 400)]
-    assert lineCalls == [
-        (400.0, "KM median radius"),
-        (800.0, "KM Q90"),
-        (1500.0, "working span (1,500 bp floor)"),
-    ]
-    assert histogramCalls[-1] == (
-        details["bootstrapWorkingSpanBP"], "bootstrap Q90"
-    )
+    assert sorted(lineCalls) == sorted([
+        (reportingMinimum, "Pooled radius"),
+        (400.0, "Local median"),
+    ])
+    assert [(values, label) for values, label in histogramCalls if label.startswith("bootstrap")] == [(
+        np.clip([2000.0, 3000.0, 4000.0], reportingMinimum, reportingMaximum).tolist(),
+        "bootstrap pooled radius",
+    )]
     assert logCalls == [
         (
             "artifact.correlation_length_plot",
@@ -4759,12 +4776,9 @@ def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matp
                 ("dpi", 400),
                 (
                     "confidenceIntervalMethod",
-                    "centralInterquartileSimultaneousLogLogKMSurvivalBand",
+                    "hierarchicalStationaryPooledCovariancePercentile",
                 ),
-                ("survivalBandRegionLower", 0.25),
-                ("survivalBandRegionUpper", 0.75),
-                ("survivalBandJumpClosureUsed", True),
-                ("survivalBandJumpClosureCount", 1),
+                ("bootstrapResolvedPooledDraws", 3),
                 ("bootstrapBlockLengthWindows", 3),
             ),
         )
@@ -4893,6 +4907,10 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
 @pytest.mark.parametrize(
     ("caseText", "fieldName"),
     (
+        ("observationParams.dependenceSpanBP: true", "dependenceSpanBP"),
+        ("observationParams.dependenceSpanBP: 1.5", "dependenceSpanBP"),
+        ("observationParams.dependenceSpanBP: 1000.0", "dependenceSpanBP"),
+        ("observationParams.dependenceSpanBP: '1000'", "dependenceSpanBP"),
         ("observationParams.dependenceWindowCount: 0", "dependenceWindowCount"),
         ("observationParams.dependenceWindowBP: 0", "dependenceWindowBP"),
         ("observationParams.dependenceMaxLagBP: 0", "dependenceMaxLagBP"),
@@ -4920,6 +4938,11 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
             "observationParams.dependenceCrossingPersistenceBP: 0",
             "dependenceCrossingPersistenceBP",
         ),
+        ("observationParams.dependenceCrossingCount: 0", "dependenceCrossingCount"),
+        ("observationParams.dependenceCrossingCount: true", "dependenceCrossingCount"),
+        ("observationParams.dependenceCrossingCount: 2.5", "dependenceCrossingCount"),
+        ("observationParams.dependenceAdaptiveSupport: 1", "dependenceAdaptiveSupport"),
+        ("observationParams.dependenceAdaptiveSupport: 'yes'", "dependenceAdaptiveSupport"),
         (
             "observationParams.dependenceMinFinitePairs: 0",
             "dependenceMinFinitePairs",
@@ -4961,6 +4984,59 @@ def test_dependence_config_rejects_out_of_range_values(
     )
     with pytest.raises(ValueError, match=fieldName):
         readConfig(str(configPath))
+
+
+@pytest.mark.parametrize(
+    ("requestedBP", "binBP", "expectedBP"),
+    (
+        (0, 50, 50),
+        (-1, 50, 50),
+        (1, 50, 50),
+        (10000, 50, 10000),
+        (1000001, 50, 1000000),
+        (10**400, 50, 1000000),
+        (10000, 300, 10000),
+        (1000000, 300, 999900),
+    ),
+)
+def testDependenceSpanBoundsWarnAndClip(
+    tmp_path, monkeypatch, caplog, requestedBP, binBP, expectedBP
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        parsed = readConfig({
+            "experimentName": "dependenceBounds",
+            "inputParams.bamFiles": ["smallTest.bam"],
+            "genomeParams.name": "testGenome",
+            "countingParams.intervalSizeBP": binBP,
+            "observationParams.dependenceSpanBP": requestedBP,
+        })
+    assert parsed["observationArgs"].dependenceSpanBP == expectedBP
+    spanWarnings = [
+        record for record in caplog.records
+        if record.levelno >= logging.WARNING
+        and "dependenceSpanBP" in record.getMessage()
+    ]
+    assert len(spanWarnings) == int(requestedBP != expectedBP)
+    for record in spanWarnings:
+        assert f"from {requestedBP} to {expectedBP} bp" in record.getMessage()
+
+
+@pytest.mark.parametrize(
+    "fieldName",
+    (
+        "muncTrendBlockSizeBP", "muncLocalWindowSizeBP",
+        "muncTrendBlockDependenceMultiplier", "muncLocalWindowDependenceMultiplier",
+    ),
+)
+def testMuncWindowConfigUsesDependenceSpan(fieldName):
+    key = f"observationParams.{fieldName}"
+    for values in ({key: 2}, {"observationParams": {fieldName: 2}}):
+        with pytest.raises(ValueError, match="Use `observationParams.dependenceSpanBP`"):
+            consenrich_config.loadConfig(values)
+    with pytest.raises(ValueError, match="Unknown config override key"):
+        consenrich_config.applyConfigOverrides({}, [f"{key}=2"])
 
 
 @pytest.mark.parametrize(

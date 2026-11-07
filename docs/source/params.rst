@@ -6,6 +6,11 @@ Most parameters can be left at their default values. The following sections prov
 Peak Calling Controls
 ~~~~~~~~~~~~~~~~~~~~~
 
+Peak calling uses the dependence working span for the mean bootstrap block
+length and candidate feature scales. Automatic estimation uses the pooled
+covariance radius from the selected autosomal windows. Set
+``observationParams.dependenceSpanBP`` to supply a span in base pairs.
+
 ``matchingParams.peakMode``
     Specifies calling of narrow and/or broad marks.
 
@@ -49,6 +54,25 @@ Peak Calling Controls
 
 Estimation Controls
 ~~~~~~~~~~~~~~~~~~~
+
+.. _dependence-background-spans:
+
+* Set ``observationParams.dependenceSpanBP`` to supply a manual dependence
+  span, rounded up to complete bins and clipped with a warning to
+  one bin–1 Mb, or leave it ``null`` to estimate the span.
+  Automatic estimation requests 512 windows of 500 kb and tests lags up to 250 kb.
+  The separate ``countingParams.centerMB`` filter is enabled by default and uses
+  a 1 Mb window.
+  Adaptive expansion is enabled and increases support and lag for unresolved
+  estimates when enough genomic windows are available. The fitted span is
+  the pooled radius bounded to 2.5–250 kb on the bin grid and rounded up to
+  a complete bin. The confidence interval uses bootstrap pooled radii.
+  ``observationParams.dependenceWorkingQuantile`` selects the reported
+  percentile of the local window radii (default 0.9). If censoring prevents
+  estimation of that percentile, its diagnostic field is empty.
+  MUNC uses 2× the span for trend blocks and 4× for local windows, each
+  capped at 1 Mb with a warning when clipped, and background fitting
+  uses its 16× multiplier and 125 kb cap.
 
 ``countingParams.intervalSizeBP``
     * Sets the genomic bin size in base pairs. Read and fragment inputs default to ``50``.

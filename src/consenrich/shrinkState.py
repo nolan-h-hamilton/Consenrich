@@ -693,6 +693,14 @@ def fitStateShrinkagePrior(
                     nextSlabVariance,
                     nextSlabWeight,
                 )
+            nextEMSums = _chunksEMSums(
+                chunks_,
+                priorSpikeProp=nextPi0,
+                slabVariance=nextSlabVariance,
+                slabWeight=nextSlabWeight,
+                blockSize=blockSize_,
+            )
+            nextLogLikelihood = nextEMSums[4]
             if studentTModel:
                 penalty = _logObjectivePenalty(
                     priorSpikeProp=pi0,
@@ -703,14 +711,6 @@ def fitStateShrinkagePrior(
                     scalePriorWeight=scalePriorWeight,
                 )
                 objective = logLikelihood + penalty
-                nextEMSums = _chunksEMSums(
-                    chunks_,
-                    priorSpikeProp=nextPi0,
-                    slabVariance=nextSlabVariance,
-                    slabWeight=nextSlabWeight,
-                    blockSize=blockSize_,
-                )
-                nextLogLikelihood = nextEMSums[4]
                 nextPenalty = _logObjectivePenalty(
                     priorSpikeProp=nextPi0,
                     scaleVariance=nextPriorVariance,
@@ -733,8 +733,8 @@ def fitStateShrinkagePrior(
                         "state shrinkage EM objective decreased by "
                         f"{objectiveChange:.12g} at iteration {iterations}"
                     )
-                logLikelihood = nextLogLikelihood
-                emSums = nextEMSums
+            logLikelihood = nextLogLikelihood
+            emSums = nextEMSums
             relPi = abs(nextPi0 - pi0) / max(abs(pi0), _STATE_SHRINKAGE_POSITIVE_FLOOR)
             relWeight = float(
                 np.max(
@@ -776,6 +776,13 @@ def fitStateShrinkagePrior(
         iterations = 0
         stopReason = "fixedParameters"
         maxRelativeChange = 0.0
+        logLikelihood = _chunksEMSums(
+            chunks_,
+            priorSpikeProp=pi0,
+            slabVariance=slabVariance,
+            slabWeight=slabWeight,
+            blockSize=blockSize_,
+        )[4]
 
     if studentTModel:
         if slabMultiplier is None:

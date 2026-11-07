@@ -159,13 +159,32 @@ static int ccounts_isValidCountMode(uint8_t countMode)
            countMode == (uint8_t)ccounts_countModeConservedFractionalOverlap;
 }
 
+static void ccounts_addSpanCoverage(
+    const double *deltaBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
+    size_t countBufferLength)
+{
+    size_t index;
+    double total = 0.0;
+    for (index = 0; index < countBufferLength; ++index)
+    {
+        total += deltaBuffer[index];
+        countBuffer[index] += total;
+        if (noiseMassBuffer != NULL)
+        {
+            noiseMassBuffer[index] += total;
+        }
+    }
+}
+
 static void ccounts_addBinnedMass(
-    float *countBuffer,
-    float *noiseMassBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
     size_t countBufferLength,
     size_t index,
-    float countValue,
-    float noiseValue)
+    double countValue,
+    double noiseValue)
 {
     if (countBuffer == NULL || index >= countBufferLength)
     {
@@ -179,11 +198,11 @@ static void ccounts_addBinnedMass(
 }
 
 static void ccounts_addUnitWeightEvent(
-    float *countBuffer,
-    float *noiseMassBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
     size_t countBufferLength,
     size_t index,
-    float incrementValue)
+    double incrementValue)
 {
     ccounts_addBinnedMass(
         countBuffer,
@@ -195,15 +214,15 @@ static void ccounts_addUnitWeightEvent(
 }
 
 static void ccounts_addEndpointPair(
-    float *countBuffer,
-    float *noiseMassBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
     size_t countBufferLength,
     int64_t regionStart,
     int64_t regionEnd,
     int64_t step,
     int64_t firstPosition,
     int64_t secondPosition,
-    float incrementValue)
+    double incrementValue)
 {
     int hasFirst = 0;
     int hasSecond = 0;
@@ -256,8 +275,8 @@ static void ccounts_addEndpointPair(
 }
 
 static void ccounts_addConservedFractionalOverlap(
-    float *countBuffer,
-    float *noiseMassBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
     size_t countBufferLength,
     int64_t regionStart,
     int64_t regionEnd,
@@ -266,7 +285,7 @@ static void ccounts_addConservedFractionalOverlap(
     int64_t featureEnd,
     int64_t denomStart,
     int64_t denomEnd,
-    float incrementValue)
+    double incrementValue)
 {
     int64_t adjStart = 0;
     int64_t adjEnd = 0;
@@ -279,7 +298,7 @@ static void ccounts_addConservedFractionalOverlap(
     size_t index = 0U;
     size_t index0 = 0U;
     size_t index1 = 0U;
-    float weight = 0.0f;
+    double weight = 0.0;
 
     if (countBuffer == NULL || countBufferLength == 0U || step <= 0)
     {
@@ -323,7 +342,7 @@ static void ccounts_addConservedFractionalOverlap(
         bpOverlap = overlapEnd - overlapStart;
         if (bpOverlap > 0)
         {
-            weight = (float)bpOverlap / (float)denomBP;
+            weight = (double)bpOverlap / (double)denomBP;
             countBuffer[index] += incrementValue * weight;
             if (noiseMassBuffer != NULL)
             {
@@ -2702,16 +2721,15 @@ ccounts_result ccounts_countRegionWithMass(
     ccounts_sourceHandle *sourceHandle,
     const ccounts_region *region,
     const ccounts_countOptions *countOptions,
-    float *countBuffer,
-    float *noiseMassBuffer,
+    double *countBuffer,
+    double *noiseMassBuffer,
     size_t countBufferLength)
 {
     bam1_t *record = NULL;
     hts_itr_t *iteratorHandle = NULL;
-    float *deltaBuffer = NULL;
+    double *deltaBuffer = NULL;
     int32_t tid = -1;
     size_t intervalIndex = 0;
-    float deltaValue = 0.0f;
     int64_t start64 = 0;
     int64_t end64 = 0;
     int64_t step64 = 0;
@@ -2946,7 +2964,7 @@ ccounts_result ccounts_countRegionWithMass(
         {
             if (weightBuffer[intervalIndex] > 0.0)
             {
-                countBuffer[intervalIndex] = (float)(sumBuffer[intervalIndex] / weightBuffer[intervalIndex]);
+                countBuffer[intervalIndex] = sumBuffer[intervalIndex] / weightBuffer[intervalIndex];
             }
         }
         if (lineBuffer.s != NULL)
@@ -2977,7 +2995,7 @@ ccounts_result ccounts_countRegionWithMass(
         int64_t fragCount = 1;
         const char *barcodeStart = NULL;
         size_t barcodeLength = 0U;
-        float incrementValue = 1.0f;
+        double incrementValue = 1.0;
 
         if ((ccounts_countMode)countOptions->countMode == ccounts_countModeFFP)
         {
@@ -3020,7 +3038,7 @@ ccounts_result ccounts_countRegionWithMass(
         if (needsSpanCoverage)
         {
             // use a delta buffer so span coverage stays linear in fragments plus bins
-            deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
+            deltaBuffer = (double *)calloc(countBufferLength + 1U, sizeof(double));
             if (deltaBuffer == NULL)
             {
                 hts_itr_destroy(fragmentsIterator);
@@ -3095,7 +3113,7 @@ ccounts_result ccounts_countRegionWithMass(
                 free(deltaBuffer);
                 return ccounts_makeResult(-1, "fragmentsUseReadSupport requires a positive integer in column five");
             }
-            incrementValue = (float)(countOptions->fragmentsUseReadSupport ? fragCount : 1);
+            incrementValue = (double)(countOptions->fragmentsUseReadSupport ? fragCount : 1);
             if ((ccounts_countMode)countOptions->countMode == ccounts_countModeCenter ||
                 countOptions->oneReadPerBin)
             {
@@ -3187,16 +3205,7 @@ ccounts_result ccounts_countRegionWithMass(
 
         if (needsSpanCoverage)
         {
-            deltaValue = 0.0f;
-            for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
-            {
-                deltaValue += deltaBuffer[intervalIndex];
-                countBuffer[intervalIndex] += deltaValue;
-                if (noiseMassBuffer != NULL)
-                {
-                    noiseMassBuffer[intervalIndex] += deltaValue;
-                }
-            }
+            ccounts_addSpanCoverage(deltaBuffer, countBuffer, noiseMassBuffer, countBufferLength);
         }
 
         if (lineBuffer.s != NULL)
@@ -3301,7 +3310,7 @@ ccounts_result ccounts_countRegionWithMass(
 
     if (needsSpanCoverage)
     {
-        deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
+        deltaBuffer = (double *)calloc(countBufferLength + 1U, sizeof(double));
         if (deltaBuffer == NULL)
         {
             hts_itr_destroy(iteratorHandle);
@@ -3570,16 +3579,7 @@ ccounts_result ccounts_countRegionWithMass(
 
     if (needsSpanCoverage)
     {
-        deltaValue = 0.0f;
-        for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
-        {
-            deltaValue += deltaBuffer[intervalIndex];
-            countBuffer[intervalIndex] += deltaValue;
-            if (noiseMassBuffer != NULL)
-            {
-                noiseMassBuffer[intervalIndex] += deltaValue;
-            }
-        }
+        ccounts_addSpanCoverage(deltaBuffer, countBuffer, noiseMassBuffer, countBufferLength);
     }
 
     hts_itr_destroy(iteratorHandle);
@@ -3592,7 +3592,7 @@ ccounts_result ccounts_countRegion(
     ccounts_sourceHandle *sourceHandle,
     const ccounts_region *region,
     const ccounts_countOptions *countOptions,
-    float *countBuffer,
+    double *countBuffer,
     size_t countBufferLength)
 {
     return ccounts_countRegionWithMass(

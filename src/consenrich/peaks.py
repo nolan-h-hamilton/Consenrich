@@ -118,10 +118,9 @@ class _peakRecord(NamedTuple):
     blocks: tuple[tuple[int, int], ...]
 
 
-class _regionalSignalPrefix(NamedTuple):
+class _regionalSignalData(NamedTuple):
     coveredBPPrefix: np.ndarray
-    centeredSignalMassPrefix: np.ndarray
-    signalAnchor: float
+    signalMass: np.ndarray
 
 
 class _candidateReplayData(NamedTuple):
@@ -501,6 +500,17 @@ def estimateROCCONull(
     bulkQuantile: float = 0.60,
 ) -> Tuple[float, float, Dict[str, float | str]]:
     r"""Estimate a robust null center and scale from mode-centered central support."""
+    nullCenter, nullScale, details, _lowerMagnitudes = _estimateROCCONull(
+        scoreTrack,
+        bulkQuantile=bulkQuantile,
+    )
+    return nullCenter, nullScale, details
+
+
+def _estimateROCCONull(
+    scoreTrack: npt.ArrayLike,
+    bulkQuantile: float = 0.60,
+) -> Tuple[float, float, Dict[str, float | str], np.ndarray]:
     z = _asFloatVector("scoreTrack", scoreTrack)
     _support, supportMeta = _selectRobustNullSupport(
         z,
@@ -548,7 +558,7 @@ def estimateROCCONull(
         "null_center_shift_from_zero": float(nullCenter),
         "support_fraction": float(supportMeta["support_size"] / max(int(z.size), 1)),
     }
-    return nullCenter, nullScale, details
+    return nullCenter, nullScale, details, lowerMagnitudes
 
 
 def _resolveROCCOBootstrapGeometry(
@@ -863,6 +873,8 @@ def _prepareNullResidualTemplate(
     scoreTrack: np.ndarray,
     nullCenter: float,
     coverageWeights: npt.ArrayLike | None = None,
+    *,
+    lowerTail: Tuple[np.ndarray, float] | None = None,
 ) -> Tuple[np.ndarray, Dict[str, float]]:
     centered = np.asarray(scoreTrack, dtype=np.float64) - float(nullCenter)
     if coverageWeights is None:
@@ -873,14 +885,17 @@ def _prepareNullResidualTemplate(
             raise ValueError("`coverageWeights` must match score track length")
         if np.any(coverageWeights_ <= 0.0):
             raise ValueError("`coverageWeights` must be positive")
-    lowerMagnitudes = -centered[centered < 0.0]
-    if lowerMagnitudes.size < 8:
-        raise ValueError("ROCCO null template requires eight lower residuals")
-    lowerScale = float(
-        np.median(lowerMagnitudes) / float(stats.norm.ppf(0.75))
-    )
-    if lowerScale <= _TINY:
-        raise ValueError("ROCCO lower-residual scale must be positive")
+    if lowerTail is None:
+        lowerMagnitudes = -centered[centered < 0.0]
+        if lowerMagnitudes.size < 8:
+            raise ValueError("ROCCO null template requires eight lower residuals")
+        lowerScale = float(
+            np.median(lowerMagnitudes) / float(stats.norm.ppf(0.75))
+        )
+        if lowerScale <= _TINY:
+            raise ValueError("ROCCO lower-residual scale must be positive")
+    else:
+        lowerMagnitudes, lowerScale = lowerTail
 
     template = centered.copy()
     positiveMask = centered > 0.0
@@ -957,7 +972,7 @@ def _prepareROCCOScoreAndNull(
         thresholdZ=thresholdZ,
         thresholdZGrid=thresholdZGrid,
     )
-    nullCenter, nullScale, _nullDetails = estimateROCCONull(
+    nullCenter, nullScale, _nullDetails, lowerMagnitudes = _estimateROCCONull(
         scoreTrack,
         bulkQuantile=bulkQuantile,
     )
@@ -965,7 +980,9 @@ def _prepareROCCOScoreAndNull(
         scoreTrack,
         nullCenter,
         coverageWeights=coverageWeights,
+        lowerTail=(lowerMagnitudes, nullScale),
     )
+    del lowerMagnitudes
     calibration = _calibrateStationaryNullBootstrap(
         scoreTrack,
         template,
@@ -2719,10 +2736,10 @@ def _readAlignedConsenrichBedGraphs(
     return out
 
 
-def _buildRegionalSignalPrefix(
+def _buildRegionalSignalData(
     coverageWeights: npt.ArrayLike,
     signal: npt.ArrayLike,
-) -> _regionalSignalPrefix:
+) -> _regionalSignalData:
     coverageWeights_ = np.asarray(coverageWeights)
     if coverageWeights_.ndim != 1:
         raise ValueError("`coverageWeights` must be one-dimensional")
@@ -2739,53 +2756,34 @@ def _buildRegionalSignalPrefix(
     coveredBPPrefix = np.empty(coverageWeights_.size + 1, dtype=np.int64)
     coveredBPPrefix[0] = 0
     np.cumsum(coverageWeights_, dtype=np.int64, out=coveredBPPrefix[1:])
-    totalCoveredBP = int(coveredBPPrefix[-1])
-    signalAnchor = float(
-        np.dot(coverageWeights_, signal_) / float(totalCoveredBP)
-    )
-    centeredSignalMassPrefix = np.empty(
-        coverageWeights_.size + 1,
-        dtype=np.float64,
-    )
-    centeredSignalMassPrefix[0] = 0.0
-    np.subtract(signal_, signalAnchor, out=centeredSignalMassPrefix[1:])
-    np.multiply(
-        centeredSignalMassPrefix[1:],
-        coverageWeights_,
-        out=centeredSignalMassPrefix[1:],
-    )
-    np.cumsum(
-        centeredSignalMassPrefix[1:],
-        out=centeredSignalMassPrefix[1:],
-    )
-    return _regionalSignalPrefix(
+    return _regionalSignalData(
         coveredBPPrefix=coveredBPPrefix,
-        centeredSignalMassPrefix=centeredSignalMassPrefix,
-        signalAnchor=signalAnchor,
+        signalMass=np.multiply(signal_, coverageWeights_, dtype=np.float64),
     )
 
 
 def _regionalMeanSignal(
-    signalPrefix: _regionalSignalPrefix,
+    signalData: _regionalSignalData,
     startIdx: int,
     endIdx: int,
 ) -> float:
     startIdx_ = int(startIdx)
     endIdx_ = int(endIdx)
-    size = int(signalPrefix.coveredBPPrefix.size - 1)
+    size = int(signalData.coveredBPPrefix.size - 1)
     if startIdx_ < 0 or endIdx_ < startIdx_ or endIdx_ >= size:
         raise ValueError("regional signal indices are invalid")
     coveredBP = float(
-        signalPrefix.coveredBPPrefix[endIdx_ + 1]
-        - signalPrefix.coveredBPPrefix[startIdx_]
+        signalData.coveredBPPrefix[endIdx_ + 1]
+        - signalData.coveredBPPrefix[startIdx_]
     )
     if coveredBP <= 0.0:
         raise RuntimeError("peak region has zero covered BP")
-    centeredSignalMass = float(
-        signalPrefix.centeredSignalMassPrefix[endIdx_ + 1]
-        - signalPrefix.centeredSignalMassPrefix[startIdx_]
-    )
-    return float(signalPrefix.signalAnchor + centeredSignalMass / coveredBP)
+    signalMass = cconsenrich.cRangeSums(
+        signalData.signalMass,
+        np.asarray([startIdx_], dtype=np.int64),
+        np.asarray([endIdx_ + 1], dtype=np.int64),
+    )[0]
+    return float(signalMass / coveredBP)
 
 
 def _narrowRecordsFromSolution(
@@ -2795,7 +2793,7 @@ def _narrowRecordsFromSolution(
     signal: npt.ArrayLike,
     scores: npt.ArrayLike,
     solution: npt.ArrayLike,
-    signalPrefix: _regionalSignalPrefix,
+    signalData: _regionalSignalData,
 ) -> List[_peakRecord]:
     intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
     ends_ = np.asarray(ends, dtype=np.int64).ravel()
@@ -2810,8 +2808,8 @@ def _narrowRecordsFromSolution(
         == solution_.size
     ):
         raise ValueError("narrow record inputs must match length")
-    if signalPrefix.coveredBPPrefix.size != signal_.size + 1:
-        raise ValueError("regional signal prefix does not match input length")
+    if signalData.coveredBPPrefix.size != signal_.size + 1:
+        raise ValueError("regional signal data does not match input length")
     records: List[_peakRecord] = []
     for startIdx, endIdx in _selectedCoordinateRunBounds(
         solution_, intervals_, ends_
@@ -2831,7 +2829,7 @@ def _narrowRecordsFromSolution(
                 summitBP=summitBP,
                 family="narrow",
                 rawScore=float(np.max(scores_[startIdx : endIdx + 1])),
-                signalValue=_regionalMeanSignal(signalPrefix, startIdx, endIdx),
+                signalValue=_regionalMeanSignal(signalData, startIdx, endIdx),
                 pValue=1.0,
                 qValue=1.0,
                 blocks=((startBP, endBP),),
@@ -2849,7 +2847,7 @@ def _broadRecordsFromRuns(
     parentRuns: Sequence[Tuple[int, int]],
     supportRuns: Sequence[Tuple[int, int]],
     blockRuns: Sequence[Tuple[int, int]],
-    signalPrefix: _regionalSignalPrefix,
+    signalData: _regionalSignalData,
 ) -> List[_peakRecord]:
     intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
     ends_ = np.asarray(ends, dtype=np.int64).ravel()
@@ -2857,8 +2855,8 @@ def _broadRecordsFromRuns(
     scores_ = np.asarray(scores, dtype=np.float64).ravel()
     if not (intervals_.size == ends_.size == signal_.size == scores_.size):
         raise ValueError("broad record inputs must match length")
-    if signalPrefix.coveredBPPrefix.size != signal_.size + 1:
-        raise ValueError("regional signal prefix does not match input length")
+    if signalData.coveredBPPrefix.size != signal_.size + 1:
+        raise ValueError("regional signal data does not match input length")
     parentRuns_ = _validatedOrderedRuns(
         "broad parent runs",
         parentRuns,
@@ -2940,7 +2938,7 @@ def _broadRecordsFromRuns(
                 summitBP=summitBP,
                 family="broad",
                 rawScore=float(np.mean(scores_[firstIdx : lastIdx + 1])),
-                signalValue=_regionalMeanSignal(signalPrefix, firstIdx, lastIdx),
+                signalValue=_regionalMeanSignal(signalData, firstIdx, lastIdx),
                 pValue=1.0,
                 qValue=1.0,
                 blocks=tuple(blocks),
@@ -3746,7 +3744,7 @@ def solveRocco(
                 intervals,
                 ends,
             )
-            regionalSignalPrefix = _buildRegionalSignalPrefix(
+            regionalSignalData = _buildRegionalSignalData(
                 ends - intervals,
                 exportSignal,
             )
@@ -3849,7 +3847,7 @@ def solveRocco(
                     exportSignal,
                     scoreTrack,
                     solution_,
-                    regionalSignalPrefix,
+                    regionalSignalData,
                 )
             if broadEnabled:
                 assert weakView is not None
@@ -3898,10 +3896,10 @@ def solveRocco(
                     parentRuns,
                     supportRuns,
                     strongRuns,
-                    regionalSignalPrefix,
+                    regionalSignalData,
                 )
 
-            del regionalSignalPrefix
+            del regionalSignalData
             calledNarrow = len(narrowChromRecords)
             calledBroad = len(broadChromRecords)
             narrowChromRecords = _filterPeakRecordsByUncertainty(

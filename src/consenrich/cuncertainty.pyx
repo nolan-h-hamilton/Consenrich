@@ -6,6 +6,7 @@
 import numpy as np
 cimport cython
 cimport numpy as cnp
+from .numericMoments cimport shiftedMomentsAdd
 
 from libc.math cimport fabs, exp, log, sqrt, isfinite, NAN
 
@@ -37,23 +38,26 @@ cdef inline double _max_floor(double value, double floorValue) noexcept nogil:
 
 cdef inline double _exchangeable_information(
     double sumWeight,
-    double sumSqrtWeight,
-    Py_ssize_t count,
+    double sqrtWeightOrigin,
+    double sqrtWeightSumOffset,
+    double sqrtWeightSumSquaredOffset,
+    double count,
     double rho,
 ) noexcept nogil:
     cdef double oneMinusRho
     cdef double denom
     cdef double adjusted
+    cdef double meanOffset, sqrtWeightMean, sqrtWeightM2
     if count <= 0 or sumWeight <= 0.0:
         return 0.0
     if rho <= 0.0:
         return sumWeight
     oneMinusRho = 1.0 - rho
     denom = oneMinusRho + rho * <double>count
-    adjusted = (
-        sumWeight / oneMinusRho
-        - rho * sumSqrtWeight * sumSqrtWeight / (oneMinusRho * denom)
-    )
+    meanOffset = sqrtWeightSumOffset / count
+    sqrtWeightMean = sqrtWeightOrigin + meanOffset
+    sqrtWeightM2 = sqrtWeightSumSquaredOffset - sqrtWeightSumOffset * meanOffset
+    adjusted = sqrtWeightM2 / oneMinusRho + count * sqrtWeightMean * sqrtWeightMean / denom
     if adjusted > sumWeight:
         return sumWeight
     return adjusted
@@ -126,14 +130,15 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] cobservationTotalInformation(
     )
     cdef double[::1] totalView = totalInfo
     cdef Py_ssize_t i, j
-    cdef Py_ssize_t count
-    cdef double total, sumSqrt, value, lamValue
+    cdef double total, sqrtOrigin, sqrtSumOffset, sqrtSumSquaredOffset, count, value, lamValue
 
     with nogil:
         for i in range(n):
             total = 0.0
-            sumSqrt = 0.0
-            count = 0
+            sqrtOrigin = 0.0
+            sqrtSumOffset = 0.0
+            sqrtSumSquaredOffset = 0.0
+            count = 0.0
             if useLambda:
                 lamValue = lambdaExp[i]
             else:
@@ -143,12 +148,13 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] cobservationTotalInformation(
                     value = lamValue / (<double>matrixMunc[j, i] + pad)
                     total += value
                     if replicateDependenceRho > 0.0:
-                        sumSqrt += sqrt(value)
-                        count += 1
+                        shiftedMomentsAdd(sqrt(value), &count, &sqrtOrigin, &sqrtSumOffset, &sqrtSumSquaredOffset)
             if replicateDependenceRho > 0.0:
                 totalView[i] = _exchangeable_information(
                     total,
-                    sumSqrt,
+                    sqrtOrigin,
+                    sqrtSumOffset,
+                    sqrtSumSquaredOffset,
                     count,
                     replicateDependenceRho,
                 )
@@ -244,8 +250,8 @@ cpdef tuple cmakeFoldMaskAndInformation(
     cdef double[::1] heldoutView = heldoutInfo
     cdef double[::1] hView = hFraction
     cdef double[::1] nominalHeldoutView = nominalHeldoutInfo
-    cdef Py_ssize_t start, end, i, j, count
-    cdef double value, total, kept, sumSqrt, lamValue
+    cdef Py_ssize_t start, end, i, j
+    cdef double value, total, kept, sqrtOrigin, sqrtSumOffset, sqrtSumSquaredOffset, count, lamValue
 
     with nogil:
         for block in range(blockCount):
@@ -272,8 +278,10 @@ cpdef tuple cmakeFoldMaskAndInformation(
             total = totalView[i]
             if replicateDependenceRho > 0.0:
                 kept = 0.0
-                sumSqrt = 0.0
-                count = 0
+                sqrtOrigin = 0.0
+                sqrtSumOffset = 0.0
+                sqrtSumSquaredOffset = 0.0
+                count = 0.0
                 if useLambda:
                     lamValue = lambdaExp[i]
                 else:
@@ -282,11 +290,12 @@ cpdef tuple cmakeFoldMaskAndInformation(
                     if activeMask[j, i] != 0 and maskView[j, i] != 0:
                         value = lamValue / (<double>matrixMunc[j, i] + pad)
                         kept += value
-                        sumSqrt += sqrt(value)
-                        count += 1
+                        shiftedMomentsAdd(sqrt(value), &count, &sqrtOrigin, &sqrtSumOffset, &sqrtSumSquaredOffset)
                 kept = _exchangeable_information(
                     kept,
-                    sumSqrt,
+                    sqrtOrigin,
+                    sqrtSumOffset,
+                    sqrtSumSquaredOffset,
                     count,
                     replicateDependenceRho,
                 )
@@ -354,13 +363,13 @@ cpdef dict cdeleteBlockReplicateDependenceRhoEvidence(
     if deleteSlotCount < m:
         raise ValueError("fold spec replicate matrix must allow every sample")
 
-    cdef Py_ssize_t block, start, end, i, j, k, h, h2
+    cdef Py_ssize_t block, start, end, i, h, h2
     cdef Py_ssize_t pairCountTotal = 0
     cdef Py_ssize_t validBlockCount = 0
-    cdef Py_ssize_t count, deleteCount
+    cdef Py_ssize_t count, deleteCount, maxDeleteCount = 0
     cdef bint blockHasPair
-    cdef double denomJ, denomK, lamValue, residualJ, residualK
-    cdef double sumJ, sumK, sumJJ, sumKK, sumJK
+    cdef double denom, lamValue, residual, residualJ, residualK
+    cdef double meanJ, meanK, originJ, originK, sumJ, sumK
     cdef double cov, varJ, varK, corr, zValue, weight
     cdef double zSum = 0.0
     cdef double weightSum = 0.0
@@ -373,6 +382,8 @@ cpdef dict cdeleteBlockReplicateDependenceRhoEvidence(
         deleteCount = repsByBlockCount[block]
         if deleteCount < 1 or deleteCount > m or deleteCount > deleteSlotCount:
             raise ValueError("fold spec deleted-replicate count is out of bounds")
+        if blockFold[block] == fold and deleteCount >= 2 and deleteCount > maxDeleteCount:
+            maxDeleteCount = deleteCount
         for h in range(deleteCount):
             rep = repsByBlock[block, h]
             if rep < 0 or rep >= m:
@@ -381,6 +392,10 @@ cpdef dict cdeleteBlockReplicateDependenceRhoEvidence(
                 if repsByBlock[block, h2] == rep:
                     raise ValueError("fold spec contains a duplicate replicate")
 
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] residualBuffer = np.empty(
+        (maxDeleteCount, min(blockLen, n)), dtype=np.float64
+    )
+    cdef double[:, ::1] residualView = residualBuffer
     with nogil:
         for block in range(blockCount):
             if blockFold[block] != fold:
@@ -393,46 +408,60 @@ cpdef dict cdeleteBlockReplicateDependenceRhoEvidence(
             if end > n:
                 end = n
             blockHasPair = False
+            for h in range(deleteCount):
+                rep = repsByBlock[block, h]
+                for i in range(start, end):
+                    residual = NAN
+                    if activeMask[rep, i] != 0:
+                        lamValue = lambdaExp[i] if useLambda else 1.0
+                        denom = <double>matrixMunc[rep, i] + pad
+                        if denom > 0.0 and lamValue > 0.0:
+                            residual = (<double>matrixData[rep, i] - signal[i]) * sqrt(lamValue / denom)
+                    residualView[h, i - start] = residual
             for h in range(deleteCount - 1):
-                j = repsByBlock[block, h]
                 for h2 in range(h + 1, deleteCount):
-                    k = repsByBlock[block, h2]
                     count = 0
+                    originJ = 0.0
+                    originK = 0.0
                     sumJ = 0.0
                     sumK = 0.0
-                    sumJJ = 0.0
-                    sumKK = 0.0
-                    sumJK = 0.0
+                    meanJ = 0.0
+                    meanK = 0.0
+                    varJ = 0.0
+                    varK = 0.0
+                    cov = 0.0
                     for i in range(start, end):
-                        if activeMask[j, i] != 0 and activeMask[k, i] != 0:
-                            if useLambda:
-                                lamValue = lambdaExp[i]
-                            else:
-                                lamValue = 1.0
-                            denomJ = <double>matrixMunc[j, i] + pad
-                            denomK = <double>matrixMunc[k, i] + pad
-                            if denomJ > 0.0 and denomK > 0.0 and lamValue > 0.0:
-                                residualJ = (
-                                    (<double>matrixData[j, i] - signal[i])
-                                    * sqrt(lamValue / denomJ)
-                                )
-                                residualK = (
-                                    (<double>matrixData[k, i] - signal[i])
-                                    * sqrt(lamValue / denomK)
-                                )
-                                if isfinite(residualJ) and isfinite(residualK):
-                                    sumJ += residualJ
-                                    sumK += residualK
-                                    sumJJ += residualJ * residualJ
-                                    sumKK += residualK * residualK
-                                    sumJK += residualJ * residualK
-                                    count += 1
+                        residualJ = residualView[h, i - start]
+                        residualK = residualView[h2, i - start]
+                        if isfinite(residualJ) and isfinite(residualK):
+                            if count == 0:
+                                originJ = residualJ
+                                originK = residualK
+                            sumJ += residualJ - originJ
+                            sumK += residualK - originK
+                            count += 1
                     if count >= 4:
-                        cov = sumJK - sumJ * sumK / <double>count
-                        varJ = sumJJ - sumJ * sumJ / <double>count
-                        varK = sumKK - sumK * sumK / <double>count
+                        meanJ = sumJ / <double>count
+                        meanK = sumK / <double>count
+                        sumJ = 0.0
+                        sumK = 0.0
+                        for i in range(start, end):
+                            residualJ = residualView[h, i - start]
+                            residualK = residualView[h2, i - start]
+                            if isfinite(residualJ) and isfinite(residualK):
+                                residualJ = (residualJ - originJ) - meanJ
+                                residualK = (residualK - originK) - meanK
+                                sumJ += residualJ
+                                sumK += residualK
+                                varJ += residualJ * residualJ
+                                varK += residualK * residualK
+                                cov += residualJ * residualK
+                        # Corrected two-pass centered moments, Chan et al. (1983), Eq. (1.7).
+                        varJ -= sumJ * (sumJ / <double>count)
+                        varK -= sumK * (sumK / <double>count)
+                        cov -= sumJ * (sumK / <double>count)
                         if varJ > 0.0 and varK > 0.0:
-                            corr = cov / sqrt(varJ * varK)
+                            corr = (cov / sqrt(varJ)) / sqrt(varK)
                             corr = _clip_double(corr, -corrBound, corrBound)
                             zValue = 0.5 * log((1.0 + corr) / (1.0 - corr))
                             weight = <double>count - 3.0

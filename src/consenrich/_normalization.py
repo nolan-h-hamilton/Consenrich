@@ -248,6 +248,18 @@ def expandScaleFactors(
     )
 
 
+def _weightedQuantileData(values, weights):
+    valuesArray = np.asarray(values, dtype=np.float64).reshape(-1)
+    weightsArray = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if valuesArray.shape != weightsArray.shape:
+        raise ValueError("values and weights must have the same shape")
+    valid = np.isfinite(valuesArray) & np.isfinite(weightsArray) & (weightsArray > 0.0)
+    valuesArray = valuesArray[valid]
+    weightsArray = weightsArray[valid]
+    order = np.argsort(valuesArray, kind="mergesort")
+    return valuesArray[order], weightsArray[order]
+
+
 def weightedQuantile(
     values: np.ndarray,
     weights: np.ndarray,
@@ -255,31 +267,17 @@ def weightedQuantile(
 ) -> float | np.ndarray:
     """Weighted empirical quantile with deterministic stable sorting."""
 
-    valuesArray = np.asarray(values, dtype=np.float64).reshape(-1)
-    weightsArray = np.asarray(weights, dtype=np.float64).reshape(-1)
-    if valuesArray.shape != weightsArray.shape:
-        raise ValueError("values and weights must have the same shape")
-    valid = np.isfinite(valuesArray) & np.isfinite(weightsArray) & (weightsArray > 0.0)
-    if not np.any(valid):
-        raise ValueError("weighted quantile requires at least one finite positive-weight value")
-    valuesArray = valuesArray[valid]
-    weightsArray = weightsArray[valid]
-    order = np.argsort(valuesArray, kind="mergesort")
-    valuesArray = valuesArray[order]
-    weightsArray = weightsArray[order]
-    total = float(np.sum(weightsArray))
-    if not np.isfinite(total):
-        raise ValueError("weighted quantile requires positive total weight")
-    cumulative = np.cumsum(weightsArray) / total
+    from .cconsenrich import _weightedQuantiles
 
+    valuesArray, weightsArray = _weightedQuantileData(values, weights)
+    if valuesArray.size == 0:
+        raise ValueError("weighted quantile requires at least one finite positive-weight value")
     quantileArray = np.asarray(q, dtype=np.float64)
-    clipped = np.clip(quantileArray, 0.0, 1.0)
-    idx = np.searchsorted(cumulative, clipped, side="left")
-    idx = np.clip(idx, 0, valuesArray.size - 1)
-    out = valuesArray[idx]
+    out = _weightedQuantiles(valuesArray, weightsArray,
+                             np.ascontiguousarray(quantileArray.reshape(-1)), False)
     if quantileArray.ndim == 0:
         return float(np.asarray(out).reshape(()))
-    return np.asarray(out, dtype=np.float64)
+    return out.reshape(quantileArray.shape)
 
 
 def weightedQuantileInterpolated(
@@ -294,28 +292,20 @@ def weightedQuantileInterpolated(
     by delete-block uncertainty calibration.
     """
 
-    valuesArray = np.asarray(values, dtype=np.float64).reshape(-1)
-    weightsArray = np.asarray(weights, dtype=np.float64).reshape(-1)
+    from .cconsenrich import _weightedQuantiles
+
+    valuesArray, weightsArray = _weightedQuantileData(values, weights)
     quantileArray = np.asarray(q, dtype=np.float64)
-    if valuesArray.shape != weightsArray.shape:
-        raise ValueError("values and weights must have the same shape")
-    valid = np.isfinite(valuesArray) & np.isfinite(weightsArray) & (weightsArray > 0.0)
-    if not np.any(valid):
+    if valuesArray.size == 0:
         out = np.full(quantileArray.shape, np.nan, dtype=np.float64)
         if quantileArray.ndim == 0:
             return float(np.asarray(out).reshape(()))
         return out
-    valuesArray = valuesArray[valid]
-    weightsArray = weightsArray[valid]
-    order = np.argsort(valuesArray, kind="mergesort")
-    valuesArray = valuesArray[order]
-    weightsArray = weightsArray[order]
-    total = float(np.sum(weightsArray))
-    cdf = np.cumsum(weightsArray)
-    out = np.interp(np.clip(quantileArray, 0.0, 1.0) * total, cdf, valuesArray)
+    out = _weightedQuantiles(valuesArray, weightsArray,
+                             np.ascontiguousarray(quantileArray.reshape(-1)), True)
     if quantileArray.ndim == 0:
         return float(np.asarray(out).reshape(()))
-    return np.asarray(out, dtype=np.float64)
+    return out.reshape(quantileArray.shape)
 
 
 __all__ = [

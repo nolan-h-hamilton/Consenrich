@@ -83,7 +83,7 @@ def _compactScopeRows(
     ):
         raise ValueError("segShrink compact score inputs must have the same length")
     if ratio.size == 0:
-        scopeCount = int(segmentCount) + 2
+        scopeCount = int(segmentCount) + 1
         return (
             np.empty(0, dtype=np.float64),
             np.empty(0, dtype=np.float64),
@@ -96,14 +96,13 @@ def _compactScopeRows(
         raise ValueError("segShrink compact score segments are out of range")
     if np.any(groupCode < 0):
         raise ValueError("segShrink compact score groups are out of range")
-    scopeCount = int(segmentCount) + 2
+    scopeCount = int(segmentCount) + 1
     rowCount = int(ratio.size)
-    rowIndexAll = np.tile(np.arange(rowCount, dtype=np.int64), 3)
+    rowIndexAll = np.tile(np.arange(rowCount, dtype=np.int64), 2)
     scopeCode = np.concatenate(
         [
             np.zeros(rowCount, dtype=np.int32),
-            np.ones(rowCount, dtype=np.int32),
-            (rowSegment + 2).astype(np.int32, copy=False),
+            (rowSegment + 1).astype(np.int32, copy=False),
         ]
     )
     order = np.lexsort((ratio[rowIndexAll], scopeCode))
@@ -231,10 +230,10 @@ def fitSingleContig(
     genomeLog = float(baseLog[0])
     if not np.isfinite(genomeLog):
         raise ValueError("segShrink processed-genome factor is not finite")
-    contigLog = np.asarray([baseLog[1]], dtype=np.float64)
-    contigVariance = np.asarray([scopeVariance[1]], dtype=np.float64)
-    segmentLog = np.asarray(baseLog[2:], dtype=np.float64)
-    segmentVariance = np.asarray(scopeVariance[2:], dtype=np.float64)
+    contigLog = np.asarray([baseLog[0]], dtype=np.float64)
+    contigVariance = np.asarray([scopeVariance[0]], dtype=np.float64)
+    segmentLog = np.asarray(baseLog[1:], dtype=np.float64)
+    segmentVariance = np.asarray(scopeVariance[1:], dtype=np.float64)
     segmentContigIndex = np.zeros(segmentCountEffective, dtype=np.int32)
     empiricalBayes = _cuncertainty.csegShrinkEmpiricalBayes(
         genomeLog,

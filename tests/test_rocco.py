@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from pathlib import Path
 
 import numpy as np
@@ -728,7 +729,7 @@ def _caseSubpeakDPNativeContracts():
     np.testing.assert_array_equal(flattened[0], [True, True, True])
 
 
-def _caseRegionalSignalPrefixAndRunSweeps():
+def _caseRegionalSignalDataAndRunSweeps():
     intervals = np.asarray([0, 8, 31, 38, 75, 89, 130], dtype=np.int64)
     ends = np.asarray([5, 19, 35, 47, 82, 103, 133], dtype=np.int64)
     widths = ends - intervals
@@ -736,7 +737,7 @@ def _caseRegionalSignalPrefixAndRunSweeps():
         [1.25, -4.0, 9.5, 2.75, -1.5, 6.25, 3.0],
         dtype=np.float64,
     )
-    signalPrefix = peaks._buildRegionalSignalPrefix(widths, signalValues)
+    signalData = peaks._buildRegionalSignalData(widths, signalValues)
     maxAbsSignal = float(np.max(np.abs(signalValues)))
     for startIdx, endIdx in ((0, 0), (3, 3), (0, 6), (1, 4), (4, 6)):
         startBP = int(intervals[startIdx])
@@ -747,23 +748,32 @@ def _caseRegionalSignalPrefixAndRunSweeps():
         ).astype(np.float64)
         expected = float(np.dot(overlap, signalValues) / np.sum(overlap))
         np.testing.assert_allclose(
-            peaks._regionalMeanSignal(signalPrefix, startIdx, endIdx),
+            peaks._regionalMeanSignal(signalData, startIdx, endIdx),
             expected,
             rtol=1.0e-10,
             atol=1.0e-12 * max(1.0, maxAbsSignal),
         )
 
     with pytest.raises(ValueError, match="non-finite"):
-        peaks._buildRegionalSignalPrefix(widths, np.r_[signalValues[:-1], np.nan])
+        peaks._buildRegionalSignalData(widths, np.r_[signalValues[:-1], np.nan])
     with pytest.raises(ValueError, match="positive"):
-        peaks._buildRegionalSignalPrefix(np.r_[widths[:-1], 0], signalValues)
-    hugePrefix = peaks._buildRegionalSignalPrefix(
+        peaks._buildRegionalSignalData(np.r_[widths[:-1], 0], signalValues)
+    wideData = peaks._buildRegionalSignalData(
         np.asarray([2**53, 1], dtype=np.int64),
         np.asarray([1.0, 2.0]),
     )
-    assert peaks._regionalMeanSignal(hugePrefix, 1, 1) == 2.0
+    assert peaks._regionalMeanSignal(wideData, 1, 1) == 2.0
     with pytest.raises(ValueError, match="indices"):
-        peaks._regionalMeanSignal(signalPrefix, 2, signalValues.size)
+        peaks._regionalMeanSignal(signalData, 2, signalValues.size)
+
+    separatedValues = np.asarray([1.0e20, 1.0e-8, -2.0e-8, 3.0e-8, -1.0e-8, 2.0e-8, -1.0e20])
+    separatedData = peaks._buildRegionalSignalData(widths, separatedValues)
+    for startIdx, endIdx in ((1, 1), (3, 3), (1, 5), (2, 4)):
+        selectedWidths = widths[startIdx:endIdx + 1]
+        expected = math.fsum(selectedWidths * separatedValues[startIdx:endIdx + 1]) / sum(selectedWidths)
+        assert peaks._regionalMeanSignal(separatedData, startIdx, endIdx) == pytest.approx(
+            expected, rel=2.0e-15, abs=0.0,
+        )
 
     rng = np.random.default_rng(1741)
     for _ in range(64):
@@ -840,7 +850,7 @@ def _caseBroadRecordSweepContracts():
     )
     signalValues = np.arange(1.0, 11.0)
     scores = np.linspace(-1.0, 2.0, signalValues.size)
-    signalPrefix = peaks._buildRegionalSignalPrefix(
+    signalData = peaks._buildRegionalSignalData(
         ends - intervals,
         signalValues,
     )
@@ -856,7 +866,7 @@ def _caseBroadRecordSweepContracts():
         parentRuns,
         supportRuns,
         blockRuns,
-        signalPrefix,
+        signalData,
     )
 
     literalRecords = []
@@ -955,7 +965,7 @@ def _caseBroadRecordSweepContracts():
         [],
         [],
         [],
-        signalPrefix,
+        signalData,
     ) == []
     with pytest.raises(RuntimeError, match="no support"):
         peaks._broadRecordsFromRuns(
@@ -967,7 +977,7 @@ def _caseBroadRecordSweepContracts():
             [(0, 1)],
             [(3, 4)],
             [],
-            signalPrefix,
+            signalData,
         )
     with pytest.raises(ValueError, match="ordered and disjoint"):
         peaks._broadRecordsFromRuns(
@@ -979,7 +989,7 @@ def _caseBroadRecordSweepContracts():
             [(5, 9), (0, 4)],
             [(0, 4), (5, 9)],
             [],
-            signalPrefix,
+            signalData,
         )
 
 
@@ -1303,6 +1313,14 @@ def _caseReflectedTemplateAndMeanOccupancy(monkeypatch):
     np.testing.assert_allclose(template, expected)
     assert (metadata["template_clip_lower"], metadata["template_clip_upper"]) == pytest.approx(caps)
     assert caps[0] > np.min(reflected) and caps[1] < np.max(reflected)
+    nullCenter, nullScale, nullMeta, lowerMagnitudes = peaks._estimateROCCONull(scores)
+    assert peaks.estimateROCCONull(scores) == (nullCenter, nullScale, nullMeta)
+    reused, reusedMeta = peaks._prepareNullResidualTemplate(
+        scores, nullCenter, weights, lowerTail=(lowerMagnitudes, nullScale)
+    )
+    direct, directMeta = peaks._prepareNullResidualTemplate(scores, nullCenter, weights)
+    np.testing.assert_array_equal(reused, direct)
+    assert reusedMeta == directMeta
 
     scoreTrack = np.asarray([-5, -4, -3, -2, 0.5, 0.5, 0.5, 0.5], dtype=float)
     calibrationTemplate = np.asarray([-2, -1, 0, 0, 0, 0, 1, 2], dtype=float)
@@ -1622,8 +1640,8 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
         _caseCoordinateRunNativeContracts,
     )
     contract_case(
-        "regional signal prefix and run sweeps",
-        _caseRegionalSignalPrefixAndRunSweeps,
+        "regional signal data and run sweeps",
+        _caseRegionalSignalDataAndRunSweeps,
     )
     contract_case(
         "shared candidate replay",

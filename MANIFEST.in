@@ -5,7 +5,7 @@ include README.md
 include THIRD_PARTY_LICENSES.md
 include vendor/htslib/LICENSE
 include vendor/htslib/htscodecs/LICENSE.md
-recursive-include src/consenrich *.pyx *.h
+recursive-include src/consenrich *.pyx *.pxd *.h
 include src/consenrich/cconsenrich.c
 include src/consenrich/ccounts.c
 include src/consenrich/cuncertainty.c

@@ -147,15 +147,15 @@ extern "C"
         ccounts_sourceHandle *sourceHandle,
         const ccounts_region *region,
         const ccounts_countOptions *countOptions,
-        float *countBuffer,
+        double *countBuffer,
         size_t countBufferLength);
 
     ccounts_result ccounts_countRegionWithMass(
         ccounts_sourceHandle *sourceHandle,
         const ccounts_region *region,
         const ccounts_countOptions *countOptions,
-        float *countBuffer,
-        float *noiseMassBuffer,
+        double *countBuffer,
+        double *noiseMassBuffer,
         size_t countBufferLength);
 
 #ifdef __cplusplus

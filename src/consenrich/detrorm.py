@@ -175,13 +175,13 @@ def getScaleFactor1x(
                 "a positive intervalSizeBP"
             )
         # Normalize by event-counts, times bin size ( not fragment size!)
-        return round(effectiveGenomeSize / (totalMappedReads * int(intervalSizeBP)), 5)
+        return effectiveGenomeSize / (totalMappedReads * int(intervalSizeBP))
     if totalMappedSpanBP <= 0:
         raise ValueError(
             f"Negative EGS after removing excluded chromosomes or no mapped span: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}, totalMappedSpanBP={totalMappedSpanBP}."
         )
 
-    return round(effectiveGenomeSize / totalMappedSpanBP, 5)
+    return effectiveGenomeSize / totalMappedSpanBP
 
 
 def getScaleFactorPerMillion(
@@ -259,7 +259,6 @@ def getScaleFactorPerMillion(
         if intervalSizeBP <= 0:
             raise ValueError("RPKM normalization requires a positive intervalSizeBP")
         scalePM *= 1000 / intervalSizeBP
-    scalePM = round(scalePM, 5)
     fragmentsGroupNorm = normalization.validateChoice(
         fragmentsGroupNorm, default="NONE", supported=constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS, paramName="fragmentsGroupNorm"
     )

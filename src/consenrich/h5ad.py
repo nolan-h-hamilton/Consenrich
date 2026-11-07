@@ -286,4 +286,4 @@ def getScaleFactor(source, normMethod, intervalSizeBP, effectiveGenomeSize=None)
     factor = 1_000_000.0 / count
     if normMethod == "RPKM":
         factor *= 1000.0 / intervalSizeBP
-    return round(factor, 5)
+    return factor

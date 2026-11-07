@@ -135,7 +135,7 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_sourceHandle* sourceHandle,
         const ccounts_region* region,
         const ccounts_countOptions* countOptions,
-        float* countBuffer,
+        double* countBuffer,
         size_t countBufferLength
     ) nogil
 
@@ -143,8 +143,8 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_sourceHandle* sourceHandle,
         const ccounts_region* region,
         const ccounts_countOptions* countOptions,
-        float* countBuffer,
-        float* noiseMassBuffer,
+        double* countBuffer,
+        double* noiseMassBuffer,
         size_t countBufferLength
     ) nogil
 
@@ -516,13 +516,13 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     cdef ccounts_region region
     cdef ccounts_countOptions countOptions
     cdef ccounts_result result
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] counts
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] counts
 
     if intervalSizeBP <= 0 or end <= start:
         raise ValueError("invalid interval size or genomic segment")
 
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
-    counts = np.zeros(numIntervals, dtype=np.float32)
+    counts = np.zeros(numIntervals, dtype=np.float64)
 
     # keep bytes-backed strings alive until the native call returns
     region.chromosome = chromosomeBytes
@@ -563,7 +563,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
             with nogil:
                 ccounts_closeSource(sourceHandle)
 
-    return counts
+    return counts.astype(np.float32)
 
 
 cpdef object ccounts_countAlignmentRegionMass(
@@ -608,15 +608,15 @@ cpdef object ccounts_countAlignmentRegionMass(
     cdef ccounts_region region
     cdef ccounts_countOptions countOptions
     cdef ccounts_result result
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] counts
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] rawNoiseMass
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] counts
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawNoiseMass
 
     if intervalSizeBP <= 0 or end <= start:
         raise ValueError("invalid interval size or genomic segment")
 
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
-    counts = np.zeros(numIntervals, dtype=np.float32)
-    rawNoiseMass = np.zeros(numIntervals, dtype=np.float32)
+    counts = np.zeros(numIntervals, dtype=np.float64)
+    rawNoiseMass = np.zeros(numIntervals, dtype=np.float64)
 
     region.chromosome = chromosomeBytes
     region.start = <uint32_t>start
@@ -656,7 +656,9 @@ cpdef object ccounts_countAlignmentRegionMass(
             with nogil:
                 ccounts_closeSource(sourceHandle)
 
-    return readSegmentsResult(counts, rawNoiseMass)
+    countsOut = counts.astype(np.float32)
+    counts = None
+    return readSegmentsResult(countsOut, rawNoiseMass.astype(np.float32))
 
 
 cpdef list ccounts_getChromosomeNames(str alignmentPath, str sourceKind="BAM"):

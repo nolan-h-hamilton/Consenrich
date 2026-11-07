@@ -241,6 +241,25 @@ def _caseDeleteBlockInformationApproximation():
     )
     assert np.allclose(equalInfo, [2.0 / (1.0 + 3.0 * rho)] * 2)
 
+    for sampleCount in (2, 10):
+        for rhoValue in (1.0 - 1.0e-10, np.nextafter(1.0, 0.0)):
+            equalVariance = np.ones((sampleCount, 1), dtype=np.float64)
+            equalInformation = cuncertainty.cobservationTotalInformation(
+                equalVariance, np.ones_like(equalVariance, dtype=np.uint8),
+                np.empty(0, dtype=np.float64), False, 0.0, rhoValue,
+            )
+            expectedInformation = sampleCount / (1.0 + (sampleCount - 1) * rhoValue)
+            np.testing.assert_allclose(equalInformation, expectedInformation, rtol=2.0e-15)
+            foldInformation = cuncertainty.cmakeFoldMaskAndInformation(
+                sampleCount, 1, 1, 0, np.zeros(1, dtype=np.int32),
+                np.ones(1, dtype=np.intp),
+                np.arange(sampleCount, dtype=np.intp).reshape(1, -1),
+                equalVariance, np.ones_like(equalVariance, dtype=np.uint8),
+                equalInformation, np.empty(0, dtype=np.float64), False, 0.0, rhoValue,
+            )
+            expectedKept = (sampleCount - 1) / (1.0 + (sampleCount - 2) * rhoValue)
+            np.testing.assert_allclose(foldInformation[1], expectedKept, rtol=2.0e-15)
+
     cappedMunc = np.array([[1.0], [0.01]], dtype=np.float64)
     cappedInfo = cuncertainty.cobservationTotalInformation(
         cappedMunc,
@@ -372,6 +391,37 @@ def _caseReplicateDependenceDeleteBlockEvidence():
     )
     assert noPairEvidence["pair_count"] == 0
     assert noPairEvidence["weight_sum"] == pytest.approx(0.0)
+
+    intervalCount = 10000
+    for meanValue, dtype in ((0.1, np.float32), (1.1, np.float32), (1.0e8, np.float32), (1.0e8, np.float64)):
+        spacing = np.spacing(dtype(meanValue))
+        values = np.asarray([
+            meanValue + spacing * np.tile([1.0, -1.0, 1.0, -1.0], intervalCount // 4),
+            meanValue + spacing * np.tile([1.0, 1.0, -1.0, -1.0], intervalCount // 4),
+        ], dtype=dtype)
+        active = np.ones(values.shape, dtype=np.uint8)
+        active[0, ::13] = 0
+        active[1, ::17] = 0
+        values[0, 1] = dtype(1.0e20)
+        active[1, 1] = 0
+        valid = np.all(active, axis=0)
+        centered = values[:, valid].astype(np.float64)
+        centered -= centered[:, :1]
+        centered -= centered.mean(axis=1, keepdims=True)
+        correlation = np.dot(centered[0], centered[1]) / np.sqrt(
+            np.dot(centered[0], centered[0]) * np.dot(centered[1], centered[1])
+        )
+        smallEvidence = cuncertainty.cdeleteBlockReplicateDependenceRhoEvidence(
+            values, np.ones_like(values), active,
+            np.zeros(1, dtype=np.int32), np.array([2], dtype=np.intp),
+            np.array([[0, 1]], dtype=np.intp), np.zeros(intervalCount),
+            np.empty(0, dtype=np.float64), False, 0.0, intervalCount, 0,
+        )
+        assert smallEvidence["pair_count"] == 1
+        observedCorrelation = np.tanh(
+            smallEvidence["fisher_z_weighted_sum"] / smallEvidence["weight_sum"]
+        )
+        assert observedCorrelation == pytest.approx(correlation, abs=1.0e-12)
 
 
 def _caseDeleteBlockVarianceModeSelection():

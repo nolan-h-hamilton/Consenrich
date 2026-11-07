@@ -50,7 +50,13 @@ _configOverrideKeys: frozenset[str] = frozenset(DEFAULT_CONFIGURATION_VALUES[GEN
     )
     for field in getattr(core, section)._fields
     if section != "observationParams"
-    or not field.startswith(("muncSeedWeight", "muncSeedProcess", "muncEBPrior"))
+    or (
+        not field.startswith(("muncSeedWeight", "muncSeedProcess", "muncEBPrior"))
+        and field not in (
+            "muncTrendBlockSizeBP", "muncLocalWindowSizeBP",
+            "muncTrendBlockDependenceMultiplier", "muncLocalWindowDependenceMultiplier",
+        )
+    )
 } | {
     f"genomeParams.{'name' if field == 'genomeName' else field}"
     for field in core.genomeParams._fields
@@ -135,6 +141,16 @@ def loadConfig(
 
     if not isinstance(configData, Mapping):
         raise TypeError("Top-level YAML must be a mapping/object.")
+    for fieldName in (
+        "muncTrendBlockSizeBP", "muncLocalWindowSizeBP",
+        "muncTrendBlockDependenceMultiplier", "muncLocalWindowDependenceMultiplier",
+    ):
+        configKey = f"observationParams.{fieldName}"
+        if _cfgHas(configData, configKey):
+            raise ValueError(
+                f"`{configKey}` is not configurable. "
+                "Use `observationParams.dependenceSpanBP`."
+            )
     for sectionName, removedName in (
         ("genomeParams", "genomeCovariateCacheDir"),
         ("observationParams", "muncCovariates"),
@@ -1827,26 +1843,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             raise ValueError(f"`{dottedKey}` must be finite and positive.")
         return float(out)
 
-    muncTrendBlockSizeBP = (
-        _cfgGet(configData, "observationParams.muncTrendBlockSizeBP", None)
-        if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
-        else _cfgDefault(configData, "observationParams.muncTrendBlockSizeBP")
-    )
-    if (
-        _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
-        and muncTrendBlockSizeBP is None
-    ):
-        muncTrendBlockSizeBP = -1
-    muncLocalWindowSizeBP = (
-        _cfgGet(configData, "observationParams.muncLocalWindowSizeBP", None)
-        if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
-        else _cfgDefault(configData, "observationParams.muncLocalWindowSizeBP")
-    )
-    if (
-        _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
-        and muncLocalWindowSizeBP is None
-    ):
-        muncLocalWindowSizeBP = -1
     smoothToFraglenRaw = _cfgGet(
         configData,
         "observationParams.smoothToFraglen",
@@ -1858,6 +1854,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
         raise ValueError("`observationParams.smoothToFraglen` must be boolean.")
     smoothToFraglen = bool(smoothToFraglenRaw)
+    dependenceSpanBP = core._resolveDependenceSpanBP(
+        _cfgGet(
+            configData,
+            "observationParams.dependenceSpanBP",
+            _cfgDefault(configData, "observationParams.dependenceSpanBP"),
+        ),
+        countingParams.intervalSizeBP,
+    )
     dependenceWindowCount = dependencePositiveInt(
         "observationParams.dependenceWindowCount"
     )
@@ -1903,6 +1907,15 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     dependenceCrossingPersistenceBP = dependencePositiveInt(
         "observationParams.dependenceCrossingPersistenceBP"
     )
+    dependenceCrossingCount = dependencePositiveInt(
+        "observationParams.dependenceCrossingCount"
+    )
+    dependenceAdaptiveSupport = _cfgGet(
+        configData, "observationParams.dependenceAdaptiveSupport",
+        _cfgDefault(configData, "observationParams.dependenceAdaptiveSupport"),
+    )
+    if not isinstance(dependenceAdaptiveSupport, (bool, np.bool_)):
+        raise ValueError("`observationParams.dependenceAdaptiveSupport` must be boolean.")
     dependenceMinFinitePairs = dependencePositiveInt(
         "observationParams.dependenceMinFinitePairs"
     )
@@ -1912,46 +1925,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if dependenceMinFinitePairCoverage > 1.0:
         raise ValueError(
             "`observationParams.dependenceMinFinitePairCoverage` must not exceed 1."
-        )
-    muncTrendBlockDependenceMultiplierRaw = _cfgGet(
-        configData,
-        "observationParams.muncTrendBlockDependenceMultiplier",
-        _cfgDefault(
-            configData,
-            "observationParams.muncTrendBlockDependenceMultiplier",
-        ),
-    )
-    if muncTrendBlockDependenceMultiplierRaw is None:
-        muncTrendBlockDependenceMultiplierRaw = (
-            constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
-        )
-    muncTrendBlockDependenceMultiplier = float(muncTrendBlockDependenceMultiplierRaw)
-    if (
-        not np.isfinite(muncTrendBlockDependenceMultiplier)
-        or muncTrendBlockDependenceMultiplier <= 0.0
-    ):
-        raise ValueError(
-            "`observationParams.muncTrendBlockDependenceMultiplier` must be positive."
-        )
-    muncLocalWindowDependenceMultiplierRaw = _cfgGet(
-        configData,
-        "observationParams.muncLocalWindowDependenceMultiplier",
-        _cfgDefault(
-            configData,
-            "observationParams.muncLocalWindowDependenceMultiplier",
-        ),
-    )
-    if muncLocalWindowDependenceMultiplierRaw is None:
-        muncLocalWindowDependenceMultiplierRaw = (
-            constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
-        )
-    muncLocalWindowDependenceMultiplier = float(muncLocalWindowDependenceMultiplierRaw)
-    if (
-        not np.isfinite(muncLocalWindowDependenceMultiplier)
-        or muncLocalWindowDependenceMultiplier <= 0.0
-    ):
-        raise ValueError(
-            "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
         )
     if _cfgHas(configData, "observationParams.muncSeedWeight") and not isinstance(
         _cfgGet(configData, "observationParams.muncSeedWeight"),
@@ -2325,9 +2298,8 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             )
         ),
         "muncVarianceModel": muncVarianceModel,
-        "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
-        "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
         "smoothToFraglen": smoothToFraglen,
+        "dependenceSpanBP": dependenceSpanBP,
         "dependenceWindowCount": dependenceWindowCount,
         "dependenceWindowBP": dependenceWindowBP,
         "dependenceMaxLagBP": dependenceMaxLagBP,
@@ -2337,10 +2309,10 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
         "dependenceAcfSmoothingBP": dependenceAcfSmoothingBP,
         "dependenceCrossingPersistenceBP": dependenceCrossingPersistenceBP,
+        "dependenceCrossingCount": dependenceCrossingCount,
+        "dependenceAdaptiveSupport": bool(dependenceAdaptiveSupport),
         "dependenceMinFinitePairs": dependenceMinFinitePairs,
         "dependenceMinFinitePairCoverage": dependenceMinFinitePairCoverage,
-        "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
-        "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,
         "muncSeedWeightPasses": muncSeedWeightPasses,
         "muncSeedWeightMin": muncSeedWeightMin,

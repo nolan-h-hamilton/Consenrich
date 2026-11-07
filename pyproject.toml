@@ -69,6 +69,7 @@ cython-sources = [
 ]
 test = [
     "pytest",
+    "mpmath>=1.3",
     "pysam>=0.23.3",
     "pyBigWig>=0.3.24",
 ]
@@ -128,9 +129,9 @@ markers = [
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 test-groups = ["test"]
-test-command = '''
-python -c "import numpy as np; from scipy.ndimage import gaussian_filter1d; import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState; rng=np.random.default_rng(13); matrix=(gaussian_filter1d(rng.normal(size=10000), 10.0)+3.0).astype(np.float32)[None, :]; result=consenrich.cconsenrich.cchooseDependenceSpan(['chr11'], [matrix], 50, windowCount=5, minWindowCount=5, bootstrapDraws=20); details=result[3]; assert details['status']=='estimated'; assert details['method']=='rankWeightedFinitePairWindowACF'; assert details['randomSeed']==1729; assert details['selectedAutosomeCount']==1; assert details['evaluatedCandidateWindowCount']>=details['selectedWindowCount']==5; assert details['workingQuantile']==0.75; assert details['acfThreshold']==0.1; assert details['confidenceIntervalMethod']=='centralInterquartileSimultaneousLogLogKMSurvivalBand'; assert details['survivalBandRegionLower']==0.25; assert details['survivalBandRegionUpper']==0.75; assert details['survivalBandJumpClosureCount']==int(details['survivalBandJumpClosureUsed']); assert details['bootstrapMethod']=='hierarchicalAutosomeStationaryWindow'; assert details['estimateBP']==details['fullSampleMedianRadiusBP']; assert details['workingSpanBP']==max(1500.0, details['fullSampleWorkingSpanBP'])"
-'''
+test-command = """
+python -I -c "import importlib.util; import numpy as np; from scipy.ndimage import gaussian_filter1d; import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState; assert consenrich.__version__ == '0.11.10a0'; assert importlib.util.find_spec('consenrich.clippedDependence') is None; rng=np.random.default_rng(13); matrix=(gaussian_filter1d(rng.normal(size=100000), 10.0)+3.0).astype(np.float32)[None, :]; result=consenrich.cconsenrich.cchooseDependenceSpan(['chr11'], [matrix], 50, minWindowCount=5, bootstrapDraws=20); details=result[3]; assert details['status']=='estimated'; assert details['method']=='clippedCovarianceShrinkage'; assert details['randomSeed']==1729; assert details['workingSpanBP']==details['estimateBP']; assert details['crossingCount']==5; assert details['adaptiveSupport'] is True; assert details['requestedWindowBP']==500000 and details['requestedMaxLagBP']==250000 and details['windowCountRequested']==512; assert details['replicateAggregation']=='pointwiseMean' and details['covarianceRowCount']==1; assert details['confidenceIntervalMethod']=='hierarchicalStationaryPooledCovariancePercentile'; assert all(2500 <= details[key] <= 250000 for key in ('estimateBP','lowerBP','upperBP','workingSpanBP')); weight=np.full(1024,6.0); solved=consenrich.cconsenrich.csolveZeroCenteredBackground(weight,weight,156000149960004.0,False,lamFirst=99920016.0); assert np.array_equal(solved,np.ones(1024))"
+"""
 
 [tool.cibuildwheel.linux]
 before-all = """

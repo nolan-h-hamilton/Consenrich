@@ -153,20 +153,25 @@ CORRELATION_LENGTH_COLUMNS = [
     "random_seed",
     "inference_scope",
     "confidence_interval_method",
-    "survival_band_region_lower",
-    "survival_band_region_upper",
-    "survival_band_jump_closure_used",
-    "survival_band_jump_closure_count",
     "confidence_level",
     "interval_size_bp",
     "correlation_length_intervals",
     "correlation_length_bp",
+    "estimation_target",
+    "minimum_radius_bp",
+    "maximum_radius_bp",
+    "unbounded_correlation_length_bp",
+    "unbounded_lower_bp",
+    "unbounded_upper_bp",
+    "unbounded_working_span_bp",
     "full_sample_median_radius_bp",
     "lower_bp",
     "upper_bp",
     "working_span_bp",
     "full_sample_working_span_bp",
-    "working_quantile",
+    "working_span_rule",
+    "local_quantile",
+    "local_quantile_bp",
     "context_bp",
     "chromosomes_used",
     "candidate_window_count",
@@ -184,11 +189,16 @@ CORRELATION_LENGTH_COLUMNS = [
     "unique_row_count",
     "duplicate_row_count",
     "row_deduplication",
+    "replicate_aggregation",
+    "covariance_row_count",
     "acf_threshold",
     "acf_smoothing_bp",
     "acf_smoothing_bins",
     "crossing_persistence_bp",
     "crossing_persistence_bins",
+    "crossing_count",
+    "adaptive_support",
+    "estimation_support_bp",
     "min_finite_pairs",
     "min_finite_pair_coverage",
     "finite_pair_minimum_used",
@@ -203,9 +213,7 @@ CORRELATION_LENGTH_COLUMNS = [
     "bootstrap_method",
     "bootstrap_block_length_windows",
     "bootstrap_draws_requested",
-    "bootstrap_resolved_median_draws",
-    "bootstrap_resolved_working_draws",
-    "bootstrap_resolved_joint_draws",
+    "bootstrap_resolved_pooled_draws",
 ]
 
 CORRELATION_LENGTH_WINDOW_COLUMNS = [
@@ -227,6 +235,13 @@ CORRELATION_LENGTH_WINDOW_COLUMNS = [
     "dominant_acf_period_bp",
     "oscillation_strength",
     "post_crossing_revival",
+    "crossing_count",
+    "borrowing_weight",
+    "donor_count",
+    "local_variance",
+    "residual_variance",
+    "prior_variance",
+    "pool_dominated",
 ]
 
 MUNC_LAMBDA_LOG_COLUMNS = [
@@ -2664,16 +2679,7 @@ def _plotCorrelationLengthInference(
     lowerBP = numberValue("lower_bp", "lowerBP")
     upperBP = numberValue("upper_bp", "upperBP")
     workingSpanBP = numberValue("working_span_bp", "workingSpanBP")
-    fullSampleWorkingSpanBP = numberValue(
-        "full_sample_working_span_bp", "fullSampleWorkingSpanBP"
-    )
-    workingQuantile = numberValue("working_quantile", "workingQuantile")
-    survivalBandRegionLower = numberValue("survivalBandRegionLower")
-    survivalBandRegionUpper = numberValue("survivalBandRegionUpper")
-    survivalBandJumpClosureUsed = bool(diagnostics["survivalBandJumpClosureUsed"])
-    survivalBandJumpClosureCount = _summaryInt(
-        diagnostics["survivalBandJumpClosureCount"]
-    )
+    localMedianBP = numberValue("full_sample_median_radius_bp", "fullSampleMedianRadiusBP")
     contextBP = numberValue("context_bp")
     radiusDistributionBP = np.asarray(
         diagnostics["radiusDistributionBP"], dtype=np.float64
@@ -2683,12 +2689,10 @@ def _plotCorrelationLengthInference(
     censorReasons = np.asarray(
         [str(record["censorReason"]) for record in selectedWindows], dtype=object
     )
-    bootstrapMedianBP = np.asarray(
-        diagnostics["bootstrapMedianRadiusBP"], dtype=np.float64
-    )
-    bootstrapWorkingBP = np.asarray(
-        diagnostics["bootstrapWorkingSpanBP"], dtype=np.float64
-    )
+    pooledRadiusBP = np.asarray(diagnostics["bootstrapPooledRadiusBP"], dtype=np.float64)
+    pooledCensored = np.asarray(diagnostics["bootstrapPooledRadiusCensored"], dtype=np.bool_)
+    if pooledRadiusBP.shape != pooledCensored.shape:
+        raise RuntimeError("pooled bootstrap radii and censor flags have different shapes")
     if not (
         radiusDistributionBP.size
         == radiusCensored.size
@@ -2699,13 +2703,15 @@ def _plotCorrelationLengthInference(
             "correlation-length window diagnostics have inconsistent lengths"
         )
     radiusMask = np.isfinite(radiusDistributionBP) & (radiusDistributionBP > 0.0)
-    medianMask = np.isfinite(bootstrapMedianBP) & (bootstrapMedianBP > 0.0)
-    workingMask = np.isfinite(bootstrapWorkingBP) & (bootstrapWorkingBP > 0.0)
+    pooledMask = np.isfinite(pooledRadiusBP) & (pooledRadiusBP > 0.0) & ~pooledCensored
     radiusDistributionBP = radiusDistributionBP[radiusMask]
     radiusCensored = radiusCensored[radiusMask]
     censorReasons = censorReasons[radiusMask]
-    bootstrapMedianBP = bootstrapMedianBP[medianMask]
-    bootstrapWorkingBP = bootstrapWorkingBP[workingMask]
+    pooledRadiusBP = np.clip(
+        pooledRadiusBP[pooledMask],
+        float(diagnostics["reportingRadiusMinimumBP"]),
+        float(diagnostics["reportingRadiusMaximumBP"]),
+    )
     if (
         pointBP is None
         or pointBP <= 0.0
@@ -2715,18 +2721,8 @@ def _plotCorrelationLengthInference(
         or upperBP <= 0.0
         or workingSpanBP is None
         or workingSpanBP <= 0.0
-        or fullSampleWorkingSpanBP is None
-        or fullSampleWorkingSpanBP <= 0.0
-        or survivalBandRegionLower is None
-        or survivalBandRegionUpper is None
-        or survivalBandRegionLower < 0.0
-        or survivalBandRegionUpper > 1.0
-        or survivalBandRegionLower >= survivalBandRegionUpper
-        or survivalBandJumpClosureCount not in (0, 1)
-        or survivalBandJumpClosureCount != int(survivalBandJumpClosureUsed)
         or radiusDistributionBP.size == 0
-        or bootstrapMedianBP.size == 0
-        or bootstrapWorkingBP.size == 0
+        or pooledRadiusBP.size == 0
     ):
         raise RuntimeError(
             "correlation-length plot requires finite window and bootstrap distributions"
@@ -2832,63 +2828,43 @@ def _plotCorrelationLengthInference(
         float(upperBP),
         color=softGray,
         alpha=0.28,
-        label=(
-            "95% KM-band median interval "
-            f"({survivalBandRegionLower:.0%}–{survivalBandRegionUpper:.0%} region)"
-        ),
+        label="95% pooled-radius interval",
     )
     kmAx.axvline(
         float(pointBP),
         color=burntOrange,
         linewidth=1.8,
         linestyle="--",
-        label="KM median radius",
+        label="Pooled radius",
     )
-    kmAx.axvline(
-        float(fullSampleWorkingSpanBP),
-        color=darkBlack,
-        linewidth=1.4,
-        linestyle=":",
-        label=f"KM Q{100.0 * float(workingQuantile or 0.0):.0f}",
-    )
-    if float(workingSpanBP) > float(fullSampleWorkingSpanBP):
+    if localMedianBP is not None:
         kmAx.axvline(
-            float(workingSpanBP),
-            color=darkBlack,
-            linewidth=1.4,
-            linestyle="-.",
-            label=(
-                "working span "
-                f"({constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP:,} bp floor)"
-            ),
+            localMedianBP, color=navyBlue, linewidth=1.3, linestyle=":",
+            label="Local median",
+        )
+    if workingSpanBP != pointBP:
+        kmAx.axvline(
+            workingSpanBP, color=darkBlack, linewidth=1.3, linestyle="-.",
+            label="Working span",
         )
     kmAx.set_ylim(0.0, 1.03)
-    kmAx.set_title("Kaplan–Meier Survival", color=darkBlack)
+    kmAx.set_title("Local-Radius Kaplan–Meier Survival", color=darkBlack)
     kmAx.set_xlabel("radius (bp)", color=darkBlack)
     kmAx.set_ylabel("survival probability", color=darkBlack)
     kmAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
     kmAx.legend(loc="best", fontsize=7, frameon=False)
 
     bootstrapAx.hist(
-        bootstrapMedianBP,
-        bins=_histogramBins(bootstrapMedianBP),
+        pooledRadiusBP,
+        bins=_histogramBins(pooledRadiusBP),
         color=navyBlue,
         alpha=0.72,
         edgecolor=darkBlack,
         linewidth=0.35,
-        label="bootstrap median radius",
+        label="bootstrap pooled radius",
     )
-    bootstrapAx.hist(
-        bootstrapWorkingBP,
-        bins=_histogramBins(bootstrapWorkingBP),
-        color=burntOrange,
-        alpha=0.58,
-        edgecolor=darkBlack,
-        linewidth=0.35,
-        label=f"bootstrap Q{100.0 * float(workingQuantile or 0.0):.0f}",
-    )
-    bootstrapAx.set_title("Dependent Bootstrap", color=darkBlack)
-    bootstrapAx.set_xlabel("radius or span (bp)", color=darkBlack)
+    bootstrapAx.set_title("Pooled-Radius Bootstrap", color=darkBlack)
+    bootstrapAx.set_xlabel("bounded radius (bp)", color=darkBlack)
     bootstrapAx.set_ylabel("draws", color=darkBlack)
     bootstrapAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
     bootstrapAx.legend(loc="best", fontsize=8, frameon=False)
@@ -2906,15 +2882,6 @@ def _plotCorrelationLengthInference(
         f"support-censored={supportCensoredCount if supportCensoredCount is not None else 'NA'}",
         f"cap-censored={capCensoredCount if capCensoredCount is not None else 'NA'}",
         f"block={blockLength if blockLength is not None else 'NA'} windows",
-        (
-            f"band-region={survivalBandRegionLower:.2f}–"
-            f"{survivalBandRegionUpper:.2f}"
-        ),
-        (
-            "jump-closure=used"
-            if survivalBandJumpClosureUsed
-            else "jump-closure=not-used"
-        ),
     ]
     if censorFraction is not None:
         captionParts.append(f"right-censored={censorFraction:.3g}")
@@ -2938,16 +2905,7 @@ def _plotCorrelationLengthInference(
             ("format", "png"),
             ("dpi", int(dpi)),
             ("confidenceIntervalMethod", diagnostics["confidenceIntervalMethod"]),
-            ("survivalBandRegionLower", diagnostics["survivalBandRegionLower"]),
-            ("survivalBandRegionUpper", diagnostics["survivalBandRegionUpper"]),
-            (
-                "survivalBandJumpClosureUsed",
-                diagnostics["survivalBandJumpClosureUsed"],
-            ),
-            (
-                "survivalBandJumpClosureCount",
-                diagnostics["survivalBandJumpClosureCount"],
-            ),
+            ("bootstrapResolvedPooledDraws", int(pooledMask.sum())),
             ("bootstrapBlockLengthWindows", diagnostics["bootstrapBlockLengthWindows"]),
         ),
     )
@@ -3977,30 +3935,32 @@ def _correlationLengthRow(
         return _summaryNumber(details.get(key))
 
     usedChromosomes = details["chromosomesUsed"]
+    localSummary = details["localRadiusSummary"]
     return {
         "status": str(details["status"]),
         "method": str(details["method"]),
         "random_seed": intValue("randomSeed"),
         "inference_scope": str(details["inferenceScope"]),
         "confidence_interval_method": str(details["confidenceIntervalMethod"]),
-        "survival_band_region_lower": numberValue("survivalBandRegionLower"),
-        "survival_band_region_upper": numberValue("survivalBandRegionUpper"),
-        "survival_band_jump_closure_used": bool(
-            details["survivalBandJumpClosureUsed"]
-        ),
-        "survival_band_jump_closure_count": intValue(
-            "survivalBandJumpClosureCount"
-        ),
         "confidence_level": numberValue("confidenceLevel"),
         "interval_size_bp": intervalSize,
         "correlation_length_intervals": int(pointIntervals),
         "correlation_length_bp": numberValue("estimateBP"),
+        "estimation_target": str(details.get("estimationTarget", "")),
+        "minimum_radius_bp": constants.OBSERVATION_MIN_DEPENDENCE_RADIUS_BP,
+        "maximum_radius_bp": constants.OBSERVATION_MAX_DEPENDENCE_RADIUS_BP,
+        "unbounded_correlation_length_bp": numberValue("unboundedEstimateBP"),
+        "unbounded_lower_bp": numberValue("unboundedLowerBP"),
+        "unbounded_upper_bp": numberValue("unboundedUpperBP"),
+        "unbounded_working_span_bp": numberValue("unboundedWorkingSpanBP"),
         "full_sample_median_radius_bp": numberValue("fullSampleMedianRadiusBP"),
         "lower_bp": numberValue("lowerBP"),
         "upper_bp": numberValue("upperBP"),
         "working_span_bp": numberValue("workingSpanBP"),
         "full_sample_working_span_bp": numberValue("fullSampleWorkingSpanBP"),
-        "working_quantile": numberValue("workingQuantile"),
+        "working_span_rule": str(details["workingSpanRule"]),
+        "local_quantile": _summaryNumber(localSummary["localQuantile"]),
+        "local_quantile_bp": _summaryNumber(localSummary["localQuantileBP"]),
         "context_bp": int(contextBP),
         "chromosomes_used": int(len(usedChromosomes)),
         "candidate_window_count": intValue("candidateWindowCount"),
@@ -4020,11 +3980,16 @@ def _correlationLengthRow(
         "unique_row_count": intValue("uniqueRowCount"),
         "duplicate_row_count": intValue("duplicateRowCount"),
         "row_deduplication": str(details["rowDeduplication"]),
+        "replicate_aggregation": str(details.get("replicateAggregation", "")),
+        "covariance_row_count": intValue("covarianceRowCount"),
         "acf_threshold": numberValue("acfThreshold"),
         "acf_smoothing_bp": intValue("acfSmoothingBP"),
         "acf_smoothing_bins": intValue("acfSmoothingBins"),
         "crossing_persistence_bp": intValue("crossingPersistenceBP"),
         "crossing_persistence_bins": intValue("crossingPersistenceBins"),
+        "crossing_count": intValue("crossingCount"),
+        "adaptive_support": bool(details.get("adaptiveSupport", False)),
+        "estimation_support_bp": intValue("windowBP"),
         "min_finite_pairs": intValue("minFinitePairs"),
         "min_finite_pair_coverage": numberValue("minFinitePairCoverage"),
         "finite_pair_minimum_used": numberValue("finitePairMinimumUsed"),
@@ -4047,15 +4012,7 @@ def _correlationLengthRow(
             "bootstrapBlockLengthWindows"
         ),
         "bootstrap_draws_requested": intValue("bootstrapDrawsRequested"),
-        "bootstrap_resolved_median_draws": intValue(
-            "bootstrapResolvedMedianDraws"
-        ),
-        "bootstrap_resolved_working_draws": intValue(
-            "bootstrapResolvedWorkingDraws"
-        ),
-        "bootstrap_resolved_joint_draws": intValue(
-            "bootstrapResolvedJointDraws"
-        ),
+        "bootstrap_resolved_pooled_draws": intValue("bootstrapResolvedPooledDraws"),
     }
 
 
@@ -4118,6 +4075,13 @@ def _correlationLengthWindowRows(
                 "post_crossing_revival": _summaryNumber(
                     record.get("postCrossingRevival")
                 ),
+                "crossing_count": _summaryInt(record.get("crossingCount")),
+                "borrowing_weight": _summaryNumber(record.get("borrowingWeight")),
+                "donor_count": _summaryInt(record.get("donorCount")),
+                "local_variance": _summaryNumber(record.get("localVariance")),
+                "residual_variance": _summaryNumber(record.get("residualVariance")),
+                "prior_variance": _summaryNumber(record.get("priorVariance")),
+                "pool_dominated": bool(record.get("poolDominated", False)),
             }
         )
     return rows
@@ -4549,6 +4513,15 @@ def _logMuncEstimationParameters(
     seedPassCount: int,
     logger_: logging.Logger = logger,
 ) -> None:
+    for label, requestedBP, usedBP in (
+        ("MUNC trend block", sizing.requestedTrendBlockSizeBP, sizing.trendBlockSizeBP),
+        ("MUNC local window", sizing.requestedLocalWindowSizeBP, sizing.localWindowSizeBP),
+    ):
+        if requestedBP > usedBP:
+            logger_.warning(
+                "Clipping %s from %d to %d bp (limit %d bp, complete bins).",
+                label, requestedBP, usedBP, constants.OBSERVATION_MAX_MUNC_WINDOW_BP,
+            )
     restrictLocalVariance = bool(
         getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
     )
@@ -5220,6 +5193,10 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
         )
     )
+    dependenceCrossingCount_ = int(observationArgs.dependenceCrossingCount)
+    dependenceAdaptiveSupport_ = observationArgs.dependenceAdaptiveSupport
+    if not isinstance(dependenceAdaptiveSupport_, (bool, np.bool_)):
+        raise ValueError("observationParams.dependenceAdaptiveSupport must be boolean")
     dependenceMinFinitePairs_ = int(
         getattr(
             observationArgs,
@@ -5237,6 +5214,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if (
         dependenceAcfSmoothingBP_ <= 0
         or dependenceCrossingPersistenceBP_ <= 0
+        or dependenceCrossingCount_ <= 0
         or dependenceMinFinitePairs_ <= 0
         or not np.isfinite(dependenceMinFinitePairCoverage_)
         or dependenceMinFinitePairCoverage_ <= 0.0
@@ -5276,10 +5254,22 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     )
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
-    dependenceRadiusIntervals_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
     correlationLengthRow_: dict[str, Any] | None = None
     correlationLengthDiagnostics_: dict[str, Any] | None = None
+    dependenceSpanBP = observationArgs.dependenceSpanBP
+    if dependenceSpanBP is not None:
+        dependenceSpanBP = core._resolveDependenceSpanBP(dependenceSpanBP, intervalSizeBP)
+        dependenceSpanIntervals_ = (
+            int(dependenceSpanBP) + intervalSizeBP - 1
+        ) // intervalSizeBP
+        dependenceContextBP_ = 2 * dependenceSpanIntervals_ * intervalSizeBP + 1
+        _logCliSubphase(
+            "Dependence span: source=manual configured_bp=%d used_bp=%d intervals=%d",
+            dependenceSpanBP,
+            dependenceSpanIntervals_ * intervalSizeBP,
+            dependenceSpanIntervals_,
+        )
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -5289,16 +5279,17 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
     )
-    _logCliSubphase("Correlation length TSV: %s", correlationLengthPath)
-    _logCliSubphase("Correlation length windows TSV: %s", correlationLengthWindowsPath)
-    if bool(
-        getattr(
-            outputArgs,
-            "plotCorrelationLength",
-            constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
-        )
-    ):
-        _logCliSubphase("Correlation length plot: %s", correlationLengthPlotPath)
+    if dependenceSpanBP is None:
+        _logCliSubphase("Correlation length TSV: %s", correlationLengthPath)
+        _logCliSubphase("Correlation length windows TSV: %s", correlationLengthWindowsPath)
+        if bool(
+            getattr(
+                outputArgs,
+                "plotCorrelationLength",
+                constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
+            )
+        ):
+            _logCliSubphase("Correlation length plot: %s", correlationLengthPlotPath)
     _logCliSubphase(
         "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d",
         int(outputArgs.maxNonTrackFileBytes),
@@ -6248,8 +6239,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             )
         intervalCount = int(inputArr.shape[1])
         smoothedArr = np.empty_like(inputArr)
-        centerIndex = np.arange(intervalCount, dtype=np.int64)
-        smoothWindowCache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         smoothingWindows: list[int] = []
         for sampleIndex, fragmentLengthBP in enumerate(
             characteristicFragmentLengthsTreatment
@@ -6271,38 +6260,10 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             if windowIntervals <= 1:
                 smoothedArr[sampleIndex, :] = rowArr
                 continue
-            cachedWindow = smoothWindowCache.get(windowIntervals)
-            if cachedWindow is None:
-                halfWindow = windowIntervals // 2
-                startsArrSmooth = np.maximum(0, centerIndex - halfWindow)
-                endsArrSmooth = np.minimum(
-                    intervalCount,
-                    startsArrSmooth + windowIntervals,
-                )
-                startsArrSmooth = np.maximum(
-                    0,
-                    endsArrSmooth - windowIntervals,
-                )
-                cachedWindow = (
-                    startsArrSmooth.astype(np.int64, copy=False),
-                    endsArrSmooth.astype(np.int64, copy=False),
-                )
-                smoothWindowCache[windowIntervals] = cachedWindow
-            startsArrSmooth, endsArrSmooth = cachedWindow
-            prefixArr = np.empty(intervalCount + 1, dtype=np.float64)
-            prefixArr[0] = 0.0
-            prefixArr[1:] = np.cumsum(
-                rowArr,
-                dtype=np.float64,
-            )
-            denomArr = np.maximum(1, endsArrSmooth - startsArrSmooth)
-            divisorArr = (
-                denomArr * denomArr
-                if bool(varianceLike)
-                else denomArr
-            )
+            effectiveWidth = max(1, min(windowIntervals, intervalCount))
+            divisor = effectiveWidth * effectiveWidth if bool(varianceLike) else effectiveWidth
             smoothedArr[sampleIndex, :] = (
-                (prefixArr[endsArrSmooth] - prefixArr[startsArrSmooth]) / divisorArr
+                cconsenrich.cWindowSums(rowArr, windowIntervals, shiftEdges=True) / divisor
             ).astype(np.float32)
         positiveWindows = [int(value) for value in smoothingWindows if int(value) > 1]
         if bool(logSmoothing) and positiveWindows:
@@ -7047,16 +7008,13 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         finiteValuesMask = np.isfinite(valuesArr)
         finiteValues = np.where(finiteValuesMask, valuesArr, 0.0)
         finiteCounts = np.asarray(finiteValuesMask, dtype=np.int64)
-        prefixSum = np.empty(valuesArr.size + 1, dtype=np.float64)
         prefixCount = np.empty(valuesArr.size + 1, dtype=np.int64)
-        prefixSum[0] = 0.0
         prefixCount[0] = 0
-        prefixSum[1:] = np.cumsum(finiteValues, dtype=np.float64)
         prefixCount[1:] = np.cumsum(finiteCounts, dtype=np.int64)
         startsValid = startsArr[valid]
         endsValid = endsArr[valid]
         counts = prefixCount[endsValid] - prefixCount[startsValid]
-        sums = prefixSum[endsValid] - prefixSum[startsValid]
+        sums = cconsenrich.cRangeSums(finiteValues, startsValid, endsValid)
         localMeans = np.full(startsValid.shape, np.nan, dtype=np.float64)
         nonzero = counts > 0
         localMeans[nonzero] = sums[nonzero] / counts[nonzero]
@@ -7090,13 +7048,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     ) -> None:
         nonlocal correlationLengthDiagnostics_
         nonlocal correlationLengthRow_, dependenceContextBP_
-        nonlocal dependenceRadiusIntervals_, dependenceSpanIntervals_
+        nonlocal dependenceSpanIntervals_
 
-        if (
-            dependenceRadiusIntervals_ is not None
-            and dependenceSpanIntervals_ is not None
-            and dependenceContextBP_ is not None
-        ):
+        if dependenceSpanIntervals_ is not None:
             return
 
         chromNames: list[str] = []
@@ -7131,35 +7085,19 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 acfThreshold=float(dependenceAcfPointThreshold_),
                 acfSmoothingBP=int(dependenceAcfSmoothingBP_),
                 crossingPersistenceBP=int(dependenceCrossingPersistenceBP_),
+                crossingCount=int(dependenceCrossingCount_),
+                adaptiveSupport=bool(dependenceAdaptiveSupport_),
                 minFinitePairs=int(dependenceMinFinitePairs_),
                 minFinitePairCoverage=float(dependenceMinFinitePairCoverage_),
             )
         )
         depDiagnostics = dict(depDiagnostics)
         workingSpanBP = float(depDiagnostics["workingSpanBP"])
-        fullSampleWorkingSpanBP = float(depDiagnostics["fullSampleWorkingSpanBP"])
-        if not math.isclose(
-            workingSpanBP,
-            max(
-                float(constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP),
-                fullSampleWorkingSpanBP,
-            ),
-            rel_tol=0.0,
-            abs_tol=1.0e-9,
-        ):
-            raise RuntimeError(
-                "workingSpanBP must equal the full-sample KM quantile "
-                "with the minimum working-span bound applied"
-            )
-        expectedPoint = int(
-            math.ceil(float(depDiagnostics["estimateBP"]) / float(intervalSizeBP))
-        )
-        if int(depPoint) != expectedPoint:
-            raise RuntimeError("correlation-radius tuple and BP diagnostic disagree")
-        dependenceRadiusIntervals_ = int(depPoint)
-        dependenceSpanIntervals_ = int(
-            math.ceil(workingSpanBP / float(intervalSizeBP))
-        )
+        if workingSpanBP != float(depDiagnostics["estimateBP"]):
+            raise RuntimeError("working span must equal the bounded pooled radius")
+        if int(depPoint) != math.ceil(workingSpanBP / intervalSizeBP):
+            raise RuntimeError("pooled radius in bins disagrees with the base-pair estimate")
+        dependenceSpanIntervals_ = int(depPoint)
         dependenceContextBP_ = int(
             2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
         )
@@ -7177,9 +7115,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             "chooseCorrelationLength.finitePairWindows status=%s method=%s "
             "random_seed=%d "
             "inference_scope=%s confidence_interval_method=%s "
-            "survival_band_region=[%.6g,%.6g] "
-            "survival_band_jump_closure_used=%s "
-            "survival_band_jump_closure_count=%d "
             "chromosomes_used=%d chromosomes_excluded=%s "
             "candidate_windows=%d evaluated_candidate_windows=%d "
             "selected_windows=%d requested_windows=%d "
@@ -7196,28 +7131,19 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             "censor_fraction=%.6g censor_time_bp_minimum=%s "
             "censor_time_bp_median=%s censor_time_bp_maximum=%s "
             "estimate_bp=%.6g lower_bp=%.6g upper_bp=%.6g "
-            "working_span_bp=%.6g working_quantile=%.6g "
+            "working_span_bp=%.6g local_quantile=%.6g local_quantile_bp=%s "
             "estimate_intervals=%d lower_intervals=%d upper_intervals=%d "
             "working_span_intervals=%d context_bp=%d "
             "dominant_acf_period_bp_median=%s unresolved_period_fraction=%.6g "
             "oscillation_strength=%s post_crossing_revival=%s "
             "bootstrap_method=%s bootstrap_block_length_windows=%d "
             "bootstrap_draws=%d "
-            "bootstrap_resolved_median=%d bootstrap_resolved_working=%d "
-            "bootstrap_resolved_joint=%d confidence_level=%.6g",
+            "bootstrap_resolved_pooled=%d confidence_level=%.6g",
             str(depDiagnostics["status"]),
             str(depDiagnostics["method"]),
             int(depDiagnostics["randomSeed"]),
             str(depDiagnostics["inferenceScope"]),
             str(depDiagnostics["confidenceIntervalMethod"]),
-            float(depDiagnostics["survivalBandRegionLower"]),
-            float(depDiagnostics["survivalBandRegionUpper"]),
-            (
-                "true"
-                if bool(depDiagnostics["survivalBandJumpClosureUsed"])
-                else "false"
-            ),
-            int(depDiagnostics["survivalBandJumpClosureCount"]),
             int(len(depDiagnostics["chromosomesUsed"])),
             excludedLabel,
             int(depDiagnostics["candidateWindowCount"]),
@@ -7254,7 +7180,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             float(depDiagnostics["lowerBP"]),
             float(depDiagnostics["upperBP"]),
             workingSpanBP,
-            float(depDiagnostics["workingQuantile"]),
+            float(depDiagnostics["localRadiusSummary"]["localQuantile"]),
+            _formatOptionalLogValue(depDiagnostics["localRadiusSummary"]["localQuantileBP"]),
             int(depPoint),
             int(depLower),
             int(depUpper),
@@ -7267,34 +7194,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             str(depDiagnostics["bootstrapMethod"]),
             int(depDiagnostics["bootstrapBlockLengthWindows"]),
             int(depDiagnostics["bootstrapDrawsRequested"]),
-            int(depDiagnostics["bootstrapResolvedMedianDraws"]),
-            int(depDiagnostics["bootstrapResolvedWorkingDraws"]),
-            int(depDiagnostics["bootstrapResolvedJointDraws"]),
+            int(depDiagnostics["bootstrapResolvedPooledDraws"]),
             float(depDiagnostics["confidenceLevel"]),
         )
-        censorFraction = float(depDiagnostics["censorFraction"])
-        workingQuantile = float(depDiagnostics["workingQuantile"])
-        maxLagBP = float(depDiagnostics["maxLagBP"])
-        censorThreshold = 1.0 - workingQuantile
-        maxLagFraction = fullSampleWorkingSpanBP / maxLagBP
-        if (
-            censorFraction >= censorThreshold
-            or maxLagFraction >= 0.8
-        ):
-            logger.warning(
-                "dependence working span has weak upper-tail support: "
-                "censorFraction=%.6g censorThreshold=%.6g "
-                "workingQuantile=%.6g fullSampleWorkingSpanBP=%.6g maxLagBP=%.6g "
-                "maxLagFraction=%.6g. Tail-derived span inference may be "
-                "weakly supported.",
-                censorFraction,
-                censorThreshold,
-                workingQuantile,
-                fullSampleWorkingSpanBP,
-                maxLagBP,
-                maxLagFraction,
-            )
-
         if bool(fitArgs.fitBackground) and int(backgroundBlockSizeBP_) <= 0:
             inferredSpanIntervals = _resolveRuntimeBackgroundBlockLen(
                 dependenceSpanIntervals_,
@@ -7310,7 +7212,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             )
             nominalRoundoffIndex = float(
                 np.finfo(np.float64).eps
-                * (
+                + np.finfo(np.float64).eps**2 * (
                     1.0
                     + 4.0 * float(inferredLambdaFirst)
                     + 16.0 * float(inferredLambdaSecond)
@@ -7322,7 +7224,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                     "dependenceSpanIntervals=%d lengthScaleMultiplier=%.6g "
                     "resolvedSpanIntervals=%d resolvedSpanBP=%d "
                     "smoothness=%.6g nominalRoundoffIndex=%.6g. "
-                    "The penalty scale reaches float64 resolution at unit "
+                    "The penalty scale reaches compensated LDL resolution at unit "
                     "observation precision.",
                     int(dependenceSpanIntervals_),
                     float(fitArgs.ECM_backgroundLengthScaleMultiplier),
@@ -8233,8 +8135,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if backgroundBlockSizeBP_ < 0 or muncSizingNeedsDependence:
         _ensureSampledDependenceSpan(transformedMatrixCachePaths)
 
-    resolvedResidualDurationBP: int | None = None
-    resolvedFeatureDurationBP: int | None = None
+    resolvedPeakDurationBP: int | None = None
 
     _logCliPhase(
         "MUNC prior setup",
@@ -9778,14 +9679,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         _ensureSampledDependenceSpan(transformedMatrixCachePaths)
         if dependenceSpanIntervals_ is None:
             raise RuntimeError("correlation working span did not resolve")
-        if dependenceRadiusIntervals_ is None:
-            raise RuntimeError("correlation radius did not resolve")
-        resolvedResidualDurationBP = int(
+        resolvedPeakDurationBP = int(
             dependenceSpanIntervals_ * intervalSizeBP
-        )
-        #FFR: correlation length is not the ideal estimand for feature size candidates
-        resolvedFeatureDurationBP = int(
-            dependenceRadiusIntervals_ * intervalSizeBP
         )
 
     _logCliPhase(
@@ -10252,10 +10147,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     if peakCallingEnabled:
         try:
-            if resolvedResidualDurationBP is None:
+            if resolvedPeakDurationBP is None:
                 raise RuntimeError("correlation working span did not resolve")
-            if resolvedFeatureDurationBP is None:
-                raise RuntimeError("correlation radius did not resolve")
             stateScoreSuffix = "state"
             uncertaintyScoreSuffix = "uncertainty"
             exportSignalSuffix = "stateShrunk" if useShrunkStateScores else "state"
@@ -10297,8 +10190,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 )
             artifacts = peaks.solveRocco(
                 stateBedGraphPath,
-                resolvedResidualDurationBP,
-                resolvedFeatureDurationBP,
+                residualDurationBP=resolvedPeakDurationBP,
+                featureDurationBP=resolvedPeakDurationBP,
                 uncertaintyBedGraphFile=uncertaintyBedGraphPath,
                 exportSignalBedGraphFile=exportSignalBedGraphPath,
                 numBootstrap=int(matchingArgs.numBootstrap),
