@@ -5,59 +5,38 @@ Installation
 From PyPI
 ~~~~~~~~~~
 
-Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions (`3.11 - 3.14`), and architectures.
+Consenrich supports Python 3.10–3.15. Binaries are distributed via
+`PyPI <https://pypi.org/project/consenrich/#files>`_ for different operating
+systems and architectures.
 
 To install the latest version, run:
 
 .. code-block:: console
 
-  % python -m pip install consenrich --upgrade
+  % python -m pip install --upgrade "consenrich>=0.11.9a0" "ccounts>=0.5.0b0"
 
 If a binary is not available for your platform or you wish to optimize compiler flags for your hardware, consider building from source.
 
 Conda
 ~~~~~~~~~~~~~~~~~~~~~~
 
-You can easily create a `conda <https://docs.conda.io/en/latest/>`_, `mamba <https://mamba.readthedocs.io/en/latest/>`_ virtual environment and ensure all dependencies are met.
+You can use `conda <https://docs.conda.io/en/latest/>`_ or
+`mamba <https://mamba.readthedocs.io/en/latest/>`_ to create an environment.
+The ``all`` extra includes bigWig output and plotting.
 
-For instance, save the following contents to a file named ``environment.yaml``:
+Save to ``consenrichEnv.yaml``:
 
-.. code-block:: yaml
+.. literalinclude:: ../consenrichEnv.yaml
+   :language: yaml
 
-  name: consenrichEnv
-  channels:
-    - conda-forge
-    - bioconda
-    - defaults
-  dependencies:
-    - c-compiler
-    - python
-    - pip
-    - setuptools
-    - wheel
-    - cython>=3.0
-    - numpy>=2.3.0
-    - scipy>=1.16.0
-    - pandas>=2.3.0
-    - samtools>=1.20
-    - bedtools>=2.30.0
-    - pybedtools>=0.11.2
-    - pybigwig>=0.3.24
-    - PyYAML>=6.0.2
-    - PyWavelets>=1.9.0
-
-    - pip:
-        - consenrich
-
-Then, run the following to create and activate the environment, named ``consenrichEnv``:
+Create and activate the environment:
 
 .. code-block:: console
 
-  % conda config --set channel_priority strict
-  % conda create -n consenrichEnv -f environment.yaml
+  % conda env create -f consenrichEnv.yaml
   % conda activate consenrichEnv
 
-If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <https://micromamba.readthedocs.io/en/latest/>`_, replace ``conda`` with ``mamba`` or ``micromamba``.
+For Mamba, replace ``conda`` with ``mamba``.
 
 
 From Source

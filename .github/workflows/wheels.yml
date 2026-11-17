@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build wheels with cibuildwheel
-        uses: pypa/cibuildwheel@v3.2.1
+        uses: pypa/cibuildwheel@v4.3.5
         with:
           output-dir: dist
         env:
@@ -93,27 +93,11 @@ jobs:
             "scipy==1.15.*" \
             "pandas==2.3.*" \
             "PyYAML==6.0.2" \
-            "PyWavelets==1.9.*" \
             "structlog==25.5.*" \
-            "itrigamma==0.2.0a1"
+            "itrigamma==0.2.0a1" \
+            "ccounts==0.5.0b0"
           python -m pip install --no-index --find-links dist consenrich
-          python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
-          python - <<'PYTHON'
-          import numpy as np
-          from scipy.ndimage import gaussian_filter1d
-          from consenrich.cconsenrich import cchooseDependenceSpan
-
-          rng = np.random.default_rng(13)
-          signal = gaussian_filter1d(rng.normal(size=100000), 10.0) + 3.0
-          radiusBins, _, _, details = cchooseDependenceSpan(
-              ["chr11"], [signal.astype(np.float32)[None, :]], 50,
-              windowCount=5, minWindowCount=5, bootstrapDraws=20,
-          )
-          assert details["status"] == "estimated"
-          assert details["estimationTarget"] == "pooledChromosomeCenteredCovariance"
-          assert details["workingSpanBP"] == details["estimateBP"]
-          assert radiusBins == np.ceil(details["workingSpanBP"] / 50)
-          PYTHON
+          python -c "import numpy, ccounts, consenrich, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true'

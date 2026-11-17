@@ -3,10 +3,12 @@ r"""Various constants and genome resources used in Consenrich."""
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import Final, TypeAlias
 
 from numpy import float32 as _float32
-from numpy import log as np_log
+from ccounts import assemblyChromosomeSizes, standardChromosomes
+from ccounts.sources import countModes, sourceKinds, readChromSizes
 
 ConfigurationDefaultValue: TypeAlias = bool | int | float | str | tuple[str, ...] | None
 ConfigurationProfileMap: TypeAlias = dict[str, dict[str, ConfigurationDefaultValue]]
@@ -20,26 +22,9 @@ ALIGNMENT_SOURCE_KINDS: Final[StrTuple] = ("BAM",)
 FRAGMENTS_SOURCE_KIND: Final[str] = "FRAGMENTS"  # 10x
 BEDGRAPH_SOURCE_KIND: Final[str] = "BEDGRAPH"
 H5AD_SOURCE_KIND: Final[str] = "H5AD"
-SUPPORTED_SOURCE_KINDS: Final[StrTuple] = ALIGNMENT_SOURCE_KINDS + (
-    FRAGMENTS_SOURCE_KIND,
-    BEDGRAPH_SOURCE_KIND,
-    H5AD_SOURCE_KIND,
-)
+SUPPORTED_SOURCE_KINDS: Final[StrTuple] = sourceKinds
 SUPPORTED_BAM_INPUT_MODES: Final[StrTuple] = ("auto", "fragments", "reads", "read1")
-SUPPORTED_FRAGMENT_POSITION_MODES: Final[StrTuple] = (
-    "insertionEndpoints",
-    "fragmentEndpoints",
-)
-SUPPORTED_COUNT_MODES: Final[StrTuple] = (
-    "coverage",
-    "cutsite",
-    "fiveprime",
-    "ffp",
-    "ffp-center",
-    "center",
-    "midpoint",
-    "conservedFractionalOverlap",
-)
+SUPPORTED_COUNT_MODES: Final[StrTuple] = countModes
 COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP: Final[str] = "conservedFractionalOverlap"
 EXPERIMENT_DEFAULT_NAME: Final[str] = "consenrichExperiment"
 
@@ -51,45 +36,25 @@ INPUT_DEFAULT_ROLE: Final[str] = "treatment"
 SAM_DEFAULT_THREADS: Final[int] = 1
 SAM_DEFAULT_FLAG_EXCLUDE: Final[int] = 3844
 SAM_DEFAULT_MIN_MAPPING_QUALITY: Final[int] = 20
-SAM_DEFAULT_ONE_READ_PER_BIN: Final[int] = 0
 SAM_DEFAULT_CHUNK_SIZE: Final[int] = 500_000
 SAM_DEFAULT_BAM_INPUT_MODE: Final[str] = "auto"
 SAM_DEFAULT_COUNT_MODE: Final[str] = COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
 SAM_DEFAULT_SHIFT_FORWARD_5P: Final[int] = 0
 SAM_DEFAULT_SHIFT_REVERSE_5P: Final[int] = 0
 SAM_DEFAULT_EXTEND_FROM_5P_BP: Final[int | None] = None
-SAM_DEFAULT_MAX_INSERT_SIZE: Final[int] = 1000
-SAM_DEFAULT_INFER_FRAGMENT_LENGTH: Final[int | None] = None
+SAM_DEFAULT_MAX_INSERT_SIZE: Final[int] = 2500
+SAM_DEFAULT_INFER_FRAGMENT_LENGTH: Final[bool | None] = None
 SAM_DEFAULT_MIN_TEMPLATE_LENGTH: Final[int] = -1
 
 COUNTING_DEFAULT_INTERVAL_SIZE_BP: Final[int] = 50
 COUNTING_DEFAULT_BACKGROUND_BLOCK_SIZE_BP: Final[int] = -1
 COUNTING_DEFAULT_SCALE_FACTORS: Final[tuple[float, ...] | None] = None
 COUNTING_DEFAULT_SCALE_FACTORS_CONTROL: Final[tuple[float, ...] | None] = None
-COUNTING_DEFAULT_NORM_METHOD: Final[str] = "EGS"
-COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM: Final[str] = "NONE"
-COUNTING_SUPPORTED_NORM_METHODS: Final[StrTuple] = ("EGS", "RPGC", "RPKM", "CPM", "SF")
-COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS: Final[StrTuple] = ("NONE", "CELLS")
+COUNTING_DEFAULT_NORM_METHOD: Final[str] = "RPGC"
+COUNTING_SUPPORTED_NORM_METHODS: Final[StrTuple] = ("RPGC", "RPKM", "CPM", "SF", "ReadsInRegions")
+COUNTING_DEFAULT_NORM_SCALE_TO: Final[float] = 10_000.0
 COUNTING_DEFAULT_FIX_CONTROL: Final[bool] = False
-COUNTING_DEFAULT_LOG_OFFSET: Final[float] = 1.0
-COUNTING_DEFAULT_LOG_MULT: Final[float] = 1.0 / np_log(2.0)
-COUNTING_DEFAULT_TRANSFORM_METHOD: Final[str] = "log"
-COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET: Final[float | None] = None
-COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE: Final[float] = 1.0
-COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE: Final[float | None] = None
-COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET: Final[float] = 0.0
-COUNTING_DEFAULT_TRANSFORM_SHAPE: Final[float] = 1.0
-COUNTING_ANSCOMBE_INPUT_OFFSET: Final[float] = 0.375
-COUNTING_ANSCOMBE_OUTPUT_SCALE: Final[float] = 2.0
-COUNTING_SUPPORTED_TRANSFORM_METHODS: Final[StrTuple] = (
-    "log",
-    "sqrt",
-    "anscombe",
-    "asinh",
-    "asinhSqrt",
-    "generalizedLog",
-    "identity",
-)
+COUNTING_DEFAULT_PSEUDOCOUNT: Final[float] = 1.0
 COUNTING_DEFAULT_CENTER_MB: Final[bool] = True
 COUNTING_DEFAULT_CENTER_MB_WINDOW_BP: Final[int] = 1_000_000
 COUNTING_CENTER_MB_METHOD_MEDFILT: Final[str] = "medfilt"
@@ -102,15 +67,11 @@ COUNTING_DEFAULT_CENTER_MB_METHOD: Final[str] = COUNTING_CENTER_MB_METHOD_SAVGOL
 
 SC_DEFAULT_BARCODE_TAG: Final[str] = "CB"
 SC_DEFAULT_COUNT_MODE: Final[str] = COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-SC_DEFAULT_FRAGMENTS_GROUP_NORM: Final[str] = COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM
-SC_DEFAULT_FRAGMENT_POSITION_MODE: Final[str] = "insertionEndpoints"
 SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT: Final[bool] = False
 SC_SUPPORTED_COUNT_MODES: Final[StrTuple] = (
     "coverage",
-    "cutsite",
     "fiveprime",
     "center",
-    "midpoint",
     COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
 )
 
@@ -176,26 +137,10 @@ OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL: Final[str] = MUNC_VARIANCE_MODEL_KALMAN
 OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN: Final[bool] = False
-OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP: Final[int | None] = None
-OBSERVATION_MAX_DEPENDENCE_SPAN_BP: Final[int] = 1_000_000
+OBSERVATION_DEFAULT_LENGTH_SCALE_BP: Final[int | None] = None
 OBSERVATION_MAX_MUNC_WINDOW_BP: Final[int] = 1_000_000
-OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT: Final[int] = 512
-OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP: Final[int] = 500_000
-OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP: Final[int] = 250_000
-OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE: Final[float] = 0.9
-OBSERVATION_MIN_DEPENDENCE_RADIUS_BP: Final[int] = 2500
-OBSERVATION_MAX_DEPENDENCE_RADIUS_BP: Final[int] = 250_000
-OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS: Final[int] = 500
-OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT: Final[int] = 32
-OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD: Final[float] = 0.1
-OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP: Final[int] = 500
-OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP: Final[int] = 500
-OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT: Final[int] = 5
-OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT: Final[bool] = True
-OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS: Final[int] = 200
-OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE: Final[float] = 0.5
-OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER: Final[float] = 2.0
-OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER: Final[float] = 4.0
+OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER: Final[float] = 2.0
+OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER: Final[float] = 4.0
 OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED: Final[bool] = True
 OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES: Final[int] = 3
 OBSERVATION_MIN_MUNC_SEED_WEIGHT_PASSES: Final[int] = 2
@@ -276,8 +221,9 @@ FIT_DEFAULT_MIN_OUTER_ITERS: Final[int] = 3
 FIT_DEFAULT_BACKGROUND_SHIFT_RTOL: Final[float] = 5.0e-3
 FIT_DEFAULT_OUTER_NLL_RTOL: Final[float] = 5.0e-5
 FIT_DEFAULT_BACKGROUND_SMOOTHNESS: Final[float] = 64.0
-FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER: Final[float] = 16.0
-FIT_BACKGROUND_LENGTH_SCALE_CAP_BP: Final[int] = 125_000
+FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER: Final[float] = 5.0
+FIT_BACKGROUND_LENGTH_SCALE_FLOOR_BP: Final[int] = 5_000
+FIT_BACKGROUND_LENGTH_SCALE_CAP_BP: Final[int] = 100_000
 
 OUTPUT_DEFAULT_ROUND_DIGITS: Final[int] = 3
 OUTPUT_DEFAULT_WRITE_UNCERTAINTY: Final[bool] = True
@@ -313,7 +259,6 @@ OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS: Final[bool] = True
 OUTPUT_DEFAULT_SAVE_GAINS: Final[bool] = True
 OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH: Final[bool] = False
-OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS: Final[bool] = True
 OUTPUT_DEFAULT_PRECISION_REWEIGHTING_HISTOGRAM_SAMPLE_SIZE: Final[int] = 50_000
@@ -580,45 +525,19 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
             OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
         ),
         "observationParams.smoothToFraglen": OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
-        "observationParams.dependenceSpanBP": OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP,
-        "observationParams.dependenceWindowCount": (
-            OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT
+        "observationParams.lengthScaleBP": OBSERVATION_DEFAULT_LENGTH_SCALE_BP,
+        "observationParams.lengthScaleOptions": {},
+        "observationParams.muncTrendBlockSizeBP": (
+            OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
         ),
-        "observationParams.dependenceWindowBP": (
-            OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP
+        "observationParams.muncLocalWindowSizeBP": (
+            OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
         ),
-        "observationParams.dependenceMaxLagBP": (
-            OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP
+        "observationParams.muncTrendBlockLengthScaleMultiplier": (
+            OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER
         ),
-        "observationParams.dependenceWorkingQuantile": (
-            OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE
-        ),
-        "observationParams.dependenceBootstrapDraws": (
-            OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
-        ),
-        "observationParams.dependenceMinWindowCount": (
-            OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
-        ),
-        "observationParams.dependenceAcfPointThreshold": (
-            OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
-        ),
-        "observationParams.dependenceAcfSmoothingBP": (
-            OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
-        ),
-        "observationParams.dependenceCrossingPersistenceBP": (
-            OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
-        ),
-        "observationParams.dependenceCrossingCount": (
-            OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT
-        ),
-        "observationParams.dependenceAdaptiveSupport": (
-            OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT
-        ),
-        "observationParams.dependenceMinFinitePairs": (
-            OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
-        ),
-        "observationParams.dependenceMinFinitePairCoverage": (
-            OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE
+        "observationParams.muncLocalWindowLengthScaleMultiplier": (
+            OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER
         ),
         "observationParams.muncSeedWeight.enabled": (
             OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED
@@ -730,7 +649,6 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         "outputParams.writeReplicateExchangeabilityDiagnostics": (
             OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
         ),
-        "outputParams.plotCorrelationLength": (OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH),
         "outputParams.plotNullCalibrationDiagnostics": (
             OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
         ),
@@ -823,7 +741,7 @@ EFFECTIVE_GENOME_SIZES: Final[GenomeEffectiveSizeMap] = {
         200: 2887553103,
         250: 2898802627,
     },
-    "t2t": {
+    "hs1": {
         50: 2725240337,
         75: 2786136059,
         100: 2814334875,
@@ -882,25 +800,8 @@ def resolveGenomeName(genome: str) -> str:
     :rtype: str
     :raises ValueError: If the genome is not recognized.
     """
-    genome_ = genome.lower()
-    if genome_ in ["hg19", "grch37"]:
-        return "hg19"
-    elif genome_ in ["hg38", "grch38"]:
-        return "hg38"
-    elif genome_ in ["t2t", "chm13", "t2t-chm13"]:
-        return "t2t"
-    elif genome_ in ["mm10", "grcm38"]:
-        return "mm10"
-    elif genome_ in ["mm39", "grcm39"]:
-        return "mm39"
-    elif genome_ in ["dm3"]:
-        return "dm3"
-    elif genome_ in ["dm6"]:
-        return "dm6"
-    elif genome_ in ["ce10", "ws220"]:
-        return "ce10"
-    elif genome_ in ["ce11", "wbcel235"]:
-        return "ce11"
+    if genome in assemblyChromosomeSizes:
+        return genome
     raise ValueError(
         f"Genome {genome} is not recognized. Please provide a valid genome name or manually specify resources"
     )
@@ -933,14 +834,18 @@ def getEffectiveGenomeSize(genome: str, readLength: int) -> int:
     raise ValueError(f"Defaults not available for {genome}")
 
 
+def getAssemblyChromosomes(genome: str) -> tuple[str, ...]:
+    sizes = assemblyChromosomeSizes[genome]
+    chromosomes = set(standardChromosomes[genome])
+    return tuple(chromosome for chromosome in sizes if chromosome in chromosomes)
+
+
 def getNonNGenomeSize(
-    genome: str, chromSizesFile: str, excludeChroms: list[str] | None = None
+    genome: str, chromosomeSizes: Mapping[str, int] | str, excludeChroms: list[str] | None = None
 ) -> int:
-    physicalSizes = {}
-    with open(getGenomeResourceFile(genome, "sizes"), encoding="ascii") as handle:
-        for line in handle:
-            chrom, length = line.split()
-            physicalSizes[chrom] = int(length)
+    physicalSizes = assemblyChromosomeSizes[genome]
+    selectedSizes = (chromosomeSizes if isinstance(chromosomeSizes, Mapping)
+                     else readChromSizes(chromosomeSizes))
     nonNCounts = {}
     with open(getGenomeResourceFile(genome, "nonN"), encoding="ascii") as handle:
         for line in handle:
@@ -948,19 +853,17 @@ def getNonNGenomeSize(
             nonNCounts[chrom] = int(count)
     excluded = set(excludeChroms or ())
     territory = 0
-    with open(chromSizesFile, encoding="ascii") as handle:
-        for line in handle:
-            chrom, length = line.split()
-            if chrom in excluded:
-                continue
-            if chrom not in nonNCounts or chrom not in physicalSizes:
-                raise ValueError(
-                    f"No bundled non-N count for {genome}: {chrom}. "
-                    "Set genomeParams.effectiveGenomeSize explicitly."
-                )
-            if int(length) != physicalSizes[chrom]:
-                raise ValueError(f"Chromosome length differs from {genome}: {chrom}")
-            territory += nonNCounts[chrom]
+    for chrom, length in selectedSizes.items():
+        if chrom in excluded:
+            continue
+        if chrom not in nonNCounts or chrom not in physicalSizes:
+            raise ValueError(
+                f"No bundled non-N count for {genome}: {chrom}. "
+                "Set genomeParams.effectiveGenomeSize explicitly."
+            )
+        if int(length) != physicalSizes[chrom]:
+            raise ValueError(f"Chromosome length differs from {genome}: {chrom}")
+        territory += nonNCounts[chrom]
     if territory <= 0:
         raise ValueError("Effective genome territory must be positive")
     return territory
@@ -980,12 +883,8 @@ def getGenomeResourceFile(genome: str, fileType: str, dir_: str = "data") -> str
     """
     if fileType == "nonN":
         fileName = f"{genome}.nonN.sizes"
-    elif fileType.lower() in ["sizes"]:
-        fileName = f"{genome}.sizes"
-    elif fileType.lower() in ["blacklist"]:
-        fileName = f"{genome}_blacklist.bed"
-    elif fileType.lower() in ["sparse"]:
-        fileName = f"{genome}_sparse.bed"
+    else:
+        raise ValueError(f"Unsupported genome resource kind {fileType!r}")
     filePath = os.path.join(os.path.dirname(__file__), os.path.join(dir_, fileName))
     if not os.path.exists(filePath):
         raise FileNotFoundError(f"Resource file {filePath} does not exist.")

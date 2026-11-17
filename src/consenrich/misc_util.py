@@ -6,66 +6,12 @@ r"""
 
 """
 
-import os
-from typing import List, Optional, Tuple
-import logging
-import re
-import numpy as np
-import pandas as pd
+from typing import List, Optional
+from collections.abc import Mapping
 
-from scipy import signal, ndimage
-from . import ccounts
+import ccounts as counts
 from . import constants
 
-logger = logging.getLogger(__name__)
-
-
-def checkAlignmentFile(alignmentFile: str) -> bool:
-    r"""Check that an alignment file exists and is indexed
-
-    Assumes the bam file is sorted by coordinates
-    """
-    if not os.path.exists(alignmentFile):
-        raise FileNotFoundError(f"Could not find {alignmentFile}")
-    if str(alignmentFile).lower().endswith(".cram"):
-        raise ValueError("CRAM inputs are unsupported.")
-    return bool(
-        ccounts.ccounts_checkAlignmentPath(
-            alignmentFile,
-            sourceKind="BAM",
-            buildIndex=True,
-        )
-    )
-
-def alignmentFilesArePairedEnd(
-    alignmentFiles: List[str], maxReads: int = 1_000
-) -> List[bool]:
-    """
-    Take a list of alignment files, return a list indicating whether
-    each file contains paired-end reads
-
-    :param alignmentFiles: List of paths to alignment files
-    :type alignmentFiles: List[str]
-    :param maxReads: Maximum number of reads to check in each file
-    :type maxReads: int
-    :return: List of booleans corresponding to each input file
-    :rtype: List[bool]
-    """
-
-    results = []
-    for path in alignmentFiles:
-        if str(path).lower().endswith(".cram"):
-            raise ValueError("CRAM inputs are unsupported.")
-        results.append(
-            bool(
-                ccounts.ccounts_isAlignmentPairedEnd(
-                    path,
-                    maxReads=maxReads,
-                    sourceKind="BAM",
-                )
-            )
-        )
-    return results
 
 def isStandardAutosomalChromosome(chromosome: str) -> bool:
     chrom = str(chromosome).strip()
@@ -80,8 +26,7 @@ def isStandardAutosomalChromosome(chromosome: str) -> bool:
 
 
 def getChromSizesDict(
-    sizes_file: str,
-    excludeRegex: str = r"^chr[A-Za-z0-9]+$",
+    sizesFile: str | Mapping[str, int],
     excludeChroms: Optional[List[str]] = None,
 ) -> dict:
     r"""The function getChromSizesDict is a helper to get chromosome sizes file as a dictionary.
@@ -90,19 +35,7 @@ def getChromSizesDict(
     :param exclude_chroms: List of chromosomes to exclude.
     :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`
     """
-    if excludeChroms is None:
-        excludeChroms = []
-    excludeChromSet = set(excludeChroms)
-    return {
-        k: v
-        for k, v in pd.read_csv(
-            sizes_file,
-            sep="\t",
-            header=None,
-            index_col=0,
-            names=["chrom", "size"],
-        )["size"]
-        .to_dict()
-        .items()
-        if re.search(excludeRegex, k) is not None and k not in excludeChromSet
-    }
+    excluded = set(excludeChroms or ())
+    sizes = sizesFile if isinstance(sizesFile, Mapping) else counts.readChromSizes(sizesFile)
+    return {name: length for name, length in sizes.items()
+            if name not in excluded}

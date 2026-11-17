@@ -66,9 +66,7 @@ cdef inline void shiftedMomentsAdd(
     count[0] += 1.0
 
 
-# CALLERS: cconsenrich.cclippedCovarianceReplicates,
-#          cconsenrich._muncObservationMomentSeedPassInterval,
-#          cconsenrich.cEstimateEffectiveSampleSize.
+# CALLERS: cconsenrich._muncObservationMomentSeedPassInterval.
 cdef inline void compensatedSumAdd(
     double value,
     double* total,

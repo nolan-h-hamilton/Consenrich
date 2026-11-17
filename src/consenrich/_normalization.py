@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+from ccounts import CountOptions
 
 from . import constants
 
@@ -35,25 +36,11 @@ def validateDefaultConfigurationName(value: Any) -> str:
 
 
 def validateCountMode(value: str | None, defaultMode: str) -> str:
-    mode = validateChoice(
-        value, default=defaultMode,
-        supported=constants.SUPPORTED_COUNT_MODES, paramName="countMode",
-    )
-    return "center" if mode == "midpoint" else mode
+    return CountOptions(countMode=defaultMode if value is None else value).countMode
 
 
-def nativeCountModeForPreset(countMode: str) -> str:
-    return "center" if countMode == "ffp-center" else countMode
-
-
-def validateBamInputMode(
-    value: str | None, *, default: str = "auto", autoAsReads: bool = False
-) -> str:
-    mode = validateChoice(
-        value, default=default,
-        supported=constants.SUPPORTED_BAM_INPUT_MODES, paramName="bamInputMode",
-    )
-    return "reads" if autoAsReads and mode == "auto" else mode
+def validateBamInputMode(value: str | None, *, default: str = "auto") -> str:
+    return CountOptions(bamInputMode=default if value is None else value).bamInputMode
 
 
 def validateMuncVarianceModel(value: str | int | None) -> str:
@@ -211,23 +198,6 @@ def validateOptionalNonnegativeFloat(value: Any, paramName: str) -> float | None
     return validateNonnegativeFloat(value, paramName)
 
 
-def validateTransformFloat(
-    value: Any,
-    *,
-    paramName: str,
-    default: float | None = None,
-    positive: bool = False,
-) -> float | None:
-    if value is None:
-        return default
-    out = float(value)
-    if not np.isfinite(out):
-        raise ValueError(f"{paramName} must be finite.")
-    if positive and out <= 0.0:
-        raise ValueError(f"{paramName} must be positive.")
-    return out
-
-
 def expandScaleFactors(
     scaleFactors: Sequence[float] | None,
     expectedCount: int,
@@ -312,7 +282,6 @@ __all__ = [
     "validateChoice",
     "validateDefaultConfigurationName",
     "validateCountMode",
-    "nativeCountModeForPreset",
     "validateBamInputMode",
     "validateMuncVarianceModel",
     "validateDiagnosticTracks",
@@ -326,7 +295,6 @@ __all__ = [
     "validateOptionalPositiveFloat",
     "validateNonnegativeFloat",
     "validateOptionalNonnegativeFloat",
-    "validateTransformFloat",
     "expandScaleFactors",
     "weightedQuantile",
     "weightedQuantileInterpolated",

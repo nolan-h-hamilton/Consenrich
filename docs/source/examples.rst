@@ -9,7 +9,7 @@ After installing Consenrich, check the build and try running from the command li
 Getting Started: H3K27ac ChIP-seq
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This minimal example estimates a consensus from *four* ENCODE
+This minimal example estimates a consensus from four ENCODE
 epidermis ChIP-seq experiments with matched input controls.
 
 Input Data
@@ -460,6 +460,11 @@ See the :ref:`single-cell API reference <single-cell-api>` for field types and d
 
 Run the command shown in the selected tab from the directory containing its
 YAML file and inputs. Outputs are written under ``scATACDemo/<cell group>/``.
+
+Note that we've manually specified a length scale of 25000 bp via
+:ref:`observationParams.lengthScaleBP <genomic-length-scale>`.
+This is not required but may be advisable for particularly sparse data in rare
+cell types, where the automatic data-driven approach may have poor support.
 
 .. _scatac-results:
 

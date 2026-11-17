@@ -20,7 +20,7 @@ from scipy import stats
 
 import consenrich.core as core
 import consenrich.diagnostics as diagnostics
-import consenrich.detrorm as detrorm
+import ccounts as counts
 import consenrich.peaks as peaks
 import consenrich.shrinkState as shrinkState
 from . import cconsenrich
@@ -30,23 +30,19 @@ from . import _logging as logging_utils
 from . import misc_util
 from ._version import __version__
 from . import io as io_helpers
-from . import h5ad
+from . import countingAdapter
 from .sc_runs import executeFits
 from .config import applyConfigOverrides, getLoggingArgs, loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
-    _checkSF,
     _getSourceCountMode,
     _listOrEmpty,
-    _prepareFragmentsNormalizationMetadata,
-    _resolveExtendFrom5pBPPairs,
     _reorderBedGraphChunks,
     _writeBedGraphChunk,
     checkControlsPresent,
     checkMatchingEnabled,
     convertBedGraphToBigWig,
     getEffectiveGenomeSizes,
-    getReadLengths,
 )
 
 logger = logging.getLogger("consenrich.consenrich")
@@ -147,102 +143,7 @@ GAIN_SUMMARY_COLUMNS = [
     "gain_std",
 ]
 
-CORRELATION_LENGTH_COLUMNS = [
-    "status",
-    "method",
-    "random_seed",
-    "inference_scope",
-    "confidence_interval_method",
-    "confidence_level",
-    "interval_size_bp",
-    "correlation_length_intervals",
-    "correlation_length_bp",
-    "estimation_target",
-    "minimum_radius_bp",
-    "maximum_radius_bp",
-    "unbounded_correlation_length_bp",
-    "unbounded_lower_bp",
-    "unbounded_upper_bp",
-    "unbounded_working_span_bp",
-    "full_sample_median_radius_bp",
-    "lower_bp",
-    "upper_bp",
-    "working_span_bp",
-    "full_sample_working_span_bp",
-    "working_span_rule",
-    "local_quantile",
-    "local_quantile_bp",
-    "context_bp",
-    "chromosomes_used",
-    "candidate_window_count",
-    "evaluated_candidate_window_count",
-    "selected_window_count",
-    "crossed_window_count",
-    "right_censored_window_count",
-    "support_censored_window_count",
-    "cap_censored_window_count",
-    "censor_fraction",
-    "censor_time_bp_minimum",
-    "censor_time_bp_median",
-    "censor_time_bp_maximum",
-    "input_row_count",
-    "unique_row_count",
-    "duplicate_row_count",
-    "row_deduplication",
-    "replicate_aggregation",
-    "covariance_row_count",
-    "acf_threshold",
-    "acf_smoothing_bp",
-    "acf_smoothing_bins",
-    "crossing_persistence_bp",
-    "crossing_persistence_bins",
-    "crossing_count",
-    "adaptive_support",
-    "estimation_support_bp",
-    "min_finite_pairs",
-    "min_finite_pair_coverage",
-    "finite_pair_minimum_used",
-    "finite_pair_coverage_minimum_used",
-    "valid_rows_at_crossing_minimum",
-    "dominant_acf_period_bp_median",
-    "unresolved_period_fraction",
-    "oscillation_strength",
-    "post_crossing_revival",
-    "selected_adjacency_count",
-    "selected_longest_run",
-    "bootstrap_method",
-    "bootstrap_block_length_windows",
-    "bootstrap_draws_requested",
-    "bootstrap_resolved_pooled_draws",
-]
 
-CORRELATION_LENGTH_WINDOW_COLUMNS = [
-    "chromosome",
-    "start_bp",
-    "end_bp",
-    "score",
-    "positive_signal_rank",
-    "raw_crossing_lag_bp",
-    "censor_lag_bp",
-    "gaussian_equivalent_radius_bp",
-    "right_censored",
-    "censor_reason",
-    "support_cap_lag_bp",
-    "finite_pair_minimum_used",
-    "finite_pair_coverage_minimum_used",
-    "valid_row_count",
-    "valid_rows_at_crossing",
-    "dominant_acf_period_bp",
-    "oscillation_strength",
-    "post_crossing_revival",
-    "crossing_count",
-    "borrowing_weight",
-    "donor_count",
-    "local_variance",
-    "residual_variance",
-    "prior_variance",
-    "pool_dominated",
-]
 
 MUNC_LAMBDA_LOG_COLUMNS = [
     "record_type",
@@ -458,69 +359,7 @@ class DiagnosticLogPaths(NamedTuple):
     delete_block_calibration: Path
 
 
-def _countTransformVarianceFloorKwargs(
-    countingArgs: core.countingParams,
-) -> dict[str, Any]:
-    return {
-        "transformMethod": countingArgs.transformMethod,
-        "logOffset": countingArgs.logOffset,
-        "logMult": countingArgs.logMult,
-        "transformInputOffset": countingArgs.transformInputOffset,
-        "transformInputScale": countingArgs.transformInputScale,
-        "transformOutputScale": countingArgs.transformOutputScale,
-        "transformShape": countingArgs.transformShape,
-    }
-
-
 _MUNC_NUMERIC_VARIANCE_FLOOR = 1.0e-12
-
-
-def _countModelVarianceFloorForScaledCounts(
-    scaledCounts: np.ndarray,
-    scaleFactor: float,
-    countingArgs: core.countingParams,
-    *,
-    rawNoiseMass: np.ndarray | None = None,
-    countMode: str | None = None,
-    countModelSource: bool = True,
-) -> np.ndarray:
-    counts = np.asarray(scaledCounts, dtype=np.float64)
-    floor = np.full(counts.shape, np.nan, dtype=np.float64)
-    if not countModelSource:
-        return floor
-    try:
-        scaleFactor_ = float(scaleFactor)
-    except (TypeError, ValueError):
-        return floor
-    if not np.isfinite(scaleFactor_) or scaleFactor_ <= 0.0:
-        return floor
-    countNoisePseudoVarianceMass = 0.5
-    if (
-        rawNoiseMass is not None
-        and countMode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    ):
-        scaledCountSum = float(np.sum(counts, dtype=np.float64))
-        if scaledCountSum == 0.0:
-            raise ValueError(
-                "conserved fractional-overlap count row has no positive support"
-            )
-        countNoisePseudoVarianceMass = (
-            0.5
-            * float(
-                np.sum(np.asarray(rawNoiseMass, dtype=np.float64), dtype=np.float64)
-            )
-            / (scaledCountSum / scaleFactor_)
-        )
-    return np.asarray(
-        core.transformCountVarianceFloor(
-            counts,
-            [scaleFactor_],
-            rawNoiseMass=rawNoiseMass,
-            countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
-            **_countTransformVarianceFloorKwargs(countingArgs),
-        ),
-        dtype=np.float64,
-    )
 
 
 def _combineCountModelVarianceFloors(*floors: np.ndarray) -> np.ndarray:
@@ -535,53 +374,6 @@ def _combineCountModelVarianceFloors(*floors: np.ndarray) -> np.ndarray:
         out[finite] += arr[finite]
         anyFinite |= finite
     return out
-
-
-def _sourceUsesCountModelFloor(source: core.inputSource) -> bool:
-    return (
-        str(getattr(source, "sourceKind", "")).upper() != constants.BEDGRAPH_SOURCE_KIND
-    )
-
-
-def _countModelFloorMatrixForScaledCounts(
-    scaledCountMatrix: np.ndarray,
-    scaleFactors: Sequence[float] | np.ndarray | None,
-    sources: Sequence[core.inputSource],
-    countingArgs: core.countingParams,
-    *,
-    rawNoiseMassMatrix: np.ndarray | None = None,
-    countModes: Sequence[str] | None = None,
-) -> np.ndarray:
-    counts = np.asarray(scaledCountMatrix, dtype=np.float64)
-    if counts.ndim != 2:
-        raise ValueError("scaledCountMatrix must be two-dimensional")
-    if scaleFactors is None:
-        scaleArr = np.ones(int(counts.shape[0]), dtype=np.float64)
-    else:
-        scaleArr = np.asarray(scaleFactors, dtype=np.float64).reshape(-1)
-    if scaleArr.size != int(counts.shape[0]):
-        raise ValueError("scaleFactors must match scaledCountMatrix rows")
-    if countModes is not None and len(countModes) != int(counts.shape[0]):
-        raise ValueError("countModes must match scaledCountMatrix rows")
-    rawNoise = None
-    if rawNoiseMassMatrix is not None:
-        rawNoise = np.asarray(rawNoiseMassMatrix, dtype=np.float64)
-        if rawNoise.shape != counts.shape:
-            raise ValueError("rawNoiseMassMatrix must match scaledCountMatrix shape")
-    floor = np.full(counts.shape, np.nan, dtype=np.float64)
-    for j in range(int(counts.shape[0])):
-        source = sources[j] if j < len(sources) else None
-        rowRawNoise = None if rawNoise is None else rawNoise[j, :]
-        rowCountMode = None if countModes is None else countModes[j]
-        floor[j, :] = _countModelVarianceFloorForScaledCounts(
-            counts[j, :],
-            float(scaleArr[j]),
-            countingArgs,
-            rawNoiseMass=rowRawNoise,
-            countMode=rowCountMode,
-            countModelSource=(source is None or _sourceUsesCountModelFloor(source)),
-        )
-    return np.ascontiguousarray(floor.astype(np.float32), dtype=np.float32)
 
 
 def _countModelVarianceFloorScalar(
@@ -813,36 +605,26 @@ def _runSummaryPath(experimentName: str) -> Path:
     return Path(f"consenrichOutput_{experimentToken}_summary.v{__version__}.jsonl")
 
 
-def _correlationLengthPath(experimentName: str) -> Path:
+def _lengthScalePath(experimentName: str) -> Path:
     experimentToken = _safeOutputToken(experimentName, fallback="experiment")
     return Path(
-        f"consenrichOutput_{experimentToken}_correlationLength.v{__version__}.tsv"
+        f"consenrichOutput_{experimentToken}_lengthScale.v{__version__}.json"
     )
 
 
-def _correlationLengthPlotPath(experimentName: str) -> Path:
-    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    return Path(
-        f"consenrichOutput_{experimentToken}_correlationLength.v{__version__}.png"
-    )
 
 
-def _correlationLengthWindowsPath(experimentName: str) -> Path:
-    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
-    return Path(
-        f"consenrichOutput_{experimentToken}_correlationLengthWindows.v{__version__}.tsv"
-    )
 
 
-def _chromSizesOrderForPlannedChromosomes(
+def _chromSizesOrderForChromosomes(
     chromSizes: Mapping[str, Any],
-    plannedChromosomes: Sequence[str],
+    requestedChromosomes: Sequence[str],
 ) -> List[str]:
-    plannedChromosomeSet = {str(chromosome) for chromosome in plannedChromosomes}
+    requestedChromosomeSet = {str(chromosome) for chromosome in requestedChromosomes}
     return [
         str(chromosome)
         for chromosome in chromSizes.keys()
-        if str(chromosome) in plannedChromosomeSet
+        if str(chromosome) in requestedChromosomeSet
     ]
 
 
@@ -2646,270 +2428,6 @@ def _plotReplicateExchangeabilityDiagnostic(
     return True
 
 
-def _plotCorrelationLengthInference(
-    row: Mapping[str, Any],
-    diagnostics: Mapping[str, Any],
-    path: str | Path,
-    *,
-    dpi: int = 400,
-) -> bool:
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg", force=True)
-        import matplotlib.pyplot as plt
-    except ImportError:
-        logger.warning(
-            "outputParams.plotCorrelationLength=True but matplotlib is not installed. "
-            "wrote the correlation-length TSV only."
-        )
-        return False
-
-    def numberValue(*keys: str) -> float | None:
-        for key in keys:
-            value = row.get(key)
-            if value is None:
-                value = diagnostics.get(key)
-            out = _summaryNumber(value)
-            if out is not None:
-                return float(out)
-        return None
-
-    pointBP = numberValue("correlation_length_bp", "estimateBP")
-    lowerBP = numberValue("lower_bp", "lowerBP")
-    upperBP = numberValue("upper_bp", "upperBP")
-    workingSpanBP = numberValue("working_span_bp", "workingSpanBP")
-    localMedianBP = numberValue("full_sample_median_radius_bp", "fullSampleMedianRadiusBP")
-    contextBP = numberValue("context_bp")
-    radiusDistributionBP = np.asarray(
-        diagnostics["radiusDistributionBP"], dtype=np.float64
-    )
-    radiusCensored = np.asarray(diagnostics["radiusCensored"], dtype=np.bool_)
-    selectedWindows = list(diagnostics["selectedWindows"])
-    censorReasons = np.asarray(
-        [str(record["censorReason"]) for record in selectedWindows], dtype=object
-    )
-    pooledRadiusBP = np.asarray(diagnostics["bootstrapPooledRadiusBP"], dtype=np.float64)
-    pooledCensored = np.asarray(diagnostics["bootstrapPooledRadiusCensored"], dtype=np.bool_)
-    if pooledRadiusBP.shape != pooledCensored.shape:
-        raise RuntimeError("pooled bootstrap radii and censor flags have different shapes")
-    if not (
-        radiusDistributionBP.size
-        == radiusCensored.size
-        == censorReasons.size
-        == len(selectedWindows)
-    ):
-        raise RuntimeError(
-            "correlation-length window diagnostics have inconsistent lengths"
-        )
-    radiusMask = np.isfinite(radiusDistributionBP) & (radiusDistributionBP > 0.0)
-    pooledMask = np.isfinite(pooledRadiusBP) & (pooledRadiusBP > 0.0) & ~pooledCensored
-    radiusDistributionBP = radiusDistributionBP[radiusMask]
-    radiusCensored = radiusCensored[radiusMask]
-    censorReasons = censorReasons[radiusMask]
-    pooledRadiusBP = np.clip(
-        pooledRadiusBP[pooledMask],
-        float(diagnostics["reportingRadiusMinimumBP"]),
-        float(diagnostics["reportingRadiusMaximumBP"]),
-    )
-    if (
-        pointBP is None
-        or pointBP <= 0.0
-        or lowerBP is None
-        or lowerBP <= 0.0
-        or upperBP is None
-        or upperBP <= 0.0
-        or workingSpanBP is None
-        or workingSpanBP <= 0.0
-        or radiusDistributionBP.size == 0
-        or pooledRadiusBP.size == 0
-    ):
-        raise RuntimeError(
-            "correlation-length plot requires finite window and bootstrap distributions"
-        )
-    validCensorReasons = np.isin(censorReasons, ("none", "support", "maxLag"))
-    if not np.all(validCensorReasons):
-        raise RuntimeError("correlation-length diagnostics contain an unknown censor reason")
-    if np.any((~radiusCensored) & (censorReasons != "none")) or np.any(
-        radiusCensored & (censorReasons == "none")
-    ):
-        raise RuntimeError("correlation-length censor flags and reasons disagree")
-
-    uniqueTimes = np.unique(radiusDistributionBP)
-    atRisk = int(radiusDistributionBP.size)
-    survival = 1.0
-    kmTimes = [0.0]
-    kmSurvival = [1.0]
-    survivalAtTime: dict[float, float] = {}
-    for observedTime in uniqueTimes:
-        atTime = radiusDistributionBP == observedTime
-        eventCount = int(np.sum(atTime & ~radiusCensored))
-        if eventCount:
-            survival *= 1.0 - float(eventCount) / float(atRisk)
-        kmTimes.append(float(observedTime))
-        kmSurvival.append(float(survival))
-        survivalAtTime[float(observedTime)] = float(survival)
-        atRisk -= int(np.sum(atTime))
-
-    plt.rcParams.update(
-        {
-            "font.family": "STIXGeneral",
-            "mathtext.fontset": "stix",
-            "axes.unicode_minus": False,
-        }
-    )
-    fig, axes = plt.subplots(1, 3, figsize=(14.8, 4.8), constrained_layout=True)
-    windowAx, kmAx, bootstrapAx = list(np.ravel(axes))
-    navyBlue = "#003B73"
-    burntOrange = "#C65A1E"
-    darkBlack = "#050505"
-    softGray = "#A9A9A9"
-    mutedPurple = "#665191"
-    crossedRadii = radiusDistributionBP[~radiusCensored]
-    supportCensoredRadii = radiusDistributionBP[censorReasons == "support"]
-    capCensoredRadii = radiusDistributionBP[censorReasons == "maxLag"]
-    if crossedRadii.size:
-        windowAx.hist(
-            crossedRadii,
-            bins=_histogramBins(crossedRadii),
-            color=navyBlue,
-            alpha=0.78,
-            edgecolor=darkBlack,
-            linewidth=0.35,
-            label="crossed window",
-        )
-    if supportCensoredRadii.size:
-        windowAx.hist(
-            supportCensoredRadii,
-            bins=_histogramBins(supportCensoredRadii),
-            color=softGray,
-            alpha=0.7,
-            edgecolor=darkBlack,
-            linewidth=0.35,
-            hatch="//",
-            label="support-censored window",
-        )
-    if capCensoredRadii.size:
-        windowAx.hist(
-            capCensoredRadii,
-            bins=_histogramBins(capCensoredRadii),
-            color=mutedPurple,
-            alpha=0.62,
-            edgecolor=darkBlack,
-            linewidth=0.35,
-            hatch="xx",
-            label="maximum-lag-censored window",
-        )
-    windowAx.set_title("Observed Window Times", color=darkBlack)
-    windowAx.set_xlabel("event or censor time (bp)", color=darkBlack)
-    windowAx.set_ylabel("windows", color=darkBlack)
-    windowAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
-    windowAx.legend(loc="best", fontsize=8, frameon=False)
-
-    kmAx.step(kmTimes, kmSurvival, where="post", color=navyBlue, linewidth=1.8)
-    for reason, color, marker, label in (
-        ("support", softGray, "x", "support censor"),
-        ("maxLag", mutedPurple, "+", "maximum-lag censor"),
-    ):
-        reasonTimes = radiusDistributionBP[censorReasons == reason]
-        if reasonTimes.size:
-            kmAx.scatter(
-                reasonTimes,
-                [survivalAtTime[float(value)] for value in reasonTimes],
-                color=color,
-                marker=marker,
-                s=26,
-                linewidths=1.1,
-                label=label,
-                zorder=3,
-            )
-    kmAx.axvspan(
-        float(lowerBP),
-        float(upperBP),
-        color=softGray,
-        alpha=0.28,
-        label="95% pooled-radius interval",
-    )
-    kmAx.axvline(
-        float(pointBP),
-        color=burntOrange,
-        linewidth=1.8,
-        linestyle="--",
-        label="Pooled radius",
-    )
-    if localMedianBP is not None:
-        kmAx.axvline(
-            localMedianBP, color=navyBlue, linewidth=1.3, linestyle=":",
-            label="Local median",
-        )
-    if workingSpanBP != pointBP:
-        kmAx.axvline(
-            workingSpanBP, color=darkBlack, linewidth=1.3, linestyle="-.",
-            label="Working span",
-        )
-    kmAx.set_ylim(0.0, 1.03)
-    kmAx.set_title("Local-Radius Kaplan–Meier Survival", color=darkBlack)
-    kmAx.set_xlabel("radius (bp)", color=darkBlack)
-    kmAx.set_ylabel("survival probability", color=darkBlack)
-    kmAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
-    kmAx.legend(loc="best", fontsize=7, frameon=False)
-
-    bootstrapAx.hist(
-        pooledRadiusBP,
-        bins=_histogramBins(pooledRadiusBP),
-        color=navyBlue,
-        alpha=0.72,
-        edgecolor=darkBlack,
-        linewidth=0.35,
-        label="bootstrap pooled radius",
-    )
-    bootstrapAx.set_title("Pooled-Radius Bootstrap", color=darkBlack)
-    bootstrapAx.set_xlabel("bounded radius (bp)", color=darkBlack)
-    bootstrapAx.set_ylabel("draws", color=darkBlack)
-    bootstrapAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
-    bootstrapAx.legend(loc="best", fontsize=8, frameon=False)
-
-    selectedWindowCount = _summaryInt(diagnostics.get("selectedWindowCount"))
-    selectedAutosomeCount = _summaryInt(diagnostics.get("selectedAutosomeCount"))
-    censorFraction = numberValue("censor_fraction", "censorFraction")
-    supportCensoredCount = _summaryInt(diagnostics.get("supportCensoredWindowCount"))
-    capCensoredCount = _summaryInt(diagnostics.get("capCensoredWindowCount"))
-    unresolvedPeriodFraction = numberValue("unresolvedPeriodFraction")
-    blockLength = _summaryInt(diagnostics.get("bootstrapBlockLengthWindows"))
-    captionParts = [
-        f"windows={selectedWindowCount if selectedWindowCount is not None else 'NA'}",
-        f"autosomes={selectedAutosomeCount if selectedAutosomeCount is not None else 'NA'}",
-        f"support-censored={supportCensoredCount if supportCensoredCount is not None else 'NA'}",
-        f"cap-censored={capCensoredCount if capCensoredCount is not None else 'NA'}",
-        f"block={blockLength if blockLength is not None else 'NA'} windows",
-    ]
-    if censorFraction is not None:
-        captionParts.append(f"right-censored={censorFraction:.3g}")
-    if contextBP is not None:
-        captionParts.append(f"context={int(round(float(contextBP)))} bp")
-    if unresolvedPeriodFraction is not None:
-        captionParts.append(f"unresolved-period={unresolvedPeriodFraction:.3g}")
-    fig.suptitle(
-        "Correlation-Length Inference\n" + "   ".join(captionParts),
-        color=darkBlack,
-        fontsize=8,
-    )
-
-    fig.savefig(str(path), dpi=int(dpi))
-    plt.close(fig)
-    logging_utils.log_file_written(
-        logger,
-        event="artifact.correlation_length_plot",
-        path=str(path),
-        fields=(
-            ("format", "png"),
-            ("dpi", int(dpi)),
-            ("confidenceIntervalMethod", diagnostics["confidenceIntervalMethod"]),
-            ("bootstrapResolvedPooledDraws", int(pooledMask.sum())),
-            ("bootstrapBlockLengthWindows", diagnostics["bootstrapBlockLengthWindows"]),
-        ),
-    )
-    return True
 
 
 def _normalizedRemainingObjectiveGap(objective: Sequence[float]) -> np.ndarray:
@@ -3919,193 +3437,12 @@ def _writeRunSummary(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
     )
 
 
-def _correlationLengthRow(
-    *,
-    intervalSizeBP: int,
-    pointIntervals: int,
-    contextBP: int,
-    details: Mapping[str, Any],
-) -> dict[str, Any]:
-    intervalSize = int(intervalSizeBP)
-
-    def intValue(key: str) -> int | None:
-        return _summaryInt(details.get(key))
-
-    def numberValue(key: str) -> float | int | None:
-        return _summaryNumber(details.get(key))
-
-    usedChromosomes = details["chromosomesUsed"]
-    localSummary = details["localRadiusSummary"]
-    return {
-        "status": str(details["status"]),
-        "method": str(details["method"]),
-        "random_seed": intValue("randomSeed"),
-        "inference_scope": str(details["inferenceScope"]),
-        "confidence_interval_method": str(details["confidenceIntervalMethod"]),
-        "confidence_level": numberValue("confidenceLevel"),
-        "interval_size_bp": intervalSize,
-        "correlation_length_intervals": int(pointIntervals),
-        "correlation_length_bp": numberValue("estimateBP"),
-        "estimation_target": str(details.get("estimationTarget", "")),
-        "minimum_radius_bp": constants.OBSERVATION_MIN_DEPENDENCE_RADIUS_BP,
-        "maximum_radius_bp": constants.OBSERVATION_MAX_DEPENDENCE_RADIUS_BP,
-        "unbounded_correlation_length_bp": numberValue("unboundedEstimateBP"),
-        "unbounded_lower_bp": numberValue("unboundedLowerBP"),
-        "unbounded_upper_bp": numberValue("unboundedUpperBP"),
-        "unbounded_working_span_bp": numberValue("unboundedWorkingSpanBP"),
-        "full_sample_median_radius_bp": numberValue("fullSampleMedianRadiusBP"),
-        "lower_bp": numberValue("lowerBP"),
-        "upper_bp": numberValue("upperBP"),
-        "working_span_bp": numberValue("workingSpanBP"),
-        "full_sample_working_span_bp": numberValue("fullSampleWorkingSpanBP"),
-        "working_span_rule": str(details["workingSpanRule"]),
-        "local_quantile": _summaryNumber(localSummary["localQuantile"]),
-        "local_quantile_bp": _summaryNumber(localSummary["localQuantileBP"]),
-        "context_bp": int(contextBP),
-        "chromosomes_used": int(len(usedChromosomes)),
-        "candidate_window_count": intValue("candidateWindowCount"),
-        "evaluated_candidate_window_count": intValue(
-            "evaluatedCandidateWindowCount"
-        ),
-        "selected_window_count": intValue("selectedWindowCount"),
-        "crossed_window_count": intValue("crossedWindowCount"),
-        "right_censored_window_count": intValue("rightCensoredWindowCount"),
-        "support_censored_window_count": intValue("supportCensoredWindowCount"),
-        "cap_censored_window_count": intValue("capCensoredWindowCount"),
-        "censor_fraction": numberValue("censorFraction"),
-        "censor_time_bp_minimum": numberValue("censorTimeBPMinimum"),
-        "censor_time_bp_median": numberValue("censorTimeBPMedian"),
-        "censor_time_bp_maximum": numberValue("censorTimeBPMaximum"),
-        "input_row_count": intValue("inputRowCount"),
-        "unique_row_count": intValue("uniqueRowCount"),
-        "duplicate_row_count": intValue("duplicateRowCount"),
-        "row_deduplication": str(details["rowDeduplication"]),
-        "replicate_aggregation": str(details.get("replicateAggregation", "")),
-        "covariance_row_count": intValue("covarianceRowCount"),
-        "acf_threshold": numberValue("acfThreshold"),
-        "acf_smoothing_bp": intValue("acfSmoothingBP"),
-        "acf_smoothing_bins": intValue("acfSmoothingBins"),
-        "crossing_persistence_bp": intValue("crossingPersistenceBP"),
-        "crossing_persistence_bins": intValue("crossingPersistenceBins"),
-        "crossing_count": intValue("crossingCount"),
-        "adaptive_support": bool(details.get("adaptiveSupport", False)),
-        "estimation_support_bp": intValue("windowBP"),
-        "min_finite_pairs": intValue("minFinitePairs"),
-        "min_finite_pair_coverage": numberValue("minFinitePairCoverage"),
-        "finite_pair_minimum_used": numberValue("finitePairMinimumUsed"),
-        "finite_pair_coverage_minimum_used": numberValue(
-            "finitePairCoverageMinimumUsed"
-        ),
-        "valid_rows_at_crossing_minimum": intValue(
-            "validRowsAtCrossingMinimum"
-        ),
-        "dominant_acf_period_bp_median": numberValue(
-            "dominantACFPeriodBPMedian"
-        ),
-        "unresolved_period_fraction": numberValue("unresolvedPeriodFraction"),
-        "oscillation_strength": numberValue("oscillationStrength"),
-        "post_crossing_revival": numberValue("postCrossingRevival"),
-        "selected_adjacency_count": intValue("selectedAdjacencyCount"),
-        "selected_longest_run": intValue("selectedLongestRun"),
-        "bootstrap_method": str(details["bootstrapMethod"]),
-        "bootstrap_block_length_windows": intValue(
-            "bootstrapBlockLengthWindows"
-        ),
-        "bootstrap_draws_requested": intValue("bootstrapDrawsRequested"),
-        "bootstrap_resolved_pooled_draws": intValue("bootstrapResolvedPooledDraws"),
-    }
 
 
-def _writeCorrelationLengthSummary(
-    row: Mapping[str, Any],
-    path: Path,
-) -> None:
-    frame = pd.DataFrame([dict(row)], columns=CORRELATION_LENGTH_COLUMNS)
-    frame.to_csv(path, sep="\t", header=True, index=False, lineterminator="\n")
-    logging_utils.log_file_written(
-        logger,
-        event="artifact.correlation_length",
-        path=str(path),
-        fields=(("rows", int(len(frame))),),
-    )
 
 
-def _correlationLengthWindowRows(
-    details: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for record in details["selectedWindows"]:
-        rows.append(
-            {
-                "chromosome": str(record["chromosome"]),
-                "start_bp": _summaryInt(record.get("startBP")),
-                "end_bp": _summaryInt(record.get("endBP")),
-                "score": _summaryNumber(record.get("score")),
-                "positive_signal_rank": _summaryNumber(
-                    record.get("positiveSignalRank")
-                ),
-                "raw_crossing_lag_bp": _summaryNumber(
-                    record.get("rawCrossingLagBP")
-                ),
-                "censor_lag_bp": _summaryNumber(record.get("censorLagBP")),
-                "gaussian_equivalent_radius_bp": _summaryNumber(
-                    record.get("gaussianEquivalentRadiusBP")
-                ),
-                "right_censored": bool(record["rightCensored"]),
-                "censor_reason": str(record["censorReason"]),
-                "support_cap_lag_bp": _summaryNumber(
-                    record.get("supportCapLagBP")
-                ),
-                "finite_pair_minimum_used": _summaryNumber(
-                    record.get("finitePairMinimumUsed")
-                ),
-                "finite_pair_coverage_minimum_used": _summaryNumber(
-                    record.get("finitePairCoverageMinimumUsed")
-                ),
-                "valid_row_count": _summaryInt(record.get("validRowCount")),
-                "valid_rows_at_crossing": _summaryInt(
-                    record.get("validRowsAtCrossing")
-                ),
-                "dominant_acf_period_bp": _summaryNumber(
-                    record.get("dominantACFPeriodBP")
-                ),
-                "oscillation_strength": _summaryNumber(
-                    record.get("oscillationStrength")
-                ),
-                "post_crossing_revival": _summaryNumber(
-                    record.get("postCrossingRevival")
-                ),
-                "crossing_count": _summaryInt(record.get("crossingCount")),
-                "borrowing_weight": _summaryNumber(record.get("borrowingWeight")),
-                "donor_count": _summaryInt(record.get("donorCount")),
-                "local_variance": _summaryNumber(record.get("localVariance")),
-                "residual_variance": _summaryNumber(record.get("residualVariance")),
-                "prior_variance": _summaryNumber(record.get("priorVariance")),
-                "pool_dominated": bool(record.get("poolDominated", False)),
-            }
-        )
-    return rows
 
 
-def _writeCorrelationLengthWindows(
-    details: Mapping[str, Any],
-    path: Path,
-) -> None:
-    frame = pd.DataFrame(
-        _correlationLengthWindowRows(details),
-        columns=CORRELATION_LENGTH_WINDOW_COLUMNS,
-    )
-    frame.to_csv(path, sep="\t", header=True, index=False, lineterminator="\n")
-    logging_utils.log_file_written(
-        logger,
-        event="artifact.correlation_length_windows",
-        path=str(path),
-        fields=(
-            ("rows", int(len(frame))),
-            ("supportCensoredWindowCount", details["supportCensoredWindowCount"]),
-            ("capCensoredWindowCount", details["capCensoredWindowCount"]),
-        ),
-    )
 
 
 def _replicateGainSummaryPath(experimentName: str) -> str:
@@ -4443,25 +3780,41 @@ def _oddIntervalsFromBP(
 
 
 def _resolveRuntimeBackgroundBlockLen(
-    dependenceSpanIntervals: Optional[int],
+    lengthScaleIntervals: Optional[int],
     backgroundBlockSizeBP: int,
     intervalSizeBP: int,
     lengthScaleMultiplier: float,
+    *,
+    lengthScaleProvided: bool,
 ) -> int:
-    multiplier = float(lengthScaleMultiplier)
     intervalSizeBP_ = max(1, int(intervalSizeBP))
+    if isinstance(backgroundBlockSizeBP, (bool, np.bool_)) or not isinstance(
+        backgroundBlockSizeBP, (int, np.integer)
+    ):
+        raise ValueError("countingParams.backgroundBlockSizeBP must be an integer")
+    if backgroundBlockSizeBP > 0:
+        resolvedIntervals = _oddIntervalsFromBP(
+            backgroundBlockSizeBP, intervalSizeBP_, minIntervals=1,
+        )
+        resolvedBP = resolvedIntervals * intervalSizeBP_
+        if resolvedBP != backgroundBlockSizeBP:
+            logger.warning(
+                "countingParams.backgroundBlockSizeBP adjusted from %d bp to %d bp "
+                "(%d bins at %d bp) to use an odd number of counting bins.",
+                backgroundBlockSizeBP, resolvedBP, resolvedIntervals, intervalSizeBP_,
+            )
+        return resolvedIntervals
+    multiplier = 1.0 if lengthScaleProvided else float(lengthScaleMultiplier)
     if not np.isfinite(multiplier) or multiplier <= 0.0:
         raise ValueError(
             "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
         )
-    if int(backgroundBlockSizeBP) > 0:
-        baseBP = max(float(backgroundBlockSizeBP), float(intervalSizeBP_))
-    elif dependenceSpanIntervals is not None and int(dependenceSpanIntervals) > 0:
-        baseBP = float(dependenceSpanIntervals) * float(intervalSizeBP_)
+    if lengthScaleIntervals is not None and int(lengthScaleIntervals) > 0:
+        baseBP = float(lengthScaleIntervals) * float(intervalSizeBP_)
     else:
-        baseBP = max(float(backgroundBlockSizeBP), float(intervalSizeBP_))
+        raise ValueError("Automatic smoothing requires a resolved length scale")
     windowBP = min(
-        multiplier * baseBP,
+        max(multiplier * baseBP, float(constants.FIT_BACKGROUND_LENGTH_SCALE_FLOOR_BP)),
         float(constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP),
     )
     resolvedIntervals = _oddIntervalsFromBP(
@@ -4469,10 +3822,9 @@ def _resolveRuntimeBackgroundBlockLen(
         intervalSizeBP_,
         minIntervals=1,
     )
-    capIntervals = max(
-        1,
-        int(constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP) // intervalSizeBP_,
-    )
+    capIntervals = int(constants.FIT_BACKGROUND_LENGTH_SCALE_CAP_BP) // intervalSizeBP_
+    if capIntervals < 1:
+        raise ValueError("The counting bin exceeds the maximum fitting span")
     if capIntervals > 1 and capIntervals % 2 == 0:
         capIntervals -= 1
     return min(int(resolvedIntervals), int(capIntervals))
@@ -4494,8 +3846,8 @@ def _logMuncEstimationParameters(
     sizing: core._MuncRuntimeSizing,
     muncVarianceModel: str,
     samplingIters: int,
-    dependenceContextBP: int | None,
-    dependenceSpanIntervals: int | None,
+    lengthScaleContextBP: int | None,
+    lengthScaleIntervals: int | None,
     trendMultiplier: float,
     localMultiplier: float,
     observationArgs: core.observationParams,
@@ -4540,15 +3892,15 @@ def _logMuncEstimationParameters(
             ("local window intervals", int(sizing.localWindowIntervals)),
             ("MUNC local window source", sizing.localWindowSource),
             (
-                "MUNC dependence working span",
-                _formatOptionalLogValue(dependenceSpanIntervals),
+                "MUNC length scale",
+                _formatOptionalLogValue(lengthScaleIntervals),
             ),
             (
                 "MUNC derived context bp",
-                _formatOptionalLogValue(dependenceContextBP),
+                _formatOptionalLogValue(lengthScaleContextBP),
             ),
-            ("trend dependence span multiplier", float(trendMultiplier)),
-            ("local dependence span multiplier", float(localMultiplier)),
+            ("trend length scale multiplier", float(trendMultiplier)),
+            ("local length scale multiplier", float(localMultiplier)),
             ("MUNC trend mode", "pooled"),
             ("MUNC pooled trend pairs", int(pooledPairCount)),
             ("MUNC seed passes", int(seedPassCount)),
@@ -5038,13 +4390,18 @@ def main():
     executeFits(config, args, _runConfigured, _configureCliLogging)
 
 
-def _runConfigured(config, args, sharedReferenceGrid=None):
+def _runConfigured(config, args, sharedReferenceGrid=None, countsReader=None):
+    if countsReader is not None:
+        return _runWithCounts(config, args, sharedReferenceGrid, countsReader)
+    with countingAdapter.openReader(config) as reader:
+        return _runWithCounts(config, args, sharedReferenceGrid, reader)
+
+
+def _runWithCounts(config, args, sharedReferenceGrid, countsReader):
     cliRunStart = time.perf_counter()
     experimentName = config["experimentName"]
     diagnosticLogPaths = _diagnosticLogPaths(str(experimentName))
-    correlationLengthPath = _correlationLengthPath(str(experimentName))
-    correlationLengthPlotPath = _correlationLengthPlotPath(str(experimentName))
-    correlationLengthWindowsPath = _correlationLengthWindowsPath(str(experimentName))
+    lengthScalePath = _lengthScalePath(str(experimentName))
     _initializeDiagnosticLogs(diagnosticLogPaths)
     genomeArgs = config["genomeArgs"]
     inputArgs = config["inputArgs"]
@@ -5085,8 +4442,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     ):
         raise ValueError("treatment source sampleFile must be non-empty")
     intervalSizeBP = countingArgs.intervalSizeBP
-    excludeForNorm = genomeArgs.excludeForNorm
-    chromSizes = genomeArgs.chromSizesFile
     deltaF_ = processArgs.deltaF
     maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
@@ -5109,134 +4464,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         "muncLocalWindowSizeBP",
         constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     )
-    dependenceWindowCount_ = int(
-        getattr(
-            observationArgs,
-            "dependenceWindowCount",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
-        )
-    )
-    dependenceWindowBP_ = int(
-        getattr(
-            observationArgs,
-            "dependenceWindowBP",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
-        )
-    )
-    dependenceMaxLagBP_ = int(
-        getattr(
-            observationArgs,
-            "dependenceMaxLagBP",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-        )
-    )
-    dependenceWorkingQuantile_ = float(
-        getattr(
-            observationArgs,
-            "dependenceWorkingQuantile",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
-        )
-    )
-    dependenceBootstrapDraws_ = int(
-        getattr(
-            observationArgs,
-            "dependenceBootstrapDraws",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS,
-        )
-    )
-    dependenceMinWindowCount_ = int(
-        getattr(
-            observationArgs,
-            "dependenceMinWindowCount",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
-        )
-    )
-    if (
-        dependenceWindowCount_ <= 0
-        or dependenceWindowBP_ <= 0
-        or dependenceMaxLagBP_ <= 0
-        or dependenceMaxLagBP_ > dependenceWindowBP_ // 2
-        or not np.isfinite(dependenceWorkingQuantile_)
-        or dependenceWorkingQuantile_ <= 0.0
-        or dependenceWorkingQuantile_ >= 1.0
-        or dependenceBootstrapDraws_ <= 0
-        or dependenceMinWindowCount_ <= 0
-        or dependenceMinWindowCount_ > dependenceWindowCount_
-    ):
-        raise ValueError("observationParams dependence window settings are invalid")
-    dependenceAcfPointThreshold_ = float(
-        getattr(
-            observationArgs,
-            "dependenceAcfPointThreshold",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
-        )
-    )
-    if (
-        not np.isfinite(dependenceAcfPointThreshold_)
-        or dependenceAcfPointThreshold_ <= 0.0
-        or dependenceAcfPointThreshold_ >= 1.0
-    ):
-        raise ValueError(
-            "observationParams.dependenceAcfPointThreshold must satisfy 0 < x < 1"
-        )
-    dependenceAcfSmoothingBP_ = int(
-        getattr(
-            observationArgs,
-            "dependenceAcfSmoothingBP",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP,
-        )
-    )
-    dependenceCrossingPersistenceBP_ = int(
-        getattr(
-            observationArgs,
-            "dependenceCrossingPersistenceBP",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
-        )
-    )
-    dependenceCrossingCount_ = int(observationArgs.dependenceCrossingCount)
-    dependenceAdaptiveSupport_ = observationArgs.dependenceAdaptiveSupport
-    if not isinstance(dependenceAdaptiveSupport_, (bool, np.bool_)):
-        raise ValueError("observationParams.dependenceAdaptiveSupport must be boolean")
-    dependenceMinFinitePairs_ = int(
-        getattr(
-            observationArgs,
-            "dependenceMinFinitePairs",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS,
-        )
-    )
-    dependenceMinFinitePairCoverage_ = float(
-        getattr(
-            observationArgs,
-            "dependenceMinFinitePairCoverage",
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE,
-        )
-    )
-    if (
-        dependenceAcfSmoothingBP_ <= 0
-        or dependenceCrossingPersistenceBP_ <= 0
-        or dependenceCrossingCount_ <= 0
-        or dependenceMinFinitePairs_ <= 0
-        or not np.isfinite(dependenceMinFinitePairCoverage_)
-        or dependenceMinFinitePairCoverage_ <= 0.0
-        or dependenceMinFinitePairCoverage_ > 1.0
-    ):
-        raise ValueError(
-            "observationParams dependence smoothing and finite-pair settings are invalid"
-        )
-    muncTrendBlockDependenceMultiplier_ = float(
-        getattr(
-            observationArgs,
-            "muncTrendBlockDependenceMultiplier",
-            constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
-        )
-    )
-    muncLocalWindowDependenceMultiplier_ = float(
-        getattr(
-            observationArgs,
-            "muncLocalWindowDependenceMultiplier",
-            constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
-        )
-    )
+    muncTrendBlockLengthScaleMultiplier_ = float(observationArgs.muncTrendBlockLengthScaleMultiplier)
+    muncLocalWindowLengthScaleMultiplier_ = float(observationArgs.muncLocalWindowLengthScaleMultiplier)
     smoothToFraglenRaw = getattr(
         observationArgs,
         "smoothToFraglen",
@@ -5253,24 +4482,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         )
     )
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-    dependenceContextBP_: Optional[int] = None
-    dependenceSpanIntervals_: Optional[int] = None
-    correlationLengthRow_: dict[str, Any] | None = None
-    correlationLengthDiagnostics_: dict[str, Any] | None = None
-    dependenceSpanBP = observationArgs.dependenceSpanBP
-    if dependenceSpanBP is not None:
-        dependenceSpanBP = core._resolveDependenceSpanBP(dependenceSpanBP, intervalSizeBP)
-        dependenceSpanIntervals_ = (
-            int(dependenceSpanBP) + intervalSizeBP - 1
-        ) // intervalSizeBP
-        dependenceContextBP_ = 2 * dependenceSpanIntervals_ * intervalSizeBP + 1
-        _logCliSubphase(
-            "Dependence span: source=manual configured_bp=%d used_bp=%d intervals=%d",
-            dependenceSpanBP,
-            dependenceSpanIntervals_ * intervalSizeBP,
-            dependenceSpanIntervals_,
-        )
-    waitForMatrix: bool = False
+    lengthScaleContextBP_: int | None = None
+    lengthScaleIntervals_: int | None = None
+    lengthScaleDiagnostics_: dict[str, Any] | None = None
     normMethod_: Optional[str] = countingArgs.normMethod
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     _logCliSubphase(
@@ -5279,17 +4493,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         diagnosticLogPaths.convergence,
         diagnosticLogPaths.delete_block_calibration,
     )
-    if dependenceSpanBP is None:
-        _logCliSubphase("Correlation length TSV: %s", correlationLengthPath)
-        _logCliSubphase("Correlation length windows TSV: %s", correlationLengthWindowsPath)
-        if bool(
-            getattr(
-                outputArgs,
-                "plotCorrelationLength",
-                constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
-            )
-        ):
-            _logCliSubphase("Correlation length plot: %s", correlationLengthPlotPath)
+    _logCliSubphase("Length scale JSON: %s", lengthScalePath)
     _logCliSubphase(
         "Output file policy: nonTrackCapBytes=%d precisionDiagnostics=%s maxRowsPerChromosome=%d",
         int(outputArgs.maxNonTrackFileBytes),
@@ -5311,752 +4515,145 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
-    if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
-        logger.warning(
-            "`countingParams.normMethod` `SF` is not available when control inputs are present OR if < 3 treatment samples are given."
-            "  --> using CPM/RPKM ..."
-        )
-        normMethod_ = "RPKM"
-
     controlsPresent = checkControlsPresent(inputArgs)
-    if args.verbose:
-        logger.info(f"controlsPresent: {controlsPresent}")
-    anyFragments = any(
-        str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND
-        for source in treatmentSources + controlSources
+    treatmentIDs = tuple(config.get("countTreatmentIDs", (f"treatment{index}" for index in range(numSamples))))
+    referenceIDs = tuple(config.get("countReferenceIDs", (f"reference{index}" for index in range(len(controlSources)))))
+    allIDs = treatmentIDs + referenceIDs
+    fittingTerritory = countsReader.commonFeatureTerritory(
+        chromosomes=genomeArgs.chromosomes, sampleIDs=allIDs,
     )
-    anyBedGraph = any(
-        str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
-        for source in treatmentSources + controlSources
-    )
-    allBedGraph = all(
-        str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
-        for source in treatmentSources + controlSources
-    )
-    anyH5AD = any(
-        source.sourceKind == "H5AD" for source in treatmentSources + controlSources
-    )
+    missingFitting = {sampleID: list(chromosomes)
+                      for sampleID, chromosomes in fittingTerritory["missingChromosomesBySource"].items()
+                      if chromosomes}
+    if missingFitting:
+        raise ValueError(f"Input sources are missing requested fitting chromosomes: {missingFitting}")
+    infos = {sampleID: countsReader.getSourceInfo(sampleID, inspectLengths=True)
+             for sampleID in allIDs}
+    treatmentCountModes = [infos[sampleID]["countOptions"].countMode
+                           if infos[sampleID]["countOptions"] is not None else
+                           ("rawCounts" if source.sourceKind == "H5AD" else "coverage")
+                           for sampleID, source in zip(treatmentIDs, treatmentSources)]
+    controlCountModes = [infos[sampleID]["countOptions"].countMode
+                         if infos[sampleID]["countOptions"] is not None else
+                         ("rawCounts" if source.sourceKind == "H5AD" else "coverage")
+                         for sampleID, source in zip(referenceIDs, controlSources)]
+    treatmentNativeCountModes = treatmentCountModes
+    controlNativeCountModes = controlCountModes
+    treatmentBamInputModes = [infos[key]["countOptions"].bamInputMode
+                             if infos[key]["countOptions"] is not None else "reads"
+                             for key in treatmentIDs]
+    controlBamInputModes = [infos[key]["countOptions"].bamInputMode
+                           if infos[key]["countOptions"] is not None else "reads"
+                           for key in referenceIDs]
+    readLengthsBamFiles = [int(infos[key].get("readLength") or 0) for key in treatmentIDs]
+    readLengthsControlBamFiles = [int(infos[key].get("readLength") or 0) for key in referenceIDs]
+    anyH5AD = any(source.sourceKind == "H5AD" for source in treatmentSources + controlSources)
     if anyH5AD and smoothToFraglen_:
-        raise ValueError("H5AD raw counts do not support fragment-length smoothing")
-    if normMethod_ in ("EGS", "RPGC"):
-        for sources, factors, setting in (
-            (treatmentSources, countingArgs.scaleFactors, "scaleFactors"),
-            (controlSources, countingArgs.scaleFactorsControl, "scaleFactorsControl"),
-        ):
-            if factors is None and any(source.sourceKind == "H5AD" for source in sources):
-                raise ValueError(
-                    f"H5AD {normMethod_} normalization requires explicit countingParams.{setting}"
-                )
-    if (
-        anyBedGraph
-        and not allBedGraph
-        and (
-            countingArgs.scaleFactors is None
-            or (controlsPresent and countingArgs.scaleFactorsControl is None)
-        )
-    ):
-        raise ValueError(
-            "Mixed BEDGRAPH and read-count sources require explicit "
-            "`countingParams.scaleFactors`"
-            + (" and `countingParams.scaleFactorsControl`." if controlsPresent else ".")
-        )
-    if allBedGraph and normMethod_ in ["EGS", "RPGC", "RPKM", "CPM"]:
-        logger.info(
-            "BEDGRAPH inputs are treated as already scaled tracks; using unit "
-            "scale factors unless explicit scale factors are provided."
-        )
-    for source in treatmentSources + controlSources:
-        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-            normalization.validateChoice(
-                source.fragmentPositionMode or scArgs.defaultFragmentPositionMode,
-                default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-                supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
-                paramName='fragmentPositionMode',
-            )
-    readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
-    automaticTreatmentEGS = (
-        normMethod_ in ["EGS", "RPGC"] and countingArgs.scaleFactors is None and not allBedGraph
-    )
-    automaticControlEGS = (
-        normMethod_ in ["EGS", "RPGC"] and controlsPresent
-        and countingArgs.scaleFactorsControl is None and not allBedGraph
-    )
-    effectiveGenomeSizes = (
-        getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles, treatmentSources)
-        if automaticTreatmentEGS else [0] * len(treatmentSources)
-    )
-    treatmentBamInputModes = [
-        (
-            core._resolveSourceBamInputMode(
-                source,
-                str(samArgs.bamInputMode or "auto"),
-            )
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
-            else "reads"
-        )
-        for source in treatmentSources
+        raise ValueError("H5AD inputs do not support fragment-length smoothing")
+    if smoothToFraglen_ and any(mode in ("center", "fiveprime", "ffp")
+                              for mode in treatmentCountModes + controlCountModes):
+        raise ValueError("Fragment smoothing is incompatible with point counting")
+    characteristicFragmentLengthsTreatment = [
+        int((infos[key]["countOptions"].extendFrom5pBP if infos[key]["countOptions"] is not None else None)
+            or infos[key].get("fragmentLengthBP") or 0)
+        for index, key in enumerate(treatmentIDs)
     ]
-    controlBamInputModes = [
-        (
-            core._resolveSourceBamInputMode(
-                source,
-                str(samArgs.bamInputMode or "auto"),
-            )
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
-            else "reads"
-        )
-        for source in controlSources
+    characteristicFragmentLengthsControl = [
+        int((infos[key]["countOptions"].extendFrom5pBP if infos[key]["countOptions"] is not None else None)
+            or infos[key].get("fragmentLengthBP") or 0)
+        for index, key in enumerate(referenceIDs)
     ]
-    treatmentCountModes = [
-        _getSourceCountMode(
-            source,
-            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
-            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
-        )
-        for source in treatmentSources
-    ]
-    controlCountModes = [
-        _getSourceCountMode(
-            source,
-            str(samArgs.defaultCountMode or constants.SAM_DEFAULT_COUNT_MODE),
-            str(scArgs.defaultCountMode or constants.SC_DEFAULT_COUNT_MODE),
-        )
-        for source in controlSources
-    ]
-    automaticEGSSources = (
-        list(zip(treatmentSources, treatmentCountModes)) if automaticTreatmentEGS else []
-    ) + (list(zip(controlSources, controlCountModes)) if automaticControlEGS else [])
-    if any(source.sourceKind == core.FRAGMENTS_SOURCE_KIND for source, _ in automaticEGSSources):
-        if str(scArgs.fragmentsGroupNorm).upper() != "NONE":
-            raise ValueError(
-                "EGS/RPGC normalization for fragments requires "
-                "scParams.fragmentsGroupNorm=NONE"
-            )
-        for source, countMode in automaticEGSSources:
-            if str(source.sourceKind).upper() != core.FRAGMENTS_SOURCE_KIND:
-                continue
-            if countMode != constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP:
-                raise ValueError(
-                    "EGS/RPGC normalization for fragments requires "
-                    "conservedFractionalOverlap count mode"
-                )
-            if source.fragmentsUseReadSupport:
-                raise ValueError(
-                    "EGS/RPGC normalization for fragments requires "
-                    "fragmentsUseReadSupport=False"
-                )
-    singleBinCountModes = {"cutsite", "fiveprime", "ffp", "ffp-center", "center"}
-    singleBinActiveCountModes = sorted(
-        {
-            str(countMode)
-            for countMode in treatmentCountModes + controlCountModes
-            if str(countMode) in singleBinCountModes
-        }
-    )
-    if bool(smoothToFraglen_) and singleBinActiveCountModes:
-        singleBinDisplayModes = [
-            "center/midpoint" if mode == "center" else mode
-            for mode in singleBinActiveCountModes
+    if smoothToFraglen_:
+        characteristicFragmentLengthsTreatment = [
+            (length if length > 0 else countsReader.estimateFragmentLength(key))
+            if source.sourceKind == "BAM" else length
+            for key, source, length in zip(treatmentIDs, treatmentSources, characteristicFragmentLengthsTreatment)
         ]
-        logger.warning(
-            "observationParams.smoothToFraglen is enabled, but "
-            "single-bin count mode(s) are active (%s). Disabling fragment "
-            "smoothing because these modes intentionally collapse each event to "
-            "one interval.",
-            ",".join(singleBinDisplayModes),
-        )
-        smoothToFraglen_ = False
-    treatmentBamInputModes = [
-        (
-            core._resolveSourceBamInputModeForCountMode(
-                source,
-                str(samArgs.bamInputMode or "auto"),
-                countMode,
-            )
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
-            else sourceBamInputMode
-        )
-        for source, sourceBamInputMode, countMode in zip(
-            treatmentSources,
-            treatmentBamInputModes,
-            treatmentCountModes,
-        )
-    ]
-    controlBamInputModes = [
-        (
-            core._resolveSourceBamInputModeForCountMode(
-                source,
-                str(samArgs.bamInputMode or "auto"),
-                countMode,
-            )
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
-            else sourceBamInputMode
-        )
-        for source, sourceBamInputMode, countMode in zip(
-            controlSources,
-            controlBamInputModes,
-            controlCountModes,
-        )
-    ]
-    treatmentNativeCountModes = [
-        normalization.nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
-    ]
-    controlNativeCountModes = [
-        normalization.nativeCountModeForPreset(countMode) for countMode in controlCountModes
-    ]
-    autoInferFragmentLength = (
-        samArgs.inferFragmentLength is None
-        and normalization.validateBamInputMode(samArgs.bamInputMode) == "auto"
-    )
-    inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
-    if autoInferFragmentLength and any(
-        sourceBamInputMode in ("reads", "read1")
-        for sourceBamInputMode in treatmentBamInputModes + controlBamInputModes
-    ):
-        logger.info(
-            "samParams.bamInputMode=auto and samParams.inferFragmentLength omitted: "
-            "SE BAM input will be extended by xcorr inferred fragment length."
-        )
-    treatmentAllowLists, treatmentSelectedCellCounts, treatmentNormTempPaths = (
-        _prepareFragmentsNormalizationMetadata(treatmentSources)
-    )
-    controlAllowLists, controlSelectedCellCounts, controlNormTempPaths = (
-        _prepareFragmentsNormalizationMetadata(controlSources)
-    )
-
-    if args.verbose:
-        logger.info(f"peakCallingEnabled: {peakCallingEnabled}")
     scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
-    characteristicFragmentLengthsTreatment: List[int] = []
-    characteristicFragmentLengthsControl: List[int] = []
-    countExtendFrom5pBPTreatment: List[int] = []
-    countExtendFrom5pBPControl: List[int] = []
-    setupAllowThreads = int(samArgs.samThreads) <= 1
-    sf: np.ndarray = np.empty((numSamples,), dtype=float)
-    configuredExtendFrom5pBPTreatment = core._resolveExtendFrom5pBP(
-        samArgs.extendFrom5pBP,
-        treatmentSources,
-    )
-    configuredExtendFrom5pBPControl = (
-        list(configuredExtendFrom5pBPTreatment[: len(controlSources)])
-        if controlsPresent
-        else []
-    )
-    controlsUseTreatmentLengths = controlsPresent and not any(
-        source.barcodeAllowListFile for source in treatmentSources + controlSources
-    )
-    treatmentEstimateForControl = (
-        [
-            controlsUseTreatmentLengths
-            and source.sourceKind in core.ALIGNMENT_SOURCE_KINDS
-            and (
-                countMode == "ffp-center"
-                or (
-                    bamMode in ("reads", "read1")
-                    and (autoInferFragmentLength or inferFragmentLengthRequested)
-                )
-            )
-            for source, bamMode, countMode in zip(
-                controlSources, controlBamInputModes, controlCountModes
-            )
-        ]
-        if controlsPresent
-        else [False] * len(treatmentSources)
-    )
-
-    def _estimateFragmentLengthForSource(
-        source: core.inputSource,
-        sourceFlagExclude: int,
-    ) -> int:
-        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
-            return 0
-        fragmentLength = int(
-            cconsenrich.cgetFragmentLength(
-                source.path,
-                samThreads=samArgs.samThreads,
-                samFlagExclude=sourceFlagExclude,
-                maxInsertSize=samArgs.maxInsertSize,
-                barcodeAllowListFile=source.barcodeAllowListFile or "",
-                barcodeTag=source.barcodeTag or "CB",
-            )
-        )
-        logger.info(
-            "Estimated fragment length for %s: %d",
-            source.path,
-            fragmentLength,
-        )
-        return fragmentLength
-
-    def _resolveCharacteristicFragmentLength(task) -> int:
-        source, sourceBamInputMode, configuredExtendBP, pairedControlNeedsLength = task
-        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
-            return 0
-        if sourceBamInputMode == "fragments" and (
-            int(configuredExtendBP) > 0 or inferFragmentLengthRequested
-        ):
+    automaticIDs = ((treatmentIDs if scaleFactors is None else ())
+                    + (referenceIDs if scaleFactorsControl is None else ()))
+    featureTerritory = (countingAdapter.normalizationTerritory(genomeArgs, countsReader, automaticIDs)
+                        if automaticIDs and normMethod_ not in ("SF", "ReadsInRegions") else None)
+    normalizationTerritory = (featureTerritory["usedChromosomes"] if featureTerritory is not None
+                              else genomeArgs.normalizationChromosomes)
+    restrictedNormalization = set(normalizationTerritory) != set(genomeArgs.normalizationChromosomes)
+    if restrictedNormalization:
+        logger.info("Normalization chromosome coverage: requested=%s used=%s",
+                    list(genomeArgs.normalizationChromosomes), list(normalizationTerritory))
+        if normMethod_ == "RPGC" and genomeArgs.effectiveGenomeSize is None:
             raise ValueError(
-                "`samParams.extendFrom5pBP` and `samParams.inferFragmentLength` "
-                "require `bamInputMode` `reads` or `read1`."
+                "Automatic RPGC with restricted source chromosome coverage requires "
+                "genomeParams.effectiveGenomeSize for the normalization territory"
             )
-        if int(configuredExtendBP) > 0:
-            return int(configuredExtendBP)
-        sourceMode = _getSourceCountMode(
-            source, samArgs.defaultCountMode, scArgs.defaultCountMode
+    automaticSizeFactors = normMethod_ == "SF" and scaleFactors is None
+    sizeFactorReferenceRegion = None
+    if automaticSizeFactors and (controlsPresent or numSamples < 3):
+        raise ValueError("SF estimation requires at least three samples without controls")
+    if normMethod_ == "SF" and controlsPresent and scaleFactorsControl is None:
+        raise ValueError("SF with controls requires supplied factors for every source")
+    automaticTreatmentRPGC = normMethod_ == "RPGC" and scaleFactors is None
+    automaticControlRPGC = normMethod_ == "RPGC" and controlsPresent and scaleFactorsControl is None
+    effectiveGenomeSizes = (getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles, treatmentSources)
+                            if automaticTreatmentRPGC else [0] * len(treatmentSources))
+    effectiveGenomeSizesControl = (getEffectiveGenomeSizes(genomeArgs, readLengthsControlBamFiles, controlSources)
+                                   if automaticControlRPGC else [0] * len(controlSources))
+    totals = (countsReader.libraryTotals(chromosomes=normalizationTerritory, sampleIDs=automaticIDs)
+              if featureTerritory is not None else None)
+    if automaticSizeFactors:
+        treatmentNormalization = None
+    elif scaleFactors is None and normMethod_ == "ReadsInRegions":
+        treatmentNormalization = counts.Normalization.fromRegions(
+            countsReader, countingArgs.normRegionsFile, sampleIDs=treatmentIDs,
+            scaleTo=countingArgs.normScaleTo,
         )
-        estimateNeeded = (
-            pairedControlNeedsLength
-            or bool(smoothToFraglen_)
-            or sourceMode == "ffp-center"
-            or (
-                sourceBamInputMode in ("reads", "read1")
-                and (autoInferFragmentLength or inferFragmentLengthRequested)
-            )
-        )
-        if not estimateNeeded:
-            return 0
-        return _estimateFragmentLengthForSource(
-            source,
-            core._resolveSourceFlagExclude(
-                samArgs.samFlagExclude,
-                sourceBamInputMode,
-            ),
-        )
-
-    characteristicFragmentLengthsTreatment = io_helpers._threadMap(
-        zip(
-            treatmentSources,
-            treatmentBamInputModes,
-            configuredExtendFrom5pBPTreatment,
-            treatmentEstimateForControl,
-        ),
-        _resolveCharacteristicFragmentLength,
-        "characteristic lengths",
-        allowThreads=setupAllowThreads,
-    )
+    elif scaleFactors is None:
+        kwargs = ({"effectiveGenomeSizeBP": dict(zip(treatmentIDs, effectiveGenomeSizes)),
+                   "effectiveGenomeSizeChromosomes": normalizationTerritory}
+                  if normMethod_ == "RPGC" else {})
+        treatmentNormalization = counts.Normalization.fromTotals(
+            totals.forSources(treatmentIDs), method=normMethod_, **kwargs)
+    else:
+        treatmentNormalization = counts.Normalization.fromFactors(treatmentIDs, scaleFactors)
     if controlsPresent:
-        if not controlsUseTreatmentLengths:
-            characteristicFragmentLengthsControl = io_helpers._threadMap(
-                zip(
-                    controlSources,
-                    controlBamInputModes,
-                    configuredExtendFrom5pBPControl,
-                    [False] * len(controlSources),
-                ),
-                _resolveCharacteristicFragmentLength,
-                "control characteristic lengths",
-                allowThreads=setupAllowThreads,
+        if scaleFactorsControl is None and normMethod_ == "ReadsInRegions":
+            referenceNormalization = counts.Normalization.fromRegions(
+                countsReader, countingArgs.normRegionsFile, sampleIDs=referenceIDs,
+                scaleTo=countingArgs.normScaleTo,
             )
+        elif scaleFactorsControl is None:
+            kwargs = ({"effectiveGenomeSizeBP": dict(zip(referenceIDs, effectiveGenomeSizesControl)),
+                       "effectiveGenomeSizeChromosomes": normalizationTerritory}
+                      if normMethod_ == "RPGC" else {})
+            referenceNormalization = counts.Normalization.fromTotals(
+                totals.forSources(referenceIDs), method=normMethod_, **kwargs)
         else:
-            (
-                characteristicFragmentLengthsTreatment,
-                characteristicFragmentLengthsControl,
-            ) = _resolveExtendFrom5pBPPairs(
-                characteristicFragmentLengthsTreatment,
-                characteristicFragmentLengthsControl,
-            )
-
-    def _resolveCountExtendFrom5pBP(
-        source: core.inputSource,
-        sourceBamInputMode: str,
-        countMode: str,
-        configuredExtendBP: int,
-        characteristicFragmentLength: int,
-    ) -> int:
-        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
-            return 0
-        if sourceBamInputMode == "fragments":
-            return 0
-        if int(configuredExtendBP) > 0:
-            return int(configuredExtendBP)
-        if countMode == "ffp-center":
-            return int(characteristicFragmentLength)
-        if inferFragmentLengthRequested or (
-            autoInferFragmentLength and sourceBamInputMode in ("reads", "read1")
-        ):
-            return int(characteristicFragmentLength)
-        return 0
-
-    countExtendFrom5pBPTreatment = [
-        _resolveCountExtendFrom5pBP(
-            source,
-            sourceBamInputMode,
-            countMode,
-            configuredExtendBP,
-            characteristicFragmentLength,
-        )
-        for (
-            source,
-            sourceBamInputMode,
-            countMode,
-            configuredExtendBP,
-            characteristicFragmentLength,
-        ) in zip(
-            treatmentSources,
-            treatmentBamInputModes,
-            treatmentCountModes,
-            configuredExtendFrom5pBPTreatment,
-            characteristicFragmentLengthsTreatment,
-        )
-    ]
-    if controlsPresent:
-        countExtendFrom5pBPControl = [
-            _resolveCountExtendFrom5pBP(
-                source,
-                sourceBamInputMode,
-                countMode,
-                configuredExtendBP,
-                characteristicFragmentLength,
-            )
-            for (
-                source,
-                sourceBamInputMode,
-                countMode,
-                configuredExtendBP,
-                characteristicFragmentLength,
-            ) in zip(
-                controlSources,
-                controlBamInputModes,
-                controlCountModes,
-                configuredExtendFrom5pBPControl,
-                characteristicFragmentLengthsControl,
-            )
-        ]
-
-    try:
-        if controlsPresent:
-
-            def _getReadLengthForSource(source: core.inputSource) -> int:
-                if source.sourceKind != "BAM":
-                    return 0
-                sourceMode = _getSourceCountMode(source, samArgs.defaultCountMode, scArgs.defaultCountMode)
-                bamMode = core._resolveSourceBamInputModeForCountMode(source, samArgs.bamInputMode, sourceMode)
-                flagExclude = samArgs.samFlagExclude
-                if source.barcodeAllowListFile:
-                    flagExclude = core._resolveSourceFlagExclude(flagExclude, bamMode)
-                    if bamMode == "fragments":
-                        flagExclude |= 128
-                return core.getReadLength(
-                    source.path,
-                    100,
-                    1000,
-                    samArgs.samThreads,
-                    flagExclude,
-                    sourceKind=str(source.sourceKind).upper(),
-                    barcodeAllowListFile=source.barcodeAllowListFile,
-                    barcodeTag=source.barcodeTag,
-                )
-
-            readLengthsControlBamFiles = io_helpers._threadMap(
-                controlSources,
-                _getReadLengthForSource,
-                "control read lengths",
-                allowThreads=setupAllowThreads,
-            )
-            effectiveGenomeSizesControl = (
-                getEffectiveGenomeSizes(genomeArgs, readLengthsControlBamFiles, controlSources)
-                if automaticControlEGS else [0] * len(controlSources)
-            )
-
-            if scaleFactors is not None and scaleFactorsControl is not None:
-                treatScaleFactors = scaleFactors
-                controlScaleFactors = scaleFactorsControl
-            elif allBedGraph:
-                treatScaleFactors = scaleFactors or [1.0] * len(treatmentSources)
-                controlScaleFactors = scaleFactorsControl or [1.0] * len(controlSources)
-            elif scaleFactors is not None or scaleFactorsControl is not None:
-                def _scaleUnspecifiedSources(sourceList, sizes, fragmentLengths, readLengths,
-                                             allowLists, countModes, cellCounts, bamModes, extensions):
-                    values = []
-                    for source, size, fragmentLength, readLength, allowList, countMode, cellCount, bamMode, extension in zip(
-                        sourceList, sizes, fragmentLengths, readLengths, allowLists,
-                        countModes, cellCounts, bamModes, extensions,
-                    ):
-                        if source.sourceKind == "H5AD":
-                            values.append(h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, size))
-                            continue
-                        options = {
-                            "sourceKind": source.sourceKind,
-                            "barcodeAllowListFile": allowList,
-                            "barcodeTag": source.barcodeTag,
-                            "countMode": countMode,
-                            "oneReadPerBin": samArgs.oneReadPerBin,
-                            "groupCellCount": cellCount,
-                            "fragmentsGroupNorm": scArgs.fragmentsGroupNorm,
-                            "bamInputMode": bamMode,
-                            "samFlagExclude": samArgs.samFlagExclude,
-                            "minMappingQuality": samArgs.minMappingQuality,
-                            "minTemplateLength": samArgs.minTemplateLength,
-                            "maxInsertSize": samArgs.maxInsertSize,
-                            "extendBP": extension,
-                            "fragmentsUseReadSupport": source.fragmentsUseReadSupport,
-                        }
-                        if normMethod_ in ("EGS", "RPGC"):
-                            factor = detrorm.getScaleFactor1x(
-                                source.path, size, fragmentLength, excludeForNorm,
-                                chromSizes, samArgs.samThreads,
-                                intervalSizeBP=intervalSizeBP, countReadLength=readLength,
-                                effectiveGenomeSizeIsFinal=(source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
-                                **options,
-                            )
-                        else:
-                            factor = detrorm.getScaleFactorPerMillion(
-                                source.path, excludeForNorm, intervalSizeBP,
-                                normMethod=normMethod_, samThreads=samArgs.samThreads,
-                                readLength=readLength, **options,
-                            )
-                        values.append(factor)
-                    return values
-
-                treatScaleFactors = scaleFactors if scaleFactors is not None else _scaleUnspecifiedSources(
-                    treatmentSources, effectiveGenomeSizes, characteristicFragmentLengthsTreatment,
-                    readLengthsBamFiles, treatmentAllowLists, treatmentNativeCountModes,
-                    treatmentSelectedCellCounts, treatmentBamInputModes, countExtendFrom5pBPTreatment,
-                )
-                controlScaleFactors = scaleFactorsControl if scaleFactorsControl is not None else _scaleUnspecifiedSources(
-                    controlSources, effectiveGenomeSizesControl, characteristicFragmentLengthsControl,
-                    readLengthsControlBamFiles, controlAllowLists, controlNativeCountModes,
-                    controlSelectedCellCounts, controlBamInputModes, countExtendFrom5pBPControl,
-                )
-            else:
-
-                def _getPairScaleFactors(task):
-                    (
-                        sourceA,
-                        sourceB,
-                        effectiveGenomeSizeA,
-                        effectiveGenomeSizeB,
-                        readLengthA,
-                        readLengthB,
-                        barcodeAllowListPathA,
-                        barcodeAllowListPathB,
-                        countModeA,
-                        countModeB,
-                        groupCellCountA,
-                        groupCellCountB,
-                        bamInputModeA,
-                        bamInputModeB,
-                        extendBPA,
-                        extendBPB,
-                        countReadLengthA,
-                        countReadLengthB,
-                    ) = task
-                    precomputedScaleFactors = tuple(
-                        h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, size)
-                        if source.sourceKind == "H5AD" else None
-                        for source, size in (
-                            (sourceA, effectiveGenomeSizeA), (sourceB, effectiveGenomeSizeB)
-                        )
-                    )
-                    return detrorm.getPairScaleFactors(
-                        sourceA.path,
-                        sourceB.path,
-                        effectiveGenomeSizeA,
-                        effectiveGenomeSizeB,
-                        readLengthA,
-                        readLengthB,
-                        excludeForNorm,
-                        chromSizes,
-                        samArgs.samThreads,
-                        intervalSizeBP,
-                        normMethod=normMethod_,
-                        fixControl=countingArgs.fixControl,
-                        sourceKindA=str(sourceA.sourceKind).upper(),
-                        sourceKindB=str(sourceB.sourceKind).upper(),
-                        barcodeAllowListFileA=barcodeAllowListPathA,
-                        barcodeAllowListFileB=barcodeAllowListPathB,
-                        countModeA=countModeA,
-                        countModeB=countModeB,
-                        oneReadPerBin=samArgs.oneReadPerBin,
-                        groupCellCountA=groupCellCountA,
-                        groupCellCountB=groupCellCountB,
-                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
-                        bamInputModeA=bamInputModeA,
-                        bamInputModeB=bamInputModeB,
-                        samFlagExclude=samArgs.samFlagExclude,
-                        minMappingQuality=samArgs.minMappingQuality,
-                        minTemplateLength=samArgs.minTemplateLength,
-                        maxInsertSize=samArgs.maxInsertSize,
-                        extendBPA=extendBPA,
-                        extendBPB=extendBPB,
-                        countReadLengthA=countReadLengthA,
-                        countReadLengthB=countReadLengthB,
-                        fragmentsUseReadSupportA=sourceA.fragmentsUseReadSupport,
-                        fragmentsUseReadSupportB=sourceB.fragmentsUseReadSupport,
-                        barcodeTagA=sourceA.barcodeTag,
-                        barcodeTagB=sourceB.barcodeTag,
-                        effectiveGenomeSizeIsFinalA=(sourceA.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
-                        effectiveGenomeSizeIsFinalB=(sourceB.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
-                        precomputedScaleFactors=precomputedScaleFactors,
-                    )
-
-                pairScalingFactors = io_helpers._threadMap(
-                    zip(
-                        treatmentSources,
-                        controlSources,
-                        effectiveGenomeSizes,
-                        effectiveGenomeSizesControl,
-                        characteristicFragmentLengthsTreatment,
-                        characteristicFragmentLengthsControl,
-                        treatmentAllowLists,
-                        controlAllowLists,
-                        treatmentNativeCountModes,
-                        controlNativeCountModes,
-                        treatmentSelectedCellCounts,
-                        controlSelectedCellCounts,
-                        treatmentBamInputModes,
-                        controlBamInputModes,
-                        countExtendFrom5pBPTreatment,
-                        countExtendFrom5pBPControl,
-                        readLengthsBamFiles,
-                        readLengthsControlBamFiles,
-                    ),
-                    _getPairScaleFactors,
-                    "pair scale factors",
-                    allowThreads=setupAllowThreads,
-                )
-                treatScaleFactors = []
-                controlScaleFactors = []
-                for scaleFactorA, scaleFactorB in pairScalingFactors:
-                    treatScaleFactors.append(scaleFactorA)
-                    controlScaleFactors.append(scaleFactorB)
-
+            referenceNormalization = counts.Normalization.fromFactors(referenceIDs, scaleFactorsControl)
+        if scaleFactors is None and scaleFactorsControl is None and normMethod_ != "ReadsInRegions":
+            kwargs = ({"effectiveGenomeSizeBP": dict(zip(allIDs, effectiveGenomeSizes + effectiveGenomeSizesControl)),
+                       "effectiveGenomeSizeChromosomes": normalizationTerritory}
+                      if normMethod_ == "RPGC" else {})
+            jointNormalization = counts.Normalization.fromTotals(
+                totals.forSources(allIDs), method=normMethod_, **kwargs)
+            pairNormalizations = [jointNormalization.forPair(a, b, fixReference=countingArgs.fixControl)
+                                  for a, b in zip(treatmentIDs, referenceIDs)]
         else:
-            treatScaleFactors = scaleFactors
-            controlScaleFactors = scaleFactorsControl
-
-        if scaleFactors is None and not controlsPresent:
-            if allBedGraph and normMethod_ != "SF":
-                scaleFactors = [1.0] * len(treatmentSources)
-            elif normMethod_ in ["RPKM", "CPM"]:
-
-                def _getScaleFactorPerMillion(task) -> float:
-                    (
-                        source,
-                        barcodeAllowListPath,
-                        countMode,
-                        groupCellCount,
-                        bamInputMode,
-                        extendBP,
-                        readLength,
-                    ) = task
-                    if source.sourceKind == "H5AD":
-                        return h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, 0)
-                    return detrorm.getScaleFactorPerMillion(
-                        source.path,
-                        excludeForNorm,
-                        intervalSizeBP,
-                        normMethod=normMethod_,
-                        sourceKind=str(source.sourceKind).upper(),
-                        barcodeAllowListFile=barcodeAllowListPath,
-                        countMode=countMode,
-                        oneReadPerBin=samArgs.oneReadPerBin,
-                        samThreads=samArgs.samThreads,
-                        groupCellCount=groupCellCount,
-                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
-                        bamInputMode=bamInputMode,
-                        samFlagExclude=samArgs.samFlagExclude,
-                        minMappingQuality=samArgs.minMappingQuality,
-                        minTemplateLength=samArgs.minTemplateLength,
-                        maxInsertSize=samArgs.maxInsertSize,
-                        readLength=readLength,
-                        extendBP=extendBP,
-                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
-                        barcodeTag=source.barcodeTag,
-                    )
-
-                scaleFactors = io_helpers._threadMap(
-                    zip(
-                        treatmentSources,
-                        treatmentAllowLists,
-                        treatmentNativeCountModes,
-                        treatmentSelectedCellCounts,
-                        treatmentBamInputModes,
-                        countExtendFrom5pBPTreatment,
-                        readLengthsBamFiles,
-                    ),
-                    _getScaleFactorPerMillion,
-                    "scale factors",
-                    allowThreads=setupAllowThreads,
-                )
-            elif normMethod_ in ["EGS", "RPGC"]:
-
-                def _getScaleFactor1x(task) -> float:
-                    (
-                        source,
-                        effectiveGenomeSize,
-                        readLength,
-                        barcodeAllowListPath,
-                        countMode,
-                        groupCellCount,
-                        bamInputMode,
-                        extendBP,
-                        countReadLength,
-                    ) = task
-                    if source.sourceKind == "H5AD":
-                        return h5ad.getScaleFactor(source, normMethod_, intervalSizeBP, effectiveGenomeSize)
-                    return detrorm.getScaleFactor1x(
-                        source.path,
-                        effectiveGenomeSize,
-                        readLength,
-                        excludeForNorm,
-                        genomeArgs.chromSizesFile,
-                        samArgs.samThreads,
-                        sourceKind=str(source.sourceKind).upper(),
-                        barcodeAllowListFile=barcodeAllowListPath,
-                        countMode=countMode,
-                        oneReadPerBin=samArgs.oneReadPerBin,
-                        groupCellCount=groupCellCount,
-                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
-                        bamInputMode=bamInputMode,
-                        samFlagExclude=samArgs.samFlagExclude,
-                        minMappingQuality=samArgs.minMappingQuality,
-                        minTemplateLength=samArgs.minTemplateLength,
-                        maxInsertSize=samArgs.maxInsertSize,
-                        extendBP=extendBP,
-                        intervalSizeBP=intervalSizeBP,
-                        countReadLength=countReadLength,
-                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
-                        barcodeTag=source.barcodeTag,
-                        effectiveGenomeSizeIsFinal=(source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None),
-                    )
-
-                scaleFactors = io_helpers._threadMap(
-                    zip(
-                        treatmentSources,
-                        effectiveGenomeSizes,
-                        characteristicFragmentLengthsTreatment,
-                        treatmentAllowLists,
-                        treatmentNativeCountModes,
-                        treatmentSelectedCellCounts,
-                        treatmentBamInputModes,
-                        countExtendFrom5pBPTreatment,
-                        readLengthsBamFiles,
-                    ),
-                    _getScaleFactor1x,
-                    "scale factors",
-                    allowThreads=setupAllowThreads,
-                )
-            elif normMethod_ in ["SF"]:
-                waitForMatrix = True
-    finally:
-        for tempPath in treatmentNormTempPaths + controlNormTempPaths:
-            try:
-                os.remove(tempPath)
-            except OSError:
-                pass
+            pairNormalizations = None
+    else:
+        referenceNormalization = None
+        pairNormalizations = None
 
     deltaF_ = core._resolveFixedDeltaF(deltaF_)
     logger.info("Using fixed deltaF=%.6f", deltaF_)
 
     _logCliPhase(
-        "Chromosome planning",
+        "Chromosome geometry",
         "requested=%d interval_bp=%d",
         len(genomeArgs.chromosomes),
         int(intervalSizeBP),
     )
     chromSizesDict = misc_util.getChromSizesDict(
-        genomeArgs.chromSizesFile,
+        genomeArgs.chromosomeSizes,
         excludeChroms=genomeArgs.excludeChroms,
     )
     chromosomes = genomeArgs.chromosomes
@@ -6070,26 +4667,28 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             "chromosome.skip missing_or_excluded names=%s",
             ",".join(skippedChromosomes),
         )
-    treatmentSourceKinds = [
-        str(source.sourceKind).upper() for source in treatmentSources
-    ]
-    chromosomePlans: List[Dict[str, Any]] = []
+    chromosomeSpecs: List[Dict[str, Any]] = []
     for chromosome in chromosomes:
         if str(chromosome) not in chromSizesDict:
             continue
         if sharedReferenceGrid is not None:
             chromosomeStart, chromosomeEnd = sharedReferenceGrid[chromosome]
         else:
-            chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
-                bamFiles,
-                chromosome,
-                chromSizesDict[chromosome],
-                samArgs.samThreads,
-                samArgs.samFlagExclude,
-                sourceKinds=treatmentSourceKinds,
-            )
-            chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % intervalSizeBP)))
-            # Retain the terminal partial bin without extending beyond the reference
+            sourceRanges = [
+                countsReader.sourceRange(
+                    sampleID, chromosome, flagExclude=samArgs.samFlagExclude,
+                )
+                for sampleID in treatmentIDs
+            ]
+            if not sourceRanges:
+                logger.info("chromosome.skip no_source_support name=%s", chromosome)
+                continue
+            chromosomeStart = min(start for start, _ in sourceRanges)
+            chromosomeEnd = max(end for _, end in sourceRanges)
+            if chromosomeEnd <= chromosomeStart:
+                logger.info("chromosome.skip no_retained_records name=%s", chromosome)
+                continue
+            chromosomeStart = max(0, chromosomeStart - chromosomeStart % intervalSizeBP)
             chromosomeEnd = min(
                 chromSizesDict[chromosome],
                 ((chromosomeEnd + intervalSizeBP - 1) // intervalSizeBP) * intervalSizeBP,
@@ -6097,7 +4696,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         numIntervals = (
             ((chromosomeEnd - chromosomeStart) + intervalSizeBP) - 1
         ) // intervalSizeBP
-        chromosomePlans.append(
+        chromosomeSpecs.append(
             {
                 "chromosome": str(chromosome),
                 "start": int(chromosomeStart),
@@ -6106,7 +4705,9 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             }
         )
 
-    if chromosomePlans:
+    if automaticSizeFactors and not chromosomeSpecs:
+        raise ValueError("SF estimation requires a fitting chromosome")
+    if chromosomeSpecs:
         for file_ in os.listdir("."):
             if file_.startswith(f"consenrichOutput_{experimentName}") and (
                 file_.endswith(".bedGraph")
@@ -6167,7 +4768,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         minQ_ = 0.0
         maxQ_ = 1e4
 
-    sf: np.ndarray | None = None
     pooledMuncCache = tempfile.TemporaryDirectory(
         prefix=f"consenrich_{experimentName}_munc_"
     )
@@ -6184,8 +4784,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     pooledChromIndexParts: list[np.ndarray] = []
     pooledBlockStartsParts: list[np.ndarray] = []
     pooledTrendWeightsParts: list[np.ndarray] = []
-    pooledNuLTauWeightSum = 0.0
-    pooledNuLWeightSum = 0.0
     useReplicateVarianceScale = bool(
         getattr(
             observationArgs,
@@ -6349,277 +4947,105 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         arr = np.asarray(predictor, dtype=np.float64)
         return np.sign(arr) * np.expm1(np.abs(arr))
 
-    def _getChromBlacklistMask(chromosome: str, intervals: np.ndarray) -> np.ndarray:
-        if not genomeArgs.blacklistFile or len(intervals) < 2:
+    blacklistByChrom = peaks._readBlacklistIntervalsByChrom(
+        genomeArgs.blacklistFile, genomeArgs.genomeName
+    )
+
+    def _getChromBlacklistMask(
+        chromosome: str, intervals: np.ndarray, endBP: int
+    ) -> np.ndarray:
+        ranges = blacklistByChrom.get(chromosome)
+        if ranges is None or len(intervals) == 0:
             return np.zeros(len(intervals), dtype=np.uint8)
-        mask = core.getBedMask(chromosome, genomeArgs.blacklistFile, intervals)
-        return np.asarray(mask, dtype=np.uint8)
+        binEnds = intervals + intervalSizeBP
+        binEnds[-1] = min(int(binEnds[-1]), endBP)
+        return (
+            np.searchsorted(ranges[:, 0], binEnds, side="left")
+            > np.searchsorted(ranges[:, 1], intervals, side="right")
+        ).astype(np.uint8)
 
-    def _countAndTransformChromosomeMatrix(
-        c_: int,
-        chromPlan: Mapping[str, Any],
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-        nonlocal backgroundBlockSizeBP_
-        nonlocal dependenceContextBP_, dependenceSpanIntervals_, sf
-
-        chromosome = str(chromPlan["chromosome"])
-        chromosomeStart = int(chromPlan["start"])
-        chromosomeEnd = int(chromPlan["end"])
-        numIntervals = int(chromPlan["numIntervals"])
+    def _countAndTransformChromosomeMatrix(c_: int, chromosomeSpec: Mapping[str, Any]):
+        nonlocal treatmentNormalization, normalizationTerritory, sizeFactorReferenceRegion
+        chromosome = str(chromosomeSpec["chromosome"])
+        chromosomeStart = int(chromosomeSpec["start"])
+        chromosomeEnd = int(chromosomeSpec["end"])
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
-        chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
-        rawNoiseMassMat: np.ndarray | None = None
-        countModelVarianceFloorMat = (
-            np.full(
-                (numSamples, numIntervals),
-                np.nan,
-                dtype=np.float32,
-            )
-            if useCountNoiseFloor
-            else None
+        raw = countsReader.readRegion(
+            chromosome, chromosomeStart, chromosomeEnd,
+            sampleIDs=allIDs, returnRawNoiseMass=useCountNoiseFloor,
         )
-
-        if controlsPresent:
-            for j_, (bamA, bamB) in enumerate(zip(bamFiles, bamFilesControl)):
-                countStart = time.perf_counter()
-                logger.info(
-                    "counting.start %s sample=%d/%d treatment=%s control=%s",
-                    chromosome,
-                    int(j_ + 1),
-                    int(numSamples),
-                    bamA,
-                    bamB,
-                )
-                pairReadResult = core.readSegments(
-                    [
-                        treatmentSources[j_],
-                        controlSources[j_],
-                    ],
-                    chromosome,
-                    chromosomeStart,
-                    chromosomeEnd,
-                    intervalSizeBP,
-                    [
-                        readLengthsBamFiles[j_],
-                        readLengthsControlBamFiles[j_],
-                    ],
-                    [treatScaleFactors[j_], controlScaleFactors[j_]],
-                    samArgs.oneReadPerBin,
-                    samArgs.samThreads,
-                    samArgs.samFlagExclude,
-                    bamInputMode=samArgs.bamInputMode,
-                    defaultCountMode=samArgs.defaultCountMode,
-                    defaultFragmentCountMode=scArgs.defaultCountMode,
-                    shiftForward5p=samArgs.shiftForward5p,
-                    shiftReverse5p=samArgs.shiftReverse5p,
-                    extendFrom5pBP=[
-                        countExtendFrom5pBPTreatment[j_],
-                        countExtendFrom5pBPControl[j_],
-                    ],
-                    maxInsertSize=samArgs.maxInsertSize,
-                    inferFragmentLength=samArgs.inferFragmentLength,
-                    minMappingQuality=samArgs.minMappingQuality,
-                    minTemplateLength=samArgs.minTemplateLength,
-                    returnRawNoiseMass=useCountNoiseFloor,
-                )
-                pairRawNoiseMass = None
-                if useCountNoiseFloor:
-                    pairMatrix = pairReadResult.counts
-                    pairRawNoiseMass = pairReadResult.rawNoiseMass
-                else:
-                    pairMatrix = pairReadResult
-                if useCountNoiseFloor:
-                    if countModelVarianceFloorMat is None:
-                        raise RuntimeError("count floor matrix missing")
-                    if pairRawNoiseMass is None:
-                        raise RuntimeError("raw noise mass matrix missing")
-                    countModelVarianceFloorMat[j_, :] = (
-                        _combineCountModelVarianceFloors(
-                            _countModelVarianceFloorForScaledCounts(
-                                pairMatrix[0, :],
-                                treatScaleFactors[j_],
-                                countingArgs,
-                                rawNoiseMass=pairRawNoiseMass[0, :],
-                                countMode=treatmentCountModes[j_],
-                                countModelSource=_sourceUsesCountModelFloor(
-                                    treatmentSources[j_]
-                                ),
-                            ),
-                            _countModelVarianceFloorForScaledCounts(
-                                pairMatrix[1, :],
-                                controlScaleFactors[j_],
-                                countingArgs,
-                                rawNoiseMass=pairRawNoiseMass[1, :],
-                                countMode=controlCountModes[j_],
-                                countModelSource=_sourceUsesCountModelFloor(
-                                    controlSources[j_]
-                                ),
-                            ),
-                        ).astype(np.float32, copy=False)
-                    )
-                cconsenrich.cTransformWithInputInto(
-                    pairMatrix[0, :],
-                    pairMatrix[1, :],
-                    chromMat[j_, :],
-                    logOffset=countingArgs.logOffset,
-                    logMult=countingArgs.logMult,
-                    mode=countingArgs.transformMethod,
-                    inputOffset=countingArgs.transformInputOffset,
-                    inputScale=countingArgs.transformInputScale,
-                    outputScale=countingArgs.transformOutputScale,
-                    outputOffset=countingArgs.transformOutputOffset,
-                    shape=countingArgs.transformShape,
-                )
-                logger.info(
-                    "counting.done %s sample=%d/%d elapsed=%.3fs",
-                    chromosome,
-                    int(j_ + 1),
-                    int(numSamples),
-                    time.perf_counter() - countStart,
-                )
-        else:
-            countStart = time.perf_counter()
-            logger.info(
-                "counting.start %s samples=%d intervals=%d samThreads=%d",
-                chromosome,
-                int(numSamples),
-                int(numIntervals),
-                int(samArgs.samThreads),
-            )
-            readResult = core.readSegments(
-                treatmentSources,
-                chromosome,
-                chromosomeStart,
-                chromosomeEnd,
-                intervalSizeBP,
-                readLengthsBamFiles,
-                np.ones(numSamples) if waitForMatrix else scaleFactors,
-                samArgs.oneReadPerBin,
-                samArgs.samThreads,
-                samArgs.samFlagExclude,
-                bamInputMode=samArgs.bamInputMode,
-                defaultCountMode=samArgs.defaultCountMode,
-                defaultFragmentCountMode=scArgs.defaultCountMode,
-                shiftForward5p=samArgs.shiftForward5p,
-                shiftReverse5p=samArgs.shiftReverse5p,
-                extendFrom5pBP=countExtendFrom5pBPTreatment,
-                maxInsertSize=samArgs.maxInsertSize,
-                inferFragmentLength=samArgs.inferFragmentLength,
-                minMappingQuality=samArgs.minMappingQuality,
-                minTemplateLength=samArgs.minTemplateLength,
-                returnRawNoiseMass=useCountNoiseFloor,
-            )
-            if useCountNoiseFloor:
-                chromMat = readResult.counts
-                rawNoiseMassMat = readResult.rawNoiseMass
-            else:
-                chromMat = readResult
-            logger.info(
-                "counting.done %s samples=%d elapsed=%.3fs",
-                chromosome,
-                int(numSamples),
-                time.perf_counter() - countStart,
-            )
-
-        if waitForMatrix:
-            if sf is None:
-                sf = cconsenrich.cSF(chromMat)
-                logger.info(
-                    "`countingParams.normMethod=SF` --> calculating scaling factors\n%s\n",
-                    sf,
-                )
-                _checkSF(sf, logger)
-            np.multiply(chromMat, sf[:, None], out=chromMat)
-
-        if useCountNoiseFloor and not controlsPresent:
-            countModelScaleFactors = sf if waitForMatrix else scaleFactors
-            countModelVarianceFloorMat = _countModelFloorMatrixForScaledCounts(
-                chromMat,
-                countModelScaleFactors,
-                treatmentSources,
-                countingArgs,
-                rawNoiseMassMatrix=rawNoiseMassMat,
-                countModes=treatmentCountModes,
-            )
-
-        if useCountNoiseFloor:
-            if countModelVarianceFloorMat is None:
-                raise RuntimeError("count floor matrix missing")
-            floorSummary = _summarizeCountModelVarianceFloor(countModelVarianceFloorMat)
-            countNoiseFloorSummaryByChromosome[chromosome] = {
-                **countNoiseFloorStaticSummary,
-                **floorSummary,
+        if automaticSizeFactors and treatmentNormalization is None:
+            factors = counts.estimateSizeFactors(raw.values)
+            treatmentNormalization = counts.Normalization.fromFactors(treatmentIDs, factors)
+            normalizationTerritory = (chromosome,)
+            sizeFactorReferenceRegion = {
+                "chromosome": chromosome, "startBP": chromosomeStart, "endBP": chromosomeEnd,
             }
-            countNoiseDerivedVarianceFloor = _countModelVarianceFloorScalar(
-                countModelVarianceFloorMat,
+            logger.info("normalization.sizeFactors %s factors=%s", chromosome, factors)
+        chromMat = np.empty((numSamples, raw.values.shape[1]), dtype=np.float32)
+        countModelVarianceFloorMat = (np.full_like(chromMat, np.nan) if useCountNoiseFloor else None)
+        priorRaw = raw
+        if useCountNoiseFloor and (chromosomeStart != 0 or chromosomeEnd != raw.grid.chromosomeSizes[chromosome]):
+            priorRaw = countsReader.readRegion(
+                chromosome, 0, raw.grid.chromosomeSizes[chromosome],
+                sampleIDs=allIDs, returnRawNoiseMass=True,
             )
-            logger.info(
-                "count noise floor-derived variance floor %s value=%s finite=%d "
-                "positive=%d q05=%s min=%s median=%s p95=%s max=%s",
-                chromosome,
-                _fmtDiagnosticFloat(countNoiseDerivedVarianceFloor),
-                int(floorSummary.get("finite", 0)),
-                int(floorSummary.get("positive", 0)),
-                _fmtDiagnosticFloat(floorSummary.get("q05")),
-                _fmtDiagnosticFloat(floorSummary.get("min")),
-                _fmtDiagnosticFloat(floorSummary.get("median")),
-                _fmtDiagnosticFloat(floorSummary.get("p95")),
-                _fmtDiagnosticFloat(floorSummary.get("max")),
-            )
-        else:
-            countNoiseFloorSummaryByChromosome[chromosome] = dict(
-                countNoiseFloorStaticSummary
-            )
-            logger.info("count noise floor disabled %s", chromosome)
 
-        def _transformTrack(j: int) -> int:
-            cconsenrich.cTransformInPlace(
-                chromMat[j, :],
-                verbose=args.verbose2,
-                logOffset=countingArgs.logOffset,
-                logMult=countingArgs.logMult,
-                mode=countingArgs.transformMethod,
-                inputOffset=countingArgs.transformInputOffset,
-                inputScale=countingArgs.transformInputScale,
-                outputScale=countingArgs.transformOutputScale,
-                outputOffset=countingArgs.transformOutputOffset,
-                shape=countingArgs.transformShape,
+        def countFloor(sampleID, selectedNormalization):
+            rowIndex = raw.sampleIDs.index(sampleID)
+            source = (treatmentSources + controlSources)[allIDs.index(sampleID)]
+            if source.sourceKind == "BEDGRAPH":
+                return np.full(raw.values.shape[1], np.nan)
+            c = raw.values[rowIndex]
+            if source.sourceKind == "H5AD":
+                q = c
+            else:
+                q = raw.rawNoiseMass[rowIndex]
+            mode = (treatmentCountModes + controlCountModes)[allIDs.index(sampleID)]
+            a = 0.5
+            b = 0.5
+            if mode == "conservedFractionalOverlap":
+                total = np.sum(priorRaw.values[rowIndex], dtype=np.float64)
+                if total <= 0:
+                    raise ValueError(f"No fractional-count support on {chromosome} for {sampleID}")
+                b *= np.sum(priorRaw.rawNoiseMass[rowIndex], dtype=np.float64) / total
+            return core.countVarianceFloor(
+                c, q, selectedNormalization.multipliers(raw, sampleID=sampleID),
+                pseudocount=countingArgs.pseudocount, pseudoMeanMass=a, pseudoVarianceMass=b,
             )
-            return j
 
         if controlsPresent:
-            logger.info(
-                "Skipping ordinary count transform: treatment/control tracks "
-                "were already transformed as log-ratios.",
-            )
+            if pairNormalizations is None:
+                scaledTreatmentMatrix = treatmentNormalization.apply(raw)
+                scaledReferenceMatrix = referenceNormalization.apply(raw)
+            for index, (treatmentID, referenceID) in enumerate(zip(treatmentIDs, referenceIDs)):
+                if pairNormalizations is None:
+                    scaledTreatment = scaledTreatmentMatrix[index]
+                    scaledReference = scaledReferenceMatrix[index]
+                    firstNorm, secondNorm = treatmentNormalization, referenceNormalization
+                else:
+                    selectedNormalization = pairNormalizations[index]
+                    pairValues = selectedNormalization.apply(raw)
+                    scaledTreatment, scaledReference = pairValues[0], pairValues[1]
+                    firstNorm = secondNorm = selectedNormalization
+                if useCountNoiseFloor:
+                    countModelVarianceFloorMat[index] = _combineCountModelVarianceFloors(
+                        countFloor(treatmentID, firstNorm), countFloor(referenceID, secondNorm))
+                counts.logTransform(scaledTreatment, reference=scaledReference,
+                                    pseudocount=countingArgs.pseudocount, out=chromMat[index])
         else:
-            transformStart = time.perf_counter()
-            transformWorkers = io_helpers._getSmallWorkerCount(
-                numSamples,
-                maxWorkers=4,
-            )
-            useParallelTransform = (
-                numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
-            )
-            if useParallelTransform:
-                logger.info(
-                    "transform matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
-                    int(transformWorkers),
-                    int(numSamples),
-                    int(chromMat.shape[1]),
-                )
-                with ThreadPool(processes=int(transformWorkers)) as pool:
-                    for _ in pool.imap(_transformTrack, range(numSamples)):
-                        pass
-            else:
-                for j in range(numSamples):
-                    _transformTrack(j)
-            logger.info(
-                "transform.done %s samples=%d elapsed=%.3fs",
-                chromosome,
-                int(numSamples),
-                time.perf_counter() - transformStart,
-            )
+            treatmentNormalization.apply(raw, out=chromMat)
+            if useCountNoiseFloor:
+                for index, sampleID in enumerate(treatmentIDs):
+                    countModelVarianceFloorMat[index] = countFloor(sampleID, treatmentNormalization)
+            counts.logTransform(chromMat, pseudocount=countingArgs.pseudocount, out=chromMat)
+        floorSummary = (_summarizeCountModelVarianceFloor(countModelVarianceFloorMat)
+                        if useCountNoiseFloor else {})
+        countNoiseFloorSummaryByChromosome[chromosome] = {
+            **countNoiseFloorStaticSummary, **floorSummary,
+            "H5ADIndependentBins": [key for key, source in zip(allIDs, treatmentSources + controlSources)
+                                    if source.sourceKind == "H5AD"],
+        }
 
         centerMBEnabled, _ = _resolveCenterMBStatus(
             countingArgs,
@@ -6769,12 +5195,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 0,
             )
 
-        blockLenIntervals = _resolveRuntimeBackgroundBlockLen(
-            dependenceSpanIntervals_,
-            int(backgroundBlockSizeBP_),
-            intervalSizeBP,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-        )
+        blockLenIntervals = backgroundSpanIntervals
         helper = getattr(core, "estimateProvisionalBackground", None)
         if callable(helper):
             arr = np.asarray(chromMat, dtype=np.float32)
@@ -7043,204 +5464,60 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             _fmtDiagnosticFloat(stats["p95"]),
         )
 
-    def _ensureSampledDependenceSpan(
-        cachedMatrixPaths: Mapping[str, str],
-    ) -> None:
-        nonlocal correlationLengthDiagnostics_
-        nonlocal correlationLengthRow_, dependenceContextBP_
-        nonlocal dependenceSpanIntervals_
-
-        if dependenceSpanIntervals_ is not None:
+    def _ensureLengthScale() -> None:
+        nonlocal lengthScaleDiagnostics_, lengthScaleContextBP_, lengthScaleIntervals_
+        if lengthScaleIntervals_ is not None:
             return
-
-        chromNames: list[str] = []
-        chromMatrices: list[np.ndarray] = []
-        for chromPlan in chromosomePlans:
-            chromosome = str(chromPlan["chromosome"])
-            cachePath = cachedMatrixPaths.get(chromosome)
-            if cachePath is None:
-                continue
-            chromNames.append(chromosome)
-            chromMatrices.append(np.load(cachePath, mmap_mode="r"))
-
-        _logCliPhase(
-            "Correlation length",
-            "chromosomes=%d windows=%d",
-            int(len(chromNames)),
-            int(dependenceWindowCount_),
-        )
-        correlationLengthStart = time.perf_counter()
-        depPoint, depLower, depUpper, depDiagnostics = (
-            cconsenrich.cchooseDependenceSpan(
-                chromNames,
-                chromMatrices,
-                intervalSizeBP,
-                windowBP=int(dependenceWindowBP_),
-                windowCount=int(dependenceWindowCount_),
-                maxLagBP=int(dependenceMaxLagBP_),
-                workingQuantile=float(dependenceWorkingQuantile_),
-                bootstrapDraws=int(dependenceBootstrapDraws_),
-                randSeed=int(constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED),
-                minWindowCount=int(dependenceMinWindowCount_),
-                acfThreshold=float(dependenceAcfPointThreshold_),
-                acfSmoothingBP=int(dependenceAcfSmoothingBP_),
-                crossingPersistenceBP=int(dependenceCrossingPersistenceBP_),
-                crossingCount=int(dependenceCrossingCount_),
-                adaptiveSupport=bool(dependenceAdaptiveSupport_),
-                minFinitePairs=int(dependenceMinFinitePairs_),
-                minFinitePairCoverage=float(dependenceMinFinitePairCoverage_),
-            )
-        )
-        depDiagnostics = dict(depDiagnostics)
-        workingSpanBP = float(depDiagnostics["workingSpanBP"])
-        if workingSpanBP != float(depDiagnostics["estimateBP"]):
-            raise RuntimeError("working span must equal the bounded pooled radius")
-        if int(depPoint) != math.ceil(workingSpanBP / intervalSizeBP):
-            raise RuntimeError("pooled radius in bins disagrees with the base-pair estimate")
-        dependenceSpanIntervals_ = int(depPoint)
-        dependenceContextBP_ = int(
-            2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
-        )
-        correlationLengthDiagnostics_ = depDiagnostics
-        correlationLengthRow_ = _correlationLengthRow(
-            intervalSizeBP=intervalSizeBP,
-            pointIntervals=int(depPoint),
-            contextBP=int(dependenceContextBP_),
-            details=depDiagnostics,
-        )
-
-        excluded = [str(value) for value in depDiagnostics["chromosomesExcluded"]]
-        excludedLabel = "none" if not excluded else ",".join(excluded)
-        logger.info(
-            "chooseCorrelationLength.finitePairWindows status=%s method=%s "
-            "random_seed=%d "
-            "inference_scope=%s confidence_interval_method=%s "
-            "chromosomes_used=%d chromosomes_excluded=%s "
-            "candidate_windows=%d evaluated_candidate_windows=%d "
-            "selected_windows=%d requested_windows=%d "
-            "selected_adjacencies=%d selected_longest_run=%d "
-            "window_bp=%d max_lag_bp=%d threshold=%.6g "
-            "acf_smoothing_bp=%d acf_smoothing_bins=%d "
-            "crossing_persistence_bp=%d crossing_persistence_bins=%d "
-            "min_finite_pairs=%d min_finite_pair_coverage=%.6g "
-            "input_rows=%d unique_rows=%d duplicate_rows=%d row_deduplication=%s "
-            "finite_pair_minimum_used=%.6g finite_pair_coverage_minimum_used=%.6g "
-            "valid_rows_at_crossing_minimum=%s "
-            "crossed_windows=%d right_censored_windows=%d "
-            "support_censored_windows=%d cap_censored_windows=%d "
-            "censor_fraction=%.6g censor_time_bp_minimum=%s "
-            "censor_time_bp_median=%s censor_time_bp_maximum=%s "
-            "estimate_bp=%.6g lower_bp=%.6g upper_bp=%.6g "
-            "working_span_bp=%.6g local_quantile=%.6g local_quantile_bp=%s "
-            "estimate_intervals=%d lower_intervals=%d upper_intervals=%d "
-            "working_span_intervals=%d context_bp=%d "
-            "dominant_acf_period_bp_median=%s unresolved_period_fraction=%.6g "
-            "oscillation_strength=%s post_crossing_revival=%s "
-            "bootstrap_method=%s bootstrap_block_length_windows=%d "
-            "bootstrap_draws=%d "
-            "bootstrap_resolved_pooled=%d confidence_level=%.6g",
-            str(depDiagnostics["status"]),
-            str(depDiagnostics["method"]),
-            int(depDiagnostics["randomSeed"]),
-            str(depDiagnostics["inferenceScope"]),
-            str(depDiagnostics["confidenceIntervalMethod"]),
-            int(len(depDiagnostics["chromosomesUsed"])),
-            excludedLabel,
-            int(depDiagnostics["candidateWindowCount"]),
-            int(depDiagnostics["evaluatedCandidateWindowCount"]),
-            int(depDiagnostics["selectedWindowCount"]),
-            int(depDiagnostics["windowCountRequested"]),
-            int(depDiagnostics["selectedAdjacencyCount"]),
-            int(depDiagnostics["selectedLongestRun"]),
-            int(depDiagnostics["windowBP"]),
-            int(depDiagnostics["maxLagBP"]),
-            float(depDiagnostics["acfThreshold"]),
-            int(depDiagnostics["acfSmoothingBP"]),
-            int(depDiagnostics["acfSmoothingBins"]),
-            int(depDiagnostics["crossingPersistenceBP"]),
-            int(depDiagnostics["crossingPersistenceBins"]),
-            int(depDiagnostics["minFinitePairs"]),
-            float(depDiagnostics["minFinitePairCoverage"]),
-            int(depDiagnostics["inputRowCount"]),
-            int(depDiagnostics["uniqueRowCount"]),
-            int(depDiagnostics["duplicateRowCount"]),
-            str(depDiagnostics["rowDeduplication"]),
-            float(depDiagnostics["finitePairMinimumUsed"]),
-            float(depDiagnostics["finitePairCoverageMinimumUsed"]),
-            _formatOptionalLogValue(depDiagnostics["validRowsAtCrossingMinimum"]),
-            int(depDiagnostics["crossedWindowCount"]),
-            int(depDiagnostics["rightCensoredWindowCount"]),
-            int(depDiagnostics["supportCensoredWindowCount"]),
-            int(depDiagnostics["capCensoredWindowCount"]),
-            float(depDiagnostics["censorFraction"]),
-            _formatOptionalLogValue(depDiagnostics["censorTimeBPMinimum"]),
-            _formatOptionalLogValue(depDiagnostics["censorTimeBPMedian"]),
-            _formatOptionalLogValue(depDiagnostics["censorTimeBPMaximum"]),
-            float(depDiagnostics["estimateBP"]),
-            float(depDiagnostics["lowerBP"]),
-            float(depDiagnostics["upperBP"]),
-            workingSpanBP,
-            float(depDiagnostics["localRadiusSummary"]["localQuantile"]),
-            _formatOptionalLogValue(depDiagnostics["localRadiusSummary"]["localQuantileBP"]),
-            int(depPoint),
-            int(depLower),
-            int(depUpper),
-            int(dependenceSpanIntervals_),
-            int(dependenceContextBP_),
-            _formatOptionalLogValue(depDiagnostics["dominantACFPeriodBPMedian"]),
-            float(depDiagnostics["unresolvedPeriodFraction"]),
-            _formatOptionalLogValue(depDiagnostics["oscillationStrength"]),
-            _formatOptionalLogValue(depDiagnostics["postCrossingRevival"]),
-            str(depDiagnostics["bootstrapMethod"]),
-            int(depDiagnostics["bootstrapBlockLengthWindows"]),
-            int(depDiagnostics["bootstrapDrawsRequested"]),
-            int(depDiagnostics["bootstrapResolvedPooledDraws"]),
-            float(depDiagnostics["confidenceLevel"]),
-        )
-        if bool(fitArgs.fitBackground) and int(backgroundBlockSizeBP_) <= 0:
-            inferredSpanIntervals = _resolveRuntimeBackgroundBlockLen(
-                dependenceSpanIntervals_,
-                int(backgroundBlockSizeBP_),
-                intervalSizeBP,
-                fitArgs.ECM_backgroundLengthScaleMultiplier,
-            )
-            inferredLambdaFirst, inferredLambdaSecond = (
-                core._backgroundPenaltyWeightsFromSpan(
-                    blockLenIntervals=int(inferredSpanIntervals),
-                    backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
+        configured = observationArgs.lengthScaleBP
+        if configured is not None:
+            scaleBP = core._resolveLengthScaleBP(configured, intervalSizeBP)
+            lengthScaleDiagnostics_ = {"status": "provided", "scaleBP": scaleBP}
+        else:
+            if any(source.sourceKind == "BEDGRAPH" for source in treatmentSources):
+                raise ValueError(
+                    "Automatic length scale estimation requires count inputs. "
+                    "Set observationParams.lengthScaleBP for bedGraph signal tracks."
                 )
+            territory = {spec["chromosome"]: (spec["start"], spec["end"])
+                         for spec in chromosomeSpecs}
+            exclusions = {}
+            for chromosome, size in countsReader.grid.chromosomeSizes.items():
+                if chromosome not in territory:
+                    exclusions[chromosome] = [(0, size)]
+                    continue
+                start, end = territory[chromosome]
+                ranges = [(0, start)] if start > 0 else []
+                for left, right in blacklistByChrom.get(chromosome, ()):
+                    left, right = max(start, left), min(end, right)
+                    if left < right:
+                        ranges.append((left, right))
+                if end < size:
+                    ranges.append((end, size))
+                exclusions[chromosome] = ranges
+            options = counts.LengthScaleOptions(**(observationArgs.lengthScaleOptions or {}))
+            _logCliPhase("Length scale", "samples=%d blocks=%d", len(treatmentIDs), options.blockCount)
+            lengthScaleDiagnostics_ = countsReader.estimateLengthScale(
+                sampleIDs=treatmentIDs, options=options, excludeRanges=exclusions,
             )
-            nominalRoundoffIndex = float(
-                np.finfo(np.float64).eps
-                + np.finfo(np.float64).eps**2 * (
-                    1.0
-                    + 4.0 * float(inferredLambdaFirst)
-                    + 16.0 * float(inferredLambdaSecond)
+            scaleBP = lengthScaleDiagnostics_["scaleBP"]
+            if (lengthScaleDiagnostics_["status"] != "estimated" or scaleBP is None
+                    or not np.isfinite(scaleBP) or scaleBP <= 0):
+                raise ValueError(
+                    "ccounts did not estimate a positive length scale. "
+                    "Set observationParams.lengthScaleBP or adjust lengthScaleOptions."
                 )
-            )
-            if nominalRoundoffIndex >= 1.0:
-                logger.warning(
-                    "inferred roughness span is numerically wide: "
-                    "dependenceSpanIntervals=%d lengthScaleMultiplier=%.6g "
-                    "resolvedSpanIntervals=%d resolvedSpanBP=%d "
-                    "smoothness=%.6g nominalRoundoffIndex=%.6g. "
-                    "The penalty scale reaches compensated LDL resolution at unit "
-                    "observation precision.",
-                    int(dependenceSpanIntervals_),
-                    float(fitArgs.ECM_backgroundLengthScaleMultiplier),
-                    int(inferredSpanIntervals),
-                    int(inferredSpanIntervals * intervalSizeBP),
-                    float(fitArgs.ECM_backgroundSmoothness),
-                    nominalRoundoffIndex,
-                )
+        lengthScaleIntervals_ = int(math.ceil(scaleBP / intervalSizeBP))
+        lengthScaleContextBP_ = 2 * lengthScaleIntervals_ * intervalSizeBP + 1
+        lengthScaleDiagnostics_["workingScaleBP"] = lengthScaleIntervals_ * intervalSizeBP
+        lengthScaleDiagnostics_["workingScaleIntervals"] = lengthScaleIntervals_
+        lengthScaleDiagnostics_["contextBP"] = lengthScaleContextBP_
+        with lengthScalePath.open("w") as handle:
+            json.dump(lengthScaleDiagnostics_, handle, indent=2, allow_nan=False)
+            handle.write("\n")
         _logCliProgressMilestone(
-            "Correlation length: radius_intervals=%d radius_bp=%.6g "
-            "working_span_intervals=%d working_span_bp=%.6g elapsed=%.1fs",
-            int(depPoint),
-            float(depDiagnostics["estimateBP"]),
-            int(dependenceSpanIntervals_),
-            workingSpanBP,
-            time.perf_counter() - correlationLengthStart,
+            "Length scale: source=%s estimate_bp=%.6g intervals=%d used_bp=%d",
+            lengthScaleDiagnostics_["status"], float(scaleBP),
+            lengthScaleIntervals_, lengthScaleIntervals_ * intervalSizeBP,
         )
 
     def _collectPooledMuncBlocks(
@@ -7253,17 +5530,18 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         diagnosticRawMat: np.ndarray | None = None,
         countModelVarianceFloorMat: np.ndarray | None = None,
     ) -> np.ndarray:
-        nonlocal pooledNuLTauWeightSum, pooledNuLWeightSum
-        chromosomeName = str(chromosomePlans[c_]["chromosome"])
+        chromosomeName = str(chromosomeSpecs[c_]["chromosome"])
         muncSizing = core._resolveMuncRuntimeSizing(
             intervalSizeBP=intervalSizeBP,
-            dependenceSpanIntervals=dependenceSpanIntervals_,
+            lengthScaleIntervals=lengthScaleIntervals_,
             muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
             muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
-            muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
-            muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
+            muncTrendBlockLengthScaleMultiplier=muncTrendBlockLengthScaleMultiplier_,
+            muncLocalWindowLengthScaleMultiplier=muncLocalWindowLengthScaleMultiplier_,
         )
-        blacklistExcludeMask = _getChromBlacklistMask(chromosomeName, intervals)
+        blacklistExcludeMask = _getChromBlacklistMask(
+            chromosomeName, intervals, int(chromosomeSpecs[c_]["end"])
+        )
         chromArr = np.asarray(chromMat, dtype=np.float32)
         seedMuncArr = np.array(seedMuncMat, dtype=np.float32, copy=True)
         residArr = np.ascontiguousarray(chromArr, dtype=np.float32)
@@ -7315,12 +5593,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 f"MUNC has no deterministic blocks for {chromosomeName}"
             )
 
-        priorBlockLenIntervals = _resolveRuntimeBackgroundBlockLen(
-            dependenceSpanIntervals_,
-            backgroundBlockSizeBP_,
-            intervalSizeBP,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-        )
+        priorBlockLenIntervals = backgroundSpanIntervals
         seedStateModel = normalization.validateChoice(
             processArgs.stateModel,
             default=constants.PROCESS_DEFAULT_STATE_MODEL,
@@ -7843,41 +6116,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             rhoIn=np.ascontiguousarray(rhoTrack, dtype=np.float32),
             updateWeights=False,
         )
-        if not (
-            observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3
-        ):
-            nuLSpanIntervals = muncSizing.dependenceSpanIntervals
-            if nuLSpanIntervals is None:
-                raise RuntimeError("MUNC ESS Nu_L requires a dependence working span")
-            nuLHorizon = min(
-                int(nuLSpanIntervals),
-                int(muncSizing.localWindowIntervals) - 1,
-            )
-            if nuLHorizon < 1:
-                raise RuntimeError(
-                    "MUNC ESS Nu_L requires a positive truncation horizon"
-                )
-            nuLActiveMask = np.ascontiguousarray(
-                blacklistExcludeMask == 0,
-                dtype=np.uint8,
-            )
-            nuLActiveCount = int(np.count_nonzero(nuLActiveMask))
-            if nuLActiveCount >= 2:
-                for sampleIndex in range(int(localPointwise.shape[0])):
-                    _ess, tau, _lagsUsed = cconsenrich.cEstimateEffectiveSampleSize(
-                        localPointwise[sampleIndex, :],
-                        int(nuLHorizon),
-                        activeMask=nuLActiveMask,
-                        logPositive=True,
-                        windowIntervals=int(muncSizing.localWindowIntervals),
-                    )
-                    if not np.isfinite(tau) or tau <= 0.0:
-                        raise RuntimeError(
-                            "MUNC ESS Nu_L design effect is invalid for "
-                            f"{chromosomeName}"
-                        )
-                    pooledNuLTauWeightSum += float(tau) * float(nuLActiveCount)
-                    pooledNuLWeightSum += float(nuLActiveCount)
         localEvidenceMatrix = _smoothDenseLocalEvidence(localPointwise)
         seedMuncArr = _localEvidenceToTotalVariance(localEvidenceMatrix)
         if seedUseWeights:
@@ -7939,7 +6177,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             dtype=np.float64,
         )
         responseWeightArr[:, blacklistExcludeMask != 0] = 0.0
-        dependenceDivisor = float(max(1.0, float(muncTrendBlockDependenceMultiplier_)))
+        lengthScaleDivisor = float(max(1.0, float(muncTrendBlockLengthScaleMultiplier_)))
         for blockIndex, (blockStart, blockEnd) in enumerate(zip(startsArr, endsArr)):
             blockSlice = slice(int(blockStart), int(blockEnd))
             blockAllowed = np.asarray(blacklistExcludeMask[blockSlice]) == 0
@@ -7981,7 +6219,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 if qSquareSum > 0.0:
                     blockEffectiveSupport[sampleIndex, blockIndex] = max(
                         1.0,
-                        (qSum * qSum / qSquareSum) / dependenceDivisor,
+                        (qSum * qSum / qSquareSum) / lengthScaleDivisor,
                     )
         blockMeansForFitMatrix = _inverseMuncTrendPredictor(blockPredictorMatrix)
         collectedMeansParts: list[np.ndarray] = []
@@ -8002,7 +6240,10 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 & np.isfinite(blockVarsForPooled)
                 & np.isfinite(blockWeightsForPooled)
                 & np.isfinite(blockKernelWeights)
-                & (blockVarsForPooled >= _MUNC_NUMERIC_VARIANCE_FLOOR)
+                & (
+                    blockVarsForPooled.astype(np.float32)
+                    >= np.float32(_MUNC_NUMERIC_VARIANCE_FLOOR)
+                )
                 & (blockWeightsForPooled > 0.0)
                 & (blockKernelWeights > 0.0)
             )
@@ -8094,17 +6335,26 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             )
         return np.ascontiguousarray(seedMeanTrack, dtype=np.float32)
 
+    _ensureLengthScale()
+    backgroundSpanIntervals = _resolveRuntimeBackgroundBlockLen(
+        lengthScaleIntervals_,
+        backgroundBlockSizeBP_,
+        intervalSizeBP,
+        fitArgs.ECM_backgroundLengthScaleMultiplier,
+        lengthScaleProvided=observationArgs.lengthScaleBP is not None,
+    )
+
     _logCliPhase(
         "Count and transform",
         "chromosomes=%d samples=%d",
-        int(len(chromosomePlans)),
+        int(len(chromosomeSpecs)),
         int(numSamples),
     )
     cachedIntervalsByChromosome: dict[str, np.ndarray] = {}
-    for c_, chromPlan in enumerate(chromosomePlans):
-        chromosome = str(chromPlan["chromosome"])
+    for c_, chromosomeSpec in enumerate(chromosomeSpecs):
+        chromosome = str(chromosomeSpec["chromosome"])
         intervals, chromMat, countModelVarianceFloorMat = (
-            _countAndTransformChromosomeMatrix(c_, chromPlan)
+            _countAndTransformChromosomeMatrix(c_, chromosomeSpec)
         )
         chromMat = _smoothRowsByFragmentLength(chromosome, chromMat)
         if countModelVarianceFloorMat is not None:
@@ -8128,24 +6378,17 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             countModelVarianceFloorCachePaths[chromosome] = floorCachePath
         cachedIntervalsByChromosome[chromosome] = np.asarray(intervals, dtype=np.uint32)
 
-    muncSizingNeedsDependence = core._muncSizingNeedsDependence(
-        muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
-        muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
-    )
-    if backgroundBlockSizeBP_ < 0 or muncSizingNeedsDependence:
-        _ensureSampledDependenceSpan(transformedMatrixCachePaths)
-
     resolvedPeakDurationBP: int | None = None
 
     _logCliPhase(
         "MUNC prior setup",
         "chromosomes=%d seed_passes=%d EB=%s",
-        int(len(chromosomePlans)),
+        int(len(chromosomeSpecs)),
         int(muncSeedWeightPasses_),
         "yes" if bool(observationArgs.EB_use) else "no",
     )
-    for c_, chromPlan in enumerate(chromosomePlans):
-        chromosome = str(chromPlan["chromosome"])
+    for c_, chromosomeSpec in enumerate(chromosomeSpecs):
+        chromosome = str(chromosomeSpec["chromosome"])
         cachePath = transformedMatrixCachePaths[chromosome]
         chromMat = np.ascontiguousarray(np.load(cachePath), dtype=np.float32)
         intervals = cachedIntervalsByChromosome[chromosome]
@@ -8243,11 +6486,11 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     pooledMuncSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceSpanIntervals=dependenceSpanIntervals_,
+        lengthScaleIntervals=lengthScaleIntervals_,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
-        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
-        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
+        muncTrendBlockLengthScaleMultiplier=muncTrendBlockLengthScaleMultiplier_,
+        muncLocalWindowLengthScaleMultiplier=muncLocalWindowLengthScaleMultiplier_,
     )
     if pooledBlockLogVarianceNoise is not None:
         blockNoise = pooledBlockLogVarianceNoise[
@@ -8268,32 +6511,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     )
     pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
     pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
-    pooledNuLHorizon = (
-        0
-        if pooledMuncSizing.dependenceSpanIntervals is None
-        else min(
-            int(pooledMuncSizing.dependenceSpanIntervals),
-            int(pooledLocalWindowIntervals) - 1,
-        )
-    )
-    pooledNuLEta = 1.0
     if observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3:
         pooledNuL = float(observationArgs.EB_setNuL)
     else:
-        if pooledMuncSizing.dependenceSpanIntervals is None:
-            raise RuntimeError("MUNC ESS Nu_L requires a dependence working span")
-        if pooledNuLHorizon < 1:
-            raise RuntimeError(
-                "MUNC ESS Nu_L requires a positive truncation horizon"
-            )
-        if pooledNuLWeightSum <= 0.0:
-            raise RuntimeError("MUNC Nu_L ESS has no active pointwise evidence")
-        pooledNuLEta = float(pooledNuLTauWeightSum / pooledNuLWeightSum)
-        if not np.isfinite(pooledNuLEta) or pooledNuLEta <= 0.0:
-            raise RuntimeError(f"MUNC Nu_L ESS eta is invalid: {pooledNuLEta}")
-        pooledNuL = float(
-            max(4, (float(pooledLocalWindowIntervals) / pooledNuLEta) - 3.0)
-        )
+        if pooledMuncSizing.lengthScaleIntervals is None:
+            raise RuntimeError("MUNC NuL requires a resolved length scale")
+        pooledNuL = float(max(4, pooledLocalWindowIntervals / pooledMuncSizing.lengthScaleIntervals - 3))
     pooledNu0Cap = 100.0 * float(pooledNuL)
 
     varianceFloorForTrend = _MUNC_NUMERIC_VARIANCE_FLOOR
@@ -8305,16 +6528,16 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         int(numSamples),
     )
     _logMuncEstimationParameters(
-        chromosomeCount=len(chromosomePlans),
+        chromosomeCount=len(chromosomeSpecs),
         sampleCount=numSamples,
         intervalSizeBP=intervalSizeBP,
         sizing=pooledMuncSizing,
         muncVarianceModel=muncVarianceModel_,
         samplingIters=samplingIters_,
-        dependenceContextBP=dependenceContextBP_,
-        dependenceSpanIntervals=dependenceSpanIntervals_,
-        trendMultiplier=muncTrendBlockDependenceMultiplier_,
-        localMultiplier=muncLocalWindowDependenceMultiplier_,
+        lengthScaleContextBP=lengthScaleContextBP_,
+        lengthScaleIntervals=lengthScaleIntervals_,
+        trendMultiplier=muncTrendBlockLengthScaleMultiplier_,
+        localMultiplier=muncLocalWindowLengthScaleMultiplier_,
         observationArgs=observationArgs,
         sparseBedEnabled=bool(genomeArgs.sparseBedFile),
         varianceFloor=varianceFloorForTrend,
@@ -8499,14 +6722,13 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
 
     logger.info(
         "pooled MUNC deterministic block trend: pairs=%d samples=%d "
-        "nu_L=%.2f nu_L_W=%d nu_L_H=%d nu_L_eta=%.4g "
+        "nu_L=%.2f nu_L_W=%d length_scale_intervals=%d "
         "sampleFile=%s sampleNu0=%s weakNu0Samples=%s diagnostics=%s",
         int(pooledBlockMeans.size),
         int(numSamples),
         float(pooledNuL),
         int(pooledLocalWindowIntervals),
-        int(pooledNuLHorizon),
-        float(pooledNuLEta),
+        int(lengthScaleIntervals_),
         sampleFileByIndex,
         np.array2string(
             np.asarray(pooledMuncNu0BySample, dtype=np.float64),
@@ -8583,17 +6805,17 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         bedGraphTracks.append(("background", "background"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChunkRanges = {suffix: {} for suffix in suffixes}
-    bedGraphPlanChromOrder = [
-        str(chromPlan["chromosome"]) for chromPlan in chromosomePlans
+    executionChromosomeOrder = [
+        str(chromosomeSpec["chromosome"]) for chromosomeSpec in chromosomeSpecs
     ]
-    bedGraphChromOrder = _chromSizesOrderForPlannedChromosomes(
+    bedGraphChromOrder = _chromSizesOrderForChromosomes(
         chromSizesDict,
-        bedGraphPlanChromOrder,
+        executionChromosomeOrder,
     )
-    bedGraphPlanOrderDiffers = bedGraphChromOrder != bedGraphPlanChromOrder
-    if bedGraphPlanOrderDiffers:
+    outputOrderDiffers = bedGraphChromOrder != executionChromosomeOrder
+    if outputOrderDiffers:
         logger.info(
-            "bedGraph track order uses chrom.sizes order because execution plan "
+            "bedGraph track order uses chrom.sizes order because execution chromosome order "
             "order differs."
         )
     genomeOptimizationPathRows: List[Mapping[str, Any]] = []
@@ -8608,7 +6830,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     runSummaryRows: List[Dict[str, Any]] = []
     segShrinkGenomeRequested = bool(
         useUncertaintyCalibration
-        and len(chromosomePlans) >= 2
+        and len(chromosomeSpecs) >= 2
         and getattr(
             uncertaintyCalibrationArgs,
             "deleteBlockFactorModel",
@@ -8625,7 +6847,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     stateShrinkGenomeSummaryFields: Dict[str, Any] = {}
     if writeStateShrunkTrack:
         maxShrinkIntervals = max(
-            (int(chromPlan["numIntervals"]) for chromPlan in chromosomePlans),
+            (int(chromosomeSpec["numIntervals"]) for chromosomeSpec in chromosomeSpecs),
             default=1,
         )
         stateShrinkBlockIntervals = diagnostics.resolveUncertaintyBlockSizeIntervals(
@@ -8645,19 +6867,19 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     _logCliPhase(
         "Contig final fits",
         "chromosomes=%d samples=%d",
-        int(len(chromosomePlans)),
+        int(len(chromosomeSpecs)),
         int(numSamples),
     )
-    for c_, chromPlan in enumerate(chromosomePlans):
+    for c_, chromosomeSpec in enumerate(chromosomeSpecs):
         chromosomeStartTime = time.perf_counter()
-        chromosome = str(chromPlan["chromosome"])
-        chromosomeStart = int(chromPlan["start"])
-        chromosomeEnd = int(chromPlan["end"])
-        numIntervals = int(chromPlan["numIntervals"])
+        chromosome = str(chromosomeSpec["chromosome"])
+        chromosomeStart = int(chromosomeSpec["start"])
+        chromosomeEnd = int(chromosomeSpec["end"])
+        numIntervals = int(chromosomeSpec["numIntervals"])
         _logCliProgressMilestone(
             "Contig %d/%d: %s intervals=%d",
             int(c_ + 1),
-            int(len(chromosomePlans)),
+            int(len(chromosomeSpecs)),
             chromosome,
             int(numIntervals),
         )
@@ -8754,7 +6976,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         sparseIntervalIndices = None
         sparseRegionMask = None
         muncIntervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
-        muncExcludeMask = _getChromBlacklistMask(chromosome, intervals)
+        muncExcludeMask = _getChromBlacklistMask(chromosome, intervals, chromosomeEnd)
         blacklistedIntervals = int(np.count_nonzero(muncExcludeMask))
         if blacklistedIntervals:
             logger.info(
@@ -8806,12 +7028,12 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 samplingIters=samplingIters_,
                 muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
                 muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
-                dependenceSpanIntervals=dependenceSpanIntervals_,
-                muncTrendBlockDependenceMultiplier=(
-                    muncTrendBlockDependenceMultiplier_
+                lengthScaleIntervals=lengthScaleIntervals_,
+                muncTrendBlockLengthScaleMultiplier=(
+                    muncTrendBlockLengthScaleMultiplier_
                 ),
-                muncLocalWindowDependenceMultiplier=(
-                    muncLocalWindowDependenceMultiplier_
+                muncLocalWindowLengthScaleMultiplier=(
+                    muncLocalWindowLengthScaleMultiplier_
                 ),
                 muncVarianceModel=muncVarianceModel_,
                 randomSeed=42 + j,
@@ -8902,12 +7124,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         if countModelVarianceFloorMat is not None:
             del countModelVarianceFloorMat
 
-        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
-            dependenceSpanIntervals_,
-            int(backgroundBlockSizeBP_),
-            intervalSizeBP,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-        )
+        blockLenIntervals_ = backgroundSpanIntervals
 
         if blacklistedIntervals:
             floors = core.applyBlacklistMuncFloor(
@@ -8985,8 +7202,8 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 (
                     "dependence derived context bp",
                     (
-                        int(dependenceContextBP_)
-                        if dependenceContextBP_ is not None
+                        int(lengthScaleContextBP_)
+                        if lengthScaleContextBP_ is not None
                         else "configured"
                     ),
                 ),
@@ -9676,11 +7893,11 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             del calibrationResult, deleteBlockFactor, uncertaintyTrack
 
     if peakCallingEnabled:
-        _ensureSampledDependenceSpan(transformedMatrixCachePaths)
-        if dependenceSpanIntervals_ is None:
-            raise RuntimeError("correlation working span did not resolve")
+        _ensureLengthScale()
+        if lengthScaleIntervals_ is None:
+            raise RuntimeError("length scale did not resolve")
         resolvedPeakDurationBP = int(
-            dependenceSpanIntervals_ * intervalSizeBP
+            lengthScaleIntervals_ * intervalSizeBP
         )
 
     _logCliPhase(
@@ -10043,33 +8260,6 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
             dpi=400,
         )
 
-    if correlationLengthRow_ is not None:
-        _writeCorrelationLengthSummary(
-            correlationLengthRow_,
-            correlationLengthPath,
-        )
-        if correlationLengthDiagnostics_ is None:
-            raise RuntimeError("correlation-length diagnostics are unavailable")
-        _writeCorrelationLengthWindows(
-            correlationLengthDiagnostics_,
-            correlationLengthWindowsPath,
-        )
-        if (
-            bool(
-                getattr(
-                    outputArgs,
-                    "plotCorrelationLength",
-                    constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
-                )
-            )
-        ):
-            _plotCorrelationLengthInference(
-                correlationLengthRow_,
-                correlationLengthDiagnostics_,
-                correlationLengthPlotPath,
-                dpi=400,
-            )
-
     if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:
         genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(
             str(experimentName)
@@ -10148,7 +8338,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if peakCallingEnabled:
         try:
             if resolvedPeakDurationBP is None:
-                raise RuntimeError("correlation working span did not resolve")
+                raise RuntimeError("length scale did not resolve")
             stateScoreSuffix = "state"
             uncertaintyScoreSuffix = "uncertainty"
             exportSignalSuffix = "stateShrunk" if useShrunkStateScores else "state"
@@ -10219,6 +8409,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
                 uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
                 uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,
+                genomeName=genomeArgs.genomeName,
                 randSeed=matchingArgs.randSeed,
                 maxNonTrackFileBytes=outputArgs.maxNonTrackFileBytes,
             )
@@ -10231,7 +8422,7 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
     if outputArgs.convertToBigWig:
         convertBedGraphToBigWig(
             experimentName,
-            genomeArgs.chromSizesFile,
+            genomeArgs.chromosomeSizes,
             suffixes=suffixes,
             validatedBedGraphs=validatedBedGraphs,
             deleteBedGraphsAfterBigWig=outputArgs.deleteBedGraphsAfterBigWig,
@@ -10243,72 +8434,59 @@ def _runConfigured(config, args, sharedReferenceGrid=None):
         time.perf_counter() - cliRunStart,
     )
 
-    normalizationChromSizes = misc_util.getChromSizesDict(genomeArgs.chromSizesFile)
-    normalizationExcludedBases = sum(
-        normalizationChromSizes.get(chromosome, 0) for chromosome in (excludeForNorm or ())
-    )
     normalizationMetadata = {
-        "method": normMethod_,
-        "intervalSizeBP": int(intervalSizeBP),
-        "fragmentsGroupNorm": scArgs.fragmentsGroupNorm,
+        "method": normMethod_, "intervalSizeBP": int(intervalSizeBP),
+        "pseudocount": countingArgs.pseudocount,
+        "chromosomes": list(normalizationTerritory),
         "treatment": [
-            {
-                "donor": source.sampleName or source.path,
-                "basis": (
-                    "explicitScaleFactor" if countingArgs.scaleFactors is not None else
-                    "matrixSizeFactors" if waitForMatrix else
-                    "suppliedBinCounts" if source.sourceKind == "H5AD" else
-                    ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
-                    if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
-                    "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"
-                ),
-                "sourceKind": source.sourceKind,
-                "bamInputMode": bamMode,
-                "countMode": mode,
-                "effectiveGenomeSize": (
-                    int(size) - (
-                        0 if source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None
-                        else normalizationExcludedBases
-                    ) if automaticTreatmentEGS else None
-                ),
-                "scaleFactor": float(factor),
-            }
-            for source, mode, bamMode, size, factor in zip(
-                treatmentSources, treatmentNativeCountModes, treatmentBamInputModes, effectiveGenomeSizes,
-                treatScaleFactors if controlsPresent else (sf if waitForMatrix else scaleFactors),
-            )
+            {"donor": source.sampleName or source.path, "sampleID": sampleID,
+             "sourceKind": source.sourceKind, "countMode": mode,
+             "method": ("paired" if pairNormalizations is not None else
+                        "SF" if automaticSizeFactors else treatmentNormalization.method),
+             "sourceFactor": float(factor), "divideByBinWidth": bool(widthRule),
+             "denominator": (dict(treatmentNormalization.records[sampleID])
+                             if treatmentNormalization.records is not None else None)}
+            for source, sampleID, mode, factor, widthRule in zip(
+                treatmentSources, treatmentIDs, treatmentCountModes,
+                ([item.sourceFactors[0] for item in pairNormalizations] if pairNormalizations is not None
+                 else treatmentNormalization.sourceFactors),
+                ([False] * numSamples if pairNormalizations is not None else treatmentNormalization.widthRules))
         ],
     }
+    if featureTerritory is not None:
+        normalizationMetadata["featureTerritory"] = {
+            "requestedChromosomes": list(featureTerritory["requestedChromosomes"]),
+            "usedChromosomes": list(featureTerritory["usedChromosomes"]),
+            "missingChromosomesBySource": {
+                sampleID: list(chromosomes)
+                for sampleID, chromosomes in featureTerritory["missingChromosomesBySource"].items()
+            },
+        }
+    if normMethod_ == "ReadsInRegions" and automaticIDs:
+        del normalizationMetadata["chromosomes"]
+        normalizationMetadata["regions"] = {
+            "path": countingArgs.normRegionsFile, "scaleTo": countingArgs.normScaleTo,
+        }
+    if automaticSizeFactors:
+        normalizationMetadata["referenceRegion"] = sizeFactorReferenceRegion
     if controlsPresent:
         normalizationMetadata["control"] = [
-            {
-                "donor": source.sampleName or source.path,
-                "basis": (
-                    "explicitScaleFactor" if countingArgs.scaleFactorsControl is not None else
-                    "suppliedBinCounts" if source.sourceKind == "H5AD" else
-                    ("conservedFragmentMass" if source.sourceKind == "FRAGMENTS" or bamMode == "fragments" else "conservedReadMass")
-                    if mode == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP else
-                    "mappedSpanBP" if normMethod_ in ("EGS", "RPGC") else "emittedEventMass"
-                ),
-                "sourceKind": source.sourceKind,
-                "bamInputMode": bamMode,
-                "countMode": mode,
-                "effectiveGenomeSize": (
-                    int(size) - (
-                        0 if source.sourceKind == "FRAGMENTS" or genomeArgs.effectiveGenomeSize is not None
-                        else normalizationExcludedBases
-                    ) if automaticControlEGS else None
-                ),
-                "scaleFactor": float(factor),
-            }
-            for source, mode, bamMode, size, factor in zip(
-                controlSources, controlNativeCountModes, controlBamInputModes, effectiveGenomeSizesControl, controlScaleFactors,
-            )
+            {"donor": source.sampleName or source.path, "sampleID": sampleID,
+             "sourceKind": source.sourceKind, "countMode": mode,
+             "method": "paired" if pairNormalizations is not None else referenceNormalization.method,
+             "sourceFactor": float(factor), "divideByBinWidth": bool(widthRule),
+             "denominator": (dict(referenceNormalization.records[sampleID])
+                             if referenceNormalization.records is not None else None)}
+            for source, sampleID, mode, factor, widthRule in zip(
+                controlSources, referenceIDs, controlCountModes,
+                ([item.sourceFactors[1] for item in pairNormalizations] if pairNormalizations is not None
+                 else referenceNormalization.sourceFactors),
+                ([False] * numSamples if pairNormalizations is not None else referenceNormalization.widthRules))
         ]
     Path(f"consenrichOutput_{experimentName}_normalization.json").write_text(
-        json.dumps(normalizationMetadata, indent=2) + "\n"
+        json.dumps(normalizationMetadata, indent=2, default=lambda value: value.__dict__) + "\n"
     )
-    logger.info("normalization.resolved %s", json.dumps(normalizationMetadata))
+    logger.info("normalization.resolved %s", json.dumps(normalizationMetadata, default=lambda value: value.__dict__))
     return normalizationMetadata
 
 

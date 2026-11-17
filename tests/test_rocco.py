@@ -15,6 +15,33 @@ import consenrich.io as consenrich_io
 import consenrich.peaks as peaks
 
 
+def testAssemblyBlacklistSelection(tmp_path, monkeypatch):
+    chromosomeRanges = {"chr1": ((10, 20), (30, 40)), "chr2": ((0, 5),)}
+    monkeypatch.setattr(peaks, "assemblyBlacklistRanges", {"testAssembly": chromosomeRanges})
+    customPath = tmp_path / "custom.bed"
+    customPath.write_text("chr1\t25\t40\nchr1\t20\t30\n", encoding="utf-8")
+    for bedFile, genomeName, expectedRanges in (
+        (None, None, {}),
+        (None, "testAssembly", chromosomeRanges),
+        (str(customPath), "testAssembly", {"chr1": ((20, 40),)}),
+        (str(customPath), "missingAssembly", {"chr1": ((20, 40),)}),
+    ):
+        resolved = peaks._readBlacklistIntervalsByChrom(bedFile, genomeName)
+        assert set(resolved) == set(expectedRanges)
+        for chromosome, ranges in expectedRanges.items():
+            np.testing.assert_array_equal(resolved[chromosome], ranges)
+            assert resolved[chromosome].dtype == np.int64
+        for startBP, endBP in ((0, 10), (10, 11), (19, 20), (20, 30), (30, 31), (40, 50)):
+            expected = any(
+                startBP < end and endBP > start
+                for start, end in expectedRanges.get("chr1", ())
+            )
+            assert peaks._intervalOverlapsBlacklist("chr1", startBP, endBP, resolved) == expected
+        assert not peaks._intervalOverlapsBlacklist("chrMissing", 0, 100, resolved)
+    with pytest.raises(ValueError, match="No blacklist ranges available.*missingAssembly"):
+        peaks._readBlacklistIntervalsByChrom(None, "missingAssembly")
+
+
 def test_numericBedGraphOrdering(tmp_path):
     rng = np.random.default_rng(184)
     rows = [(chrom, 50 * (index // 2), 50 * (index // 2) + 20 + index % 2, index)
@@ -312,6 +339,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
         return candidateScan(*args, **kwargs)
 
     with monkeypatch.context() as patch:
+        patch.setattr(peaks, "assemblyBlacklistRanges", {"hg38": {"chr1": ((200000, 200010),)}})
         patch.setattr(peaks, "_plotROCCONullCalibrationDiagnostics", capturePlot)
         patch.setattr(
             peaks.cconsenrich,
@@ -340,6 +368,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
             randSeed=11,
             outPath=str(narrowPath),
             metaPath=str(metadataPath),
+            genomeName="hg38",
         )
     assert len(replayDrawCalls) == 8 + 2
     assert len(candidateScanCalls) == 2 + 1
@@ -375,6 +404,8 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
         rows = [line.split("\t") for line in Path(outputPath).read_text().splitlines()]
         assert rows and all(len(row) == width for row in rows)
     metadata = json.loads(metadataPath.read_text())
+    assert metadata["inputs"]["blacklistAssembly"] == "hg38"
+    assert metadata["inputs"]["blacklistBed"] is None
     assert set(metadata) == {
         "inputs", "outputs", "settings", "chromosomes", "budgetShrinkage",
         "qValues", "counts",

@@ -7,9 +7,11 @@ Consenrich
    :name: Consenrich Homepage
    :hidden:
 
+   Home <self>
    installation
    examples
    params
+   genome
    api
 
 .. image:: ../images/fig.svg
@@ -17,7 +19,7 @@ Consenrich
    :width: 100%
    :class: no-scaled-link
 
-Bulk and single-cell data are supported for common chromatin acessibility, transcription factor binding, and histone PTMs assays.
+Bulk and single-cell data are supported for common chromatin acessibility, transcription factor binding, and histone PTM assays.
 
 .. list-table::
    :widths: 40 50
@@ -29,7 +31,7 @@ Bulk and single-cell data are supported for common chromatin acessibility, trans
      - `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v3>`_
    * - Source Code
      - `GitHub <https://github.com/nolan-h-hamilton/Consenrich>`_
-   * - Documentation, Examples, etc.
+   * - Documentation, examples, etc.
      - `(This site) <https://nolan-h-hamilton.github.io/Consenrich/>`_
    * - Contact
      - Nolan [dot] Hamilton <at> unc [dot] edu

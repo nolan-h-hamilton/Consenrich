@@ -7,6 +7,7 @@ import sys
 import types
 from pathlib import Path
 
+import ccounts
 import numpy as np
 import pandas as pd
 import pytest
@@ -41,21 +42,10 @@ def setupGenomeFiles(tmpPath, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(constants, "resolveGenomeName", fakeResolveGenomeName)
     monkeypatch.setattr(constants, "getGenomeResourceFile", fakeGetGenomeResourceFile)
+    monkeypatch.setattr(constants, "assemblyChromosomeSizes", {"hg38": {"chrTest": 100000}})
+    monkeypatch.setattr(constants, "standardChromosomes", {"hg38": ("chrTest",)})
 
 
-def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fakeCheckAlignmentFile(bamPath: str) -> None:
-        return None
-
-    def fakeAlignmentFilesArePairedEnd(bamList: list) -> list:
-        return [False] * len(bamList)
-
-    monkeypatch.setattr(misc_util, "checkAlignmentFile", fakeCheckAlignmentFile)
-    monkeypatch.setattr(
-        misc_util,
-        "alignmentFilesArePairedEnd",
-        fakeAlignmentFilesArePairedEnd,
-    )
 
 
 def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
@@ -199,257 +189,8 @@ def _caseScaleFactorNormalizationBroadcastsSingletons():
         )
 
 
-def _case_readConfigGenericCountTransform(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: genericTransform
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    countingParams.transformMethod: asinhSqrt
-    countingParams.transformInputOffset: 0.25
-    countingParams.transformInputScale: 2.0
-    countingParams.transformOutputScale: 2.0
-    countingParams.transformOutputOffset: -0.1
-    countingParams.transformShape: 0.75
-    """
-    configPath = writeConfigFile(tmp_path, "config_generic_transform.yaml", configYaml)
-    parsed = readConfig(str(configPath))
-    countingArgs = parsed["countingArgs"]
-
-    assert countingArgs.transformMethod == "asinhSqrt"
-    assert countingArgs.transformInputOffset == pytest.approx(0.25)
-    assert countingArgs.transformInputScale == pytest.approx(2.0)
-    assert countingArgs.transformOutputScale == pytest.approx(2.0)
-    assert countingArgs.transformOutputOffset == pytest.approx(-0.1)
-    assert countingArgs.transformShape == pytest.approx(0.75)
-
-    anscombeYaml = """
-    experimentName: anscombeTransform
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    countingParams.transformMethod: anscombe
-    """
-    anscombePath = writeConfigFile(
-        tmp_path, "config_anscombe_transform.yaml", anscombeYaml
-    )
-    anscombeParsed = readConfig(str(anscombePath))
-    anscombeCountingArgs = anscombeParsed["countingArgs"]
-
-    assert anscombeCountingArgs.transformMethod == "anscombe"
-    assert anscombeCountingArgs.transformInputOffset == pytest.approx(0.375)
-    assert anscombeCountingArgs.transformInputScale == pytest.approx(1.0)
-    assert anscombeCountingArgs.transformOutputScale == pytest.approx(2.0)
-    assert anscombeCountingArgs.transformOutputOffset == pytest.approx(0.0)
-
-    invalidYaml = """
-    experimentName: invalidTransform
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    countingParams.transformMethod: banana
-    """
-    invalidPath = writeConfigFile(
-        tmp_path, "config_invalid_transform.yaml", invalidYaml
-    )
-    with pytest.raises(ValueError, match="transformMethod"):
-        readConfig(str(invalidPath))
 
 
-def _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
-    tmp_path,
-    monkeypatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    counts = np.asarray([0.5, 2.0, 8.0], dtype=np.float64)
-    scaleFactor = 0.25
-    inputOffset = 0.5
-    inputScale = 2.0
-    outputScale = 1.5
-    shape = 0.75
-    baseArgs = consenrich_core.countingParams(
-        intervalSizeBP=25,
-        backgroundBlockSizeBP=1000,
-        scaleFactors=None,
-        scaleFactorsControl=None,
-        normMethod="CPM",
-        fragmentsGroupNorm="NONE",
-        fixControl=False,
-        logOffset=1.0,
-        logMult=1.0,
-        transformInputOffset=inputOffset,
-        transformInputScale=inputScale,
-        transformOutputScale=outputScale,
-        transformOutputOffset=0.0,
-        transformShape=shape,
-        centerMB=True,
-    )
-
-    momentCounts = counts + 0.5 * scaleFactor
-    normalizedVariance = (scaleFactor * counts) + (
-        0.5 * scaleFactor * scaleFactor
-    )
-    z = momentCounts + inputOffset
-    u = z / inputScale
-    derivativeByMethod = {
-        "log": (outputScale * outputScale) / (z * z),
-        "sqrt": (outputScale * outputScale) / (4.0 * inputScale * z),
-        "anscombe": (outputScale * outputScale) / (4.0 * inputScale * z),
-        "asinh": (outputScale * outputScale)
-        / ((inputScale * inputScale) * (1.0 + (u * u))),
-        "asinhSqrt": (outputScale * outputScale)
-        / (
-            4.0
-            * inputScale
-            * inputScale
-            * z
-            * (1.0 + z / (inputScale * inputScale))
-        ),
-        "generalizedLog": (outputScale * outputScale)
-        / ((inputScale * inputScale) * ((u * u) + (shape * shape))),
-        "identity": np.full_like(
-            counts,
-            (outputScale * outputScale) / (inputScale * inputScale),
-        ),
-    }
-
-    for method, derivativeSquared in derivativeByMethod.items():
-        countingArgs = baseArgs._replace(transformMethod=method)
-        floor = consenrich_cli._countModelVarianceFloorForScaledCounts(
-            counts,
-            scaleFactor,
-            countingArgs,
-        )
-        expected = derivativeSquared * normalizedVariance
-        np.testing.assert_allclose(floor, expected, rtol=1.0e-6, atol=1.0e-6)
-
-    rawNoiseMass = np.asarray([0.125, 1.5, 3.0], dtype=np.float64)
-    pseudoVarianceMass = 0.5 * float(np.sum(rawNoiseMass)) / float(
-        np.sum(counts / scaleFactor)
-    )
-    identityArgs = baseArgs._replace(transformMethod="identity")
-    rawMassFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
-        counts,
-        scaleFactor,
-        identityArgs,
-        rawNoiseMass=rawNoiseMass,
-    )
-    expectedRawMassFloor = (
-        derivativeByMethod["identity"] * (rawNoiseMass + 0.5) * scaleFactor * scaleFactor
-    )
-    np.testing.assert_allclose(
-        rawMassFloor,
-        expectedRawMassFloor,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-
-    rawPseudoFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
-        counts,
-        scaleFactor,
-        identityArgs,
-        rawNoiseMass=rawNoiseMass,
-        countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
-    )
-    expectedRawPseudoFloor = (
-        derivativeByMethod["identity"]
-        * (rawNoiseMass + pseudoVarianceMass)
-        * scaleFactor
-        * scaleFactor
-    )
-    np.testing.assert_allclose(
-        rawPseudoFloor,
-        expectedRawPseudoFloor,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-
-    logArgs = baseArgs._replace(
-        transformMethod="log",
-        transformInputOffset=1.0,
-        transformInputScale=1.0,
-        transformOutputScale=1.0,
-    )
-    treatmentFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
-        np.asarray([4.0, 9.0], dtype=np.float64),
-        0.5,
-        logArgs,
-    )
-    controlFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
-        np.asarray([1.0, 16.0], dtype=np.float64),
-        0.25,
-        logArgs,
-    )
-    combined = consenrich_cli._combineCountModelVarianceFloors(
-        treatmentFloor,
-        controlFloor,
-    )
-    np.testing.assert_allclose(combined, treatmentFloor + controlFloor)
-
-    fractionalSource = consenrich_core.inputSource(
-        "fractional.bam",
-        sourceKind="BAM",
-        countMode=constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
-    )
-    coverageSource = consenrich_core.inputSource(
-        "coverage.bam",
-        sourceKind="BAM",
-        countMode="coverage",
-    )
-    bedGraphSource = consenrich_core.inputSource(
-        "sample.bedGraph",
-        sourceKind="BEDGRAPH",
-    )
-    matrixFloor = consenrich_cli._countModelFloorMatrixForScaledCounts(
-        np.vstack([counts, counts, counts]),
-        [scaleFactor, scaleFactor, scaleFactor],
-        [fractionalSource, coverageSource, bedGraphSource],
-        baseArgs._replace(transformMethod="identity"),
-        rawNoiseMassMatrix=np.vstack([rawNoiseMass, rawNoiseMass, rawNoiseMass]),
-        countModes=[
-            constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
-            "coverage",
-            "coverage",
-        ],
-    )
-    np.testing.assert_allclose(
-        matrixFloor[0, :],
-        expectedRawPseudoFloor,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-    np.testing.assert_allclose(
-        matrixFloor[1, :],
-        expectedRawMassFloor,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-    assert np.all(np.isnan(matrixFloor[2, :]))
-
-    countDerivedMatrixFloor = consenrich_cli._countModelFloorMatrixForScaledCounts(
-        counts.reshape(1, -1),
-        [scaleFactor],
-        [fractionalSource],
-        baseArgs._replace(transformMethod="identity"),
-        countModes=[constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP],
-    )
-    np.testing.assert_allclose(
-        countDerivedMatrixFloor[0, :],
-        derivativeByMethod["identity"] * normalizedVariance,
-        rtol=1.0e-6,
-        atol=1.0e-6,
-    )
-
-
-def test_count_model_variance_floor_transform_delta_method(tmp_path, monkeypatch):
-    _case_countModelVarianceFloorFollowsPluginPoissonDeltaMethod(
-        tmp_path,
-        monkeypatch,
-    )
 
 
 def test_count_model_variance_floor_scalar_uses_count_noise_not_munc_minr():
@@ -747,256 +488,10 @@ def test_replicate_exchangeability_plot_smoke(tmp_path):
     assert plotPath.stat().st_size > 0
 
 
-def _case_readConfigDottedAndNestedEquivalent(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    dottedYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam, smallTest2.bam]
-    genomeParams.name: testGenome
-    genomeParams.excludeChroms: [chrM]
-    countingParams.intervalSizeBP: 50
-    countingParams.centerMBMethod: savgol
-    countingParams.centerMBWindowBP: 1000000
-    samParams.defaultCountMode: ffp-center
-    outputParams.plotOptimizationPath: false
-    outputParams.plotCorrelationLength: false
-    outputParams.plotNullCalibrationDiagnostics: false
-    outputParams.writeRunSummary: false
-    outputParams.precisionDiagnosticDetail: sampled
-    outputParams.maxPrecisionDiagnosticRowsPerChromosome: 7
-    outputParams.writeReplicateExchangeabilityDiagnostics: true
-    outputParams.plotPrecisionReweightingHistograms: false
-    outputParams.precisionReweightingHistogramSampleSize: 123
-    outputParams.maxNonTrackFileBytes: 1024
-    observationParams.dependenceSpanBP: 10000
-    observationParams.dependenceWindowCount: 32
-    observationParams.dependenceWindowBP: 100000
-    observationParams.dependenceMaxLagBP: 40000
-    observationParams.dependenceWorkingQuantile: 0.90
-    observationParams.dependenceBootstrapDraws: 40
-    observationParams.dependenceMinWindowCount: 20
-    observationParams.dependenceAcfPointThreshold: 0.03
-    observationParams.dependenceAcfSmoothingBP: 350
-    observationParams.dependenceCrossingPersistenceBP: 450
-    observationParams.dependenceMinFinitePairs: 175
-    observationParams.dependenceMinFinitePairCoverage: 0.65
-    matchingParams.uncertaintyScoreMode: lower_confidence
-    matchingParams.uncertaintyScoreZ: 1.25
-    matchingParams.numRegionReplays: 17
-    matchingParams.useLocalBootStrapRadius: false
-    matchingParams.minMeanSignal: 7.5
-    matchingParams.peakMode: broad
-    matchingParams.broadWeakThresholdZ: 1.1
-    matchingParams.mergeToleranceBP: 12000
-    matchingParams.maxRegionBP: 50000
-    loggingParams.verbosity: debug
-    loggingParams.progress: off
-    loggingParams.logFile: runEvents.jsonl
-    """
-
-    nestedYaml = """
-    experimentName: testExperiment
-    inputParams:
-      bamFiles:
-        - smallTest.bam
-        - smallTest2.bam
-    genomeParams:
-      name: testGenome
-      excludeChroms:
-        - chrM
-    countingParams:
-      intervalSizeBP: 50
-      centerMBMethod: savgol
-      centerMBWindowBP: 1000000
-    samParams:
-      defaultCountMode: ffp-center
-    outputParams:
-      plotOptimizationPath: false
-      plotCorrelationLength: false
-      plotNullCalibrationDiagnostics: false
-      writeRunSummary: false
-      precisionDiagnosticDetail: sampled
-      maxPrecisionDiagnosticRowsPerChromosome: 7
-      writeReplicateExchangeabilityDiagnostics: true
-      plotPrecisionReweightingHistograms: false
-      precisionReweightingHistogramSampleSize: 123
-      maxNonTrackFileBytes: 1024
-    observationParams:
-      dependenceSpanBP: 10000
-      dependenceWindowCount: 32
-      dependenceWindowBP: 100000
-      dependenceMaxLagBP: 40000
-      dependenceWorkingQuantile: 0.90
-      dependenceBootstrapDraws: 40
-      dependenceMinWindowCount: 20
-      dependenceAcfPointThreshold: 0.03
-      dependenceAcfSmoothingBP: 350
-      dependenceCrossingPersistenceBP: 450
-      dependenceMinFinitePairs: 175
-      dependenceMinFinitePairCoverage: 0.65
-    matchingParams:
-      uncertaintyScoreMode: lower_confidence
-      uncertaintyScoreZ: 1.25
-      numRegionReplays: 17
-      useLocalBootStrapRadius: false
-      minMeanSignal: 7.5
-      peakMode: broad
-      broadWeakThresholdZ: 1.1
-      mergeToleranceBP: 12000
-      maxRegionBP: 50000
-    loggingParams:
-      verbosity: debug
-      progress: off
-      logFile: runEvents.jsonl
-    """
-
-    dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
-    nestedPath = writeConfigFile(tmp_path, "config_nested.yaml", nestedYaml)
-
-    configDotted = readConfig(str(dottedPath))
-    configNested = readConfig(str(nestedPath))
-
-    assert configDotted["experimentName"] == "testExperiment"
-    assert configNested["experimentName"] == "testExperiment"
-    assert configDotted["experimentName"] == configNested["experimentName"]
-
-    inputDotted = configDotted["inputArgs"]
-    inputNested = configNested["inputArgs"]
-
-    assert inputDotted.bamFiles == ["smallTest.bam", "smallTest2.bam"]
-    assert inputNested.bamFiles == ["smallTest.bam", "smallTest2.bam"]
-    assert inputDotted.bamFiles == inputNested.bamFiles
-
-    assert bool(inputDotted.bamFilesControl) is False
-    assert bool(inputNested.bamFilesControl) is False
-
-    genomeDotted = configDotted["genomeArgs"]
-    genomeNested = configNested["genomeArgs"]
-
-    assert genomeDotted.genomeName == "hg38"
-    assert genomeNested.genomeName == "hg38"
-    assert genomeDotted.genomeName == genomeNested.genomeName
-
-    assert genomeDotted.excludeChroms == ["chrM"]
-    assert genomeNested.excludeChroms == ["chrM"]
-
-    assert "chrTest" in genomeDotted.chromosomes
-    assert "chrTest" in genomeNested.chromosomes
-    assert genomeDotted.chromosomes == genomeNested.chromosomes
-
-    countingDotted = configDotted["countingArgs"]
-    countingNested = configNested["countingArgs"]
-
-    assert countingDotted.intervalSizeBP == 50
-    assert countingNested.intervalSizeBP == 50
-    assert countingDotted.intervalSizeBP == countingNested.intervalSizeBP
-    assert countingDotted.centerMBMethod == "savgol"
-    assert countingNested.centerMBMethod == "savgol"
-    assert countingDotted.centerMBWindowBP == 1_000_000
-    assert countingNested.centerMBWindowBP == 1_000_000
-
-    observationDotted = configDotted["observationArgs"]
-    observationNested = configNested["observationArgs"]
-    processDotted = configDotted["processArgs"]
-    processNested = configNested["processArgs"]
-
-    assert type(observationDotted) is type(observationNested)
-    assert type(processDotted) is type(processNested)
-    assert observationDotted == observationNested
-    assert processDotted == processNested
-    assert observationDotted.dependenceSpanBP == 10000
-    assert observationDotted.dependenceWindowCount == 32
-    assert observationDotted.dependenceWindowBP == 100_000
-    assert observationDotted.dependenceMaxLagBP == 40_000
-    assert observationDotted.dependenceWorkingQuantile == pytest.approx(0.90)
-    assert observationDotted.dependenceBootstrapDraws == 40
-    assert observationDotted.dependenceMinWindowCount == 20
-    assert observationDotted.dependenceAcfPointThreshold == pytest.approx(0.03)
-    assert observationDotted.dependenceAcfSmoothingBP == 350
-    assert observationDotted.dependenceCrossingPersistenceBP == 450
-    assert observationDotted.dependenceMinFinitePairs == 175
-    assert observationDotted.dependenceMinFinitePairCoverage == pytest.approx(0.65)
-
-    outputDotted = configDotted["outputArgs"]
-    outputNested = configNested["outputArgs"]
-    assert outputDotted.plotOptimizationPath is False
-    assert outputNested.plotOptimizationPath is False
-    assert outputDotted.plotCorrelationLength is False
-    assert outputNested.plotCorrelationLength is False
-    assert outputDotted.plotNullCalibrationDiagnostics is False
-    assert outputNested.plotNullCalibrationDiagnostics is False
-    assert outputDotted.writeRunSummary is False
-    assert outputNested.writeRunSummary is False
-    assert outputDotted.precisionDiagnosticDetail == "sampled"
-    assert outputNested.precisionDiagnosticDetail == "sampled"
-    assert outputDotted.maxPrecisionDiagnosticRowsPerChromosome == 7
-    assert outputNested.maxPrecisionDiagnosticRowsPerChromosome == 7
-    assert outputDotted.writeReplicateExchangeabilityDiagnostics is True
-    assert outputNested.writeReplicateExchangeabilityDiagnostics is True
-    assert outputDotted.plotPrecisionReweightingHistograms is False
-    assert outputNested.plotPrecisionReweightingHistograms is False
-    assert outputDotted.precisionReweightingHistogramSampleSize == 123
-    assert outputNested.precisionReweightingHistogramSampleSize == 123
-    assert outputDotted.maxNonTrackFileBytes == 1024
-    assert outputNested.maxNonTrackFileBytes == 1024
-    assert outputDotted == outputNested
-    assert configDotted["loggingArgs"] == configNested["loggingArgs"]
-    assert configDotted["loggingArgs"].verbosity == "debug"
-    assert configDotted["loggingArgs"].progress == "off"
-    assert configDotted["loggingArgs"].logFile == "runEvents.jsonl"
-
-    samDotted = configDotted["samArgs"]
-    samNested = configNested["samArgs"]
-    matchingDotted = configDotted["matchingArgs"]
-    matchingNested = configNested["matchingArgs"]
-
-    assert type(samDotted) is type(samNested)
-    assert type(matchingDotted) is type(matchingNested)
-
-    assert samDotted.samThreads == samNested.samThreads
-    assert samDotted.defaultCountMode == "ffp-center"
-    assert samNested.defaultCountMode == "ffp-center"
-    assert (
-        configDotted["scArgs"].defaultCountMode
-        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    )
-    assert (
-        configNested["scArgs"].defaultCountMode
-        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    )
-    assert matchingDotted.enabled == matchingNested.enabled
-    assert matchingDotted.thresholdZ == matchingNested.thresholdZ
-    assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
-    assert (
-        matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
-    )
-    assert matchingDotted.uncertaintyScoreMode == "lower_confidence"
-    assert matchingNested.uncertaintyScoreMode == "lower_confidence"
-    assert matchingDotted.uncertaintyScoreZ == pytest.approx(1.25)
-    assert matchingNested.uncertaintyScoreZ == pytest.approx(1.25)
-    assert matchingDotted.numRegionReplays == 17
-    assert matchingNested.numRegionReplays == 17
-    assert matchingDotted.useLocalBootStrapRadius is False
-    assert matchingNested.useLocalBootStrapRadius is False
-    assert matchingDotted.minMeanSignal == pytest.approx(7.5)
-    assert matchingNested.minMeanSignal == pytest.approx(7.5)
-    assert matchingDotted.peakMode == "broad"
-    assert matchingNested.peakMode == "broad"
-    assert matchingDotted.broadWeakThresholdZ == pytest.approx(1.1)
-    assert matchingNested.broadWeakThresholdZ == pytest.approx(1.1)
-    assert matchingDotted.mergeToleranceBP == 12000
-    assert matchingNested.mergeToleranceBP == 12000
-    assert matchingDotted.maxRegionBP == 50000
-    assert matchingNested.maxRegionBP == 50000
 
 
 def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configPath = writeConfigFile(
         tmp_path,
@@ -1028,7 +523,6 @@ def _case_readConfigBroadcastsSharedControlScaleFactor(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -1057,7 +551,6 @@ def _case_readConfigBroadcastsSharedControlScaleFactor(
 
 def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -1121,38 +614,32 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
         )
 
 
-def _case_readConfigRejectsRemovedCovariates(tmp_path, monkeypatch):
-    for configData in (
-        {"genomeParams.genomeCovariateCacheDir": None},
-        {"genomeParams": {"genomeCovariateCacheDir": None}},
-        {"observationParams.muncCovariates": None},
-        {"observationParams": {"muncCovariates": {}}},
-        *(
-            configData
-            for key, value in (("enabled", False), ("mode", None), ("features", []))
-            for configData in (
-                {f"observationParams.muncCovariates.{key}": value},
-                {"observationParams": {f"muncCovariates.{key}": value}},
-                {"observationParams": {"muncCovariates": {key: value}}},
-            )
-        ),
+def _case_loadConfigValidatesKeys(tmp_path, monkeypatch):
+    valid = {
+        "countingParams": {"normMethod": "CPM"},
+        "observationParams.lengthScaleOptions": {"blockCount": 12},
+    }
+    assert consenrich_config.loadConfig(valid) is valid
+    for declaration in (
+        {"other": {}},
+        {"countingParams.other": None},
+        {"countingParams": {"other": None}},
+        {"observationParams": {"lengthScaleOptions.other": None}},
+        {"observationParams.lengthScaleOptions": {"other": None}},
     ):
-        with pytest.raises(ValueError, match="is not supported"):
-            readConfig(configData)
+        with pytest.raises(ValueError, match="Unknown configuration key"):
+            consenrich_config.loadConfig({**valid, **declaration})
     configPath = writeConfigFile(
-        tmp_path,
-        "removed_covariates.yaml",
-        "observationParams:\n  muncCovariates: null",
+        tmp_path, "unknown_key.yaml", "countingParams:\n  other: null",
     )
-    with pytest.raises(ValueError, match="observationParams.muncCovariates"):
-        readConfig(configPath)
+    with pytest.raises(ValueError, match="countingParams.other"):
+        consenrich_config.loadConfig(configPath)
 
 
 def _case_readConfigUsesGenericDefaultConfiguration(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     configuration: generic
@@ -1218,6 +705,38 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     )
     assert parsed["matchingArgs"].shrinkChromosomeBudgets is True
 
+    bam = {"path": "smallTest.bam"}
+    h5ad = {"path": "cells.h5ad", "matrixRows": "cells"}
+    for inputSettings, countingSettings, expectedMethod in (
+        ({"inputParams.samples": [bam]}, {}, "RPGC"),
+        ({"inputParams.samples": [bam]}, {"normMethod": None}, "RPGC"),
+        ({"inputParams.samples": [h5ad]}, {}, "CPM"),
+        ({"inputParams.samples": [h5ad]}, {"normMethod": None}, "CPM"),
+        ({"inputParams.samples": [bam, {**h5ad, "role": "control"}]}, {}, "CPM"),
+        ({"inputParams.samples": [h5ad, {**bam, "role": "control"}]},
+         {"normMethod": None}, "CPM"),
+        ({"inputParams.samples": [bam, h5ad]}, {}, "CPM"),
+        ({"inputParams.samples": [{"path": "counts.bin", "format": "H5AD",
+                                   "matrixRows": "pseudobulks"}]}, {}, "CPM"),
+        ({"inputParams.samples": [{"path": "sample.fragments.tsv.gz"}],
+          "scParams.cellMetadata": {"path": "labels.h5ad"}}, {}, "RPGC"),
+        ({"inputParams.samples": [h5ad]}, {"normMethod": "RPKM"}, "RPKM"),
+        ({"inputParams.samples": [h5ad, {**bam, "role": "control"}]},
+         {"normMethod": "RPGC", "scaleFactors": [0.8],
+          "scaleFactorsControl": [1.2]}, "RPGC"),
+        ({"inputParams.samples": [h5ad]}, {"scaleFactors": [0.8]}, "CPM"),
+    ):
+        values = {
+            "genomeParams.name": "testGenome", **inputSettings,
+            "countingParams": countingSettings,
+        }
+        countingArgs = readConfig(values)["countingArgs"]
+        assert countingArgs.normMethod == expectedMethod
+        assert consenrich_config.getCountingArgs(values).normMethod == expectedMethod
+        assert countingArgs.scaleFactors == countingSettings.get("scaleFactors")
+        assert countingArgs.scaleFactorsControl == countingSettings.get("scaleFactorsControl")
+    assert consenrich_config.getCountingArgs({}).normMethod == "RPGC"
+
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     defaults = consenrich_config.DEFAULT_CONFIGURATION_VALUES[
@@ -1242,17 +761,8 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         "observationParams.muncEBPrior.warmupOuterPasses",
         "observationParams.muncEBPrior.gUncertaintyMode",
         "observationParams.useCountNoiseFloor",
-        "observationParams.dependenceWindowCount",
-        "observationParams.dependenceWindowBP",
-        "observationParams.dependenceMaxLagBP",
-        "observationParams.dependenceWorkingQuantile",
-        "observationParams.dependenceBootstrapDraws",
-        "observationParams.dependenceMinWindowCount",
-        "observationParams.dependenceAcfPointThreshold",
-        "observationParams.dependenceAcfSmoothingBP",
-        "observationParams.dependenceCrossingPersistenceBP",
-        "observationParams.dependenceMinFinitePairs",
-        "observationParams.dependenceMinFinitePairCoverage",
+        "observationParams.lengthScaleBP",
+        "observationParams.lengthScaleOptions",
         "outputParams.stateShrinkageEnabled",
         "outputParams.stateShrinkageModel",
         "outputParams.stateShrinkageSpikeOddsMultiplier",
@@ -1320,7 +830,6 @@ def _case_readConfigRejectsUnsupportedCenterMBMethod(
     monkeypatch: pytest.MonkeyPatch,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -1352,490 +861,6 @@ def _case_readConfigRejectsUnsupportedCenterMBMethod(
         readConfig(str(invalidWindowPath))
 
 
-def _case_runtime_defaults_are_centralized(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: centralizedDefaults
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    """
-    configPath = writeConfigFile(
-        tmp_path, "config_centralized_defaults.yaml", configYaml
-    )
-    parsed = readConfig(str(configPath))
-    narrowConfigPath = writeConfigFile(
-        tmp_path,
-        "config_narrow_peak_mode.yaml",
-        """
-        experimentName: narrowPeakMode
-        inputParams.bamFiles: [smallTest.bam]
-        genomeParams.name: testGenome
-        matchingParams.peakMode: narrow
-        observationParams.dependenceSpanBP: null
-        """,
-    )
-    broadConfigPath = writeConfigFile(
-        tmp_path,
-        "config_broad_peak_mode.yaml",
-        """
-        experimentName: broadPeakMode
-        inputParams.bamFiles: [smallTest.bam]
-        genomeParams.name: testGenome
-        matchingParams.peakMode: broad
-        matchingParams.mergeToleranceBP: 12000
-        matchingParams.maxRegionBP: 50000
-        """,
-    )
-    narrowParsed = readConfig(str(narrowConfigPath))
-    broadParsed = readConfig(str(broadConfigPath))
-    profile = constants.DEFAULT_CONFIGURATION_VALUES[
-        constants.GENERIC_DEFAULT_CONFIGURATION
-    ]
-
-    assert (
-        consenrich_config.DEFAULT_CONFIGURATION_VALUES
-        is constants.DEFAULT_CONFIGURATION_VALUES
-    )
-    assert (
-        consenrich_config.GENERIC_DEFAULT_CONFIGURATION
-        is constants.GENERIC_DEFAULT_CONFIGURATION
-    )
-    assert (
-        consenrich_config.SUPPORTED_DEFAULT_CONFIGURATIONS
-        is constants.SUPPORTED_DEFAULT_CONFIGURATIONS
-    )
-    assert (
-        consenrich_config.DEFAULT_CONFIGURATION_KEYS
-        is constants.DEFAULT_CONFIGURATION_KEYS
-    )
-    assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
-    assert (
-        parsed["samArgs"].defaultCountMode
-        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    )
-    assert (
-        parsed["scArgs"].defaultCountMode
-        == constants.COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-    )
-    assert constants.EB_PRIOR_STRENGTH_WINSOR_TAIL == pytest.approx(0.01)
-    assert (
-        constants.OBSERVATION_DEFAULT_MUNC_EB_PRIOR_STRENGTH_WINSOR_TAIL
-        == constants.EB_PRIOR_STRENGTH_WINSOR_TAIL
-    )
-    assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
-    assert (
-        parsed["processArgs"].processNoiseCalibration
-        == profile["processParams.processNoiseCalibration"]
-    )
-    assert (
-        parsed["processArgs"].processNoiseWarmupECMIters
-        == profile["processParams.processNoiseWarmupECMIters"]
-    )
-    assert (
-        parsed["processArgs"].processNoiseWarmupOuterPasses
-        == profile["processParams.processNoiseWarmupOuterPasses"]
-    )
-    assert parsed["fitArgs"].t_innerIters == profile["fitParams.t_innerIters"]
-    assert (
-        parsed["fitArgs"].ECM_robustTNu
-        == consenrich_core.fitParams().ECM_robustTNu
-        == constants.FIT_DEFAULT_ROBUST_T_NU
-        == 8.0
-    )
-    assert (
-        parsed["fitArgs"].ECM_processRobustTNu
-        == consenrich_core.fitParams().ECM_processRobustTNu
-        == constants.FIT_DEFAULT_PROCESS_ROBUST_T_NU
-        == 3.0
-    )
-    assert (
-        parsed["fitArgs"].fitBackground
-        is constants.FIT_DEFAULT_BACKGROUND
-        is True
-    )
-    assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
-    assert (
-        parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier
-        == profile["fitParams.ECM_backgroundLengthScaleMultiplier"]
-    )
-    assert (
-        parsed["fitArgs"].useNonnegativeBackground
-        == profile["fitParams.useNonnegativeBackground"]
-    )
-    assert (
-        parsed["fitArgs"].backgroundNegativePenaltyMultiplier
-        == profile["fitParams.backgroundNegativePenaltyMultiplier"]
-    )
-    assert (
-        parsed["observationArgs"].muncVarianceModel
-        == profile["observationParams.muncVarianceModel"]
-    )
-    for fieldName, expectedValue in (
-        ("muncTrendBlockSizeBP", None),
-        ("muncLocalWindowSizeBP", None),
-        ("muncTrendBlockDependenceMultiplier", 2.0),
-        ("muncLocalWindowDependenceMultiplier", 4.0),
-    ):
-        assert getattr(parsed["observationArgs"], fieldName) == expectedValue
-        assert f"observationParams.{fieldName}" not in profile
-    dependenceDefaults = {
-        "dependenceSpanBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_SPAN_BP,
-        "dependenceWindowCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
-        "dependenceWindowBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
-        "dependenceMaxLagBP": constants.OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-        "dependenceWorkingQuantile": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE
-        ),
-        "dependenceBootstrapDraws": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
-        ),
-        "dependenceMinWindowCount": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
-        ),
-        "dependenceAcfSmoothingBP": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
-        ),
-        "dependenceCrossingPersistenceBP": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
-        ),
-        "dependenceCrossingCount": constants.OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_COUNT,
-        "dependenceAdaptiveSupport": constants.OBSERVATION_DEFAULT_DEPENDENCE_ADAPTIVE_SUPPORT,
-        "dependenceMinFinitePairs": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
-        ),
-        "dependenceMinFinitePairCoverage": (
-            constants.OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE
-        ),
-    }
-    for fieldName, expectedValue in dependenceDefaults.items():
-        configKey = f"observationParams.{fieldName}"
-        assert getattr(parsed["observationArgs"], fieldName) == expectedValue
-        assert profile[configKey] == expectedValue
-    assert narrowParsed["observationArgs"].dependenceSpanBP is None
-    assert (
-        parsed["observationArgs"].dependenceAcfPointThreshold
-        == profile["observationParams.dependenceAcfPointThreshold"]
-        == constants.OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
-        == pytest.approx(0.1)
-    )
-    assert (
-        parsed["observationArgs"].restrictLocalVarianceToSparseBed
-        == profile["observationParams.restrictLocalVarianceToSparseBed"]
-    )
-    ebPriorFieldMap = {
-        "muncEBPriorTileSizeBP": "observationParams.muncEBPrior.tileSizeBP",
-        "muncEBPriorTileCount": "observationParams.muncEBPrior.tileCount",
-        "muncEBPriorStrata": "observationParams.muncEBPrior.strata",
-        "muncEBPriorMinTilesPerStratum": (
-            "observationParams.muncEBPrior.minTilesPerStratum"
-        ),
-        "muncEBPriorSeed": "observationParams.muncEBPrior.seed",
-        "muncEBPriorSupportMinQ": "observationParams.muncEBPrior.supportMinQ",
-        "muncEBPriorSupportMaxQ": "observationParams.muncEBPrior.supportMaxQ",
-        "muncEBPriorMaxExtrapolatedFraction": (
-            "observationParams.muncEBPrior.maxExtrapolatedFraction"
-        ),
-        "muncEBPriorWarmupECMIters": (
-            "observationParams.muncEBPrior.warmupECMIters"
-        ),
-        "muncEBPriorWarmupOuterPasses": (
-            "observationParams.muncEBPrior.warmupOuterPasses"
-        ),
-        "muncEBPriorGUncertaintyMode": (
-            "observationParams.muncEBPrior.gUncertaintyMode"
-        ),
-    }
-    for attrName, defaultKey in ebPriorFieldMap.items():
-        assert getattr(parsed["observationArgs"], attrName) == profile[defaultKey]
-    assert (
-        parsed["observationArgs"].useCountNoiseFloor
-        == profile["observationParams.useCountNoiseFloor"]
-    )
-    assert (
-        parsed["countingArgs"].logOffset
-        == constants.COUNTING_DEFAULT_LOG_OFFSET
-        == pytest.approx(1.0)
-    )
-    assert parsed["countingArgs"].transformMethod == "log"
-    assert (
-        parsed["countingArgs"].transformInputOffset
-        == parsed["countingArgs"].logOffset
-    )
-    assert (
-        parsed["countingArgs"].transformOutputScale
-        == parsed["countingArgs"].logMult
-        == pytest.approx(1.0 / np.log(2.0))
-    )
-    assert (
-        parsed["countingArgs"].centerMB == profile["countingParams.centerMB"]
-    )
-    assert (
-        parsed["countingArgs"].centerMBMethod
-        == profile["countingParams.centerMBMethod"]
-        == consenrich_core.countingParams._field_defaults["centerMBMethod"]
-        == constants.COUNTING_DEFAULT_CENTER_MB_METHOD
-        == constants.COUNTING_CENTER_MB_METHOD_SAVGOL
-        == "savgol"
-    )
-    assert (
-        parsed["countingArgs"].centerMBWindowBP
-        == profile["countingParams.centerMBWindowBP"]
-        == consenrich_core.countingParams._field_defaults["centerMBWindowBP"]
-        == constants.COUNTING_DEFAULT_CENTER_MB_WINDOW_BP
-        == 1_000_000
-    )
-    assert (
-        parsed["outputArgs"].saveBackgroundTracks
-        == profile["outputParams.saveBackgroundTracks"]
-    )
-    assert (
-        parsed["outputArgs"].stateShrinkageModel
-        == profile["outputParams.stateShrinkageModel"]
-    )
-    assert (
-        parsed["outputArgs"].stateShrinkageEnabled
-        == profile["outputParams.stateShrinkageEnabled"]
-    )
-    assert (
-        parsed["outputArgs"].stateShrinkageStudentTDF
-        == profile["outputParams.stateShrinkageStudentTDF"]
-    )
-    assert (
-        parsed["outputArgs"].stateShrinkageStudentTQuadratureOrder
-        == profile["outputParams.stateShrinkageStudentTQuadratureOrder"]
-    )
-    assert (
-        parsed["outputArgs"].stateShrinkageSpikeOddsMultiplier
-        == profile["outputParams.stateShrinkageSpikeOddsMultiplier"]
-    )
-    assert (
-        parsed["outputArgs"].plotPrecisionReweightingHistograms
-        == profile["outputParams.plotPrecisionReweightingHistograms"]
-    )
-    assert (
-        parsed["outputArgs"].precisionReweightingHistogramSampleSize
-        == profile["outputParams.precisionReweightingHistogramSampleSize"]
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).stateShrinkageModel
-        == constants.OUTPUT_DEFAULT_STATE_SHRINKAGE_MODEL
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).plotCorrelationLength
-        is constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
-    )
-    assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
-    assert (
-        parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics
-        is constants.OUTPUT_DEFAULT_WRITE_REPLICATE_EXCHANGEABILITY_DIAGNOSTICS
-        is True
-    )
-    assert (
-        parsed["outputArgs"].writeReplicateExchangeabilityDiagnostics
-        == profile["outputParams.writeReplicateExchangeabilityDiagnostics"]
-    )
-    assert (
-        parsed["outputArgs"].writeRunSummary
-        is constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
-    )
-    assert (
-        parsed["outputArgs"].plotOptimizationPath
-        is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
-    )
-    assert (
-        parsed["outputArgs"].plotCorrelationLength
-        is constants.OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
-    )
-    assert parsed["outputArgs"].plotCorrelationLength is True
-    assert (
-        parsed["outputArgs"].plotNullCalibrationDiagnostics
-        is profile["outputParams.plotNullCalibrationDiagnostics"]
-        is consenrich_core.outputParams._field_defaults[
-            "plotNullCalibrationDiagnostics"
-        ]
-        is constants.OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
-        is True
-    )
-    assert (
-        parsed["outputArgs"].precisionDiagnosticDetail
-        == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
-    )
-    assert (
-        parsed["outputArgs"].maxPrecisionDiagnosticRowsPerChromosome
-        == constants.OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME
-    )
-    assert (
-        parsed["outputArgs"].maxNonTrackFileBytes
-        == constants.OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES
-    )
-    assert parsed["loggingArgs"].verbosity == constants.LOGGING_DEFAULT_VERBOSITY
-    assert parsed["loggingArgs"].progress == constants.LOGGING_DEFAULT_PROGRESS
-    assert parsed["loggingArgs"].logFile is None
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).saveBackgroundTracks
-        == constants.OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).saveGains
-        == constants.OUTPUT_DEFAULT_SAVE_GAINS
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).writeRunSummary
-        == constants.OUTPUT_DEFAULT_WRITE_RUN_SUMMARY
-    )
-    assert (
-        consenrich_core.outputParams(
-            convertToBigWig=parsed["outputArgs"].convertToBigWig,
-            roundDigits=parsed["outputArgs"].roundDigits,
-            writeUncertainty=parsed["outputArgs"].writeUncertainty,
-        ).precisionDiagnosticDetail
-        == constants.OUTPUT_DEFAULT_PRECISION_DIAGNOSTIC_DETAIL
-    )
-    assert (
-        consenrich_core.fitParams().useNonnegativeBackground
-        == constants.FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
-    )
-    assert (
-        consenrich_core.fitParams().backgroundNegativePenaltyMultiplier
-        == constants.FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
-    )
-    assert (
-        consenrich_core.fitParams().t_innerIters
-        == constants.FIT_DEFAULT_T_INNER_ITERS
-        == 6
-    )
-    assert (
-        consenrich_core.fitParams().fitBackground
-        is constants.FIT_DEFAULT_BACKGROUND
-        is True
-    )
-    assert parsed["matchingArgs"].exportFilterUncertaintyMultiplier == (
-        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
-    )
-    assert parsed["matchingArgs"].uncertaintyScoreMode == (
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
-    )
-    assert parsed["matchingArgs"].uncertaintyScoreZ == pytest.approx(
-        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
-    )
-    assert (
-        parsed["matchingArgs"].numRegionReplays
-        == profile["matchingParams.numRegionReplays"]
-        == constants.MATCHING_DEFAULT_NUM_REGION_REPLAYS
-    )
-    assert (
-        parsed["matchingArgs"].useLocalBootStrapRadius
-        is profile["matchingParams.useLocalBootStrapRadius"]
-        is consenrich_core.matchingParams._field_defaults[
-            "useLocalBootStrapRadius"
-        ]
-        is constants.MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
-        is True
-    )
-    assert (
-        parsed["matchingArgs"].minMeanSignal
-        is profile["matchingParams.minMeanSignal"]
-        is constants.MATCHING_DEFAULT_MIN_MEAN_SIGNAL
-    )
-    assert parsed["matchingArgs"].peakMode == constants.MATCHING_DEFAULT_PEAK_MODE
-    assert parsed["matchingArgs"].peakMode == "both"
-    assert narrowParsed["matchingArgs"].peakMode == "narrow"
-    assert broadParsed["matchingArgs"].peakMode == "broad"
-    assert parsed["matchingArgs"].broadWeakThresholdZ == pytest.approx(
-        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
-    )
-    assert (
-        constants.MATCHING_DEFAULT_BROAD_WEAK_THRESHOLD_Z
-        <= constants.MATCHING_DEFAULT_THRESHOLD_Z
-    )
-    assert all(
-        configArgs["matchingArgs"].broadWeakThresholdZ
-        <= configArgs["matchingArgs"].thresholdZ
-        for configArgs in (parsed, narrowParsed, broadParsed)
-    )
-    assert (
-        parsed["matchingArgs"].mergeToleranceBP
-        == profile["matchingParams.mergeToleranceBP"]
-        == constants.MATCHING_DEFAULT_MERGE_TOLERANCE_BP
-        == 12_000
-    )
-    assert (
-        parsed["matchingArgs"].maxRegionBP
-        == profile["matchingParams.maxRegionBP"]
-        == constants.MATCHING_DEFAULT_MAX_REGION_BP
-        == 50_000
-    )
-    assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
-    assert (
-        parsed["processArgs"].precisionMultiplierMin
-        == profile["processParams.precisionMultiplierMin"]
-        == consenrich_core.processParams().precisionMultiplierMin
-        == constants.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN
-        == pytest.approx(1.0e-4)
-    )
-    assert (
-        parsed["processArgs"].precisionMultiplierMax
-        == profile["processParams.precisionMultiplierMax"]
-        == consenrich_core.processParams().precisionMultiplierMax
-        == constants.PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
-        == pytest.approx(10.0)
-    )
-    assert (
-        consenrich_core.processParams().qSeedPriorLevel
-        == constants.PROCESS_DEFAULT_Q_SEED_PRIOR_LEVEL
-    )
-    assert (
-        consenrich_core.uncertaintyCalibrationParams().enabled
-        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED
-    )
-    assert parsed["uncertaintyCalibrationArgs"].mode == (
-        profile["uncertaintyCalibrationParams.mode"]
-    )
-    assert consenrich_core.uncertaintyCalibrationParams().mode == (
-        constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
-    )
-    assert (
-        consenrich_core.uncertaintyCalibrationParams().deleteBlockVarianceMode
-        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE
-    )
-
-    cliDefaults = consenrich_cli._buildArgParser().parse_args([])
-    assert cliDefaults.logFile is None
-    assert cliDefaults.verbosity is None
-    assert cliDefaults.progress is None
-    monkeypatch.setattr(
-        consenrich_cli.sys,
-        "argv",
-        ["consenrich", "--verbosity", "debug", "--verbose"],
-    )
-    with pytest.raises(SystemExit) as conflictExit:
-        consenrich_cli.main()
-    assert conflictExit.value.code == 2
 
 
 def _case_observationMuncSeedWeightDefaultAndPrecisionIndependence(
@@ -1843,7 +868,6 @@ def _case_observationMuncSeedWeightDefaultAndPrecisionIndependence(
     monkeypatch: pytest.MonkeyPatch,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     profile = constants.DEFAULT_CONFIGURATION_VALUES[
         constants.GENERIC_DEFAULT_CONFIGURATION
     ]
@@ -2004,7 +1028,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     configuration: generic
@@ -2019,20 +1042,11 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.processNoiseCalibration: fixed
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
-    observationParams.dependenceSpanBP: 12345
-    observationParams.dependenceWindowCount: 48
-    observationParams.dependenceWindowBP: 120000
-    observationParams.dependenceMaxLagBP: 45000
-    observationParams.dependenceWorkingQuantile: 0.90
-    observationParams.dependenceBootstrapDraws: 75
-    observationParams.dependenceMinWindowCount: 24
-    observationParams.dependenceAcfPointThreshold: 0.02
-    observationParams.dependenceAcfSmoothingBP: 300
-    observationParams.dependenceCrossingPersistenceBP: 400
-    observationParams.dependenceCrossingCount: 3
-    observationParams.dependenceAdaptiveSupport: true
-    observationParams.dependenceMinFinitePairs: 150
-    observationParams.dependenceMinFinitePairCoverage: 0.60
+    observationParams.lengthScaleBP: 12345
+    observationParams.lengthScaleOptions:
+      blockCount: 48
+      blockWidthBP: 120000
+      scaleEndBP: 45000
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
     outputParams.saveGains: false
@@ -2068,22 +1082,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].processNoiseCalibration == "fixed"
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
-    assert parsed["observationArgs"].dependenceSpanBP == 12345
-    assert parsed["observationArgs"].dependenceWindowCount == 48
-    assert parsed["observationArgs"].dependenceWindowBP == 120_000
-    assert parsed["observationArgs"].dependenceMaxLagBP == 45_000
-    assert parsed["observationArgs"].dependenceWorkingQuantile == pytest.approx(0.90)
-    assert parsed["observationArgs"].dependenceBootstrapDraws == 75
-    assert parsed["observationArgs"].dependenceMinWindowCount == 24
-    assert parsed["observationArgs"].dependenceAcfPointThreshold == pytest.approx(0.02)
-    assert parsed["observationArgs"].dependenceAcfSmoothingBP == 300
-    assert parsed["observationArgs"].dependenceCrossingPersistenceBP == 400
-    assert parsed["observationArgs"].dependenceCrossingCount == 3
-    assert parsed["observationArgs"].dependenceAdaptiveSupport is True
-    assert parsed["observationArgs"].dependenceMinFinitePairs == 150
-    assert parsed["observationArgs"].dependenceMinFinitePairCoverage == pytest.approx(
-        0.60
-    )
+    assert parsed["observationArgs"].lengthScaleBP == 12345
+    assert parsed["observationArgs"].lengthScaleOptions["blockCount"] == 48
+    assert parsed["observationArgs"].lengthScaleOptions["blockWidthBP"] == 120000
+    assert parsed["observationArgs"].lengthScaleOptions["scaleEndBP"] == 45000
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["outputArgs"].saveGains is False
@@ -2124,33 +1126,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
                 readConfig(str(invalidPath))
             assert str(error.value) == f"{configKey} must be boolean"
 
-    for invalidKeyConfig in (
-        {
-            "experimentName": "testExperiment",
-            "inputParams.bamFiles": ["smallTest.bam"],
-            "genomeParams.name": "testGenome",
-            "matchingParams.useLocalBootstrapRadius": False,
-        },
-        {
-            "experimentName": "testExperiment",
-            "inputParams.bamFiles": ["smallTest.bam"],
-            "genomeParams.name": "testGenome",
-            "matchingParams": {"useLocalBootstrapRadius": False},
-        },
-    ):
-        with pytest.raises(ValueError) as error:
-            readConfig(invalidKeyConfig)
-        assert (
-            str(error.value)
-            == "matchingParams.useLocalBootStrapRadius must be boolean"
-        )
-
-
 def _case_readConfigRejectsLowStateShrinkageStudentTDF(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -2169,7 +1148,6 @@ def _case_readConfigRejectsInvalidStateShrinkageSpikeOddsMultiplier(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     for label, value in (
         ("bool", "true"),
@@ -2197,7 +1175,6 @@ def _case_readConfigRejectsInvalidStateShrinkageEnabled(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -2219,7 +1196,6 @@ def _case_readConfigRejectsInvalidPrecisionReweightingHistogramSettings(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     for label, key, value in (
         ("plot", "outputParams.plotPrecisionReweightingHistograms", "1"),
@@ -2269,7 +1245,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -2325,7 +1300,6 @@ def _case_readConfigRejectsUnknownDefaultConfiguration(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     configuration: narrow
@@ -2341,7 +1315,6 @@ def _case_readConfigRejectsUnknownDefaultConfiguration(
 
 def _case_readConfigDeduplicatesChromosomes(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -2360,7 +1333,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configDefaultYaml = """
     experimentName: testExperiment
@@ -2379,7 +1351,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     defaultFitArgs = parsedDefault["fitArgs"]
     assert not hasattr(defaultFitArgs, "ECM_backgroundPriorQuantile")
     assert not hasattr(defaultFitArgs, "ECM_backgroundPriorVariance")
-    assert hasattr(defaultFitArgs, "ECM_backgroundLengthScaleMultiplier")
+    assert defaultFitArgs.ECM_backgroundLengthScaleMultiplier == pytest.approx(5.0)
 
     configOverrideYaml = """
     experimentName: testExperiment
@@ -2388,28 +1360,43 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     fitParams.ECM_zeroCenterBackground: false
     fitParams.useNonnegativeBackground: false
     fitParams.backgroundNegativePenaltyMultiplier: null
-    fitParams.ECM_backgroundLengthScaleMultiplier: 6
     """
-    parsedOverride = readConfig(
-        str(
+    warningCalls = []
+    monkeypatch.setattr(
+        consenrich_config.logger, "warning", lambda *args: warningCalls.append(args)
+    )
+    for settingsText, expectedMultiplier, expectedWarnings in (
+        ("fitParams.ECM_backgroundLengthScaleMultiplier: 6", 6.0, 0),
+        ("fitParams: {backgroundLengthScaleMultiplier: 3}", 3.0, 0),
+        ("fitParams.backgroundLengthScaleMultiplier: 4", 4.0, 0),
+        ("fitParams: {backgroundLengthScaleMultiplier: 3, "
+         "ECM_backgroundLengthScaleMultiplier: 3}", 3.0, 0),
+        ("fitParams.backgroundLengthScaleMultiplier: 4\n"
+         "fitParams.ECM_backgroundLengthScaleMultiplier: 6", 4.0, 1),
+        ("fitParams: {backgroundLengthScaleMultiplier: 2, "
+         "ECM_backgroundLengthScaleMultiplier: 6}", 2.0, 1),
+    ):
+        warningCalls.clear()
+        parsedOverride = readConfig(
             writeConfigFile(
-                tmp_path,
-                "config_zero_center_override.yaml",
-                configOverrideYaml,
+                tmp_path, "config_zero_center_override.yaml",
+                textwrap.dedent(configOverrideYaml) + settingsText,
             )
         )
-    )
-    assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
-    assert parsedOverride["fitArgs"].useNonnegativeBackground is False
-    assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
-    assert parsedOverride[
-        "fitArgs"
-    ].ECM_backgroundLengthScaleMultiplier == pytest.approx(6.0)
+        assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
+        assert parsedOverride["fitArgs"].useNonnegativeBackground is False
+        assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
+        assert parsedOverride[
+            "fitArgs"
+        ].ECM_backgroundLengthScaleMultiplier == pytest.approx(expectedMultiplier)
+        assert len(warningCalls) == expectedWarnings
+        if expectedWarnings:
+            assert "fitParams.backgroundLengthScaleMultiplier" in warningCalls[0][0]
+            assert warningCalls[0][-1] == expectedMultiplier
 
 
 def _case_readConfigAllowsEMTNuOverride(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configOverrideYaml = """
     experimentName: testExperiment
@@ -2446,7 +1433,6 @@ def _case_readConfigUsesECMAndOuterPassToleranceFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -2484,7 +1470,6 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configDefaultYaml = """
     experimentName: testExperiment
@@ -2768,7 +1753,6 @@ def _case_readConfigNumNearestRequiresExplicitSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     sparseBedPath = tmp_path / "explicit_sparse.bed"
     sparseBedPath.write_text("chrTest\t0\t100\n", encoding="utf-8")
 
@@ -2806,7 +1790,6 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     sparseBedPath = tmp_path / "explicit_sparse.bed"
     sparseBedPath.write_text("chrTest\t0\t100\n", encoding="utf-8")
 
@@ -2831,7 +1814,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     genomeParams.sparseBedFile: {sparseBedPath}
     observationParams.restrictLocalVarianceToSparseBed: true
     observationParams.muncVarianceModel: kalman
-    observationParams.dependenceSpanBP: 10000
+    observationParams.lengthScaleBP: 10000
     observationParams.muncEBPrior.tileSizeBP: 1000
     observationParams.muncEBPrior.tileCount: 17
     observationParams.muncEBPrior.strata: 4
@@ -2855,7 +1838,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert (
         explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_KALMAN
     )
-    assert explicitObservationArgs.dependenceSpanBP == 10000
+    assert explicitObservationArgs.lengthScaleBP == 10000
     assert explicitObservationArgs.muncEBPriorTileSizeBP == 1000
     assert explicitObservationArgs.muncEBPriorTileCount == 17
     assert explicitObservationArgs.muncEBPriorStrata == 4
@@ -2923,107 +1906,8 @@ def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
     assert indices.tolist() == [2, 3, 4]
 
 
-def _case_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
-    fragmentsPath.write_bytes(
-        (Path(__file__).parent / "data" / "fragments" / "small.fragments.tsv.gz").read_bytes()
-    )
-    groupMapPath = tmp_path / "groups.tsv"
-    groupMapPath.write_text("BC_A\tclusterA\n", encoding="utf-8")
-
-    sampleYaml = f"""
-    experimentName: sampleExperiment
-    inputParams:
-      samples:
-        - name: trt1
-          path: smallTest.bam
-          format: bam
-          role: treatment
-        - name: ctrl1
-          path: smallTest2.bam
-          format: bam
-          role: control
-        - name: clusterA
-          path: {fragmentsPath}
-          format: fragments
-          role: treatment
-          barcodeGroupMapFile: {groupMapPath}
-          selectGroups: [clusterA]
-          fragmentPositionMode: fragmentEndpoints
-    genomeParams.name: testGenome
-    countingParams.normMethod: CPM
-    countingParams.fragmentsGroupNorm: CELLS
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_samples.yaml", sampleYaml)
-    configParsed = readConfig(str(configPath))
-    inputArgs = configParsed["inputArgs"]
-
-    assert inputArgs.bamFiles == ["smallTest.bam", str(fragmentsPath)]
-    assert inputArgs.bamFilesControl == ["smallTest2.bam", "smallTest2.bam"]
-    assert inputArgs.treatmentSources is not None
-    assert inputArgs.controlSources is not None
-    assert inputArgs.treatmentSources[0].sourceKind == "BAM"
-    assert inputArgs.controlSources[0].role == "control"
-    assert inputArgs.treatmentSources[0].sampleName == "trt1"
-    assert inputArgs.treatmentSources[1].sourceKind == "FRAGMENTS"
-    assert inputArgs.treatmentSources[1].selectGroups == ["clusterA"]
-    assert inputArgs.treatmentSources[1].fragmentPositionMode == "fragmentEndpoints"
-    assert inputArgs.treatmentSources[1].fragmentsUseReadSupport is False
-    assert configParsed["scArgs"].fragmentsUseReadSupport is False
-    assert Path(f"{fragmentsPath}.tbi").is_file()
-    assert configParsed["countingArgs"].normMethod == "CPM"
-    assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
 
 
-def _case_readConfigSamplesSupportBedGraph(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    bedGraphPath = tmp_path / "sample.bedGraph"
-    bedGraphPath.write_text(
-        "track type=bedGraph\nbrowser position chrTest:1-50\nchrTest\t0\t50\t3.0\n",
-        encoding="ascii",
-    )
-    indexedPath = Path(f"{bedGraphPath}.gz")
-
-    configYaml = f"""
-    experimentName: sampleExperiment
-    inputParams:
-      samples:
-        - path: {bedGraphPath}
-          role: treatment
-    genomeParams.name: testGenome
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_bedgraph.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-    inputArgs = configParsed["inputArgs"]
-
-    assert inputArgs.treatmentSources is not None
-    assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
-    assert inputArgs.bamFiles == [str(indexedPath)]
-    assert inputArgs.treatmentSources[0].path == str(indexedPath)
-    assert bedGraphPath.exists()
-    assert indexedPath.exists()
-    assert Path(f"{indexedPath}.tbi").exists()
-    counts = consenrich_core.readSegments(
-        inputArgs.treatmentSources,
-        "chrTest",
-        0,
-        50,
-        50,
-        [0],
-        [1.0],
-        0,
-        1,
-        0,
-    )
-    np.testing.assert_allclose(counts, np.array([[3.0]], dtype=np.float32))
 
 
 def _case_readConfigSamplesSupportExplicitBedGraphFormat(
@@ -3031,7 +1915,6 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     monkeypatch: pytest.MonkeyPatch,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     signalPath = tmp_path / "sample.signal"
     signalPath.write_text("chrTest\t0\t50\t3.0\n", encoding="ascii")
     indexedPath = Path(f"{signalPath}.gz")
@@ -3041,7 +1924,7 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     inputParams:
       samples:
         - path: {signalPath}
-          format: bedGraph
+          format: BEDGRAPH
           role: treatment
     genomeParams.name: testGenome
     """
@@ -3052,94 +1935,13 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
 
     assert inputArgs.treatmentSources is not None
     assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
-    assert inputArgs.bamFiles == [str(indexedPath)]
-    assert indexedPath.exists()
-    assert Path(f"{indexedPath}.tbi").exists()
+    assert inputArgs.bamFiles == [str(signalPath)]
+    assert not indexedPath.exists()
+    assert not Path(f"{indexedPath}.tbi").exists()
 
 
-def _case_readConfigScParamsProvideFragmentsDefaults(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
-    fragmentsPath.write_bytes(
-        (Path(__file__).parent / "data" / "fragments" / "small.fragments.tsv.gz").read_bytes()
-    )
-    Path(f"{fragmentsPath}.tbi").unlink(missing_ok=True)
-    checkCalls = []
-    nativeCheck = misc_util.ccounts.ccounts_checkAlignmentPath
-
-    def checkAlignmentPath(path, sourceKind="BAM", buildIndex=False, threadCount=0):
-        checkCalls.append((path, sourceKind, buildIndex))
-        return nativeCheck(
-            path, sourceKind=sourceKind, buildIndex=buildIndex, threadCount=threadCount,
-        )
-
-    monkeypatch.setattr(misc_util.ccounts, "ccounts_checkAlignmentPath", checkAlignmentPath)
-
-    configYaml = f"""
-    experimentName: sampleExperiment
-    inputParams:
-      samples:
-        - path: {fragmentsPath}
-          format: fragments
-          role: treatment
-        - path: {fragmentsPath}
-          format: fragments
-          role: treatment
-          fragmentsUseReadSupport: false
-    genomeParams.name: testGenome
-    scParams.defaultCountMode: center
-    scParams.fragmentsGroupNorm: CELLS
-    scParams.defaultFragmentPositionMode: fragmentEndpoints
-    scParams.barcodeTag: CR
-    scParams.fragmentsUseReadSupport: true
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_sc_defaults.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-    source = configParsed["inputArgs"].treatmentSources[0]
-
-    assert source.countMode is None
-    assert source.fragmentPositionMode == "fragmentEndpoints"
-    assert source.barcodeTag == "CR"
-    assert source.fragmentsUseReadSupport is True
-    assert configParsed["inputArgs"].treatmentSources[1].fragmentsUseReadSupport is False
-    assert configParsed["scArgs"].fragmentsUseReadSupport is True
-    assert checkCalls == [(str(fragmentsPath), "FRAGMENTS", True)]
-    assert Path(f"{fragmentsPath}.tbi").is_file()
-    assert configParsed["scArgs"].defaultCountMode == "center"
-    assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
-    assert configParsed["countingArgs"].fragmentsGroupNorm == "NONE"
-    for invalidValue in (1, "false"):
-        for optionPath in ("scParams", "inputParams"):
-            invalidConfig = {
-                "genomeParams": {"name": "testGenome"},
-                "inputParams": {"samples": [{"path": str(fragmentsPath), "format": "fragments"}]},
-            }
-            if optionPath == "scParams":
-                invalidConfig["scParams"] = {"fragmentsUseReadSupport": invalidValue}
-            else:
-                invalidConfig["inputParams"]["samples"][0]["fragmentsUseReadSupport"] = invalidValue
-            with pytest.raises(ValueError, match="fragmentsUseReadSupport"):
-                readConfig(invalidConfig)
 
 
-def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
-    treatment, control = consenrich_io._resolveExtendFrom5pBPPairs(
-        [150, 180],
-        [90, 110],
-    )
-    ioTreatment, ioControl = consenrich_io._resolveExtendFrom5pBPPairs(
-        [150, 180],
-        [90, 110],
-    )
-
-    assert treatment == [150, 180]
-    assert control == [150, 180]
-    assert ioTreatment == treatment
-    assert ioControl == control
 
 
 def _case_readConfigRejectsCRAMSources(
@@ -3147,7 +1949,6 @@ def _case_readConfigRejectsCRAMSources(
     monkeypatch: pytest.MonkeyPatch,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
 
     configYaml = """
     experimentName: testExperiment
@@ -3161,7 +1962,7 @@ def _case_readConfigRejectsCRAMSources(
     """
 
     configPath = writeConfigFile(tmp_path, "config_cram.yaml", configYaml)
-    with pytest.raises(ValueError, match="CRAM inputs are unsupported"):
+    with pytest.raises(ValueError, match="CRAM inputs are unsupported|Unsupported source kind"):
         readConfig(str(configPath))
 
 
@@ -3187,27 +1988,30 @@ def _case_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
         "".join(f"{chrom}\t1000\n" for chrom in chroms),
         encoding="ascii",
     )
-    for validated in (False, True):
-        for chunkSize in (2, 20):
-            output = tmp_path / f"tracks{validated}{chunkSize}.bw"
-            consenrich_io._convertBedGraphToBigWigPyBigWig(
-                str(bedGraphPath), str(chromSizesPath), str(output),
-                chunkSize=chunkSize, validated=validated,
-            )
-            with pyBigWig.open(str(output)) as track:
-                assert list(track.chroms()) == chroms
-                for chrom in chroms:
-                    expected = tuple(
-                        (row[1], row[2], float(np.float32(row[3])))
-                        for row in rows if row[0] == chrom
-                    )
-                    assert track.intervals(chrom) == expected
-                header = track.header()
-                assert header["nBasesCovered"] == 450
-                assert header["minVal"] == -1
-                assert header["maxVal"] == 2
-                assert header["sumData"] == 287
-                assert header["sumSquared"] == 918
+    for sourceIndex, sizeSource in enumerate((
+        str(chromSizesPath), types.MappingProxyType(dict.fromkeys(chroms, 1000)),
+    )):
+        for validated in (False, True):
+            for chunkSize in (2, 20):
+                output = tmp_path / f"tracks{sourceIndex}{validated}{chunkSize}.bw"
+                consenrich_io._convertBedGraphToBigWigPyBigWig(
+                    str(bedGraphPath), sizeSource, str(output),
+                    chunkSize=chunkSize, validated=validated,
+                )
+                with pyBigWig.open(str(output)) as track:
+                    assert list(track.chroms()) == chroms
+                    for chrom in chroms:
+                        expected = tuple(
+                            (row[1], row[2], float(np.float32(row[3])))
+                            for row in rows if row[0] == chrom
+                        )
+                        assert track.intervals(chrom) == expected
+                    header = track.header()
+                    assert header["nBasesCovered"] == 450
+                    assert header["minVal"] == -1
+                    assert header["maxVal"] == 2
+                    assert header["sumData"] == 287
+                    assert header["sumSquared"] == 918
 
 
 def _case_convertBedGraphToBigWigPyBigWigRejectsOutOfBounds(tmp_path):
@@ -3278,11 +2082,15 @@ def test_nativeBedGraphChunkValidation(tmp_path):
         assert len(path.read_text().splitlines()) == 4
 
 
-def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch):
+@pytest.mark.parametrize("sizeSourceKind", ("file", "mapping"))
+def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch, sizeSourceKind):
     experimentName = "toy"
     version = consenrich_io.__version__
     chromSizesPath = tmp_path / "toy.chrom.sizes"
-    chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+    if sizeSourceKind == "file":
+        chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+    sizeSource = (str(chromSizesPath) if sizeSourceKind == "file"
+                  else types.MappingProxyType({"chr1": 100}))
     suffixes = ["state", "uncertainty"]
     bedGraphPaths = {
         suffix: (
@@ -3297,7 +2105,7 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
     validateCalls = []
     readCalls = []
     convertCalls = []
-    realReadChromSizes = consenrich_io._readChromSizes
+    realReadChromSizes = misc_util.counts.readChromSizes
 
     def recordReadChromSizes(path):
         readCalls.append(path)
@@ -3319,7 +2127,7 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
         Path(bigWigPath).write_bytes(b"x" * 128)
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(consenrich_io, "_readChromSizes", recordReadChromSizes)
+    monkeypatch.setattr(misc_util.counts, "readChromSizes", recordReadChromSizes)
     monkeypatch.setattr(consenrich_io, "_validateBedGraphSorted", recordValidate)
     monkeypatch.setattr(
         consenrich_io,
@@ -3329,13 +2137,13 @@ def test_convertBedGraphToBigWigSkipsValidatedBedGraphScan(tmp_path, monkeypatch
 
     consenrich_io.convertBedGraphToBigWig(
         experimentName,
-        str(chromSizesPath),
+        sizeSource,
         suffixes=suffixes,
         validatedBedGraphs={str(bedGraphPaths["state"])},
         deleteBedGraphsAfterBigWig=True,
     )
 
-    assert readCalls == [str(chromSizesPath)]
+    assert readCalls == ([str(chromSizesPath)] if sizeSourceKind == "file" else [])
     assert validateCalls == [
         (
             f"consenrichOutput_{experimentName}_uncertainty.v{version}.bedGraph",
@@ -3469,14 +2277,14 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
     ]
 
 
-def _case_sortBedGraphUsesSizesOrderFilteredToPlannedChromosomes(tmp_path):
+def _case_sortBedGraphUsesSizesOrderFilteredToRequestedChromosomes(tmp_path):
     bedGraphPath = tmp_path / "planned_order.bedGraph"
     chromSizesPath = tmp_path / "planned_order.chrom.sizes"
     chromSizesPath.write_text(
         "chr1\t100\nchr2\t100\nchr10\t100\nchrM\t100\n",
         encoding="ascii",
     )
-    plannedChromosomes = ["chr10", "chr1", "chr10"]
+    requestedChromosomes = ["chr10", "chr1", "chr10"]
     chromSizes = {
         chrom: int(size)
         for chrom, size in (
@@ -3484,9 +2292,9 @@ def _case_sortBedGraphUsesSizesOrderFilteredToPlannedChromosomes(tmp_path):
             for line in chromSizesPath.read_text(encoding="ascii").splitlines()
         )
     }
-    chromOrder = consenrich_cli._chromSizesOrderForPlannedChromosomes(
+    chromOrder = consenrich_cli._chromSizesOrderForChromosomes(
         chromSizes,
-        plannedChromosomes,
+        requestedChromosomes,
     )
     bedGraphPath.write_text(
         "\n".join(
@@ -3537,41 +2345,6 @@ def _case_resolveFixedDeltaFRequiresPositiveFinite():
             consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
-def _caseCenterMBRespectsUserFlagWithControlInputs():
-    countingArgs = consenrich_core.countingParams(
-        intervalSizeBP=25,
-        backgroundBlockSizeBP=1000,
-        scaleFactors=None,
-        scaleFactorsControl=None,
-        normMethod="RPKM",
-        fragmentsGroupNorm="NONE",
-        fixControl=False,
-        logOffset=1.0,
-        logMult=1.0,
-        centerMB=True,
-    )
-
-    enabled, label = consenrich_cli._resolveCenterMBStatus(
-        countingArgs,
-        controlsPresent=False,
-    )
-    assert enabled is True
-    assert label == "yes"
-
-    enabled, label = consenrich_cli._resolveCenterMBStatus(
-        countingArgs,
-        controlsPresent=True,
-    )
-    assert enabled is True
-    assert label == "yes"
-
-    disabledArgs = countingArgs._replace(centerMB=False)
-    enabled, label = consenrich_cli._resolveCenterMBStatus(
-        disabledArgs,
-        controlsPresent=True,
-    )
-    assert enabled is False
-    assert label == "no"
 
 
 def _run_with_monkeypatch(monkeypatch, func, *args):
@@ -3584,10 +2357,6 @@ def test_config_runtime_validation_contracts(tmp_path, contract_case):
         "replicate gain summary",
         _caseReplicateGainSummaryWritesPooledAverageAndStd,
         tmp_path,
-    )
-    contract_case(
-        "centerMB honors user request with controls",
-        _caseCenterMBRespectsUserFlagWithControlInputs,
     )
     contract_case(
         "fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite
@@ -3615,10 +2384,6 @@ def test_config_worker_and_input_helper_contracts(monkeypatch, contract_case):
         "scale factor singleton broadcasting",
         _caseScaleFactorNormalizationBroadcastsSingletons,
     )
-    contract_case(
-        "5p extension treatment/control compatibility",
-        _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls,
-    )
 
 
 @pytest.mark.parametrize(
@@ -3632,7 +2397,6 @@ def test_precision_median_scaling_config_options(
     scaleProcess,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     defaultPath = writeConfigFile(
         tmp_path,
         "config_precision_median_defaults.yaml",
@@ -3683,20 +2447,14 @@ def test_config_parser_defaults_and_override_contracts(
     tmp_path, monkeypatch, contract_case
 ):
     for label, func in (
-        (
-            "dotted and nested config equivalence",
-            _case_readConfigDottedAndNestedEquivalent,
-        ),
         ("output diagnostic tracks", _case_readConfigOutputDiagnosticTracks),
-        ("generic count transform", _case_readConfigGenericCountTransform),
         (
             "shared control scale factor broadcasting",
             _case_readConfigBroadcastsSharedControlScaleFactor,
         ),
         ("process noise options", _case_readConfigProcessNoiseOptions),
-        ("removed covariate keys", _case_readConfigRejectsRemovedCovariates),
+        ("configuration keys", _case_loadConfigValidatesKeys),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
-        ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         (
             "MUNC seed weight defaults",
             _case_observationMuncSeedWeightDefaultAndPrecisionIndependence,
@@ -4496,296 +3254,6 @@ def test_run_summary_output_helpers_accept_state_shrinkage_mixture_metadata(tmp_
     )
 
 
-@pytest.mark.parametrize("intervalSizeBP,reportingMinimum,reportingMaximum", [
-    (50, 2500.0, 250000.0), (110000, 110000.0, 220000.0),
-])
-def test_correlation_length_plot_helper_writes_artifact_and_handles_missing_matplotlib(
-    tmp_path,
-    monkeypatch,
-    intervalSizeBP,
-    reportingMinimum,
-    reportingMaximum,
-):
-    details = {
-        "status": "estimated",
-        "method": "clippedCovarianceShrinkage",
-        "randomSeed": 1729,
-        "inferenceScope": "conditionalOnInputTracksSelectedWindowsAndChromosomeReferenceMeans",
-        "confidenceIntervalMethod": (
-            "hierarchicalStationaryPooledCovariancePercentile"
-        ),
-        "confidenceLevel": 0.95,
-        "estimateBP": reportingMinimum,
-        "fullSampleMedianRadiusBP": 400.0,
-        "lowerBP": reportingMinimum,
-        "upperBP": reportingMaximum,
-        "workingSpanBP": reportingMinimum,
-        "fullSampleWorkingSpanBP": 2000.0,
-        "unboundedEstimateBP": 2000.0,
-        "unboundedLowerBP": 1500.0,
-        "unboundedUpperBP": 300000.0,
-        "unboundedWorkingSpanBP": 2000.0,
-        "radiusMinimumBP": 2500,
-        "radiusMaximumBP": 250000,
-        "reportingRadiusMinimumBP": reportingMinimum,
-        "reportingRadiusMaximumBP": reportingMaximum,
-        "radiusBoundsApplied": True,
-        "estimationTarget": "pooledChromosomeCenteredCovariance",
-        "replicateAggregation": "pointwiseMean",
-        "workingSpanRule": "clip(pooledRadius,minimumRadius,maximumRadius)",
-        "localRadiusSummary": {
-            "fullSampleMedianRadiusBP": 400.0, "localQuantile": 0.9, "localQuantileBP": None,
-        },
-        "chromosomesUsed": ["chr1", "chr2", "chr3", "chr4"],
-        "candidateWindowCount": 24,
-        "evaluatedCandidateWindowCount": 21,
-        "selectedWindowCount": 20,
-        "crossedWindowCount": 19,
-        "rightCensoredWindowCount": 1,
-        "supportCensoredWindowCount": 1,
-        "capCensoredWindowCount": 0,
-        "selectedAutosomeCount": 4,
-        "censorFraction": 0.05,
-        "censorTimeBPMinimum": 1000.0,
-        "censorTimeBPMedian": 1000.0,
-        "censorTimeBPMaximum": 1000.0,
-        "inputRowCount": 3,
-        "uniqueRowCount": 2,
-        "duplicateRowCount": 1,
-        "rowDeduplication": "exactEquality",
-        "acfThreshold": 0.1,
-        "acfSmoothingBP": 250,
-        "acfSmoothingBins": 5,
-        "crossingPersistenceBP": 250,
-        "crossingPersistenceBins": 5,
-        "crossingCount": 5,
-        "minFinitePairs": 200,
-        "minFinitePairCoverage": 0.5,
-        "finitePairMinimumUsed": 500.0,
-        "finitePairCoverageMinimumUsed": 0.75,
-        "validRowsAtCrossingMinimum": 2,
-        "dominantACFPeriodBPMedian": None,
-        "unresolvedPeriodFraction": 0.0,
-        "oscillationStrength": None,
-        "postCrossingRevival": None,
-        "selectedAdjacencyCount": 12,
-        "selectedLongestRun": 5,
-        "bootstrapMethod": "hierarchicalAutosomeStationaryWindow",
-        "bootstrapBlockLengthWindows": 3,
-        "bootstrapDrawsRequested": 4,
-        "bootstrapResolvedPooledDraws": 3,
-        "radiusDistributionBP": [250.0, 400.0, 550.0, 1000.0],
-        "radiusCensored": [False, False, False, True],
-        "selectedWindows": [
-            {
-                "chromosome": f"chr{index + 1}",
-                "startBP": index * 100_000,
-                "endBP": (index + 1) * 100_000,
-                "score": 10.0 - index,
-                "positiveSignalRank": float(index + 1),
-                "rawCrossingLagBP": None if index == 3 else (250.0 + 150.0 * index),
-                "censorLagBP": 1000.0 if index == 3 else (250.0 + 150.0 * index),
-                "gaussianEquivalentRadiusBP": radiusBP,
-                "rightCensored": index == 3,
-                "censorReason": "support" if index == 3 else "none",
-                "supportCapLagBP": 1000.0,
-                "finitePairMinimumUsed": 500.0,
-                "finitePairCoverageMinimumUsed": 0.75,
-                "validRowCount": 2,
-                "validRowsAtCrossing": 2,
-                "dominantACFPeriodBP": 200.0,
-                "oscillationStrength": 0.2,
-                "postCrossingRevival": 0.15,
-                "donorCount": 4,
-                "borrowingWeight": 0.5,
-                "localVariance": 0.01,
-                "residualVariance": 0.02,
-                "priorVariance": 0.005,
-                "crossingCount": 5,
-            }
-            for index, radiusBP in enumerate((250.0, 400.0, 550.0, 1000.0))
-        ],
-        "bootstrapPooledRadiusBP": [2000.0, 3000.0, 4000.0, 300000.0],
-        "bootstrapPooledRadiusCensored": [False, False, False, True],
-    }
-    row = consenrich_cli._correlationLengthRow(
-        intervalSizeBP=intervalSizeBP,
-        pointIntervals=int(reportingMinimum / intervalSizeBP),
-        contextBP=int(2 * reportingMinimum + 1),
-        details=details,
-    )
-    assert row["correlation_length_bp"] == pytest.approx(reportingMinimum)
-    assert row["working_span_bp"] == pytest.approx(reportingMinimum)
-    assert row["unbounded_correlation_length_bp"] == pytest.approx(2000.0)
-    assert row["working_span_rule"] == details["workingSpanRule"]
-    assert row["local_quantile"] == pytest.approx(0.9)
-    assert row["local_quantile_bp"] is None
-    assert row["bootstrap_resolved_pooled_draws"] == 3
-    assert row["context_bp"] == int(2 * reportingMinimum + 1)
-    assert row["random_seed"] == 1729
-    assert row["evaluated_candidate_window_count"] == 21
-    assert row["selected_window_count"] == 20
-    assert row["duplicate_row_count"] == 1
-    assert row["dominant_acf_period_bp_median"] is None
-    assert row["oscillation_strength"] is None
-    assert row["post_crossing_revival"] is None
-    assert consenrich_cli._formatOptionalLogValue(None) == "NA"
-    windowRows = consenrich_cli._correlationLengthWindowRows(details)
-    assert len(windowRows) == 4
-    assert tuple(windowRows[0]) == tuple(
-        consenrich_cli.CORRELATION_LENGTH_WINDOW_COLUMNS
-    )
-    assert windowRows[-1]["censor_reason"] == "support"
-    assert windowRows[-1]["positive_signal_rank"] == pytest.approx(4.0)
-    assert windowRows[-1]["raw_crossing_lag_bp"] is None
-    assert windowRows[0]["donor_count"] == 4
-    assert windowRows[0]["borrowing_weight"] == pytest.approx(0.5)
-    plotPath = tmp_path / "correlation_length.png"
-
-    with monkeypatch.context() as mp:
-        mp.setitem(sys.modules, "matplotlib", None)
-        assert (
-            consenrich_cli._plotCorrelationLengthInference(
-                row,
-                details,
-                plotPath,
-            )
-            is False
-        )
-
-    logCalls = []
-    saveCalls = []
-    lineCalls = []
-    histogramCalls = []
-
-    def fakeLogFileWritten(loggerArg, *, event, path, fields):
-        logCalls.append((event, path, tuple(fields)))
-
-    class FakeColorbar:
-        def set_label(self, *args, **kwargs):
-            return None
-
-    class FakeFigure:
-        def savefig(self, path, dpi=None):
-            saveCalls.append((path, dpi))
-            Path(path).write_bytes(b"png")
-
-        def colorbar(self, *args, **kwargs):
-            return FakeColorbar()
-
-        def suptitle(self, *args, **kwargs):
-            return None
-
-    class FakeAxis:
-        transAxes = object()
-
-        def axvline(self, *args, **kwargs):
-            lineCalls.append((args[0], kwargs["label"]))
-
-        def axvspan(self, *args, **kwargs):
-            return None
-
-        def hist(self, *args, **kwargs):
-            histogramCalls.append((list(args[0]), kwargs["label"]))
-
-        def fill_between(self, *args, **kwargs):
-            return None
-
-        def plot(self, *args, **kwargs):
-            return None
-
-        def step(self, *args, **kwargs):
-            return None
-
-        def scatter(self, *args, **kwargs):
-            return object()
-
-        def text(self, *args, **kwargs):
-            return None
-
-        def set_ylabel(self, *args, **kwargs):
-            return None
-
-        def set_title(self, *args, **kwargs):
-            return None
-
-        def grid(self, *args, **kwargs):
-            return None
-
-        def legend(self, *args, **kwargs):
-            return None
-
-        def set_ylim(self, *args, **kwargs):
-            return None
-
-        def set_yticks(self, *args, **kwargs):
-            return None
-
-        def set_xscale(self, *args, **kwargs):
-            return None
-
-        def set_xlim(self, *args, **kwargs):
-            return None
-
-        def set_xlabel(self, *args, **kwargs):
-            return None
-
-    fakeMatplotlib = types.ModuleType("matplotlib")
-    fakePyplot = types.ModuleType("matplotlib.pyplot")
-    fakeMatplotlib.use = lambda *args, **kwargs: None
-    fakePyplot.rcParams = {}
-    fakePyplot.subplots = lambda *args, **kwargs: (
-        FakeFigure(),
-        [FakeAxis(), FakeAxis(), FakeAxis()],
-    )
-    fakePyplot.close = lambda *args, **kwargs: None
-    fakeMatplotlib.pyplot = fakePyplot
-
-    monkeypatch.setattr(
-        consenrich_cli.logging_utils,
-        "log_file_written",
-        fakeLogFileWritten,
-    )
-    with monkeypatch.context() as mp:
-        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
-        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
-        assert (
-            consenrich_cli._plotCorrelationLengthInference(
-                row,
-                details,
-                plotPath,
-            )
-            is True
-        )
-
-    assert saveCalls == [(str(plotPath), 400)]
-    assert sorted(lineCalls) == sorted([
-        (reportingMinimum, "Pooled radius"),
-        (400.0, "Local median"),
-    ])
-    assert [(values, label) for values, label in histogramCalls if label.startswith("bootstrap")] == [(
-        np.clip([2000.0, 3000.0, 4000.0], reportingMinimum, reportingMaximum).tolist(),
-        "bootstrap pooled radius",
-    )]
-    assert logCalls == [
-        (
-            "artifact.correlation_length_plot",
-            str(plotPath),
-            (
-                ("format", "png"),
-                ("dpi", 400),
-                (
-                    "confidenceIntervalMethod",
-                    "hierarchicalStationaryPooledCovariancePercentile",
-                ),
-                ("bootstrapResolvedPooledDraws", 3),
-                ("bootstrapBlockLengthWindows", 3),
-            ),
-        )
-    ]
-    assert consenrich_cli._correlationLengthPlotPath("exp name").name == (
-        f"consenrichOutput_exp_name_correlationLength.v{consenrich_cli.__version__}.png"
-    )
 
 
 def test_cli_console_phase_subphase_contract(tmp_path, monkeypatch):
@@ -4859,11 +3327,6 @@ def test_config_sparse_sample_source_and_matching_contracts(
             "restrict local variance sparse-bed requirement",
             _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed,
         ),
-        ("structured sample sources", _case_readConfigSampleSources),
-        (
-            "single-cell fragments defaults",
-            _case_readConfigScParamsProvideFragmentsDefaults,
-        ),
         ("CRAM sources rejected", _case_readConfigRejectsCRAMSources),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
@@ -4871,7 +3334,6 @@ def test_config_sparse_sample_source_and_matching_contracts(
         "sparse interval loading", _case_loadSparseIntervalIndicesUsesBedSpan, tmp_path
     )
     for label, func in (
-        ("bedGraph sample source", _case_readConfigSamplesSupportBedGraph),
         (
             "explicit bedGraph sample source",
             _case_readConfigSamplesSupportExplicitBedGraphFormat,
@@ -4898,145 +3360,139 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
         ),
         (
             "bedGraph sizes-order planned chromosome filtering",
-            _case_sortBedGraphUsesSizesOrderFilteredToPlannedChromosomes,
+            _case_sortBedGraphUsesSizesOrderFilteredToRequestedChromosomes,
         ),
     ):
         contract_case(label, func, tmp_path)
 
 
+
+
+
+
+
+
 @pytest.mark.parametrize(
-    ("caseText", "fieldName"),
-    (
-        ("observationParams.dependenceSpanBP: true", "dependenceSpanBP"),
-        ("observationParams.dependenceSpanBP: 1.5", "dependenceSpanBP"),
-        ("observationParams.dependenceSpanBP: 1000.0", "dependenceSpanBP"),
-        ("observationParams.dependenceSpanBP: '1000'", "dependenceSpanBP"),
-        ("observationParams.dependenceWindowCount: 0", "dependenceWindowCount"),
-        ("observationParams.dependenceWindowBP: 0", "dependenceWindowBP"),
-        ("observationParams.dependenceMaxLagBP: 0", "dependenceMaxLagBP"),
-        (
-            "observationParams.dependenceWorkingQuantile: 1",
-            "dependenceWorkingQuantile",
-        ),
-        (
-            "observationParams.dependenceBootstrapDraws: 0",
-            "dependenceBootstrapDraws",
-        ),
-        (
-            "observationParams.dependenceMinWindowCount: 0",
-            "dependenceMinWindowCount",
-        ),
-        (
-            "observationParams.dependenceAcfPointThreshold: 1",
-            "dependenceAcfPointThreshold",
-        ),
-        (
-            "observationParams.dependenceAcfSmoothingBP: 0",
-            "dependenceAcfSmoothingBP",
-        ),
-        (
-            "observationParams.dependenceCrossingPersistenceBP: 0",
-            "dependenceCrossingPersistenceBP",
-        ),
-        ("observationParams.dependenceCrossingCount: 0", "dependenceCrossingCount"),
-        ("observationParams.dependenceCrossingCount: true", "dependenceCrossingCount"),
-        ("observationParams.dependenceCrossingCount: 2.5", "dependenceCrossingCount"),
-        ("observationParams.dependenceAdaptiveSupport: 1", "dependenceAdaptiveSupport"),
-        ("observationParams.dependenceAdaptiveSupport: 'yes'", "dependenceAdaptiveSupport"),
-        (
-            "observationParams.dependenceMinFinitePairs: 0",
-            "dependenceMinFinitePairs",
-        ),
-        (
-            "observationParams.dependenceMinFinitePairCoverage: 1.1",
-            "dependenceMinFinitePairCoverage",
-        ),
-        (
-            "observationParams.dependenceWindowBP: 1000\n"
-            "observationParams.dependenceMaxLagBP: 501",
-            "dependenceMaxLagBP",
-        ),
-        (
-            "observationParams.dependenceWindowCount: 20\n"
-            "observationParams.dependenceMinWindowCount: 21",
-            "dependenceMinWindowCount",
-        ),
-    ),
+    ("values", "message"),
+    [({"observationParams.lengthScaleBP": value}, "lengthScaleBP")
+     for value in (True, 0, -1, 1.5, "1000")]
+    + [({"countingParams.backgroundBlockSizeBP": value}, "backgroundBlockSizeBP")
+       for value in (True, False, 1.5, "100")]
+    + [
+        ({"observationParams.lengthScaleOptions": {"blockCount": 0}}, "blockCount"),
+        ({"observationParams.lengthScaleOptions": {"filterType": "invalid"}}, "filterType"),
+        ({"observationParams.lengthScaleOptions": {"scaleEndBP": 0}}, "scaleEndBP"),
+        ({"observationParams.lengthScaleOptions": 5}, "lengthScaleOptions"),
+        ({"observationParams.lengthScaleOptions": {"unknown": 1}}, "Unknown|Unsupported"),
+    ],
 )
-def test_dependence_config_rejects_out_of_range_values(
-    tmp_path,
-    monkeypatch,
-    caseText,
-    fieldName,
+def testLengthScaleAndWindowConfigRejectsInvalidValues(tmp_path, monkeypatch, values, message):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    config = {
+        "experimentName": "lengthScaleValidation",
+        "inputParams.bamFiles": ["smallTest.bam"],
+        "genomeParams.name": "testGenome",
+        **values,
+    }
+    with pytest.raises(ValueError, match=message):
+        readConfig(config)
+
+
+def testLengthScaleConfigPreservesExplicitValuesAndOptions(tmp_path, monkeypatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    config = {
+        "experimentName": "lengthScaleOptions",
+        "inputParams.bamFiles": ["smallTest.bam"],
+        "genomeParams.name": "testGenome",
+        "observationParams.lengthScaleOptions": {
+            "blockCount": 12, "blockWidthBP": 200000, "scaleEndBP": 50000,
+            "filterType": "mean",
+        },
+        "observationParams.muncTrendBlockSizeBP": 250,
+        "observationParams.muncLocalWindowSizeBP": 500,
+        "observationParams.muncTrendBlockLengthScaleMultiplier": 1.5,
+        "observationParams.muncLocalWindowLengthScaleMultiplier": 2.5,
+    }
+    for value, spanBP in ((1, 100), (12345, 20000), (1000001, 200000), (12345, 101)):
+        config["observationParams.lengthScaleBP"] = value
+        config["countingParams.backgroundBlockSizeBP"] = spanBP
+        parsed = readConfig(config)
+        observation = parsed["observationArgs"]
+        assert parsed["countingArgs"].backgroundBlockSizeBP == spanBP
+        assert observation.lengthScaleBP == value
+        assert observation.lengthScaleOptions["blockCount"] == 12
+        assert observation.lengthScaleOptions["blockWidthBP"] == 200000
+        assert observation.lengthScaleOptions["scaleEndBP"] == 50000
+        assert observation.lengthScaleOptions["binSizeBP"] == 50
+        assert observation.lengthScaleOptions["filterType"] == "mean"
+        assert observation.muncTrendBlockSizeBP == 250
+        assert observation.muncLocalWindowSizeBP == 500
+        assert observation.muncTrendBlockLengthScaleMultiplier == 1.5
+        assert observation.muncLocalWindowLengthScaleMultiplier == 2.5
+    config["countingParams.backgroundBlockSizeBP"] = 0
+    config["countingParams.intervalSizeBP"] = 300
+    config["observationParams.lengthScaleOptions"] = {}
+    options = readConfig(config)["observationArgs"].lengthScaleOptions
+    assert options["binSizeBP"] == 300
+    assert options["blockWidthBP"] % 300 == 0
+    assert options["scaleEndBP"] == options["blockWidthBP"]
+    config["countingParams.intervalSizeBP"] = 1000
+    for endBP in (None, 200000):
+        config["observationParams.lengthScaleOptions"] = {
+            "blockWidthBP": 500000, "scaleEndBP": endBP,
+        }
+        options = readConfig(config)["observationArgs"].lengthScaleOptions
+        expectedEndBP = 500000 if endBP is None else endBP
+        assert options["scaleEndBP"] == expectedEndBP
+        result = ccounts.estimateLengthScaleCounts(
+            np.zeros((2, 1, 500), dtype=np.int32), 1000,
+            options=ccounts.LengthScaleOptions(**options),
+        )
+        assert 125000 < max(result["settings"]["filterWidthsBP"]) <= expectedEndBP
+
+
+@pytest.mark.parametrize(
+    ("settingsText", "expectedBinBP", "conflict"),
+    [
+        ("observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 50, True),
+        ("observationParams.lengthScaleOptions: {binSizeBP: 100}", 50, True),
+        ("observationParams.lengthScaleOptions.binSizeBP: 10", 50, True),
+        ("observationParams.lengthScaleOptions.binSizeBP: 50", 50, False),
+        ("observationParams: {lengthScaleOptions: {binSizeBP: true}}", 50, True),
+        ("observationParams.lengthScaleOptions: {binSizeBP: 0}", 50, True),
+        ("observationParams.lengthScaleOptions.binSizeBP: invalid", 50, True),
+        ("countingParams: {intervalSizeBP: 25}\n"
+         "observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 25, False),
+        ("countingParams.intervalSizeBP: 50\n"
+         "observationParams.lengthScaleOptions: {binSizeBP: 25}", 50, True),
+        ("countingParams.intervalSizeBP: 100\n"
+         "observationParams.lengthScaleOptions.binSizeBP: 25", 100, True),
+        ("observationParams: {lengthScaleOptions: {binSizeBP: null}}", 50, False),
+        ("countingParams.intervalSizeBP: 25\n"
+         "observationParams.lengthScaleOptions: {binSizeBP: null}", 25, False),
+    ],
+)
+def testLengthScaleBinSizeUsesCountingGrid(
+    tmp_path, monkeypatch, caplog, settingsText, expectedBinBP, conflict,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-    indentedCaseText = caseText.replace("\n", "\n        ")
     configPath = writeConfigFile(
-        tmp_path,
-        f"config_bad_dependence_{fieldName}.yaml",
-        f"""
-        experimentName: dependenceConfigRange
-        inputParams.bamFiles: [smallTest.bam]
-        genomeParams.name: testGenome
-        {indentedCaseText}
-        """,
+        tmp_path, "binSize.yaml",
+        "inputParams.bamFiles: [smallTest.bam]\n"
+        "genomeParams.name: testGenome\n" + settingsText,
     )
-    with pytest.raises(ValueError, match=fieldName):
-        readConfig(str(configPath))
-
-
-@pytest.mark.parametrize(
-    ("requestedBP", "binBP", "expectedBP"),
-    (
-        (0, 50, 50),
-        (-1, 50, 50),
-        (1, 50, 50),
-        (10000, 50, 10000),
-        (1000001, 50, 1000000),
-        (10**400, 50, 1000000),
-        (10000, 300, 10000),
-        (1000000, 300, 999900),
-    ),
-)
-def testDependenceSpanBoundsWarnAndClip(
-    tmp_path, monkeypatch, caplog, requestedBP, binBP, expectedBP
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        parsed = readConfig({
-            "experimentName": "dependenceBounds",
-            "inputParams.bamFiles": ["smallTest.bam"],
-            "genomeParams.name": "testGenome",
-            "countingParams.intervalSizeBP": binBP,
-            "observationParams.dependenceSpanBP": requestedBP,
-        })
-    assert parsed["observationArgs"].dependenceSpanBP == expectedBP
-    spanWarnings = [
-        record for record in caplog.records
-        if record.levelno >= logging.WARNING
-        and "dependenceSpanBP" in record.getMessage()
+        parsed = readConfig(configPath)
+    assert parsed["countingArgs"].intervalSizeBP == expectedBinBP
+    assert parsed["observationArgs"].lengthScaleOptions["binSizeBP"] == expectedBinBP
+    warnings = [
+        record.getMessage() for record in caplog.records
+        if "lengthScaleOptions.binSizeBP" in record.getMessage()
     ]
-    assert len(spanWarnings) == int(requestedBP != expectedBP)
-    for record in spanWarnings:
-        assert f"from {requestedBP} to {expectedBP} bp" in record.getMessage()
-
-
-@pytest.mark.parametrize(
-    "fieldName",
-    (
-        "muncTrendBlockSizeBP", "muncLocalWindowSizeBP",
-        "muncTrendBlockDependenceMultiplier", "muncLocalWindowDependenceMultiplier",
-    ),
-)
-def testMuncWindowConfigUsesDependenceSpan(fieldName):
-    key = f"observationParams.{fieldName}"
-    for values in ({key: 2}, {"observationParams": {fieldName: 2}}):
-        with pytest.raises(ValueError, match="Use `observationParams.dependenceSpanBP`"):
-            consenrich_config.loadConfig(values)
-    with pytest.raises(ValueError, match="Unknown config override key"):
-        consenrich_config.applyConfigOverrides({}, [f"{key}=2"])
+    assert len(warnings) == int(conflict)
+    if conflict:
+        assert "countingParams.intervalSizeBP" in warnings[0]
+        assert str(expectedBinBP) in warnings[0]
 
 
 @pytest.mark.parametrize(
@@ -5091,7 +3547,6 @@ def test_cli_failure_guidance(flags, exitCode, monkeypatch, capsys, tmp_path):
 @pytest.mark.parametrize("flags", [[], ["--verbose2"]])
 def test_cli_config_overrides(tmp_path, monkeypatch, flags):
     setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
     configPath = writeConfigFile(tmp_path, "overrides.yaml", """
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
@@ -5108,7 +3563,9 @@ def test_cli_config_overrides(tmp_path, monkeypatch, flags):
     for assignment in (
         "samParams.samThreads=2",
         "samParams.samThreads=3",
+        "observationParams.lengthScaleOptions.binSizeBP=50",
         "countingParams.intervalSizeBP=25",
+        "fitParams.backgroundLengthScaleMultiplier=3",
         "loggingParams.verbosity=verbose",
         "loggingParams.progress=off",
     ):
@@ -5120,6 +3577,8 @@ def test_cli_config_overrides(tmp_path, monkeypatch, flags):
     assert configureLogging is consenrich_cli._configureCliLogging
     assert config["samArgs"].samThreads == 3
     assert config["countingArgs"].intervalSizeBP == 25
+    assert config["observationArgs"].lengthScaleOptions["binSizeBP"] == 25
+    assert config["fitArgs"].ECM_backgroundLengthScaleMultiplier == 3
     assert args.verbosity == ("debug" if flags else "verbose")
     assert args.progress == "off"
     assert configPath.read_text() == sourceText

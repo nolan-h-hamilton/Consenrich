@@ -4,6 +4,8 @@ genomeParams:
   chromosomes: [chr21, chr22]
 countingParams:
   normMethod: CPM
+observationParams:
+  lengthScaleBP: 25000
 scParams:
   fits:
     - {name: Goblet, selectGroups: [AC_Goblet]}

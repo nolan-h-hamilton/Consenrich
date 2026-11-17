@@ -26,6 +26,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from ccounts import assemblyBlacklistRanges
 from scipy import stats
 
 from . import cconsenrich
@@ -218,9 +219,22 @@ def _validateNumRegionReplays(value: int) -> int:
     return numReplays
 
 
-def _readBlacklistIntervalsByChrom(blacklistBedFile: str | None) -> Dict[str, np.ndarray]:
+def _readBlacklistIntervalsByChrom(
+    blacklistBedFile: str | None, genomeName: str | None = None
+) -> Dict[str, np.ndarray]:
     if blacklistBedFile is None:
-        return {}
+        if genomeName is None:
+            return {}
+        try:
+            chromosomeRanges = assemblyBlacklistRanges[genomeName]
+        except KeyError as error:
+            raise ValueError(
+                f"No blacklist ranges available for assembly {genomeName!r}"
+            ) from error
+        return {
+            chromosome: np.asarray(ranges, dtype=np.int64)
+            for chromosome, ranges in chromosomeRanges.items()
+        }
     path = Path(blacklistBedFile)
     if not path.exists():
         raise ValueError(f"Could not find blacklist BED file {blacklistBedFile}")
@@ -3373,6 +3387,7 @@ def solveRocco(
     metaPath: str | None = None,
     maxNonTrackFileBytes: int = _OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     blacklistBedFile: str | None = None,
+    genomeName: str | None = None,
     writeMetadata: bool = True,
 ) -> peakArtifacts:
     residualDurationBP_ = _validateDurationBP(
@@ -3506,7 +3521,7 @@ def solveRocco(
         "ROCCO: loading input tracks",
         fields={"stage": "inputLoad"},
     )
-    blacklistByChrom = _readBlacklistIntervalsByChrom(blacklistBedFile)
+    blacklistByChrom = _readBlacklistIntervalsByChrom(blacklistBedFile, genomeName)
     chromData = _readAlignedConsenrichBedGraphs(
         signalBedGraphFile,
         uncertaintyBedGraphFile=uncertaintyBedGraphFile,
@@ -4194,6 +4209,7 @@ def solveRocco(
             "blacklistBed": (
                 None if blacklistBedFile is None else str(blacklistBedFile)
             ),
+            "blacklistAssembly": None if blacklistBedFile is not None else genomeName,
         },
         "outputs": {
             "narrowPeak": narrowPath,
