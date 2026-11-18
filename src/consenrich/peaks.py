@@ -8,8 +8,10 @@ import logging
 import math
 import os
 import tempfile
+import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import (
     Any,
@@ -92,6 +94,7 @@ _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = (
 )
 _NULL_REPLAY_MAX_SEGMENTS = 20000
 _NULL_REPLAY_MAX_SEGMENTS_PER_VIEW = 1000
+_NULL_REPLAY_THREADS = 4
 _ROCCO_BUDGET_SHRINKAGE_MIN_CHROMOSOMES = 4
 _ROCCO_TAIL_VARIANCE_BLOCK_SPANS = 8
 _ROCCO_BUDGET_BLOCK_TAIL_BLOCKS = 200
@@ -578,6 +581,7 @@ def _calibrateStationaryNullBootstrap(
     templateMeta: Dict[str, Any] | None = None,
     progressLabel: str | None = None,
     useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
+    runBootstrap: bool = True,
 ) -> Dict[str, Any]:
     scoreTrack_ = _asFloatVector("scoreTrack", scoreTrack)
     template_ = _asFloatVector("template", template)
@@ -675,12 +679,9 @@ def _calibrateStationaryNullBootstrap(
     thresholdViews: Dict[str, Dict[str, Any]] = {}
     thresholdMetrics: Dict[str, Dict[str, Any]] = {}
     thresholdOffsets: Dict[str, float] = {}
-    nullOccByKey: Dict[str, np.ndarray] = {
-        _thresholdZKey(z): np.empty(numBootstrap_, dtype=np.float64) for z in zGrid
-    }
-    farNullOccByKey: Dict[str, np.ndarray] = {
-        key: np.empty(numBootstrap_, dtype=np.float64) for key in nullOccByKey
-    }
+    primaryKey = _thresholdZKey(float(thresholdZ))
+    nullOcc = np.full(numBootstrap_, np.nan)
+    farNullOcc = np.full(numBootstrap_, np.nan)
     templateMeta_ = {} if templateMeta is None else dict(templateMeta)
     for z in zGrid:
         key = _thresholdZKey(z)
@@ -732,7 +733,7 @@ def _calibrateStationaryNullBootstrap(
         }
 
     rng = np.random.default_rng(int(randomSeed))
-    for b in range(numBootstrap_):
+    for b in range(numBootstrap_ if runBootstrap else 0):
         draw = np.asarray(
             cconsenrich.cStationaryNullBootstrapDraw(
                 template_,
@@ -744,15 +745,14 @@ def _calibrateStationaryNullBootstrap(
             ),
             dtype=np.float64,
         )
-        for z in zGrid:
-            key = _thresholdZKey(z)
-            nullOccByKey[key][b] = float(
-                np.dot(coverageWeights_, draw > thresholdOffsets[key]) / totalWeight
-            )
-            farNullOccByKey[key][b] = float(
-                np.dot(coverageWeights_, draw > 2.0 * thresholdOffsets[key])
-                / totalWeight
-            )
+        nullOcc[b] = float(
+            np.dot(coverageWeights_, draw > thresholdOffsets[primaryKey])
+            / totalWeight
+        )
+        farNullOcc[b] = float(
+            np.dot(coverageWeights_, draw > 2.0 * thresholdOffsets[primaryKey])
+            / totalWeight
+        )
         progressDone = b + 1
         if progressLabel is not None and progressDone in progressMarks:
             _logRoccoProgress(
@@ -767,36 +767,28 @@ def _calibrateStationaryNullBootstrap(
                 },
             )
 
-    for z in zGrid:
-        key = _thresholdZKey(z)
-        metrics = thresholdMetrics[key]
-        nullOcc = np.asarray(nullOccByKey[key], dtype=np.float64)
-        nullTailOccupancy = float(np.mean(nullOcc))
-        nullTailOccupancySD = float(np.std(nullOcc, ddof=1))
-        nullTailMCSE = float(nullTailOccupancySD / math.sqrt(numBootstrap_))
-        signedTailExcess = float(
-            float(metrics["track_tail_occupancy"]) - nullTailOccupancy
-        )
-        budgetOccupancyRaw = float(max(signedTailExcess, 0.0))
-        metrics.update(
-            {
-                "null_tail_occupancy": float(nullTailOccupancy),
-                "null_tail_occupancy_sd": float(nullTailOccupancySD),
-                "null_tail_mc_se": float(nullTailMCSE),
-                "signed_tail_excess": float(signedTailExcess),
-                "far_tail_excess": float(
-                    float(metrics["far_track_tail_occupancy"])
-                    - np.mean(farNullOccByKey[key])
-                ),
-                "budget_occupancy_raw": float(budgetOccupancyRaw),
-            }
-        )
-        if key == _thresholdZKey(float(thresholdZ)):
-            metrics["null_tail_occupancy_draws"] = np.asarray(
-                nullOcc,
-                dtype=np.float64,
-            ).copy()
-            metrics["far_null_tail_occupancy_draws"] = farNullOccByKey[key].copy()
+    metrics = thresholdMetrics[primaryKey]
+    nullTailOccupancy = float(np.mean(nullOcc))
+    nullTailOccupancySD = float(np.std(nullOcc, ddof=1))
+    nullTailMCSE = float(nullTailOccupancySD / math.sqrt(numBootstrap_))
+    signedTailExcess = float(
+        float(metrics["track_tail_occupancy"]) - nullTailOccupancy
+    )
+    budgetOccupancyRaw = float(max(signedTailExcess, 0.0))
+    metrics.update(
+        {
+            "null_tail_occupancy": float(nullTailOccupancy),
+            "null_tail_occupancy_sd": float(nullTailOccupancySD),
+            "null_tail_mc_se": float(nullTailMCSE),
+            "signed_tail_excess": float(signedTailExcess),
+            "far_tail_excess": float(
+                float(metrics["far_track_tail_occupancy"]) - np.mean(farNullOcc)
+            ),
+            "budget_occupancy_raw": float(budgetOccupancyRaw),
+            "null_tail_occupancy_draws": nullOcc,
+            "far_null_tail_occupancy_draws": farNullOcc,
+        }
+    )
 
     return {
         "bootstrap_method": "stationary_bootstrap",
@@ -817,7 +809,7 @@ def _calibrateStationaryNullBootstrap(
         "threshold_views": thresholdViews,
         "threshold_metrics": thresholdMetrics,
         "budget_z_grid": [float(z) for z in zGrid],
-        "primary_key": _thresholdZKey(float(thresholdZ)),
+        "primary_key": primaryKey,
     }
 
 
@@ -926,6 +918,7 @@ def _prepareROCCOScoreAndNull(
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     progressLabel: str | None = None,
     useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
+    runBootstrap: bool = True,
 ) -> Dict[str, Any]:
     r"""Prepare the direct Consenrich score track and robust null for ROCCO budgeting."""
     prepared = _prepareROCCOBaseScore(
@@ -970,6 +963,7 @@ def _prepareROCCOScoreAndNull(
         templateMeta=templateMeta,
         progressLabel=progressLabel,
         useLocalBootStrapRadius=useLocalBootStrapRadius,
+        runBootstrap=runBootstrap,
     )
     thresholdViews = dict(calibration["threshold_views"])
     primaryKey = str(calibration["primary_key"])
@@ -1220,10 +1214,10 @@ def _estimateROCCOBlockBudgets(
     ends: np.ndarray,
     residualSpanIntervals: int,
     minBlockMass: float,
-    prepared: Dict[str, Any],
     prepareArgs: Mapping[str, Any],
     blockCount: int | None = None,
-) -> List[Dict[str, Any]]:
+    progressLabel: str | None = None,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     detailNames = (
         "track_tail_occupancy",
         "null_tail_occupancy",
@@ -1248,6 +1242,16 @@ def _estimateROCCOBlockBudgets(
         np.linspace(0, signal.size, max(int(blockCount), 1) + 1)
         .astype(np.int64)
         .tolist()
+    )
+    prepared = _prepareROCCOScoreAndNull(
+        signal,
+        residualSpanIntervals,
+        uncertainty=uncertainty,
+        intervals=intervals,
+        ends=ends,
+        progressLabel=progressLabel,
+        runBootstrap=len(bounds) == 2,
+        **prepareArgs,
     )
     blocks: List[Dict[str, Any]] = []
     for start, stop in zip(bounds[:-1], bounds[1:]):
@@ -1278,7 +1282,7 @@ def _estimateROCCOBlockBudgets(
             blockPrepared, returnDetails=True, minBlockMass=minBlockMass
         )
         block.update({name: details[name] for name in detailNames})
-    return blocks
+    return prepared, blocks
 
 
 def _shrinkROCCOChromosomeBudgets(
@@ -2205,24 +2209,28 @@ def _buildCandidateReplayData(
             commonCandidateStats[key] = statistic
     replayViews = _thresholdViewsForNullReplay(thresholdViews)
     rng = np.random.default_rng(randomSeed)
-    nullStatsByDraw: list[np.ndarray] = []
-    nullCandidateCounts: list[int] = []
     replayTotal = int(numRegionReplays)
     replayMarks = {
         int(math.ceil(replayTotal * fraction / 4.0)) for fraction in range(1, 5)
     }
-    for drawIndex in range(replayTotal):
-        draw = np.asarray(
-            cconsenrich.cStationaryNullBootstrapDraw(
-                template_,
-                segmentOffsets,
-                coverageWeights,
-                bootstrapBlockLength,
-                rng,
-                maxLocalRadiusIntervals,
-            ),
-            dtype=np.float64,
-        )
+    nullStatsByDraw: list[Any] = [None] * replayTotal
+    drawLock = threading.Lock()
+    drawOrder = iter(range(replayTotal))
+
+    def replayDraw(_: int) -> None:
+        with drawLock:
+            drawIndex = next(drawOrder)
+            draw = np.asarray(
+                cconsenrich.cStationaryNullBootstrapDraw(
+                    template_,
+                    segmentOffsets,
+                    coverageWeights,
+                    bootstrapBlockLength,
+                    rng,
+                    maxLocalRadiusIntervals,
+                ),
+                dtype=np.float64,
+            )
         nullCandidates = _multiscaleCandidateSegments(
             draw,
             replayViews,
@@ -2237,21 +2245,22 @@ def _buildCandidateReplayData(
         )
         drawStats.sort()
         drawStats.setflags(write=False)
-        nullStatsByDraw.append(drawStats)
-        nullCandidateCounts.append(int(drawStats.size))
-        replayDone = drawIndex + 1
-        if progressLabel is not None and replayDone in replayMarks:
-            _logRoccoProgress(
-                "ROCCO %s: candidate replay %d/%d",
-                progressLabel,
-                replayDone,
-                replayTotal,
-                fields={
-                    "stage": "candidateReplay",
-                    "completed": replayDone,
-                    "total": replayTotal,
-                },
-            )
+        nullStatsByDraw[drawIndex] = drawStats
+
+    with ThreadPoolExecutor(max_workers=_NULL_REPLAY_THREADS) as pool:
+        for replayDone, _ in enumerate(pool.map(replayDraw, range(replayTotal)), 1):
+            if progressLabel is not None and replayDone in replayMarks:
+                _logRoccoProgress(
+                    "ROCCO %s: candidate replay %d/%d",
+                    progressLabel,
+                    replayDone,
+                    replayTotal,
+                    fields={
+                        "stage": "candidateReplay",
+                        "completed": replayDone,
+                        "total": replayTotal,
+                    },
+                )
 
     nonemptyNullStats = [draw for draw in nullStatsByDraw if draw.size > 0]
     pooledNullStats = (
@@ -2266,7 +2275,7 @@ def _buildCandidateReplayData(
         commonCandidateStats=tuple(sorted(commonCandidateStats.items())),
         nullStatsByDraw=tuple(nullStatsByDraw),
         pooledNullStats=pooledNullStats,
-        nullCandidateCounts=tuple(nullCandidateCounts),
+        nullCandidateCounts=tuple(int(draw.size) for draw in nullStatsByDraw),
     )
 
 
@@ -3541,27 +3550,18 @@ def solveRocco(
                 "uncertaintyScoreZ": uncertaintyScoreZ_,
                 "useLocalBootStrapRadius": useLocalBootStrapRadius_,
             }
-            prepared = _prepareROCCOScoreAndNull(
-                signal,
-                residualSpanBins,
-                uncertainty=uncertainty,
-                intervals=intervals,
-                ends=ends,
-                progressLabel=chromosomeLabel,
-                **prepareArgs,
-            )
-            scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
-            template = np.asarray(prepared["template"], dtype=np.float64)
-            budgetBlocks = _estimateROCCOBlockBudgets(
+            prepared, budgetBlocks = _estimateROCCOBlockBudgets(
                 signal,
                 uncertainty,
                 intervals,
                 ends,
                 residualSpanBins,
                 float(_ROCCO_TAIL_VARIANCE_BLOCK_SPANS * residualSpanBins * binBP),
-                prepared,
                 prepareArgs,
+                progressLabel=chromosomeLabel,
             )
+            scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
+            template = np.asarray(prepared["template"], dtype=np.float64)
             scorePath = spoolDirectory / f"{chromIndex:04d}.score.npy"
             templatePath = spoolDirectory / f"{chromIndex:04d}.template.npy"
             np.save(scorePath, scoreTrack, allow_pickle=False)

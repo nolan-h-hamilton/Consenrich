@@ -1563,12 +1563,9 @@ def _caseBlockBudgetsAndBlockSolve():
     prepareArgs = {"thresholdZ": 2.0, "numBootstrap": 16, "randomSeed": 5}
 
     def blockBudgets(stop, tailBlockMass=6400.0, blockCount=None):
-        prepared = peaks._prepareROCCOScoreAndNull(
-            scores[:stop], 8, intervals=intervals[:stop], ends=ends[:stop], **prepareArgs
-        )
-        return prepared, peaks._estimateROCCOBlockBudgets(
+        return peaks._estimateROCCOBlockBudgets(
             scores[:stop], None, intervals[:stop], ends[:stop], 8, tailBlockMass,
-            prepared, prepareArgs, blockCount=blockCount,
+            prepareArgs, blockCount=blockCount,
         )
 
     _prepared, blocks = blockBudgets(scores.size, blockCount=4)

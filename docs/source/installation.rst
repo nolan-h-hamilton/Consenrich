@@ -13,7 +13,7 @@ To install the latest version, run:
 
 .. code-block:: console
 
-  % python -m pip install --upgrade "consenrich>=0.11.9a0" "ccounts>=0.5.0b0"
+  % python -m pip install --upgrade "consenrich>=0.11.10a0" "ccounts>=0.5.0b0"
 
 If a binary is not available for your platform or you wish to optimize compiler flags for your hardware, consider building from source.
 
