@@ -18,7 +18,7 @@ Estimation Controls
 .. _genomic-length-scale:
 
 ``observationParams.lengthScaleBP``
-    * Sets the `length scale <https://arxiv.org/abs/1602.06318>`_ used to control
+    * Sets the length scale used to control
       the sensitivity and frequency response of the background sequence
       :math:`\{g_{[i]}\}_{i=1}^{n}`. This quantity is similar to
       `csaw's window size <https://bioconductor.org/books/release/csawBook/counting-reads-into-windows.html#sec:windowsize>`_
@@ -30,14 +30,27 @@ Estimation Controls
       sampled genomic blocks quantifies uncertainty in the estimate due to
       block sampling noise.
 
-    * For a manual value, consider ``10000``--``25000`` bp for
-      `narrow marks <https://www.encodeproject.org/glossary/#target-categories>`_
-      (TF binding, chromatin accessibility, H2AFZ, H3ac, H3K27ac, H3K4me2,
-      H3K4me3, H3K9ac) and
-      ``25000``--``100000`` bp for
-      `broad marks <https://www.encodeproject.org/glossary/#target-categories>`_
-      (H3F3A, H3K27me3, H3K36me3, H3K4me1, H3K79me2, H3K79me3,
-      H3K9me1, H3K9me2, H4K20me1).
+    * If specifying a ``lengthScaleBP`` manually, consider using:
+
+      * ``10000``--``25000`` bp for
+        `narrow marks <https://www.encodeproject.org/glossary/#target-categories>`_
+        (TF binding, chromatin accessibility, H2AFZ, H3ac, H3K27ac, H3K4me2,
+        H3K4me3, H3K9ac)
+      * ``25000``--``100000`` bp for
+        `broad marks <https://www.encodeproject.org/glossary/#target-categories>`_
+        (H3F3A, H3K27me3, H3K36me3, H3K4me1, H3K79me2, H3K79me3,
+        H3K9me1, H3K9me2, H4K20me1)
+
+    .. admonition:: Length scale effects on estimation
+       :class: tip
+       :collapsible: closed
+
+       Signal estimates and peaks under varying ``lengthScaleBP``:``{10 kb, 25 kb, 50 kb, and 100 kb}``
+
+       .. image:: ../images/lengthScaleEffects.svg
+          :alt: Consenrich signal estimates and peaks at four length scales for bulk ATAC-seq, scATAC-seq, and H3K4me1 ChIP-seq
+          :align: center
+          :width: 100%
 
 ``observationParams.lengthScaleOptions``
     .. admonition:: Length-scale estimation options
@@ -115,10 +128,9 @@ Estimation Controls
       Increasing this value above ``1.0`` helps ensure that enriched regions
       are preserved in the signal estimates :math:`\{x_{[i]}\}_{i=1}^{n}`.
 
-    * The default lower and upper bounds for computed length scales are
+    * The default lower and upper bounds for the *estimated length scales* are
       ``5000`` bp and ``100000`` bp. Estimated length scales outside the bounds
-      are clipped and adjusted to an odd number of counting bins without
-      exceeding the upper bound.
+      are clipped.
 
 ``countingParams.backgroundBlockSizeBP``
     * Positive integer widths bypass the multiplier and automatic bounds and

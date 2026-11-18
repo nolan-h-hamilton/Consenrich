@@ -93,10 +93,12 @@ _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = (
 _NULL_REPLAY_MAX_SEGMENTS = 20000
 _NULL_REPLAY_MAX_SEGMENTS_PER_VIEW = 1000
 _ROCCO_BUDGET_SHRINKAGE_MIN_CHROMOSOMES = 4
-_ROCCO_BUDGET_SHRINKAGE_MIN_RETENTION = 0.90
 _ROCCO_TAIL_VARIANCE_BLOCK_SPANS = 8
+_ROCCO_BUDGET_BLOCK_TAIL_BLOCKS = 200
+_ROCCO_BUDGET_BLOCK_MIN_BP = 40_000_000
+_ROCCO_SELECTION_PENALTY_MIN = 0.01
 _ROCCO_LOCAL_BOOTSTRAP_RADIUS_LIMIT_BP = 1_000_000
-_ROCCO_DIAGNOSTIC_MAX_BOOTSTRAP_SAMPLES_PER_CHROMOSOME = 512
+_ROCCO_DIAGNOSTIC_MAX_BOOTSTRAP_SAMPLES_PER_BLOCK = 512
 
 
 class peakArtifacts(NamedTuple):
@@ -349,8 +351,7 @@ def consenrichStateScoreTrack(
     uncertainty: npt.ArrayLike | None = None,
     uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
-    returnDetails: bool = False,
-) -> np.ndarray | Tuple[np.ndarray, Dict[str, Any]]:
+) -> np.ndarray:
     r"""Build the Consenrich-derived ROCCO score track."""
     state_ = _asFloatVector("state", state)
     mode = normalization.validateChoice(
@@ -363,69 +364,23 @@ def consenrichStateScoreTrack(
         uncertaintyScoreZ,
         paramName="uncertaintyScoreZ",
     )
-    scoreTrack = state_
-    seMode = "none"
-    uncertaintyAvailable = False
-    uncertaintyUsed = False
-    uncertaintyMin = None
-    uncertaintyMedian = None
-    uncertaintyMax = None
-    lowerConfidenceScoreFloor = None
-    lowerConfidenceScoreFloorHits = 0
     if uncertainty is not None:
         uncertainty_ = _asFloatVector("uncertainty", uncertainty)
         if uncertainty_.size != state_.size:
             raise ValueError("`uncertainty` must match `state` length")
-        seMode = "ignored"
-        uncertaintyAvailable = True
-        uncertaintyMin = float(np.min(uncertainty_))
-        uncertaintyMedian = float(np.median(uncertainty_))
-        uncertaintyMax = float(np.max(uncertainty_))
     elif mode == "lower_confidence":
         raise ValueError(
             "`lower_confidence` uncertaintyScoreMode requires `uncertainty`"
         )
-
-    if mode == "lower_confidence":
-        if np.any(uncertainty_ < 0.0):
-            raise ValueError("`uncertainty` must be non-negative for lower_confidence")
-        rawScore = state_ - z_ * uncertainty_
-        maxState = float(np.max(state_))
-        if np.isfinite(maxState) and maxState > 0.0:
-            lowerConfidenceScoreFloor = float(-2.0 * maxState)
-            scoreTrack = np.maximum(rawScore, lowerConfidenceScoreFloor)
-            lowerConfidenceScoreFloorHits = int(
-                np.sum(rawScore < lowerConfidenceScoreFloor)
-            )
-        else:
-            scoreTrack = rawScore
-        seMode = "used"
-        uncertaintyUsed = True
-
-    if not returnDetails:
-        return scoreTrack
-
-    details: Dict[str, Any] = {
-        "score_mode": "consenrich_state" if mode == "state" else "lower_confidence",
-        "uncertainty_score_mode": str(mode),
-        "uncertainty_score_z": float(z_),
-        "se_mode": str(seMode),
-        "uncertainty_available": bool(uncertaintyAvailable),
-        "uncertainty_used": bool(uncertaintyUsed),
-        "state_median": float(np.median(state_)),
-        "state_abs_median": float(np.median(np.abs(state_))),
-        "state_min": float(np.min(state_)),
-        "state_max": float(np.max(state_)),
-        "score_median": float(np.median(scoreTrack)),
-        "score_min": float(np.min(scoreTrack)),
-        "score_max": float(np.max(scoreTrack)),
-        "uncertainty_min": uncertaintyMin,
-        "uncertainty_median": uncertaintyMedian,
-        "uncertainty_max": uncertaintyMax,
-        "lower_confidence_score_floor": lowerConfidenceScoreFloor,
-        "lower_confidence_score_floor_hits": int(lowerConfidenceScoreFloorHits),
-    }
-    return scoreTrack, details
+    if mode != "lower_confidence":
+        return state_
+    if np.any(uncertainty_ < 0.0):
+        raise ValueError("`uncertainty` must be non-negative for lower_confidence")
+    rawScore = state_ - z_ * uncertainty_
+    maxState = float(np.max(state_))
+    if np.isfinite(maxState) and maxState > 0.0:
+        return np.maximum(rawScore, -2.0 * maxState)
+    return rawScore
 
 
 def _selectRobustNullSupport(
@@ -723,6 +678,9 @@ def _calibrateStationaryNullBootstrap(
     nullOccByKey: Dict[str, np.ndarray] = {
         _thresholdZKey(z): np.empty(numBootstrap_, dtype=np.float64) for z in zGrid
     }
+    farNullOccByKey: Dict[str, np.ndarray] = {
+        key: np.empty(numBootstrap_, dtype=np.float64) for key in nullOccByKey
+    }
     templateMeta_ = {} if templateMeta is None else dict(templateMeta)
     for z in zGrid:
         key = _thresholdZKey(z)
@@ -746,6 +704,10 @@ def _calibrateStationaryNullBootstrap(
         trackTailOccupancy = float(
             np.dot(coverageWeights_, scoreTrack_ > threshold) / totalWeight
         )
+        farTrackTailOccupancy = float(
+            np.dot(coverageWeights_, scoreTrack_ > threshold + thresholdOffset)
+            / totalWeight
+        )
         nullMeta = {
             "null_center": float(nullCenter),
             "null_scale": float(nullScale_),
@@ -765,11 +727,8 @@ def _calibrateStationaryNullBootstrap(
         thresholdMetrics[key] = {
             "threshold_z": float(z_),
             "threshold": float(threshold),
-            "null_center": float(nullCenter),
-            "null_scale": float(nullScale_),
             "track_tail_occupancy": float(trackTailOccupancy),
-            "null_meta": dict(nullMeta),
-            "template_meta": dict(templateMeta_),
+            "far_track_tail_occupancy": float(farTrackTailOccupancy),
         }
 
     rng = np.random.default_rng(int(randomSeed))
@@ -789,6 +748,10 @@ def _calibrateStationaryNullBootstrap(
             key = _thresholdZKey(z)
             nullOccByKey[key][b] = float(
                 np.dot(coverageWeights_, draw > thresholdOffsets[key]) / totalWeight
+            )
+            farNullOccByKey[key][b] = float(
+                np.dot(coverageWeights_, draw > 2.0 * thresholdOffsets[key])
+                / totalWeight
             )
         progressDone = b + 1
         if progressLabel is not None and progressDone in progressMarks:
@@ -821,6 +784,10 @@ def _calibrateStationaryNullBootstrap(
                 "null_tail_occupancy_sd": float(nullTailOccupancySD),
                 "null_tail_mc_se": float(nullTailMCSE),
                 "signed_tail_excess": float(signedTailExcess),
+                "far_tail_excess": float(
+                    float(metrics["far_track_tail_occupancy"])
+                    - np.mean(farNullOccByKey[key])
+                ),
                 "budget_occupancy_raw": float(budgetOccupancyRaw),
             }
         )
@@ -829,16 +796,7 @@ def _calibrateStationaryNullBootstrap(
                 nullOcc,
                 dtype=np.float64,
             ).copy()
-        metrics["null_meta"].update(
-            {
-                "null_tail_occupancy": float(nullTailOccupancy),
-                "null_tail_mc_se": float(nullTailMCSE),
-                "track_tail_occupancy": float(metrics["track_tail_occupancy"]),
-                "signed_tail_excess": float(signedTailExcess),
-                "budget": float(budgetOccupancyRaw),
-            }
-        )
-        thresholdViews[key]["null_meta"] = dict(metrics["null_meta"])
+            metrics["far_null_tail_occupancy_draws"] = farNullOccByKey[key].copy()
 
     return {
         "bootstrap_method": "stationary_bootstrap",
@@ -1015,21 +973,15 @@ def _prepareROCCOScoreAndNull(
     )
     thresholdViews = dict(calibration["threshold_views"])
     primaryKey = str(calibration["primary_key"])
-    primaryView = thresholdViews.get(primaryKey)
-    if primaryView is None:
-        primaryView = thresholdViews[_thresholdZKey(zGrid[0])]
+    primaryView = thresholdViews[primaryKey]
     return {
-        **prepared,
         "score_track": scoreTrack,
         "null_center": float(primaryView["null_center"]),
         "null_scale": float(primaryView["null_scale"]),
         "threshold": float(primaryView["threshold"]),
-        "null_meta": dict(primaryView["null_meta"]),
         "template": np.asarray(primaryView["template"], dtype=np.float64),
-        "template_meta": dict(primaryView["template_meta"]),
         "threshold_views": thresholdViews,
         "threshold_metrics": dict(calibration["threshold_metrics"]),
-        "budget_z_grid": [float(z) for z in zGrid],
         "null_calibration": {
             "bootstrap_method": str(calibration["bootstrap_method"]),
             "num_bootstrap": int(calibration["num_bootstrap"]),
@@ -1159,19 +1111,12 @@ def _estimateROCCOTrackTailVariance(
         if blockCount > 1
         else 0.0
     )
-    effectiveBlockCount = float(
-        totalMass * totalMass / np.dot(blockMasses, blockMasses)
-    )
     return trackTailVariance, {
         "block_count": int(blockCount),
-        "effective_block_count": float(effectiveBlockCount),
         "underfilled_block_count": int(
             np.count_nonzero(blockMasses < minBlockMass_)
         ),
         "merged_terminal_count": int(mergedTerminalCount),
-        "tail_positive_block_count": int(np.count_nonzero(tailMasses)),
-        "maximum_block_mass_fraction": float(np.max(blockMasses) / totalMass),
-        "target_block_mass": float(minBlockMass_),
     }
 
 
@@ -1196,10 +1141,6 @@ def _estimateBudgetForPreparedROCCOScore(
     budgetMin_ = float(max(budgetMin, 0.0))
     budgetMax_ = float(max(budgetMax, budgetMin_))
 
-    budgetRaw = float(primaryMetrics["budget_occupancy_raw"])
-    budget = float(np.clip(budgetRaw, budgetMin_, budgetMax_))
-    if not returnDetails:
-        return budget
     coverageWeights = np.asarray(
         calibration["coverage_weights"], dtype=np.float64
     )
@@ -1212,43 +1153,142 @@ def _estimateBudgetForPreparedROCCOScore(
         if minBlockMass is None
         else float(minBlockMass)
     )
-    trackTailVariance, blockDetails = _estimateROCCOTrackTailVariance(
-        scoreTrack > float(primaryView["threshold"]),
+    threshold = float(primaryView["threshold"])
+    tail = scoreTrack > threshold
+    farTail = scoreTrack > 2.0 * threshold - float(primaryView["null_center"])
+    band = tail & ~farTail
+    nullDraws = np.asarray(
+        primaryMetrics["null_tail_occupancy_draws"], dtype=np.float64
+    )
+    farNullDraws = np.asarray(
+        primaryMetrics["far_null_tail_occupancy_draws"], dtype=np.float64
+    )
+    tailExcess = float(primaryMetrics["signed_tail_excess"])
+    farTailExcess = float(primaryMetrics["far_tail_excess"])
+    difference = tailExcess - farTailExcess
+    bandVariance, _bandDetails = _estimateROCCOTrackTailVariance(
+        band, calibration["segment_offsets"], coverageWeights, minBlockMass_
+    )
+    differenceSE = float(
+        math.sqrt(
+            bandVariance + np.var(nullDraws - farNullDraws, ddof=1) / nullDraws.size
+        )
+    )
+    tailWeight = (
+        float(stats.norm.cdf(difference / differenceSE))
+        if differenceSE > 0.0
+        else float(difference >= 0.0)
+    )
+    signedTailExcess = float(
+        tailWeight * tailExcess + (1.0 - tailWeight) * farTailExcess
+    )
+    budgetRaw = float(max(signedTailExcess, 0.0))
+    budget = float(np.clip(budgetRaw, budgetMin_, budgetMax_))
+    if not returnDetails:
+        return budget
+    trackTailVariance, _blockDetails = _estimateROCCOTrackTailVariance(
+        farTail + tailWeight * band,
         calibration["segment_offsets"],
         coverageWeights,
         minBlockMass_,
     )
-    nullTailMCSE = float(primaryMetrics["null_tail_mc_se"])
+    nullTailMCSE = float(
+        np.std(tailWeight * nullDraws + (1.0 - tailWeight) * farNullDraws, ddof=1)
+        / math.sqrt(nullDraws.size)
+    )
     signedTailExcessSE = float(
         math.sqrt(trackTailVariance + nullTailMCSE * nullTailMCSE)
     )
     return budget, {
-        "method": str(calibration["bootstrap_method"]),
-        "statistic": "occupancy",
-        "residual_span_intervals": int(calibration["residual_span_intervals"]),
-        "threshold": float(primaryView["threshold"]),
-        "null_center": float(primaryView["null_center"]),
-        "null_scale": float(primaryView["null_scale"]),
         "track_tail_occupancy": float(primaryMetrics["track_tail_occupancy"]),
         "null_tail_occupancy": float(primaryMetrics["null_tail_occupancy"]),
+        "null_tail_occupancy_draws": nullDraws,
         "null_tail_mc_se": float(nullTailMCSE),
-        "signed_tail_excess": float(primaryMetrics["signed_tail_excess"]),
+        "tail_excess": tailExcess,
+        "far_tail_excess": farTailExcess,
+        "tail_excess_weight": tailWeight,
+        "signed_tail_excess": signedTailExcess,
         "track_tail_variance": float(trackTailVariance),
         "signed_tail_excess_se": float(signedTailExcessSE),
-        "track_tail_variance_details": blockDetails,
-        "budget_raw": float(budgetRaw),
-        "budget": float(budget),
     }
 
 
+def _estimateROCCOBlockBudgets(
+    signal: np.ndarray,
+    uncertainty: np.ndarray | None,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    residualSpanIntervals: int,
+    minBlockMass: float,
+    prepared: Dict[str, Any],
+    prepareArgs: Mapping[str, Any],
+    blockCount: int | None = None,
+) -> List[Dict[str, Any]]:
+    detailNames = (
+        "track_tail_occupancy",
+        "null_tail_occupancy",
+        "null_tail_occupancy_draws",
+        "null_tail_mc_se",
+        "tail_excess",
+        "far_tail_excess",
+        "tail_excess_weight",
+        "signed_tail_excess",
+        "track_tail_variance",
+        "signed_tail_excess_se",
+    )
+    if blockCount is None:
+        blockCount = int(
+            float(np.sum(ends - intervals))
+            // max(
+                _ROCCO_BUDGET_BLOCK_MIN_BP,
+                _ROCCO_BUDGET_BLOCK_TAIL_BLOCKS * float(minBlockMass),
+            )
+        )
+    bounds = (
+        np.linspace(0, signal.size, max(int(blockCount), 1) + 1)
+        .astype(np.int64)
+        .tolist()
+    )
+    blocks: List[Dict[str, Any]] = []
+    for start, stop in zip(bounds[:-1], bounds[1:]):
+        block: Dict[str, Any] = {
+            "start": start,
+            "stop": stop,
+            **dict.fromkeys(detailNames, 0.0),
+            "null_tail_occupancy_draws": np.zeros(0, dtype=np.float64),
+            "tail_excess_weight": 1.0,
+        }
+        blocks.append(block)
+        try:
+            blockPrepared = (
+                prepared
+                if len(bounds) == 2
+                else _prepareROCCOScoreAndNull(
+                    signal[start:stop],
+                    residualSpanIntervals,
+                    uncertainty=None if uncertainty is None else uncertainty[start:stop],
+                    intervals=intervals[start:stop],
+                    ends=ends[start:stop],
+                    **prepareArgs,
+                )
+            )
+        except ValueError:
+            continue
+        _budget, details = _estimateBudgetForPreparedROCCOScore(
+            blockPrepared, returnDetails=True, minBlockMass=minBlockMass
+        )
+        block.update({name: details[name] for name in detailNames})
+    return blocks
+
+
 def _shrinkROCCOChromosomeBudgets(
-    observations: Mapping[str, Tuple[float, float]],
+    observations: Mapping[Any, Tuple[float, float]],
     *,
     enabled: bool = True,
     selectionPenalty: float | None = None,
     budgetMin: float = _ROCCO_BUDGET_MIN,
     budgetMax: float = _ROCCO_BUDGET_MAX,
-) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
+) -> Tuple[Dict[Any, float], Dict[Any, float], Dict[str, Any]]:
     r"""Light shrinkage of chromosome-specific budgets to their genome-wide average"""
     if not observations:
         raise ValueError("chromosome budget shrinkage requires observations")
@@ -1298,10 +1338,6 @@ def _shrinkROCCOChromosomeBudgets(
         retention[positiveVariance] = tauSquared / (
             tauSquared + signedTailExcessVariances[positiveVariance]
         )
-        retention = np.maximum(
-            retention,
-            _ROCCO_BUDGET_SHRINKAGE_MIN_RETENTION,
-        )
         shrunkValues = pooledMean + retention * (signedTailExcess - pooledMean)
 
     budgetValues = np.clip(
@@ -1331,78 +1367,6 @@ def _shrinkROCCOChromosomeBudgets(
     return budgetsByChrom, retentionByChrom, metadata
 
 
-def estimateROCCOGamma(
-    scoreTrack: npt.ArrayLike,
-    featureDurationBP: int,
-    binBP: int,
-    gamma: float | None = MATCHING_DEFAULT_GAMMA,
-    gammaScale: float = 0.5,
-    clipMin: float = 0.5,
-    clipMax: float | None = 50.0,
-    nullCenter: float | None = None,
-    threshold: float | None = None,
-    returnDetails: bool = False,
-) -> float | Tuple[float, Dict[str, float | str]]:
-    r"""Estimate a constant ROCCO boundary penalty from score scale and context size."""
-    if gamma is None:
-        raise ValueError("`gamma` cannot be null")
-    gamma_ = float(gamma)
-    if not np.isfinite(gamma_):
-        raise ValueError("`gamma` must be finite")
-    featureDurationBP_ = _validateDurationBP("featureDurationBP", featureDurationBP)
-    binBP_ = _validateDurationBP("binBP", binBP)
-    featureSpanBins = int(max(math.ceil(featureDurationBP_ / binBP_), 1))
-    if gamma_ >= 0.0:
-        if not returnDetails:
-            return gamma_
-        return gamma_, {
-            "method": "fixed",
-            "gamma": float(gamma_),
-            "gamma_span": int(featureSpanBins),
-            "feature_duration_bp": int(featureDurationBP_),
-            "bin_bp": int(binBP_),
-        }
-
-    scores = _asFloatVector("scoreTrack", scoreTrack)
-    referenceLevel = 0.0
-    referenceMethod = "zero"
-    if threshold is not None and np.isfinite(float(threshold)):
-        referenceLevel = float(threshold)
-        referenceMethod = "threshold"
-    elif nullCenter is not None and np.isfinite(float(nullCenter)):
-        referenceLevel = float(nullCenter)
-        referenceMethod = "null_center"
-
-    positiveScores = scores - referenceLevel
-    positiveScores = positiveScores[positiveScores > 0.0]
-    positiveScale = float(np.median(positiveScores)) if positiveScores.size else 1.0
-    gammaRaw = float(
-        max(float(gammaScale), 0.0) * float(featureSpanBins) * positiveScale
-    )
-    gamma_ = float(max(gammaRaw, float(max(clipMin, 0.0))))
-    if clipMax is not None:
-        gamma_ = float(min(gamma_, float(max(clipMax, clipMin))))
-    if not returnDetails:
-        return gamma_
-
-    details: Dict[str, float | str] = {
-        "method": "feature_duration_score_scale",
-        "feature_duration_bp": float(featureDurationBP_),
-        "bin_bp": float(binBP_),
-        "gamma_span": float(featureSpanBins),
-        "reference_method": str(referenceMethod),
-        "reference_level": float(referenceLevel),
-        "positive_score_median": float(positiveScale),
-        "gamma_scale": float(gammaScale),
-        "gamma_raw": float(gammaRaw),
-        "gamma": float(gamma_),
-        "gamma_clip_min": float(max(clipMin, 0.0)),
-    }
-    if clipMax is not None:
-        details["gamma_clip_max"] = float(max(clipMax, clipMin))
-    return gamma_, details
-
-
 def solveChromROCCO(
     scores: npt.ArrayLike,
     budget: float | None = None,
@@ -1421,7 +1385,7 @@ def solveChromROCCO(
     multiplier = float(selectionPenaltyMultiplier)
     if not np.isfinite(multiplier) or multiplier <= 0.0:
         raise ValueError("`selectionPenaltyMultiplier` must be finite and positive")
-    solution, objective, penalizedObjective, selectedCount, selectionPenalty_ = (
+    solution, objective, _penalized, _selected, selectionPenalty_ = (
         cconsenrich.csolveChromROCCOExact(
             scores_,
             budget=budget,
@@ -1431,10 +1395,9 @@ def solveChromROCCO(
         )
     )
     baseSelectionPenalty = float(selectionPenalty_)
-    if multiplier != 1.0:
-        # negative data-derived penalties: divide to tighten selection
-        # this should only arise when calibration requires a reward for selection
-        # FFR: consider raising or warning
+    if selectionPenalty is None and budget is not None:
+        baseSelectionPenalty = max(baseSelectionPenalty, _ROCCO_SELECTION_PENALTY_MIN)
+    if multiplier != 1.0 or baseSelectionPenalty != selectionPenalty_:
         selectionPenalty_ = (
             baseSelectionPenalty * multiplier
             if baseSelectionPenalty >= 0.0
@@ -1442,7 +1405,7 @@ def solveChromROCCO(
         )
         if not np.isfinite(selectionPenalty_):
             raise ValueError("Scaled selection penalty must be finite")
-        solution, objective, penalizedObjective, selectedCount, selectionPenalty_ = (
+        solution, objective, _penalized, _selected, selectionPenalty_ = (
             cconsenrich.csolveChromROCCOExact(
                 scores_,
                 gamma=gamma_,
@@ -1450,28 +1413,57 @@ def solveChromROCCO(
                 maxIter=int(maxIter),
             )
         )
-    budgetTargetCount: int | None = None
-    if budget is not None and selectionPenalty is None:
-        budget_ = float(budget)
-        if np.isfinite(budget_):
-            budgetTargetCount = int(
-                min(max(math.floor(scores_.size * budget_), 0), scores_.size)
-            )
     if not returnDetails:
         return np.asarray(solution, dtype=np.uint8), float(objective)
-
-    details = {
-        "penalized_objective": float(penalizedObjective),
-        "selected_count": int(selectedCount),
-        "selected_fraction": float(selectedCount / max(scores_.size, 1)),
-        "selection_penalty": float(selectionPenalty_),
-        "base_selection_penalty": baseSelectionPenalty,
-        "selection_penalty_multiplier": multiplier,
-        "gamma": float(gamma_),
-        "max_iter": int(maxIter),
-        "budget_target_count": budgetTargetCount,
-    }
+    details = {"selection_penalty": float(selectionPenalty_)}
     return np.asarray(solution, dtype=np.uint8), float(objective), details
+
+
+def _solveChromROCCOBlocks(
+    scores: np.ndarray,
+    blockBounds: Sequence[Tuple[int, int]],
+    blockBudgets: Sequence[float],
+    gamma: float,
+    selectionPenalty: float | None = None,
+    selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
+) -> Tuple[np.ndarray, float, Dict[str, Any], np.ndarray]:
+    blockSizes = [stop - start for start, stop in blockBounds]
+    if selectionPenalty is not None or len(blockBounds) == 1:
+        solution, objective, details = solveChromROCCO(
+            scores,
+            budget=float(np.average(blockBudgets, weights=blockSizes)),
+            gamma=gamma,
+            selectionPenalty=selectionPenalty,
+            returnDetails=True,
+            selectionPenaltyMultiplier=selectionPenaltyMultiplier,
+        )
+        return solution, objective, details, scores
+    blockPenalties = [
+        float(
+            solveChromROCCO(
+                scores[start:stop],
+                budget=float(budget),
+                gamma=gamma,
+                returnDetails=True,
+                selectionPenaltyMultiplier=selectionPenaltyMultiplier,
+            )[2]["selection_penalty"]
+        )
+        for (start, stop), budget in zip(blockBounds, blockBudgets)
+    ]
+    meanPenalty = float(np.average(blockPenalties, weights=blockSizes))
+    solveScores = scores
+    if max(blockPenalties) > min(blockPenalties):
+        solveScores = np.array(scores, dtype=np.float64)
+        for (start, stop), penalty in zip(blockBounds, blockPenalties):
+            solveScores[start:stop] -= penalty - meanPenalty
+    solution, objective, details = solveChromROCCO(
+        solveScores,
+        gamma=gamma,
+        selectionPenalty=meanPenalty,
+        returnDetails=True,
+    )
+    details["block_selection_penalties"] = blockPenalties
+    return solution, objective, details, solveScores
 
 
 def _selectedRunBounds(mask: np.ndarray) -> List[Tuple[int, int]]:
@@ -1799,26 +1791,12 @@ def _minimumChildBinsForRegion(
     return int(min(regionBins, max(minBins, 1)))
 
 
-def _positiveScoreScale(scores: np.ndarray) -> float:
-    scores_ = np.asarray(scores, dtype=np.float64)
-    positive = scores_[scores_ > 0.0]
-    if positive.size > 0:
-        scale = float(np.median(positive))
-    else:
-        scale = float(np.median(np.abs(scores_)))
-    if (not np.isfinite(scale)) or scale <= 0.0:
-        scale = 0.0
-    return scale
-
-
 def _nestedSoftSelectionPenalty(
     scores: np.ndarray,
     selectionPenalty: float,
     budgetScale: float,
-) -> Tuple[float, Dict[str, float]]:
+) -> float:
     budgetScale_ = float(np.clip(float(budgetScale), 0.0, 1.0))
-    basePenalty = float(max(float(selectionPenalty), 0.0))
-    positiveScale = _positiveScoreScale(scores)
     positive = np.asarray(scores, dtype=np.float64)
     positive = positive[positive > 0.0]
     positiveSpread = 0.0
@@ -1828,15 +1806,9 @@ def _nestedSoftSelectionPenalty(
         )
     if (not np.isfinite(positiveSpread)) or positiveSpread < 0.0:
         positiveSpread = 0.0
-    extraPenalty = float((1.0 - budgetScale_) * positiveSpread)
-    penalty = float(basePenalty + extraPenalty)
-    return penalty, {
-        "base_penalty": float(basePenalty),
-        "extra_penalty": float(extraPenalty),
-        "positive_score_scale": float(positiveScale),
-        "positive_score_spread": float(positiveSpread),
-        "budget_scale": float(budgetScale_),
-    }
+    return float(
+        max(float(selectionPenalty), 0.0) + (1.0 - budgetScale_) * positiveSpread
+    )
 
 
 def _parentConditionedSubpeakObjective(
@@ -2028,8 +2000,7 @@ def _multiscaleCandidateSegments(
     maxGapBins: int = 0,
     maxSegments: int | None = _NULL_REPLAY_MAX_SEGMENTS,
     maxSegmentsPerView: int | None = _NULL_REPLAY_MAX_SEGMENTS_PER_VIEW,
-    returnDiagnostics: bool = False,
-) -> List[Dict[str, Any]] | Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     scores_ = _asFloatVector("scores", scores)
     scales = _resolveMultiscaleCandidateBins(
         int(scores_.size),
@@ -2048,14 +2019,12 @@ def _multiscaleCandidateSegments(
         else int(max(int(maxSegmentsPerView), 1))
     )
     thresholdKeys: List[str] = []
-    thresholdZValues: List[float] = []
     thresholdValues: List[float] = []
     nullScaleValues: List[float] = []
     for key, viewAny in thresholdViews.items():
         if not isinstance(viewAny, Mapping):
             continue
         thresholdKeys.append(str(key))
-        thresholdZValues.append(float(viewAny.get("threshold_z", 0.0)))
         thresholdValues.append(float(viewAny.get("threshold", 0.0)))
         nullScaleValues.append(float(max(float(viewAny.get("null_scale", 1.0)), _TINY)))
 
@@ -2077,9 +2046,9 @@ def _multiscaleCandidateSegments(
         _integratedArr,
         _meanArr,
         _maxArr,
-        eligibleCount,
-        perViewCapHitCount,
-        perViewDiscardedCount,
+        _eligibleCount,
+        _perViewCapHitCount,
+        _perViewDiscardedCount,
     ) = nativeRows
     candidates: List[Dict[str, Any]] = []
     seen: set[Tuple[int, int, int, str]] = set()
@@ -2099,17 +2068,10 @@ def _multiscaleCandidateSegments(
                 "end_idx": int(end),
                 "scale_bins": int(scale),
                 "threshold_key": str(key),
-                "threshold_z": float(thresholdZValues[viewIdx]),
-                "threshold": float(thresholdValues[viewIdx]),
-                "null_scale": float(nullScaleValues[viewIdx]),
                 "score": float(scoreArr[rowIdx]),
             }
         )
-    preTotalCapCount = int(len(candidates))
-    totalCapHit = bool(maxSegments_ is not None and len(candidates) > maxSegments_)
-    totalDiscardedCount = 0
-    if totalCapHit:
-        totalDiscardedCount = int(len(candidates) - int(maxSegments_))
+    if maxSegments_ is not None and len(candidates) > maxSegments_:
         candidates = sorted(
             candidates,
             key=lambda candidate: float(candidate.get("score", 0.0)),
@@ -2123,22 +2085,6 @@ def _multiscaleCandidateSegments(
                 str(candidate["threshold_key"]),
             )
         )
-    if returnDiagnostics:
-        diagnostics = {
-            "eligible_candidate_count": int(eligibleCount),
-            "candidate_count_before_total_cap": int(preTotalCapCount),
-            "candidate_count": int(len(candidates)),
-            "cap_hit": bool(perViewCapHitCount > 0 or totalCapHit),
-            "per_view_cap_hit_count": int(perViewCapHitCount),
-            "total_cap_hit": bool(totalCapHit),
-            "discarded_by_per_view_cap": int(perViewDiscardedCount),
-            "discarded_by_total_cap": int(totalDiscardedCount),
-            "max_segments": None if maxSegments_ is None else int(maxSegments_),
-            "max_segments_per_view": (
-                None if maxSegmentsPerView_ is None else int(maxSegmentsPerView_)
-            ),
-        }
-        return candidates, diagnostics
     return candidates
 
 
@@ -2459,7 +2405,7 @@ def _refineNestedROCCOSolution(
     rawScores: npt.ArrayLike | None = None,
     minRegionBP: int | None = None,
     minRegionBins: int = _NESTED_ROCCO_MIN_CHILD_STEPS,
-) -> Tuple[np.ndarray, Dict[str, Any]]:
+) -> np.ndarray:
     r"""Run local ROCCO refinements inside selected first-pass regions.
 
     For each eligible parent or child region ``R``, solve an exact local chain
@@ -2506,17 +2452,8 @@ def _refineNestedROCCOSolution(
     minRegionBins_ = max(int(minRegionBins), 1)
     minRegionBP_ = None if minRegionBP is None else max(int(minRegionBP), 0)
     localGamma = 0.25 * parentGamma
-    initialSelectedCount = int(np.sum(current))
-    details: Dict[str, Any] = {
-        "enabled": bool(maxIters > 0),
-        "requestedIters": int(maxIters),
-        "completedIters": 0,
-        "stopReason": "disabled" if maxIters == 0 else "notStarted",
-        "initialSelectedCount": int(initialSelectedCount),
-        "finalSelectedCount": int(initialSelectedCount),
-    }
     if maxIters == 0:
-        return current.astype(np.uint8), details
+        return current.astype(np.uint8)
 
     frontier = _selectedRunBounds(current)
     for iterIdx in range(maxIters):
@@ -2548,7 +2485,7 @@ def _refineNestedROCCOSolution(
                     localScores - float(np.quantile(localScores, 0.25)),
                     dtype=np.float64,
                 )
-            localSelectionPenalty, _penaltyDetails = _nestedSoftSelectionPenalty(
+            localSelectionPenalty = _nestedSoftSelectionPenalty(
                 localSolverScores,
                 0.0 if iterIdx > 0 else selectionPenalty_,
                 iterBudgetScale,
@@ -2607,7 +2544,6 @@ def _refineNestedROCCOSolution(
             )
             if not accept:
                 continue
-            refined[start : end + 1] = False
             refined[start : end + 1] = localSelection
             nextFrontier.extend(
                 (int(start + left), int(start + right))
@@ -2618,21 +2554,14 @@ def _refineNestedROCCOSolution(
             raise RuntimeError("nested ROCCO selection left the input solution")
         jaccard = _maskJaccard(previous, refined)
         current = refined
-        details["completedIters"] = int(iterIdx + 1)
-        details["finalSelectedCount"] = int(np.sum(current))
-        if np.array_equal(current, previous):
-            details["stopReason"] = "maskEqual"
-            break
-        if not nextFrontier:
-            details["stopReason"] = "noRefinements"
-            break
-        if jaccard >= jaccardThreshold_:
-            details["stopReason"] = "jaccard"
+        if (
+            np.array_equal(current, previous)
+            or not nextFrontier
+            or jaccard >= jaccardThreshold_
+        ):
             break
         frontier = nextFrontier
-    else:
-        details["stopReason"] = "maxIters"
-    return current.astype(np.uint8), details
+    return current.astype(np.uint8)
 
 
 def _readAlignedConsenrichBedGraphs(
@@ -3117,7 +3046,7 @@ def _plotROCCONullCalibrationDiagnostics(
         )
         return False
 
-    chromosomeNames = [str(row["chromosome"]) for row in rows]
+    chromosomeNames = [str(row["block"]) for row in rows]
     nullTailOccupancyDraws = np.concatenate(
         [
             np.asarray(row["nullTailOccupancyDraws"], dtype=np.float64).reshape(-1)
@@ -3207,9 +3136,9 @@ def _plotROCCONullCalibrationDiagnostics(
         label="shrunk budget",
     )
     excessAx.axvline(0.0, color=darkBlack, linewidth=0.9)
-    excessAx.set_title("Chromosome Signed Excess and Budgets", color=darkBlack)
+    excessAx.set_title("Block Signed Excess and Budgets", color=darkBlack)
     excessAx.set_xlabel("tail occupancy fraction", color=darkBlack)
-    excessAx.set_ylabel("chromosomes", color=darkBlack)
+    excessAx.set_ylabel("blocks", color=darkBlack)
     excessAx.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     excessAx.legend(loc="best", fontsize=8, frameon=False)
 
@@ -3248,7 +3177,7 @@ def _plotROCCONullCalibrationDiagnostics(
     budgetAx.set_xlim(0.0, budgetLimit)
     budgetAx.set_ylim(0.0, budgetLimit)
     budgetAx.set_aspect("equal", adjustable="box")
-    budgetAx.set_title("Local and Shrunk Chromosome Budgets", color=darkBlack)
+    budgetAx.set_title("Local and Shrunk Block Budgets", color=darkBlack)
     budgetAx.set_xlabel("local budget fraction", color=darkBlack)
     budgetAx.set_ylabel("shrunk budget fraction", color=darkBlack)
     budgetAx.xaxis.set_major_formatter(PercentFormatter(xmax=1.0))
@@ -3281,7 +3210,7 @@ def _plotROCCONullCalibrationDiagnostics(
     pairedAx.set_xticks(chromosomeX)
     pairedAx.set_xticklabels(chromosomeNames, rotation=90)
     pairedAx.set_title("Bootstrap Null and Signed Excess", color=darkBlack)
-    pairedAx.set_xlabel("chromosome", color=darkBlack)
+    pairedAx.set_xlabel("block", color=darkBlack)
     pairedAx.set_ylabel("tail occupancy fraction", color=darkBlack)
     pairedAx.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     pairedAx.legend(loc="best", fontsize=8, frameon=False)
@@ -3290,7 +3219,7 @@ def _plotROCCONullCalibrationDiagnostics(
         axis.set_axisbelow(True)
         axis.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
     figure.suptitle(
-        "ROCCO Null Calibration and Chromosome Budgets",
+        "ROCCO Null Calibration and Block Budgets",
         color=darkBlack,
     )
     target = Path(path)
@@ -3360,10 +3289,9 @@ def solveRocco(
     chromosomes: Iterable[str] | None = None,
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
-    gamma: float | None = MATCHING_DEFAULT_GAMMA,
+    gamma: float = MATCHING_DEFAULT_GAMMA,
     selectionPenalty: float | None = None,
     selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER,
-    gammaScale: float = 0.5,
     nestedRoccoIters: int = _NESTED_ROCCO_ITERS_DEFAULT,
     nestedRoccoBudgetScale: float = _NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     exportFilterUncertaintyMultiplier: float = (
@@ -3379,6 +3307,8 @@ def solveRocco(
     uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     shrinkChromosomeBudgets: bool = True,
+    budgetMin: float = _ROCCO_BUDGET_MIN,
+    budgetMax: float = _ROCCO_BUDGET_MAX,
     plotNullCalibrationDiagnostics: bool = (
         _OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS
     ),
@@ -3414,6 +3344,7 @@ def solveRocco(
     thresholdZ_ = float(thresholdZ)
     if not np.isfinite(thresholdZ_) or thresholdZ_ < 0.0:
         raise ValueError("thresholdZ must be finite and non-negative")
+    gamma_ = normalization.validateFiniteNonnegativeFloat(gamma, paramName="gamma")
     if isinstance(selectionPenaltyMultiplier, (bool, np.bool_)):
         raise ValueError("selectionPenaltyMultiplier must be finite and positive")
     selectionPenaltyMultiplier_ = float(selectionPenaltyMultiplier)
@@ -3558,7 +3489,7 @@ def solveRocco(
     narrowRows: List[List[str | int | float]] = []
     broadRows: List[List[str | int | float]] = []
     chromosomeMetadata: Dict[str, Any] = {}
-    nullCalibrationSamplesByChrom: Dict[str, np.ndarray] = {}
+    diagnosticRows: List[Dict[str, Any]] = []
     totalCalled = {"narrow": 0, "broad": 0}
     totalEmitted = {"narrow": 0, "broad": 0}
 
@@ -3566,7 +3497,7 @@ def solveRocco(
     try:
         spoolDirectory = Path(spoolContext.name)
         calibratedChromosomes: Dict[str, Dict[str, Any]] = {}
-        budgetObservations: Dict[str, Tuple[float, float]] = {}
+        budgetObservations: Dict[Tuple[str, int], Tuple[float, float]] = {}
         for chromIndex, (chromosome, data) in enumerate(chromData.items()):
             signal = np.asarray(data["state"], dtype=np.float64)
             intervals = np.asarray(data["intervals"], dtype=np.int64)
@@ -3601,55 +3532,36 @@ def solveRocco(
             featureSpanBins = int(
                 max(math.ceil(float(featureDurationBP_) / float(binBP)), 1)
             )
+            prepareArgs = {
+                "thresholdZ": thresholdZ_,
+                "numBootstrap": numBootstrap_,
+                "randomSeed": int(randSeed),
+                "thresholdZGrid": thresholdGrid,
+                "uncertaintyScoreMode": uncertaintyScoreMode_,
+                "uncertaintyScoreZ": uncertaintyScoreZ_,
+                "useLocalBootStrapRadius": useLocalBootStrapRadius_,
+            }
             prepared = _prepareROCCOScoreAndNull(
                 signal,
                 residualSpanBins,
                 uncertainty=uncertainty,
                 intervals=intervals,
                 ends=ends,
-                thresholdZ=thresholdZ_,
-                numBootstrap=numBootstrap_,
-                randomSeed=int(randSeed),
-                thresholdZGrid=thresholdGrid,
-                uncertaintyScoreMode=uncertaintyScoreMode_,
-                uncertaintyScoreZ=uncertaintyScoreZ_,
                 progressLabel=chromosomeLabel,
-                useLocalBootStrapRadius=useLocalBootStrapRadius_,
+                **prepareArgs,
             )
             scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
             template = np.asarray(prepared["template"], dtype=np.float64)
-            budgetLocal, budgetDetails = _estimateBudgetForPreparedROCCOScore(
+            budgetBlocks = _estimateROCCOBlockBudgets(
+                signal,
+                uncertainty,
+                intervals,
+                ends,
+                residualSpanBins,
+                float(_ROCCO_TAIL_VARIANCE_BLOCK_SPANS * residualSpanBins * binBP),
                 prepared,
-                returnDetails=True,
-                minBlockMass=float(
-                    _ROCCO_TAIL_VARIANCE_BLOCK_SPANS
-                    * residualSpanBins
-                    * binBP
-                ),
+                prepareArgs,
             )
-            budgetLocal = float(budgetLocal)
-            diagnosticThresholdKey = str(prepared["null_calibration"]["primary_key"])
-            diagnosticThresholdMetrics = dict(
-                prepared["threshold_metrics"][diagnosticThresholdKey]
-            )
-            if plotNullCalibrationDiagnostics_:
-                diagnosticDraws = np.asarray(
-                    diagnosticThresholdMetrics["null_tail_occupancy_draws"],
-                    dtype=np.float64,
-                ).reshape(-1)
-                if (
-                    diagnosticDraws.size
-                    > _ROCCO_DIAGNOSTIC_MAX_BOOTSTRAP_SAMPLES_PER_CHROMOSOME
-                ):
-                    diagnosticIndices = np.linspace(
-                        0,
-                        diagnosticDraws.size - 1,
-                        _ROCCO_DIAGNOSTIC_MAX_BOOTSTRAP_SAMPLES_PER_CHROMOSOME,
-                        dtype=np.int64,
-                    )
-                    diagnosticDraws = diagnosticDraws[diagnosticIndices]
-                nullCalibrationSamplesByChrom[str(chromosome)] = diagnosticDraws.copy()
-
             scorePath = spoolDirectory / f"{chromIndex:04d}.score.npy"
             templatePath = spoolDirectory / f"{chromIndex:04d}.template.npy"
             np.save(scorePath, scoreTrack, allow_pickle=False)
@@ -3667,6 +3579,7 @@ def solveRocco(
             for key, metricsAny in dict(prepared["threshold_metrics"]).items():
                 compactMetrics = dict(metricsAny)
                 compactMetrics.pop("null_tail_occupancy_draws", None)
+                compactMetrics.pop("far_null_tail_occupancy_draws", None)
                 compactThresholdMetrics[str(key)] = compactMetrics
             compactPrepared = dict(prepared)
             compactPrepared.pop("score_track", None)
@@ -3681,22 +3594,41 @@ def solveRocco(
                 "binBP": int(binBP),
                 "residualSpanBins": int(residualSpanBins),
                 "featureSpanBins": int(featureSpanBins),
-                "budgetLocal": float(budgetLocal),
-                "budgetDetails": budgetDetails,
+                "budgetBlocks": budgetBlocks,
             }
-            budgetObservations[str(chromosome)] = (
-                float(budgetDetails["signed_tail_excess"]),
-                float(budgetDetails["signed_tail_excess_se"]),
-            )
-            del compactPrepared, prepared, scoreTrack, template, budgetDetails
+            for blockIndex, block in enumerate(budgetBlocks):
+                budgetObservations[(str(chromosome), blockIndex)] = (
+                    float(block["signed_tail_excess"]),
+                    float(block["signed_tail_excess_se"]),
+                )
+            del compactPrepared, prepared, scoreTrack, template
 
         budgetsByChrom, budgetRetentionByChrom, budgetShrinkageMetadata = (
             _shrinkROCCOChromosomeBudgets(
                 budgetObservations,
                 enabled=shrinkChromosomeBudgets_,
                 selectionPenalty=selectionPenalty,
+                budgetMin=budgetMin,
+                budgetMax=budgetMax,
             )
         )
+        atMin = [key[0] for key, value in budgetsByChrom.items() if value <= budgetMin]
+        atMax = [key[0] for key, value in budgetsByChrom.items() if value >= budgetMax]
+        if selectionPenalty is None and (atMin or atMax):
+            logger.warning(
+                "ROCCO budget at matchingParams.budgetMin=%g in %d block(s) [%s] and at "
+                "matchingParams.budgetMax=%g in %d block(s) [%s]. Consider changing "
+                "these bounds, the counting mode (samParams.defaultCountMode, "
+                "scParams.defaultCountMode), the normalization "
+                "(countingParams.normMethod, countingParams.scaleFactors), or setting "
+                "the selection penalty directly (matchingParams.selectionPenalty).",
+                budgetMin,
+                len(atMin),
+                ", ".join(sorted(set(atMin))),
+                budgetMax,
+                len(atMax),
+                ", ".join(sorted(set(atMax))),
+            )
 
         for chromIndex, (chromosome, data) in enumerate(chromData.items()):
             chromosomeStart = time.perf_counter()
@@ -3748,12 +3680,7 @@ def solveRocco(
                 allow_pickle=False,
             )
             prepared = dict(calibrated["prepared"])
-            prepared["score_track"] = scoreTrack
             prepared["template"] = template
-            prepared["threshold_views"] = {
-                str(key): {**dict(viewAny), "template": template}
-                for key, viewAny in dict(prepared["threshold_views"]).items()
-            }
             segmentOffsets, coverageWeights = _resolveROCCOBootstrapGeometry(
                 scoreTrack.size,
                 intervals,
@@ -3770,19 +3697,58 @@ def solveRocco(
             }
             primaryKey = str(prepared["null_calibration"]["primary_key"])
             primaryMetrics = dict(prepared["threshold_metrics"][primaryKey])
-            budgetLocal = float(calibrated["budgetLocal"])
-            budgetDetails = dict(calibrated["budgetDetails"])
-            budget = float(budgetsByChrom[str(chromosome)])
-            gamma_, gammaDetails = estimateROCCOGamma(
-                scoreTrack,
-                featureDurationBP=featureDurationBP_,
-                binBP=binBP,
-                gamma=gamma,
-                gammaScale=gammaScale,
-                nullCenter=float(prepared["null_center"]),
-                threshold=float(prepared["threshold"]),
-                returnDetails=True,
+            tailAlpha = float(
+                prepared["threshold_views"][primaryKey]["null_meta"]["tail_alpha"]
             )
+            budgetBlocks = calibrated["budgetBlocks"]
+            blockKeys = [
+                (str(chromosome), blockIndex)
+                for blockIndex in range(len(budgetBlocks))
+            ]
+            blockBounds = [
+                (int(block["start"]), int(block["stop"])) for block in budgetBlocks
+            ]
+            blockSizes = [stop - start for start, stop in blockBounds]
+            blockShares = np.asarray(blockSizes, dtype=np.float64) / sum(blockSizes)
+            blockBudgets = [float(budgetsByChrom[key]) for key in blockKeys]
+            blockLocalBudgets = [
+                float(
+                    np.clip(
+                        block["signed_tail_excess"],
+                        budgetMin,
+                        budgetMax,
+                    )
+                )
+                for block in budgetBlocks
+            ]
+            budget = float(np.dot(blockShares, blockBudgets))
+            budgetLocal = float(np.dot(blockShares, blockLocalBudgets))
+
+            def blockValues(name: str) -> np.ndarray:
+                return np.asarray(
+                    [block[name] for block in budgetBlocks], dtype=np.float64
+                )
+
+            if plotNullCalibrationDiagnostics_:
+                diagnosticRows.extend(
+                    {
+                        "block": (
+                            str(chromosome)
+                            if len(budgetBlocks) == 1
+                            else f"{chromosome}:{blockIndex + 1}"
+                        ),
+                        "nullTailOccupancyDraws": block["null_tail_occupancy_draws"][
+                            :_ROCCO_DIAGNOSTIC_MAX_BOOTSTRAP_SAMPLES_PER_BLOCK
+                        ],
+                        "nullTailOccupancy": float(block["null_tail_occupancy"]),
+                        "thresholdZ": float(thresholdZ_),
+                        "tailAlpha": tailAlpha,
+                        "signedTailExcess": float(block["signed_tail_excess"]),
+                        "budgetLocal": blockLocalBudgets[blockIndex],
+                        "budget": blockBudgets[blockIndex],
+                    }
+                    for blockIndex, block in enumerate(budgetBlocks)
+                )
             _logRoccoProgress(
                 "ROCCO %s: solving ROCCO constrained optimization problem... "
                 "γ=%.8g",
@@ -3795,13 +3761,17 @@ def solveRocco(
                     "gamma": float(gamma_),
                 },
             )
-            solution, objective, solveDetails = solveChromROCCO(
+            solution, objective, solveDetails, solveScores = _solveChromROCCOBlocks(
                 scoreTrack,
-                budget=float(budget),
+                blockBounds,
+                blockBudgets,
                 gamma=float(gamma_),
                 selectionPenalty=selectionPenalty,
-                returnDetails=True,
                 selectionPenaltyMultiplier=selectionPenaltyMultiplier_,
+            )
+            blockPenalties = solveDetails.get(
+                "block_selection_penalties",
+                [float(solveDetails["selection_penalty"])] * len(budgetBlocks),
             )
             selectedCount = int(np.count_nonzero(solution))
             selectedFraction = float(selectedCount / max(scoreTrack.size, 1))
@@ -3824,8 +3794,8 @@ def solveRocco(
                     "selectedFraction": selectedFraction,
                 },
             )
-            refinedSolution, _nestedDetails = _refineNestedROCCOSolution(
-                scoreTrack,
+            refinedSolution = _refineNestedROCCOSolution(
+                solveScores,
                 np.asarray(solution, dtype=np.uint8),
                 gamma=float(gamma_),
                 selectionPenalty=float(solveDetails["selection_penalty"]),
@@ -3840,7 +3810,7 @@ def solveRocco(
                 ),
                 minRegionBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
             )
-            del objective, gammaDetails
+            del objective
             solution_ = np.asarray(refinedSolution, dtype=np.uint8)
             strongRuns = _selectedCoordinateRunBounds(solution_, intervals, ends)
             weakView: Dict[str, Any] | None = None
@@ -3892,7 +3862,7 @@ def solveRocco(
                 )
                 parentRuns, _mergeDetails = _mergeBroadRunsByObjective(
                     supportRuns,
-                    scoreTrack,
+                    solveScores,
                     intervals,
                     ends,
                     str(chromosome),
@@ -4006,11 +3976,7 @@ def solveRocco(
                     "nullScale": float(prepared["null_scale"]),
                     "threshold": float(primaryMetrics["threshold"]),
                     "thresholdZ": float(primaryMetrics["threshold_z"]),
-                    "tailAlpha": float(
-                        prepared["threshold_views"][primaryKey]["null_meta"][
-                            "tail_alpha"
-                        ]
-                    ),
+                    "tailAlpha": tailAlpha,
                     "bootstrapMethod": str(
                         prepared["null_calibration"]["bootstrap_method"]
                     ),
@@ -4048,24 +4014,54 @@ def solveRocco(
                         ]
                     ),
                     "nullTailOccupancy": float(
-                        primaryMetrics["null_tail_occupancy"]
+                        np.dot(blockShares, blockValues("null_tail_occupancy"))
                     ),
-                    "nullTailMCSE": float(primaryMetrics["null_tail_mc_se"]),
+                    "nullTailMCSE": float(
+                        np.linalg.norm(blockShares * blockValues("null_tail_mc_se"))
+                    ),
                     "trackTailOccupancy": float(
-                        primaryMetrics["track_tail_occupancy"]
+                        np.dot(blockShares, blockValues("track_tail_occupancy"))
                     ),
-                    "signedTailExcess": float(primaryMetrics["signed_tail_excess"]),
+                    "signedTailExcess": float(
+                        np.dot(blockShares, blockValues("signed_tail_excess"))
+                    ),
                     "trackTailVariance": float(
-                        budgetDetails["track_tail_variance"]
+                        np.dot(
+                            blockShares * blockShares,
+                            blockValues("track_tail_variance"),
+                        )
                     ),
                     "signedTailExcessSE": float(
-                        budgetDetails["signed_tail_excess_se"]
+                        np.linalg.norm(
+                            blockShares * blockValues("signed_tail_excess_se")
+                        )
                     ),
                     "budgetLocal": float(budgetLocal),
                     "budgetRetention": float(
-                        budgetRetentionByChrom[str(chromosome)]
+                        np.dot(
+                            blockShares,
+                            [budgetRetentionByChrom[key] for key in blockKeys],
+                        )
                     ),
                     "budget": float(budget),
+                    "budgetBlocks": [
+                        {
+                            "startBP": int(intervals[start]),
+                            "endBP": int(ends[stop - 1]),
+                            "tailExcess": float(block["tail_excess"]),
+                            "farTailExcess": float(block["far_tail_excess"]),
+                            "tailExcessWeight": float(block["tail_excess_weight"]),
+                            "signedTailExcess": float(block["signed_tail_excess"]),
+                            "signedTailExcessSE": float(
+                                block["signed_tail_excess_se"]
+                            ),
+                            "budget": float(blockBudget),
+                            "selectionPenalty": float(blockPenalty),
+                        }
+                        for block, (start, stop), blockBudget, blockPenalty in zip(
+                            budgetBlocks, blockBounds, blockBudgets, blockPenalties
+                        )
+                    ],
                     "gamma": float(gamma_),
                     "selectionPenalty": float(solveDetails["selection_penalty"]),
                     "selectionPenaltyMultiplier": selectionPenaltyMultiplier_,
@@ -4118,6 +4114,7 @@ def solveRocco(
             del (
                 prepared,
                 scoreTrack,
+                solveScores,
                 template,
                 weakView,
                 segmentOffsets,
@@ -4155,23 +4152,6 @@ def solveRocco(
 
     nullCalibrationDiagnosticsPath: str | None = None
     if nullCalibrationDiagnosticsCandidatePath is not None:
-        diagnosticRows: List[Dict[str, Any]] = []
-        for chromosome, chromosomeMetaAny in chromosomeMetadata.items():
-            chromosomeFit = dict(dict(chromosomeMetaAny)["fit"])
-            diagnosticRows.append(
-                {
-                    "chromosome": str(chromosome),
-                    "nullTailOccupancyDraws": nullCalibrationSamplesByChrom[
-                        str(chromosome)
-                    ],
-                    "nullTailOccupancy": float(chromosomeFit["nullTailOccupancy"]),
-                    "thresholdZ": float(chromosomeFit["thresholdZ"]),
-                    "tailAlpha": float(chromosomeFit["tailAlpha"]),
-                    "signedTailExcess": float(chromosomeFit["signedTailExcess"]),
-                    "budgetLocal": float(chromosomeFit["budgetLocal"]),
-                    "budget": float(chromosomeFit["budget"]),
-                }
-            )
         if _plotROCCONullCalibrationDiagnostics(
             diagnosticRows,
             nullCalibrationDiagnosticsCandidatePath,
@@ -4224,12 +4204,11 @@ def solveRocco(
             ),
             "numBootstrap": int(numBootstrap_),
             "thresholdZ": float(thresholdZ_),
-            "gamma": None if gamma is None else float(gamma),
+            "gamma": float(gamma_),
             "selectionPenalty": (
                 None if selectionPenalty is None else float(selectionPenalty)
             ),
             "selectionPenaltyMultiplier": selectionPenaltyMultiplier_,
-            "gammaScale": float(gammaScale),
             "nestedRoccoIters": int(max(int(nestedRoccoIters), 0)),
             "nestedRoccoBudgetScale": float(nestedRoccoBudgetScale),
             "exportFilterUncertaintyMultiplier": float(

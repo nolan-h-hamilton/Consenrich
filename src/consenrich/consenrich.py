@@ -8411,6 +8411,8 @@ def _runWithCounts(config, args, sharedReferenceGrid, countsReader):
                 numBootstrap=int(matchingArgs.numBootstrap),
                 numRegionReplays=int(matchingArgs.numRegionReplays),
                 shrinkChromosomeBudgets=matchingArgs.shrinkChromosomeBudgets,
+                budgetMin=matchingArgs.budgetMin,
+                budgetMax=matchingArgs.budgetMax,
                 useLocalBootStrapRadius=matchingArgs.useLocalBootStrapRadius,
                 plotNullCalibrationDiagnostics=(
                     outputArgs.plotNullCalibrationDiagnostics
@@ -8419,7 +8421,6 @@ def _runWithCounts(config, args, sharedReferenceGrid, countsReader):
                 gamma=matchingArgs.gamma,
                 selectionPenalty=matchingArgs.selectionPenalty,
                 selectionPenaltyMultiplier=matchingArgs.selectionPenaltyMultiplier,
-                gammaScale=float(matchingArgs.gammaScale),
                 nestedRoccoIters=int(matchingArgs.nestedRoccoIters),
                 nestedRoccoBudgetScale=float(matchingArgs.nestedRoccoBudgetScale),
                 exportFilterUncertaintyMultiplier=float(

@@ -1,7 +1,7 @@
 experimentName: scATACDemo
 genomeParams:
   name: hg38
-  chromosomes: [chr21, chr22]
+  chromosomes: [chr18, chr19, chr20, chr21, chr22]
 countingParams:
   normMethod: CPM
 observationParams:

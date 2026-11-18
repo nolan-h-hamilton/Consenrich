@@ -72,6 +72,8 @@ from .constants import (
     MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    ROCCO_BUDGET_MAX,
+    ROCCO_BUDGET_MIN,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY,
@@ -950,15 +952,10 @@ class matchingParams(NamedTuple):
     :param dependenceSpan: Optional fixed dependence span in intervals for bootstrap calibration.
         If not provided, it is estimated from the score track.
     :type dependenceSpan: Optional[int]
-    :param gamma: ROCCO boundary penalty. Non-negative values are used directly
-        (default ``0.25``); negative values request data-driven estimation from
-        local score scale and context size.
+    :param gamma: Non-negative ROCCO boundary penalty (default ``0.25``).
     :type gamma: Optional[float]
     :param selectionPenalty: Optional direct per-bin selection penalty override.
     :type selectionPenalty: Optional[float]
-    :param gammaScale: Multiplicative scale used when converting estimated context size into
-        a ROCCO boundary penalty.
-    :type gammaScale: Optional[float]
     :param nestedRoccoIters: Number of nested, monotone-shrinking local ROCCO refinement
         iterations to run within first-pass peak regions. Set to ``0`` to disable.
     :type nestedRoccoIters: Optional[int]
@@ -999,7 +996,6 @@ class matchingParams(NamedTuple):
     thresholdZ: Optional[float]
     gamma: Optional[float]
     selectionPenalty: Optional[float]
-    gammaScale: Optional[float]
     nestedRoccoIters: Optional[int]
     nestedRoccoBudgetScale: Optional[float]
     exportFilterUncertaintyMultiplier: Optional[float]
@@ -1015,6 +1011,8 @@ class matchingParams(NamedTuple):
     shrinkChromosomeBudgets: bool = MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS
     useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
     selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER
+    budgetMin: float = ROCCO_BUDGET_MIN
+    budgetMax: float = ROCCO_BUDGET_MAX
 
 
 class outputParams(NamedTuple):

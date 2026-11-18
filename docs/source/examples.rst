@@ -73,7 +73,7 @@ the BAM files:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22]
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -154,7 +154,7 @@ Save the following as ``atacDemo.yaml``:
 
   genomeParams:
     name: hg38
-    # chromosomes: [chr11, chr22] # faster: Uncomment and specify chromosomes
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -232,7 +232,7 @@ Save the following as ``bigH3K4me1Demo.yaml``:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22]
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -460,11 +460,6 @@ See the :ref:`single-cell API reference <single-cell-api>` for field types and d
 
 Run the command shown in the selected tab from the directory containing its
 YAML file and inputs. Outputs are written under ``scATACDemo/<cell group>/``.
-
-Note that we've manually specified a length scale of 25000 bp via
-:ref:`observationParams.lengthScaleBP <genomic-length-scale>`.
-This is not required but may be advisable for particularly sparse data in rare
-cell types, where the automatic data-driven approach may have poor support.
 
 .. _scatac-results:
 

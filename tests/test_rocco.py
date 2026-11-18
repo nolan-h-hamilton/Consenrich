@@ -391,7 +391,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
     assert len(plotCalls) == 1
     assert plotCalls[0][1:] == (str(diagnosticPath), 400)
     assert tuple(plotCalls[0][0][0]) == (
-        "chromosome",
+        "block",
         "nullTailOccupancyDraws",
         "nullTailOccupancy",
         "thresholdZ",
@@ -467,7 +467,7 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
 
     rows = (
         {
-            "chromosome": "chr1",
+            "block": "chr1",
             "nullTailOccupancyDraws": np.asarray([0.02, 0.03, 0.04, 0.05]),
             "nullTailOccupancy": 0.035,
             "thresholdZ": 2.0,
@@ -477,7 +477,7 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
             "budget": 0.030,
         },
         {
-            "chromosome": "chr2",
+            "block": "chr2",
             "nullTailOccupancyDraws": np.asarray([0.01, 0.02, 0.03, 0.04]),
             "nullTailOccupancy": 0.025,
             "thresholdZ": 2.0,
@@ -499,19 +499,19 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
     assert plotPath.stat().st_size > 0
     np.testing.assert_allclose(figure.get_size_inches(), [14.8, 9.2])
     assert figure._suptitle.get_text() == (
-        "ROCCO Null Calibration and Chromosome Budgets"
+        "ROCCO Null Calibration and Block Budgets"
     )
     assert [axis.get_title() for axis in figure.axes] == [
         "Bootstrap Null Tail Occupancy",
-        "Chromosome Signed Excess and Budgets",
-        "Local and Shrunk Chromosome Budgets",
+        "Block Signed Excess and Budgets",
+        "Local and Shrunk Block Budgets",
         "Bootstrap Null and Signed Excess",
     ]
     assert [(axis.get_xlabel(), axis.get_ylabel()) for axis in figure.axes] == [
         ("tail occupancy fraction", "bootstrap draws"),
-        ("tail occupancy fraction", "chromosomes"),
+        ("tail occupancy fraction", "blocks"),
         ("local budget fraction", "shrunk budget fraction"),
-        ("chromosome", "tail occupancy fraction"),
+        ("block", "tail occupancy fraction"),
     ]
     excessLabels = figure.axes[1].get_legend_handles_labels()[1]
     pairedLabels = figure.axes[3].get_legend_handles_labels()[1]
@@ -1486,8 +1486,12 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
         "threshold_metrics": {"z2": {
             "track_tail_occupancy": occupancy,
             "null_tail_occupancy": nullOccupancy,
+            "null_tail_occupancy_draws": nullOccupancy
+            + nullMCSE * np.sqrt(7.0) * np.tile([-1.0, 1.0], 4),
+            "far_null_tail_occupancy_draws": np.zeros(8),
             "null_tail_mc_se": nullMCSE,
             "signed_tail_excess": occupancy - nullOccupancy,
+            "far_tail_excess": 0.0,
             "budget_occupancy_raw": occupancy - nullOccupancy,
         }},
         "null_calibration": {
@@ -1501,9 +1505,15 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     budget, fit = peaks._estimateBudgetForPreparedROCCOScore(
         prepared, returnDetails=True, minBlockMass=50.0
     )
-    assert budget == pytest.approx(occupancy - nullOccupancy)
-    assert fit["track_tail_variance"] == pytest.approx(variance)
-    assert fit["signed_tail_excess_se"] ** 2 == pytest.approx(variance + nullMCSE**2)
+    excess = occupancy - nullOccupancy
+    weight = 0.5 * (1.0 + math.erf(excess / math.sqrt(2.0 * (variance + nullMCSE**2))))
+    assert budget == pytest.approx(weight * excess)
+    assert (fit["tail_excess"], fit["far_tail_excess"]) == pytest.approx((excess, 0.0))
+    assert fit["tail_excess_weight"] == pytest.approx(weight)
+    assert fit["track_tail_variance"] == pytest.approx(weight**2 * variance)
+    assert fit["signed_tail_excess_se"] ** 2 == pytest.approx(
+        weight**2 * (variance + nullMCSE**2)
+    )
 
     observations = {
         "scaffoldA": (0.80, 0.03), "chr2": (0.10, 0.02),
@@ -1514,14 +1524,13 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     variances = np.square([observations[name][1] for name in names])
     pooledMean = np.mean(values)
     tauSquared = max(np.var(values, ddof=1) - np.mean(variances), 0.0)
-    expectedRetention = np.maximum(
-        np.divide(tauSquared, tauSquared + variances, out=np.ones(5), where=variances > 0),
-        0.90,
+    expectedRetention = np.divide(
+        tauSquared, tauSquared + variances, out=np.ones(5), where=variances > 0
     )
     expectedBudgets = np.clip(
         np.maximum(pooledMean + expectedRetention * (values - pooledMean), 0.0),
-        0.001,
-        0.25,
+        0.002,
+        0.20,
     )
     budgets, retention, metadata = peaks._shrinkROCCOChromosomeBudgets(observations)
     assert budgets == pytest.approx(dict(zip(names, expectedBudgets)))
@@ -1530,7 +1539,7 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     assert peaks._shrinkROCCOChromosomeBudgets(dict(reversed(tuple(observations.items())))) == (
         budgets, retention, metadata
     )
-    localBudgets = {name: float(np.clip(max(value, 0.0), 0.001, 0.25)) for name, (value, _) in observations.items()}
+    localBudgets = {name: float(np.clip(max(value, 0.0), 0.002, 0.20)) for name, (value, _) in observations.items()}
     for enabled, penalty, reason in ((False, None, "disabled"), (True, 0.4, "selectionPenaltyOverride")):
         skippedBudgets, skippedRetention, skipped = peaks._shrinkROCCOChromosomeBudgets(
             observations, enabled=enabled, selectionPenalty=penalty
@@ -1538,6 +1547,99 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
         assert skippedBudgets == pytest.approx(localBudgets)
         assert skippedRetention == {name: 1.0 for name in names}
         assert skipped["applied"] is False and skipped["skipReason"] == reason
+
+
+def _caseBlockBudgetsAndBlockSolve():
+    rng = np.random.default_rng(11)
+    size = 4096
+    moderate = rng.normal(size=size)
+    moderate[rng.choice(size, size // 10, replace=False)] = rng.normal(3.0, 0.1, size // 10)
+    sharp = -np.abs(rng.normal(size=size))
+    planted = rng.choice(size, size // 20, replace=False)
+    sharp[planted] = rng.normal(10.0, 0.1, planted.size)
+    scores = np.r_[moderate, sharp, np.zeros(size), rng.normal(size=size)]
+    intervals = 100 * np.arange(scores.size)
+    ends = intervals + 100
+    prepareArgs = {"thresholdZ": 2.0, "numBootstrap": 16, "randomSeed": 5}
+
+    def blockBudgets(stop, tailBlockMass=6400.0, blockCount=None):
+        prepared = peaks._prepareROCCOScoreAndNull(
+            scores[:stop], 8, intervals=intervals[:stop], ends=ends[:stop], **prepareArgs
+        )
+        return prepared, peaks._estimateROCCOBlockBudgets(
+            scores[:stop], None, intervals[:stop], ends[:stop], 8, tailBlockMass,
+            prepared, prepareArgs, blockCount=blockCount,
+        )
+
+    _prepared, blocks = blockBudgets(scores.size, blockCount=4)
+    assert [(block["start"], block["stop"]) for block in blocks] == [
+        (index * size, (index + 1) * size) for index in range(4)
+    ]
+    for block in blocks:
+        weight = block["tail_excess_weight"]
+        assert block["signed_tail_excess"] == pytest.approx(
+            weight * block["tail_excess"] + (1.0 - weight) * block["far_tail_excess"]
+        )
+    moderateBlock, sharpBlock, emptyBlock, nullBlock = blocks
+    assert moderateBlock["tail_excess_weight"] > 0.99
+    assert moderateBlock["tail_excess"] > moderateBlock["far_tail_excess"] + 0.05
+    assert sharpBlock["tail_excess_weight"] < 0.01
+    assert sharpBlock["tail_excess"] < sharpBlock["far_tail_excess"]
+    assert sharpBlock["signed_tail_excess"] == pytest.approx(planted.size / size, abs=0.005)
+    assert sharpBlock["signed_tail_excess_se"] > 0.0
+    assert sharpBlock["null_tail_occupancy_draws"].size == 16
+    assert (emptyBlock["signed_tail_excess"], emptyBlock["signed_tail_excess_se"]) == (0.0, 0.0)
+    assert abs(nullBlock["signed_tail_excess"]) < 0.01
+    tailBlockMass = 100.0 * scores.size / (3.5 * peaks._ROCCO_BUDGET_BLOCK_TAIL_BLOCKS)
+    assert len(blockBudgets(scores.size, tailBlockMass=tailBlockMass)[1]) == 1
+    minimumBlockBP = peaks._ROCCO_BUDGET_BLOCK_MIN_BP
+    peaks._ROCCO_BUDGET_BLOCK_MIN_BP = 0
+    try:
+        assert len(blockBudgets(scores.size, tailBlockMass=tailBlockMass)[1]) == 3
+    finally:
+        peaks._ROCCO_BUDGET_BLOCK_MIN_BP = minimumBlockBP
+    shortPrepared, shortBlocks = blockBudgets(500)
+    assert len(shortBlocks) == 1
+    assert shortBlocks[0]["signed_tail_excess"] == peaks._estimateBudgetForPreparedROCCOScore(
+        shortPrepared, returnDetails=True, minBlockMass=6400.0
+    )[1]["signed_tail_excess"]
+
+    track = np.full(400, -1.0)
+    track[20:60] = 3.0
+    track[220:240] = 2.0
+    track[300:304] = 4.0
+    bounds, budgets = [(0, 200), (200, 400)], [0.10, 0.02]
+    solution, _objective, details, solveScores = peaks._solveChromROCCOBlocks(
+        track, bounds, budgets, gamma=0.25
+    )
+    penalties = details["block_selection_penalties"]
+    assert int(solution[:200].sum()) == 0 and np.flatnonzero(solution).tolist() == [300, 301, 302, 303]
+    assert penalties[0] > penalties[1]
+    assert details["selection_penalty"] == pytest.approx(np.mean(penalties))
+    assert solveScores is not track
+    assert solveScores - track == pytest.approx(
+        np.repeat(np.mean(penalties) - np.asarray(penalties), 200)
+    )
+    assert peaks.solveChromROCCO(np.ones(50), budget=1.0, gamma=0.0, returnDetails=True)[2][
+        "selection_penalty"
+    ] == peaks._ROCCO_SELECTION_PENALTY_MIN
+    assert peaks.solveChromROCCO(
+        np.ones(50), gamma=0.0, selectionPenalty=0.0, returnDetails=True
+    )[2]["selection_penalty"] == 0.0
+    repeated = np.tile(track[200:], 2)
+    assert peaks._solveChromROCCOBlocks(repeated, bounds, [0.02, 0.02], gamma=0.25)[3] is repeated
+    for arguments, reference in (
+        (dict(blockBounds=[(0, 400)], blockBudgets=[0.05]), dict(budget=0.05)),
+        (dict(blockBounds=bounds, blockBudgets=budgets, selectionPenalty=1.5), dict(selectionPenalty=1.5)),
+    ):
+        blockSolution, _value, blockDetails, usedScores = peaks._solveChromROCCOBlocks(
+            track, gamma=0.25, **arguments
+        )
+        expectedSolution, _value, expectedDetails = peaks.solveChromROCCO(
+            track, gamma=0.25, returnDetails=True, **reference
+        )
+        assert usedScores is track and np.array_equal(blockSolution, expectedSolution)
+        assert blockDetails["selection_penalty"] == expectedDetails["selection_penalty"]
 
 
 def _caseSharedSeedAndSpoolCleanup(tmp_path, monkeypatch, caplog):
@@ -1663,6 +1765,7 @@ def _caseCheckMatchingEnabledHonorsEnabledFlag():
 def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case):
     contract_case("stationary bootstrap native contracts", _caseStationaryBootstrapNativeContracts)
     contract_case("synthetic null and planted tails", _caseSyntheticTailGates)
+    contract_case("block budgets and block solve", _caseBlockBudgetsAndBlockSolve)
     contract_case("reflected template and mean occupancy", _caseReflectedTemplateAndMeanOccupancy, monkeypatch)
     contract_case("track-tail variance and chromosome shrinkage", _caseTrackTailVarianceAndChromosomeShrinkage)
     contract_case("candidate replay p and q", _caseReplayFDRModeratePanelsStaySubquadratic)

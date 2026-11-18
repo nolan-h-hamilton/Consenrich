@@ -2391,8 +2391,11 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_THRESHOLD_Z,
             )
         ),
-        gamma=_cfgGet(
-            configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
+        gamma=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(
+                configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
+            ),
+            paramName="matchingParams.gamma",
         ),
         selectionPenalty=_cfgGet(
             configData,
@@ -2400,13 +2403,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             constants.MATCHING_DEFAULT_SELECTION_PENALTY,
         ),
         selectionPenaltyMultiplier=selectionPenaltyMultiplier,
-        gammaScale=float(
-            _cfgGet(
-                configData,
-                "matchingParams.gammaScale",
-                constants.MATCHING_DEFAULT_GAMMA_SCALE,
-            )
-        ),
         nestedRoccoIters=int(
             _cfgGet(
                 configData,
@@ -2456,6 +2452,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             )
         ),
         shrinkChromosomeBudgets=bool(shrinkChromosomeBudgets),
+        budgetMin=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(configData, "matchingParams.budgetMin", constants.ROCCO_BUDGET_MIN),
+            paramName="matchingParams.budgetMin",
+        ),
+        budgetMax=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(configData, "matchingParams.budgetMax", constants.ROCCO_BUDGET_MAX),
+            paramName="matchingParams.budgetMax",
+        ),
         useLocalBootStrapRadius=bool(useLocalBootStrapRadius),
         peakMode=peakMode,
         broadWeakThresholdZ=normalization.validateNonnegativeFloat(
