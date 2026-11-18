@@ -8,12 +8,14 @@ import os
 from collections import namedtuple
 from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
 import yaml
+from ccounts import LengthScaleOptions
 
 import consenrich.constants as constants
 import consenrich.core as core
@@ -38,6 +40,7 @@ _configOverrideMappings: frozenset[str] = frozenset({
     "observationParams.muncSeedWeight",
     "observationParams.muncSeedProcess",
     "observationParams.muncEBPrior",
+    "observationParams.lengthScaleOptions",
 })
 
 # ... and these are flat
@@ -50,15 +53,23 @@ _configOverrideKeys: frozenset[str] = frozenset(DEFAULT_CONFIGURATION_VALUES[GEN
     )
     for field in getattr(core, section)._fields
     if section != "observationParams"
-    or not field.startswith(("muncSeedWeight", "muncSeedProcess", "muncEBPrior"))
+    or (
+        not field.startswith(("muncSeedWeight", "muncSeedProcess", "muncEBPrior"))
+        and field != "lengthScaleOptions"
+    )
 } | {
     f"genomeParams.{'name' if field == 'genomeName' else field}"
     for field in core.genomeParams._fields
+    if field != "chromosomeSizes"
 } | {
     "experimentName", *DEFAULT_CONFIGURATION_KEYS,
     "inputParams.bamFiles", "inputParams.bamFilesControl", "inputParams.samples",
     "scParams.cellMetadata.path", "scParams.cellMetadata.barcodeColumn",
     "scParams.cellMetadata.sampleColumn", "scParams.cellMetadata.groupColumn",
+    "fitParams.backgroundLengthScaleMultiplier",
+} | {
+    f"observationParams.lengthScaleOptions.{field.name}"
+    for field in fields(LengthScaleOptions)
 } | _configOverrideMappings
 
 
@@ -135,20 +146,22 @@ def loadConfig(
 
     if not isinstance(configData, Mapping):
         raise TypeError("Top-level YAML must be a mapping/object.")
-    for sectionName, removedName in (
-        ("genomeParams", "genomeCovariateCacheDir"),
-        ("observationParams", "muncCovariates"),
-    ):
-        removedKey = f"{sectionName}.{removedName}"
-        declaredKeys = tuple(configData)
-        sectionData = configData.get(sectionName)
-        if isinstance(sectionData, Mapping):
-            declaredKeys += tuple(f"{sectionName}.{key}" for key in sectionData)
-        if _cfgHas(configData, removedKey) or any(
-            isinstance(key, str) and key.startswith(f"{removedKey}.")
-            for key in declaredKeys
-        ):
-            raise ValueError(f"`{removedKey}` is not supported.")
+    pending = [("", configData)]
+    while pending:
+        prefix, section = pending.pop()
+        for name, value in section.items():
+            if not isinstance(name, str):
+                raise ValueError(f"Unknown configuration key {name!r}")
+            key = f"{prefix}.{name}" if prefix else name
+            if key in _configOverrideKeys:
+                if key in _configOverrideMappings and isinstance(value, Mapping):
+                    pending.append((key, value))
+            elif isinstance(value, Mapping) and any(
+                known.startswith(f"{key}.") for known in _configOverrideKeys
+            ):
+                pending.append((key, value))
+            else:
+                raise ValueError(f"Unknown configuration key {key!r}")
     return configData
 
 
@@ -257,17 +270,6 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
         "scParams.barcodeTag",
         constants.SC_DEFAULT_BARCODE_TAG,
     )
-    defaultFragmentPositionMode = _cfgGet(
-        configData,
-        "scParams.defaultFragmentPositionMode",
-        constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-    )
-    normalization.validateChoice(
-        defaultFragmentPositionMode,
-        default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-        supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
-        paramName="fragmentPositionMode",
-    )
     fragmentsUseReadSupport = _cfgGet(
         configData,
         "scParams.fragmentsUseReadSupport",
@@ -291,7 +293,6 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
                 sourceConfig,
                 defaultRole="treatment",
                 defaultBarcodeTag=defaultBarcodeTag,
-                defaultFragmentPositionMode=defaultFragmentPositionMode,
                 fragmentsUseReadSupport=fragmentsUseReadSupport,
             )
             for sourceConfig in sampleConfigs
@@ -324,10 +325,10 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
                     "Per-source `selectGroups` cannot be used with `scParams.fits`."
                 )
         treatmentSources = [
-            source for source in allSources if str(source.role).lower() == "treatment"
+            source for source in allSources if source.role == "treatment"
         ]
         controlSources = [
-            source for source in allSources if str(source.role).lower() == "control"
+            source for source in allSources if source.role == "control"
         ]
     else:
         bamFilesRaw = (
@@ -369,8 +370,6 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
             "Number of control sources must be 0, 1, or the same as number of treatment sources"
         )
 
-    treatmentSources = io_helpers._prepareIndexedSources(treatmentSources)
-    controlSources = io_helpers._prepareIndexedSources(controlSources)
 
     if len(controlSources) == 1:
         logger.info(
@@ -383,19 +382,6 @@ def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.input
 
     if not bamFiles or not isinstance(bamFiles, list):
         raise ValueError("No input source paths found")
-
-    for source in treatmentSources:
-        if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS:
-            misc_util.checkAlignmentFile(source.path)
-        elif not os.path.exists(source.path):
-            raise FileNotFoundError(f"Could not find {source.path}")
-
-    if controlSources:
-        for source in controlSources:
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS:
-                misc_util.checkAlignmentFile(source.path)
-            elif not os.path.exists(source.path):
-                raise FileNotFoundError(f"Could not find {source.path}")
 
     return core.inputParams(
         bamFiles=bamFiles,
@@ -547,11 +533,6 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.plotOptimizationPath",
         constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     )
-    plotCorrelationLength_ = _cfgGet(
-        configData,
-        "outputParams.plotCorrelationLength",
-        _cfgDefault(configData, "outputParams.plotCorrelationLength"),
-    )
     plotNullCalibrationDiagnosticsRaw = _cfgGet(
         configData,
         "outputParams.plotNullCalibrationDiagnostics",
@@ -579,15 +560,10 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
         "outputParams.writeRunSummary",
         _cfgDefault(configData, "outputParams.writeRunSummary"),
     )
-    diagnosticTracksRaw = _cfgGet(configData, "outputParams.diagnosticTracks", None)
-    if diagnosticTracksRaw is None:
-        diagnosticTracksRaw = _cfgGet(configData, "outputParams.tracks", None)
-    if diagnosticTracksRaw is None:
-        diagnosticTracksRaw = _cfgGet(
-            configData,
-            "outputParams.writeDiagnosticTracks",
-            constants.OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
-        )
+    diagnosticTracksRaw = _cfgGet(
+        configData, "outputParams.diagnosticTracks",
+        constants.OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
+    )
     diagnosticTracks_ = normalization.validateDiagnosticTracks(diagnosticTracksRaw)
     precisionDiagnosticDetail_ = normalization.validateChoice(
         _cfgGet(
@@ -670,7 +646,6 @@ def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outp
             writeReplicateExchangeabilityDiagnostics_
         ),
         plotOptimizationPath=plotOptimizationPath_,
-        plotCorrelationLength=bool(plotCorrelationLength_),
         plotNullCalibrationDiagnostics=plotNullCalibrationDiagnostics_,
         plotPrecisionReweightingHistograms=plotPrecisionReweightingHistograms_,
         precisionReweightingHistogramSampleSize=(
@@ -761,11 +736,6 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
         or []
     )
 
-    if genomeLabel in ("ce10", "ce11", "dm6", "hg19", "hg38", "mm10", "mm39"):
-        chromSizesFile = constants.getGenomeResourceFile(genomeLabel, "sizes")
-        blacklistFile = constants.getGenomeResourceFile(genomeLabel, "blacklist")
-        sparseBedFile = constants.getGenomeResourceFile(genomeLabel, "sparse")
-
     chromSizesOverride = _cfgGet(
         configData,
         "genomeParams.chromSizesFile",
@@ -790,10 +760,12 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
     if sparseOverride:
         sparseBedFile = sparseOverride
 
-    if not chromSizesFile or not os.path.exists(chromSizesFile):
-        raise FileNotFoundError(
-            f"Chromosome sizes file {chromSizesFile} does not exist."
-        )
+    if chromSizesFile is not None:
+        chromosomeSizes = constants.readChromSizes(chromSizesFile)
+    elif genomeLabel is not None:
+        chromosomeSizes = dict(constants.assemblyChromosomeSizes[genomeLabel])
+    else:
+        raise ValueError("Set genomeParams.name or genomeParams.chromSizesFile")
 
     chromosomesConfig = _cfgGet(
         configData,
@@ -803,18 +775,8 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
     if chromosomesConfig is not None:
         chromosomesList = chromosomesConfig
     else:
-        if chromSizesFile:
-            chromosomesFrame = pd.read_csv(
-                chromSizesFile,
-                sep="\t",
-                header=None,
-                names=["chrom", "size"],
-            )
-            chromosomesList = list(chromosomesFrame["chrom"])
-        else:
-            raise ValueError(
-                "No chromosomes provided in the configuration and no chromosome sizes file specified."
-            )
+        chromosomesList = (list(chromosomeSizes) if chromSizesFile is not None
+                           else list(constants.getAssemblyChromosomes(genomeLabel)))
 
     chromosomesList = [
         chromName.strip()
@@ -841,6 +803,7 @@ def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.geno
         chromosomes=chromosomesList,
         excludeChroms=excludeChromsList,
         excludeForNorm=excludeForNormList,
+        chromosomeSizes=chromosomeSizes,
         effectiveGenomeSize=effectiveGenomeSize,
     )
 
@@ -883,301 +846,123 @@ def getStateArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.state
     )
 
 
-def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.countingParams:
+def getCountingArgs(
+    config_path: Union[str, Path, Mapping[str, Any]],
+    *,
+    inputArgs: core.inputParams | None = None,
+) -> core.countingParams:
     configData = loadConfig(config_path)
-
-    intervalSizeBP = _cfgGet(
-        configData,
+    intervalSizeBP = normalization.validateOptionalPositiveInteger(
+        _cfgGet(
+            configData,
+            "countingParams.intervalSizeBP",
+            constants.COUNTING_DEFAULT_INTERVAL_SIZE_BP,
+        ),
         "countingParams.intervalSizeBP",
-        constants.COUNTING_DEFAULT_INTERVAL_SIZE_BP,
     )
-    backgroundBlockSizeBP_ = _cfgGet(
-        configData,
-        "countingParams.backgroundBlockSizeBP",
+    if intervalSizeBP is None:
+        raise ValueError("countingParams.intervalSizeBP requires a positive integer")
+    backgroundBlockSizeBP = _cfgGet(
+        configData, "countingParams.backgroundBlockSizeBP",
         constants.COUNTING_DEFAULT_BACKGROUND_BLOCK_SIZE_BP,
     )
-    scaleFactorList = _cfgGet(
-        configData,
-        "countingParams.scaleFactors",
-        constants.COUNTING_DEFAULT_SCALE_FACTORS,
-    )
-    scaleFactorsControlList = _cfgGet(
-        configData,
-        "countingParams.scaleFactorsControl",
-        constants.COUNTING_DEFAULT_SCALE_FACTORS_CONTROL,
-    )
-    if scaleFactorList is not None and not isinstance(scaleFactorList, list):
-        raise ValueError("`scaleFactors` should be a list of floats.")
-
-    if scaleFactorsControlList is not None and not isinstance(
-        scaleFactorsControlList, list
+    if isinstance(backgroundBlockSizeBP, (bool, np.bool_)) or not isinstance(
+        backgroundBlockSizeBP, (int, np.integer)
     ):
-        raise ValueError("`scaleFactorsControl` should be a list of floats.")
-
-    normMethod_ = _cfgGet(
-        configData,
-        "countingParams.normMethod",
-        constants.COUNTING_DEFAULT_NORM_METHOD,
-    )
-    normMethod_ = normalization.validateChoice(
-        normMethod_,
-        default=constants.COUNTING_DEFAULT_NORM_METHOD,
+        raise ValueError("countingParams.backgroundBlockSizeBP must be an integer")
+    factors = _cfgGet(configData, "countingParams.scaleFactors", None)
+    referenceFactors = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
+    for values in (factors, referenceFactors):
+        if values is not None:
+            if not isinstance(values, list):
+                raise ValueError("Scale factors require a list")
+            for value in values:
+                normalization.validatePositiveFloat(value, "scale factor")
+    configuredMethod = _cfgGet(configData, "countingParams.normMethod")
+    defaultMethod = constants.COUNTING_DEFAULT_NORM_METHOD
+    if inputArgs is None and any(
+        _cfgGet(configData, key) for key in (
+            "inputParams.samples", "inputParams.bamFiles", "inputParams.bamFilesControl",
+        )
+    ):
+        inputArgs = getInputArgs(configData)
+    if configuredMethod is None:
+        if inputArgs is not None and any(
+            source.sourceKind == "H5AD"
+            for sources in (inputArgs.treatmentSources, inputArgs.controlSources)
+            for source in sources or ()
+        ):
+            defaultMethod = "CPM"
+    method = normalization.validateChoice(
+        configuredMethod,
+        default=defaultMethod,
         supported=constants.COUNTING_SUPPORTED_NORM_METHODS,
         paramName="countingParams.normMethod",
     )
-    fragmentsGroupNorm_ = _cfgGet(
-        configData,
-        "countingParams.fragmentsGroupNorm",
-        constants.COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM,
-    )
-    fragmentsGroupNorm_ = normalization.validateChoice(
-        fragmentsGroupNorm_,
-        default=constants.COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM,
-        supported=constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS,
-        paramName="countingParams.fragmentsGroupNorm",
-    )
-
-    fixControl_ = _cfgGet(
-        configData,
-        "countingParams.fixControl",
-        constants.COUNTING_DEFAULT_FIX_CONTROL,
-    )
-    logOffset_ = _cfgGet(
-        configData,
-        "countingParams.logOffset",
-        constants.COUNTING_DEFAULT_LOG_OFFSET,
-    )
-    logMult_ = _cfgGet(
-        configData,
-        "countingParams.logMult",
-        constants.COUNTING_DEFAULT_LOG_MULT,
-    )
-    transformMethodRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformMethod",
-            "countingParams.transform.method",
-            "countingParams.countTransform",
-        ),
-        None,
-    )
-    if transformMethodRaw is None and _cfgHas(configData, "countingParams.transform"):
-        transformConfig = _cfgGet(configData, "countingParams.transform")
-        if not isinstance(transformConfig, Mapping):
-            transformMethodRaw = transformConfig
-    transformMethod_ = normalization.validateChoice(
-        constants.COUNTING_DEFAULT_TRANSFORM_METHOD
-        if transformMethodRaw is None
-        else transformMethodRaw,
-        default=constants.COUNTING_DEFAULT_TRANSFORM_METHOD,
-        supported=constants.COUNTING_SUPPORTED_TRANSFORM_METHODS,
-        paramName="countingParams.transformMethod",
-    )
-    explicitLogOffset = _cfgHas(configData, "countingParams.logOffset")
-    explicitLogMult = _cfgHas(configData, "countingParams.logMult")
-
-    transformInputOffsetRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformInputOffset",
-            "countingParams.transform.inputOffset",
-            "countingParams.transform.offset",
-            "countingParams.transformOffset",
-        ),
-        None,
-    )
-    if transformInputOffsetRaw is None:
-        if transformMethod_ == "log" or explicitLogOffset:
-            transformInputOffsetRaw = logOffset_
-        elif transformMethod_ == "anscombe":
-            transformInputOffsetRaw = constants.COUNTING_ANSCOMBE_INPUT_OFFSET
-        else:
-            transformInputOffsetRaw = constants.COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET
-
-    transformInputScaleRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformInputScale",
-            "countingParams.transform.inputScale",
-            "countingParams.transform.scale",
-            "countingParams.transformScale",
-        ),
-        constants.COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-    )
-
-    transformOutputScaleRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformOutputScale",
-            "countingParams.transform.outputScale",
-            "countingParams.transform.multiplier",
-            "countingParams.transformMultiplier",
-            "countingParams.transform.outputMultiplier",
-        ),
-        None,
-    )
-    if transformOutputScaleRaw is None:
-        if transformMethod_ == "log" or explicitLogMult:
-            transformOutputScaleRaw = logMult_
-        elif transformMethod_ == "anscombe":
-            transformOutputScaleRaw = constants.COUNTING_ANSCOMBE_OUTPUT_SCALE
-        else:
-            transformOutputScaleRaw = constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
-
-    transformOutputOffsetRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformOutputOffset",
-            "countingParams.transform.outputOffset",
-        ),
-        constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
-    )
-    transformShapeRaw = _cfgGetFirst(
-        configData,
-        (
-            "countingParams.transformShape",
-            "countingParams.transform.shape",
-        ),
-        constants.COUNTING_DEFAULT_TRANSFORM_SHAPE,
-    )
-    transformInputOffset_ = normalization.validateTransformFloat(
-        transformInputOffsetRaw,
-        paramName="countingParams.transformInputOffset",
-        default=constants.COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
-    )
-    transformInputScale_ = normalization.validateTransformFloat(
-        transformInputScaleRaw,
-        paramName="countingParams.transformInputScale",
-        default=constants.COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-        positive=True,
-    )
-    transformOutputScale_ = normalization.validateTransformFloat(
-        transformOutputScaleRaw,
-        paramName="countingParams.transformOutputScale",
-        default=constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
-    )
-    transformOutputOffset_ = normalization.validateTransformFloat(
-        transformOutputOffsetRaw,
-        paramName="countingParams.transformOutputOffset",
-        default=constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
-    )
-    transformShape_ = normalization.validateTransformFloat(
-        transformShapeRaw,
-        paramName="countingParams.transformShape",
-        default=constants.COUNTING_DEFAULT_TRANSFORM_SHAPE,
-        positive=True,
-    )
-    centerMB_ = _cfgGet(
-        configData,
-        "countingParams.centerMB",
-        _cfgDefault(configData, "countingParams.centerMB"),
-    )
-    centerMBWindowBPRaw = _cfgGet(
-        configData,
-        "countingParams.centerMBWindowBP",
-        _cfgDefault(configData, "countingParams.centerMBWindowBP"),
-    )
-    if isinstance(centerMBWindowBPRaw, (bool, np.bool_)):
-        raise ValueError("countingParams.centerMBWindowBP must be a positive integer")
-    try:
-        centerMBWindowBP_ = operator.index(centerMBWindowBPRaw)
-    except TypeError as ex:
-        raise ValueError(
-            "countingParams.centerMBWindowBP must be a positive integer"
-        ) from ex
-    if centerMBWindowBP_ <= 0:
-        raise ValueError("countingParams.centerMBWindowBP must be a positive integer")
-    centerMBMethod_ = _cfgGet(
-        configData,
-        "countingParams.centerMBMethod",
-        _cfgDefault(configData, "countingParams.centerMBMethod"),
-    )
-    if centerMBMethod_ not in constants.COUNTING_SUPPORTED_CENTER_MB_METHODS:
-        supported = ", ".join(constants.COUNTING_SUPPORTED_CENTER_MB_METHODS)
-        raise ValueError(
-            f"countingParams.centerMBMethod must be one of: {supported}"
+    normRegionsFile = _cfgGet(configData, "countingParams.normRegionsFile")
+    if normRegionsFile is not None:
+        if method != "ReadsInRegions":
+            raise ValueError("countingParams.normRegionsFile requires normMethod: ReadsInRegions")
+        if not isinstance(normRegionsFile, (str, Path)) or not str(normRegionsFile):
+            raise ValueError("countingParams.normRegionsFile must be a non-empty path")
+        normRegionsFile = Path(normRegionsFile).resolve()
+        if not normRegionsFile.is_file():
+            raise ValueError("countingParams.normRegionsFile must name an existing file")
+        normRegionsFile = str(normRegionsFile)
+    if method == "ReadsInRegions" and normRegionsFile is None and (
+        factors is None or (
+            inputArgs is not None and inputArgs.controlSources and referenceFactors is None
         )
+    ):
+        raise ValueError("ReadsInRegions requires countingParams.normRegionsFile to derive factors")
+    normScaleTo = normalization.validatePositiveFloat(
+        _cfgGet(configData, "countingParams.normScaleTo", constants.COUNTING_DEFAULT_NORM_SCALE_TO),
+        "countingParams.normScaleTo",
+    )
+    pseudocount = normalization.validatePositiveFloat(
+        _cfgGet(configData, "countingParams.pseudocount", 1.0), "countingParams.pseudocount"
+    )
+    centerWindow = normalization.validateOptionalPositiveInteger(
+        _cfgGet(configData, "countingParams.centerMBWindowBP", constants.COUNTING_DEFAULT_CENTER_MB_WINDOW_BP),
+        "countingParams.centerMBWindowBP",
+    )
+    if centerWindow is None:
+        raise ValueError("countingParams.centerMBWindowBP requires a positive integer")
+    centerMethod = normalization.validateChoice(
+        _cfgGet(configData, "countingParams.centerMBMethod", constants.COUNTING_DEFAULT_CENTER_MB_METHOD),
+        default=constants.COUNTING_DEFAULT_CENTER_MB_METHOD,
+        supported=constants.COUNTING_SUPPORTED_CENTER_MB_METHODS,
+        paramName="countingParams.centerMBMethod",
+    )
+    fixControl = _cfgGet(configData, "countingParams.fixControl", constants.COUNTING_DEFAULT_FIX_CONTROL)
+    centerMB = _cfgGet(configData, "countingParams.centerMB", _cfgDefault(configData, "countingParams.centerMB"))
+    if type(fixControl) is not bool or type(centerMB) is not bool:
+        raise ValueError("fixControl and centerMB require boolean values")
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
-        backgroundBlockSizeBP=backgroundBlockSizeBP_,
-        scaleFactors=scaleFactorList,
-        scaleFactorsControl=scaleFactorsControlList,
-        normMethod=normMethod_,
-        fragmentsGroupNorm=fragmentsGroupNorm_,
-        fixControl=fixControl_,
-        logOffset=logOffset_,
-        logMult=logMult_,
-        transformMethod=transformMethod_,
-        transformInputOffset=transformInputOffset_,
-        transformInputScale=transformInputScale_,
-        transformOutputScale=transformOutputScale_,
-        transformOutputOffset=transformOutputOffset_,
-        transformShape=transformShape_,
-        centerMB=bool(centerMB_),
-        centerMBMethod=centerMBMethod_,
-        centerMBWindowBP=int(centerMBWindowBP_),
+        backgroundBlockSizeBP=int(backgroundBlockSizeBP),
+        scaleFactors=factors, scaleFactorsControl=referenceFactors,
+        normMethod=method, fixControl=fixControl, pseudocount=pseudocount,
+        centerMB=centerMB, centerMBMethod=centerMethod, centerMBWindowBP=centerWindow,
+        normRegionsFile=normRegionsFile, normScaleTo=normScaleTo,
     )
 
 
 def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams:
     configData = loadConfig(config_path)
-
-    barcodeTag_ = _cfgGet(
-        configData,
-        "scParams.barcodeTag",
-        constants.SC_DEFAULT_BARCODE_TAG,
-    )
-    defaultCountMode_ = _cfgGet(
-        configData,
-        "scParams.defaultCountMode",
+    mode = normalization.validateCountMode(
+        _cfgGet(configData, "scParams.defaultCountMode", constants.SC_DEFAULT_COUNT_MODE),
         constants.SC_DEFAULT_COUNT_MODE,
     )
-    defaultCountMode_ = normalization.validateCountMode(
-        defaultCountMode_,
-        constants.SC_DEFAULT_COUNT_MODE,
-    )
-    if defaultCountMode_ not in constants.SC_SUPPORTED_COUNT_MODES:
-        raise ValueError("`scParams.defaultCountMode` is not supported.")
-
-    fragmentsGroupNorm_ = _cfgGet(
-        configData,
-        "scParams.fragmentsGroupNorm",
-        constants.SC_DEFAULT_FRAGMENTS_GROUP_NORM,
-    )
-    fragmentsGroupNorm_ = normalization.validateChoice(
-        fragmentsGroupNorm_,
-        default=constants.SC_DEFAULT_FRAGMENTS_GROUP_NORM,
-        supported=constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS,
-        paramName="scParams.fragmentsGroupNorm",
-    )
-
-    defaultFragmentPositionMode_ = _cfgGet(
-        configData,
-        "scParams.defaultFragmentPositionMode",
-        constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-    )
-    normalization.validateChoice(
-        defaultFragmentPositionMode_,
-        default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-        supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
-        paramName="fragmentPositionMode",
-    )
-    fragmentsUseReadSupport_ = _cfgGet(
-        configData,
-        "scParams.fragmentsUseReadSupport",
-        constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
-    )
-    if not isinstance(fragmentsUseReadSupport_, bool):
-        raise ValueError("`scParams.fragmentsUseReadSupport` must be a boolean.")
+    if mode not in constants.SC_SUPPORTED_COUNT_MODES:
+        raise ValueError("Unsupported fragments count mode")
+    readSupport = _cfgGet(configData, "scParams.fragmentsUseReadSupport", False)
+    if type(readSupport) is not bool:
+        raise ValueError("scParams.fragmentsUseReadSupport requires a boolean")
     return core.scParams(
-        barcodeTag=barcodeTag_,
-        defaultCountMode=defaultCountMode_,
-        fragmentsGroupNorm=fragmentsGroupNorm_,
-        defaultFragmentPositionMode=defaultFragmentPositionMode_,
-        fragmentsUseReadSupport=fragmentsUseReadSupport_,
-        cellMetadata=cellmetadata.parseMetadataSpec(
-            _cfgGet(configData, "scParams.cellMetadata", None)
-        ),
+        barcodeTag=_cfgGet(configData, "scParams.barcodeTag", constants.SC_DEFAULT_BARCODE_TAG),
+        defaultCountMode=mode, fragmentsUseReadSupport=readSupport,
+        cellMetadata=cellmetadata.parseMetadataSpec(_cfgGet(configData, "scParams.cellMetadata", None)),
         fits=cellmetadata.parseFits(_cfgGet(configData, "scParams.fits", None)),
     )
 
@@ -1203,7 +988,7 @@ def getUncertaintyCalibrationArgs(
     enabledConfig = _cfgGet(
         configData,
         "uncertaintyCalibrationParams.enabled",
-        _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
+        enabledDefault,
     )
 
     def calibrationBoolValue(
@@ -1632,19 +1417,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     genomeParams = getGenomeArgs(configData)
     stateParams = getStateArgs(configData)
     allSources = (inputParams.treatmentSources or []) + (inputParams.controlSources or [])
-    if any(source.sourceKind == core.H5AD_SOURCE_KIND for source in allSources):
-        from . import h5ad
-
-        widthSupplied = _cfgHas(configData, "countingParams.intervalSizeBP")
-        requestedWidth = _cfgGet(configData, "countingParams.intervalSizeBP")
-        if widthSupplied and requestedWidth is None:
-            raise ValueError("countingParams.intervalSizeBP must be a positive integer.")
-        resolvedWidth = h5ad.resolveIntervalSizeBP(
-            allSources, genomeParams, requestedWidth if widthSupplied else None
-        )
-        configData = dict(configData)
-        configData["countingParams.intervalSizeBP"] = resolvedWidth
-    countingParams = getCountingArgs(configData)
+    countingParams = getCountingArgs(configData, inputArgs=inputParams)
     scaleFactors = normalization.expandScaleFactors(
         countingParams.scaleFactors,
         len(inputParams.bamFiles),
@@ -1678,14 +1451,13 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         supported=constants.PROCESS_NOISE_CALIBRATION_MODES,
         paramName="processParams.processNoiseCalibration",
     )
-    qSeedPriorLevel = normalization.validateTransformFloat(
+    qSeedPriorLevel = normalization.validateOptionalPositiveFloat(
         _cfgGet(
             configData,
             "processParams.qSeedPriorLevel",
             _cfgDefault(configData, "processParams.qSeedPriorLevel"),
         ),
         paramName="processParams.qSeedPriorLevel",
-        positive=True,
     )
     processNoiseWarmupECMIters = int(
         _cfgGet(
@@ -1802,51 +1574,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             _cfgDefault(configData, "observationParams.muncVarianceModel"),
         )
     )
-    def dependencePositiveInt(dottedKey: str) -> int:
-        rawValue = _cfgGet(configData, dottedKey, _cfgDefault(configData, dottedKey))
-        if isinstance(rawValue, (bool, np.bool_)):
-            raise ValueError(f"`{dottedKey}` must be a positive integer.")
-        if isinstance(rawValue, (float, np.floating)) and not float(
-            rawValue
-        ).is_integer():
-            raise ValueError(f"`{dottedKey}` must be a positive integer.")
-        out = normalization.validateNonnegativeInt(rawValue, dottedKey)
-        if out <= 0:
-            raise ValueError(f"`{dottedKey}` must be a positive integer.")
-        return int(out)
-
-    def dependencePositiveFloat(dottedKey: str) -> float:
-        rawValue = _cfgGet(configData, dottedKey, _cfgDefault(configData, dottedKey))
-        if isinstance(rawValue, (bool, np.bool_)):
-            raise ValueError(f"`{dottedKey}` must be finite and positive.")
-        try:
-            out = float(rawValue)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"`{dottedKey}` must be finite and positive.") from exc
-        if not (np.isfinite(out) and out > 0.0):
-            raise ValueError(f"`{dottedKey}` must be finite and positive.")
-        return float(out)
-
-    muncTrendBlockSizeBP = (
-        _cfgGet(configData, "observationParams.muncTrendBlockSizeBP", None)
-        if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
-        else _cfgDefault(configData, "observationParams.muncTrendBlockSizeBP")
-    )
-    if (
-        _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
-        and muncTrendBlockSizeBP is None
-    ):
-        muncTrendBlockSizeBP = -1
-    muncLocalWindowSizeBP = (
-        _cfgGet(configData, "observationParams.muncLocalWindowSizeBP", None)
-        if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
-        else _cfgDefault(configData, "observationParams.muncLocalWindowSizeBP")
-    )
-    if (
-        _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
-        and muncLocalWindowSizeBP is None
-    ):
-        muncLocalWindowSizeBP = -1
     smoothToFraglenRaw = _cfgGet(
         configData,
         "observationParams.smoothToFraglen",
@@ -1858,101 +1585,62 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if not isinstance(smoothToFraglenRaw, (bool, np.bool_)):
         raise ValueError("`observationParams.smoothToFraglen` must be boolean.")
     smoothToFraglen = bool(smoothToFraglenRaw)
-    dependenceWindowCount = dependencePositiveInt(
-        "observationParams.dependenceWindowCount"
-    )
-    dependenceWindowBP = dependencePositiveInt(
-        "observationParams.dependenceWindowBP"
-    )
-    dependenceMaxLagBP = dependencePositiveInt(
-        "observationParams.dependenceMaxLagBP"
-    )
-    if dependenceMaxLagBP > dependenceWindowBP // 2:
-        raise ValueError(
-            "`observationParams.dependenceMaxLagBP` must not exceed half "
-            "`observationParams.dependenceWindowBP`."
-        )
-    dependenceWorkingQuantile = dependencePositiveFloat(
-        "observationParams.dependenceWorkingQuantile"
-    )
-    if dependenceWorkingQuantile >= 1.0:
-        raise ValueError(
-            "`observationParams.dependenceWorkingQuantile` must be less than 1."
-        )
-    dependenceBootstrapDraws = dependencePositiveInt(
-        "observationParams.dependenceBootstrapDraws"
-    )
-    dependenceMinWindowCount = dependencePositiveInt(
-        "observationParams.dependenceMinWindowCount"
-    )
-    if dependenceMinWindowCount > dependenceWindowCount:
-        raise ValueError(
-            "`observationParams.dependenceMinWindowCount` must not exceed "
-            "`observationParams.dependenceWindowCount`."
-        )
-    dependenceAcfPointThreshold = dependencePositiveFloat(
-        "observationParams.dependenceAcfPointThreshold"
-    )
-    if dependenceAcfPointThreshold >= 1.0:
-        raise ValueError(
-            "`observationParams.dependenceAcfPointThreshold` must be less than 1."
-        )
-    dependenceAcfSmoothingBP = dependencePositiveInt(
-        "observationParams.dependenceAcfSmoothingBP"
-    )
-    dependenceCrossingPersistenceBP = dependencePositiveInt(
-        "observationParams.dependenceCrossingPersistenceBP"
-    )
-    dependenceMinFinitePairs = dependencePositiveInt(
-        "observationParams.dependenceMinFinitePairs"
-    )
-    dependenceMinFinitePairCoverage = dependencePositiveFloat(
-        "observationParams.dependenceMinFinitePairCoverage"
-    )
-    if dependenceMinFinitePairCoverage > 1.0:
-        raise ValueError(
-            "`observationParams.dependenceMinFinitePairCoverage` must not exceed 1."
-        )
-    muncTrendBlockDependenceMultiplierRaw = _cfgGet(
-        configData,
-        "observationParams.muncTrendBlockDependenceMultiplier",
-        _cfgDefault(
+    lengthScaleBP = core._resolveLengthScaleBP(
+        _cfgGet(
             configData,
-            "observationParams.muncTrendBlockDependenceMultiplier",
+            "observationParams.lengthScaleBP",
+            _cfgDefault(configData, "observationParams.lengthScaleBP"),
         ),
+        countingParams.intervalSizeBP,
     )
-    if muncTrendBlockDependenceMultiplierRaw is None:
-        muncTrendBlockDependenceMultiplierRaw = (
-            constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
-        )
-    muncTrendBlockDependenceMultiplier = float(muncTrendBlockDependenceMultiplierRaw)
-    if (
-        not np.isfinite(muncTrendBlockDependenceMultiplier)
-        or muncTrendBlockDependenceMultiplier <= 0.0
+    lengthScaleOptionsRaw = _cfgGet(configData, "observationParams.lengthScaleOptions", {})
+    if not isinstance(lengthScaleOptionsRaw, Mapping):
+        raise ValueError("observationParams.lengthScaleOptions must be a mapping")
+    lengthScaleOptionsValues = dict(lengthScaleOptionsRaw)
+    optionNames = {field.name for field in fields(LengthScaleOptions)}
+    for optionName in optionNames:
+        dottedKey = f"observationParams.lengthScaleOptions.{optionName}"
+        if _cfgHas(configData, dottedKey):
+            lengthScaleOptionsValues[optionName] = _cfgGet(configData, dottedKey)
+    # ccounts picks the estimation bin size when this is null
+    lengthScaleBinSizeBP = lengthScaleOptionsValues.get("binSizeBP")
+    if lengthScaleBinSizeBP is not None and (
+        isinstance(lengthScaleBinSizeBP, (bool, np.bool_))
+        or not isinstance(lengthScaleBinSizeBP, (int, np.integer))
+        or lengthScaleBinSizeBP <= 0
     ):
         raise ValueError(
-            "`observationParams.muncTrendBlockDependenceMultiplier` must be positive."
+            "observationParams.lengthScaleOptions.binSizeBP must be a positive integer or null"
         )
-    muncLocalWindowDependenceMultiplierRaw = _cfgGet(
-        configData,
-        "observationParams.muncLocalWindowDependenceMultiplier",
-        _cfgDefault(
-            configData,
-            "observationParams.muncLocalWindowDependenceMultiplier",
-        ),
+    lengthScaleOptions = asdict(LengthScaleOptions(**lengthScaleOptionsValues))
+    muncTrendBlockSizeBP = _cfgGet(
+        configData, "observationParams.muncTrendBlockSizeBP",
+        _cfgDefault(configData, "observationParams.muncTrendBlockSizeBP"),
     )
-    if muncLocalWindowDependenceMultiplierRaw is None:
-        muncLocalWindowDependenceMultiplierRaw = (
-            constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
-        )
-    muncLocalWindowDependenceMultiplier = float(muncLocalWindowDependenceMultiplierRaw)
-    if (
-        not np.isfinite(muncLocalWindowDependenceMultiplier)
-        or muncLocalWindowDependenceMultiplier <= 0.0
+    muncLocalWindowSizeBP = _cfgGet(
+        configData, "observationParams.muncLocalWindowSizeBP",
+        _cfgDefault(configData, "observationParams.muncLocalWindowSizeBP"),
+    )
+    for windowName, windowValue in (
+        ("muncTrendBlockSizeBP", muncTrendBlockSizeBP),
+        ("muncLocalWindowSizeBP", muncLocalWindowSizeBP),
     ):
-        raise ValueError(
-            "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
-        )
+        if windowValue is not None and (
+            isinstance(windowValue, (bool, np.bool_))
+            or not isinstance(windowValue, (int, np.integer))
+            or windowValue <= 0
+        ):
+            raise ValueError(f"observationParams.{windowName} must be a positive integer or null")
+    lengthScaleMultipliers = {}
+    for fieldName in ("muncTrendBlockLengthScaleMultiplier", "muncLocalWindowLengthScaleMultiplier"):
+        key = f"observationParams.{fieldName}"
+        value = _cfgGet(configData, key, _cfgDefault(configData, key))
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.integer, np.floating)):
+            raise ValueError(f"{key} must be finite and positive")
+        value = float(value)
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{key} must be finite and positive")
+        lengthScaleMultipliers[fieldName] = value
     if _cfgHas(configData, "observationParams.muncSeedWeight") and not isinstance(
         _cfgGet(configData, "observationParams.muncSeedWeight"),
         Mapping,
@@ -2325,22 +2013,12 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             )
         ),
         "muncVarianceModel": muncVarianceModel,
+        "smoothToFraglen": smoothToFraglen,
+        "lengthScaleBP": lengthScaleBP,
+        "lengthScaleOptions": lengthScaleOptions,
         "muncTrendBlockSizeBP": muncTrendBlockSizeBP,
         "muncLocalWindowSizeBP": muncLocalWindowSizeBP,
-        "smoothToFraglen": smoothToFraglen,
-        "dependenceWindowCount": dependenceWindowCount,
-        "dependenceWindowBP": dependenceWindowBP,
-        "dependenceMaxLagBP": dependenceMaxLagBP,
-        "dependenceWorkingQuantile": dependenceWorkingQuantile,
-        "dependenceBootstrapDraws": dependenceBootstrapDraws,
-        "dependenceMinWindowCount": dependenceMinWindowCount,
-        "dependenceAcfPointThreshold": dependenceAcfPointThreshold,
-        "dependenceAcfSmoothingBP": dependenceAcfSmoothingBP,
-        "dependenceCrossingPersistenceBP": dependenceCrossingPersistenceBP,
-        "dependenceMinFinitePairs": dependenceMinFinitePairs,
-        "dependenceMinFinitePairCoverage": dependenceMinFinitePairCoverage,
-        "muncTrendBlockDependenceMultiplier": muncTrendBlockDependenceMultiplier,
-        "muncLocalWindowDependenceMultiplier": muncLocalWindowDependenceMultiplier,
+        **lengthScaleMultipliers,
         "muncSeedWeightEnabled": muncSeedWeightEnabled,
         "muncSeedWeightPasses": muncSeedWeightPasses,
         "muncSeedWeightMin": muncSeedWeightMin,
@@ -2398,6 +2076,28 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if not np.isfinite(processRobustTNu) or processRobustTNu <= 0.0:
         raise ValueError(
             "`fitParams.ECM_processRobustTNu` must be positive and finite."
+        )
+
+    backgroundLengthScaleMultiplier = _cfgGetFirst(
+        configData,
+        (
+            "fitParams.backgroundLengthScaleMultiplier",
+            "fitParams.ECM_backgroundLengthScaleMultiplier",
+        ),
+        _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
+    )
+    if (
+        _cfgHas(configData, "fitParams.backgroundLengthScaleMultiplier")
+        and _cfgHas(configData, "fitParams.ECM_backgroundLengthScaleMultiplier")
+        and backgroundLengthScaleMultiplier != _cfgGet(
+            configData, "fitParams.ECM_backgroundLengthScaleMultiplier"
+        )
+    ):
+        logger.warning(
+            "fitParams.ECM_backgroundLengthScaleMultiplier=%r is ignored. "
+            "Using fitParams.backgroundLengthScaleMultiplier=%r.",
+            _cfgGet(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
+            backgroundLengthScaleMultiplier,
         )
 
     fitArgs = core.fitParams(
@@ -2486,14 +2186,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "fitParams.ECM_backgroundSmoothness",
             _cfgDefault(configData, "fitParams.ECM_backgroundSmoothness"),
         ),
-        ECM_backgroundLengthScaleMultiplier=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundLengthScaleMultiplier",
-            _cfgDefault(
-                configData,
-                "fitParams.ECM_backgroundLengthScaleMultiplier",
-            ),
-        ),
+        ECM_backgroundLengthScaleMultiplier=backgroundLengthScaleMultiplier,
     )
 
     samThreads = _cfgGet(
@@ -2508,11 +2201,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         configData,
         "samParams.minMappingQuality",
         constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
-    )
-    oneReadPerBin = _cfgGet(
-        configData,
-        "samParams.oneReadPerBin",
-        constants.SAM_DEFAULT_ONE_READ_PER_BIN,
     )
     chunkSize = _cfgGet(
         configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE
@@ -2569,7 +2257,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     samArgs = core.samParams(
         samThreads=samThreads,
         samFlagExclude=samFlagExclude,
-        oneReadPerBin=oneReadPerBin,
         chunkSize=chunkSize,
         bamInputMode=bamInputMode,
         defaultCountMode=defaultCountMode,
@@ -2671,8 +2358,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     )
     if not isinstance(shrinkChromosomeBudgets, (bool, np.bool_)):
         raise ValueError("matchingParams.shrinkChromosomeBudgets must be boolean")
-    if _cfgHas(configData, "matchingParams.useLocalBootstrapRadius"):
-        raise ValueError("matchingParams.useLocalBootStrapRadius must be boolean")
     useLocalBootStrapRadius = _cfgGet(
         configData,
         "matchingParams.useLocalBootStrapRadius",
@@ -2706,8 +2391,11 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
                 constants.MATCHING_DEFAULT_THRESHOLD_Z,
             )
         ),
-        gamma=_cfgGet(
-            configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
+        gamma=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(
+                configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
+            ),
+            paramName="matchingParams.gamma",
         ),
         selectionPenalty=_cfgGet(
             configData,
@@ -2715,13 +2403,6 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             constants.MATCHING_DEFAULT_SELECTION_PENALTY,
         ),
         selectionPenaltyMultiplier=selectionPenaltyMultiplier,
-        gammaScale=float(
-            _cfgGet(
-                configData,
-                "matchingParams.gammaScale",
-                constants.MATCHING_DEFAULT_GAMMA_SCALE,
-            )
-        ),
         nestedRoccoIters=int(
             _cfgGet(
                 configData,
@@ -2771,6 +2452,14 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             )
         ),
         shrinkChromosomeBudgets=bool(shrinkChromosomeBudgets),
+        budgetMin=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(configData, "matchingParams.budgetMin", constants.ROCCO_BUDGET_MIN),
+            paramName="matchingParams.budgetMin",
+        ),
+        budgetMax=normalization.validateFiniteNonnegativeFloat(
+            _cfgGet(configData, "matchingParams.budgetMax", constants.ROCCO_BUDGET_MAX),
+            paramName="matchingParams.budgetMax",
+        ),
         useLocalBootStrapRadius=bool(useLocalBootStrapRadius),
         peakMode=peakMode,
         broadWeakThresholdZ=normalization.validateNonnegativeFloat(

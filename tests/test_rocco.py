@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,33 @@ from scipy import signal
 import consenrich
 import consenrich.io as consenrich_io
 import consenrich.peaks as peaks
+
+
+def testAssemblyBlacklistSelection(tmp_path, monkeypatch):
+    chromosomeRanges = {"chr1": ((10, 20), (30, 40)), "chr2": ((0, 5),)}
+    monkeypatch.setattr(peaks, "assemblyBlacklistRanges", {"testAssembly": chromosomeRanges})
+    customPath = tmp_path / "custom.bed"
+    customPath.write_text("chr1\t25\t40\nchr1\t20\t30\n", encoding="utf-8")
+    for bedFile, genomeName, expectedRanges in (
+        (None, None, {}),
+        (None, "testAssembly", chromosomeRanges),
+        (str(customPath), "testAssembly", {"chr1": ((20, 40),)}),
+        (str(customPath), "missingAssembly", {"chr1": ((20, 40),)}),
+    ):
+        resolved = peaks._readBlacklistIntervalsByChrom(bedFile, genomeName)
+        assert set(resolved) == set(expectedRanges)
+        for chromosome, ranges in expectedRanges.items():
+            np.testing.assert_array_equal(resolved[chromosome], ranges)
+            assert resolved[chromosome].dtype == np.int64
+        for startBP, endBP in ((0, 10), (10, 11), (19, 20), (20, 30), (30, 31), (40, 50)):
+            expected = any(
+                startBP < end and endBP > start
+                for start, end in expectedRanges.get("chr1", ())
+            )
+            assert peaks._intervalOverlapsBlacklist("chr1", startBP, endBP, resolved) == expected
+        assert not peaks._intervalOverlapsBlacklist("chrMissing", 0, 100, resolved)
+    with pytest.raises(ValueError, match="No blacklist ranges available.*missingAssembly"):
+        peaks._readBlacklistIntervalsByChrom(None, "missingAssembly")
 
 
 def test_numericBedGraphOrdering(tmp_path):
@@ -311,6 +339,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
         return candidateScan(*args, **kwargs)
 
     with monkeypatch.context() as patch:
+        patch.setattr(peaks, "assemblyBlacklistRanges", {"hg38": {"chr1": ((200000, 200010),)}})
         patch.setattr(peaks, "_plotROCCONullCalibrationDiagnostics", capturePlot)
         patch.setattr(
             peaks.cconsenrich,
@@ -339,6 +368,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
             randSeed=11,
             outPath=str(narrowPath),
             metaPath=str(metadataPath),
+            genomeName="hg38",
         )
     assert len(replayDrawCalls) == 8 + 2
     assert len(candidateScanCalls) == 2 + 1
@@ -361,7 +391,7 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
     assert len(plotCalls) == 1
     assert plotCalls[0][1:] == (str(diagnosticPath), 400)
     assert tuple(plotCalls[0][0][0]) == (
-        "chromosome",
+        "block",
         "nullTailOccupancyDraws",
         "nullTailOccupancy",
         "thresholdZ",
@@ -374,6 +404,8 @@ def _caseRunROCCOBothModeWritesNarrowAndGapped(tmp_path, monkeypatch, caplog):
         rows = [line.split("\t") for line in Path(outputPath).read_text().splitlines()]
         assert rows and all(len(row) == width for row in rows)
     metadata = json.loads(metadataPath.read_text())
+    assert metadata["inputs"]["blacklistAssembly"] == "hg38"
+    assert metadata["inputs"]["blacklistBed"] is None
     assert set(metadata) == {
         "inputs", "outputs", "settings", "chromosomes", "budgetShrinkage",
         "qValues", "counts",
@@ -435,7 +467,7 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
 
     rows = (
         {
-            "chromosome": "chr1",
+            "block": "chr1",
             "nullTailOccupancyDraws": np.asarray([0.02, 0.03, 0.04, 0.05]),
             "nullTailOccupancy": 0.035,
             "thresholdZ": 2.0,
@@ -445,7 +477,7 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
             "budget": 0.030,
         },
         {
-            "chromosome": "chr2",
+            "block": "chr2",
             "nullTailOccupancyDraws": np.asarray([0.01, 0.02, 0.03, 0.04]),
             "nullTailOccupancy": 0.025,
             "thresholdZ": 2.0,
@@ -467,19 +499,19 @@ def _caseNullCalibrationDiagnosticPanel(tmp_path, monkeypatch):
     assert plotPath.stat().st_size > 0
     np.testing.assert_allclose(figure.get_size_inches(), [14.8, 9.2])
     assert figure._suptitle.get_text() == (
-        "ROCCO Null Calibration and Chromosome Budgets"
+        "ROCCO Null Calibration and Block Budgets"
     )
     assert [axis.get_title() for axis in figure.axes] == [
         "Bootstrap Null Tail Occupancy",
-        "Chromosome Signed Excess and Budgets",
-        "Local and Shrunk Chromosome Budgets",
+        "Block Signed Excess and Budgets",
+        "Local and Shrunk Block Budgets",
         "Bootstrap Null and Signed Excess",
     ]
     assert [(axis.get_xlabel(), axis.get_ylabel()) for axis in figure.axes] == [
         ("tail occupancy fraction", "bootstrap draws"),
-        ("tail occupancy fraction", "chromosomes"),
+        ("tail occupancy fraction", "blocks"),
         ("local budget fraction", "shrunk budget fraction"),
-        ("chromosome", "tail occupancy fraction"),
+        ("block", "tail occupancy fraction"),
     ]
     excessLabels = figure.axes[1].get_legend_handles_labels()[1]
     pairedLabels = figure.axes[3].get_legend_handles_labels()[1]
@@ -728,7 +760,7 @@ def _caseSubpeakDPNativeContracts():
     np.testing.assert_array_equal(flattened[0], [True, True, True])
 
 
-def _caseRegionalSignalPrefixAndRunSweeps():
+def _caseRegionalSignalDataAndRunSweeps():
     intervals = np.asarray([0, 8, 31, 38, 75, 89, 130], dtype=np.int64)
     ends = np.asarray([5, 19, 35, 47, 82, 103, 133], dtype=np.int64)
     widths = ends - intervals
@@ -736,7 +768,7 @@ def _caseRegionalSignalPrefixAndRunSweeps():
         [1.25, -4.0, 9.5, 2.75, -1.5, 6.25, 3.0],
         dtype=np.float64,
     )
-    signalPrefix = peaks._buildRegionalSignalPrefix(widths, signalValues)
+    signalData = peaks._buildRegionalSignalData(widths, signalValues)
     maxAbsSignal = float(np.max(np.abs(signalValues)))
     for startIdx, endIdx in ((0, 0), (3, 3), (0, 6), (1, 4), (4, 6)):
         startBP = int(intervals[startIdx])
@@ -747,23 +779,32 @@ def _caseRegionalSignalPrefixAndRunSweeps():
         ).astype(np.float64)
         expected = float(np.dot(overlap, signalValues) / np.sum(overlap))
         np.testing.assert_allclose(
-            peaks._regionalMeanSignal(signalPrefix, startIdx, endIdx),
+            peaks._regionalMeanSignal(signalData, startIdx, endIdx),
             expected,
             rtol=1.0e-10,
             atol=1.0e-12 * max(1.0, maxAbsSignal),
         )
 
     with pytest.raises(ValueError, match="non-finite"):
-        peaks._buildRegionalSignalPrefix(widths, np.r_[signalValues[:-1], np.nan])
+        peaks._buildRegionalSignalData(widths, np.r_[signalValues[:-1], np.nan])
     with pytest.raises(ValueError, match="positive"):
-        peaks._buildRegionalSignalPrefix(np.r_[widths[:-1], 0], signalValues)
-    hugePrefix = peaks._buildRegionalSignalPrefix(
+        peaks._buildRegionalSignalData(np.r_[widths[:-1], 0], signalValues)
+    wideData = peaks._buildRegionalSignalData(
         np.asarray([2**53, 1], dtype=np.int64),
         np.asarray([1.0, 2.0]),
     )
-    assert peaks._regionalMeanSignal(hugePrefix, 1, 1) == 2.0
+    assert peaks._regionalMeanSignal(wideData, 1, 1) == 2.0
     with pytest.raises(ValueError, match="indices"):
-        peaks._regionalMeanSignal(signalPrefix, 2, signalValues.size)
+        peaks._regionalMeanSignal(signalData, 2, signalValues.size)
+
+    separatedValues = np.asarray([1.0e20, 1.0e-8, -2.0e-8, 3.0e-8, -1.0e-8, 2.0e-8, -1.0e20])
+    separatedData = peaks._buildRegionalSignalData(widths, separatedValues)
+    for startIdx, endIdx in ((1, 1), (3, 3), (1, 5), (2, 4)):
+        selectedWidths = widths[startIdx:endIdx + 1]
+        expected = math.fsum(selectedWidths * separatedValues[startIdx:endIdx + 1]) / sum(selectedWidths)
+        assert peaks._regionalMeanSignal(separatedData, startIdx, endIdx) == pytest.approx(
+            expected, rel=2.0e-15, abs=0.0,
+        )
 
     rng = np.random.default_rng(1741)
     for _ in range(64):
@@ -840,7 +881,7 @@ def _caseBroadRecordSweepContracts():
     )
     signalValues = np.arange(1.0, 11.0)
     scores = np.linspace(-1.0, 2.0, signalValues.size)
-    signalPrefix = peaks._buildRegionalSignalPrefix(
+    signalData = peaks._buildRegionalSignalData(
         ends - intervals,
         signalValues,
     )
@@ -856,7 +897,7 @@ def _caseBroadRecordSweepContracts():
         parentRuns,
         supportRuns,
         blockRuns,
-        signalPrefix,
+        signalData,
     )
 
     literalRecords = []
@@ -955,7 +996,7 @@ def _caseBroadRecordSweepContracts():
         [],
         [],
         [],
-        signalPrefix,
+        signalData,
     ) == []
     with pytest.raises(RuntimeError, match="no support"):
         peaks._broadRecordsFromRuns(
@@ -967,7 +1008,7 @@ def _caseBroadRecordSweepContracts():
             [(0, 1)],
             [(3, 4)],
             [],
-            signalPrefix,
+            signalData,
         )
     with pytest.raises(ValueError, match="ordered and disjoint"):
         peaks._broadRecordsFromRuns(
@@ -979,7 +1020,7 @@ def _caseBroadRecordSweepContracts():
             [(5, 9), (0, 4)],
             [(0, 4), (5, 9)],
             [],
-            signalPrefix,
+            signalData,
         )
 
 
@@ -1303,6 +1344,14 @@ def _caseReflectedTemplateAndMeanOccupancy(monkeypatch):
     np.testing.assert_allclose(template, expected)
     assert (metadata["template_clip_lower"], metadata["template_clip_upper"]) == pytest.approx(caps)
     assert caps[0] > np.min(reflected) and caps[1] < np.max(reflected)
+    nullCenter, nullScale, nullMeta, lowerMagnitudes = peaks._estimateROCCONull(scores)
+    assert peaks.estimateROCCONull(scores) == (nullCenter, nullScale, nullMeta)
+    reused, reusedMeta = peaks._prepareNullResidualTemplate(
+        scores, nullCenter, weights, lowerTail=(lowerMagnitudes, nullScale)
+    )
+    direct, directMeta = peaks._prepareNullResidualTemplate(scores, nullCenter, weights)
+    np.testing.assert_array_equal(reused, direct)
+    assert reusedMeta == directMeta
 
     scoreTrack = np.asarray([-5, -4, -3, -2, 0.5, 0.5, 0.5, 0.5], dtype=float)
     calibrationTemplate = np.asarray([-2, -1, 0, 0, 0, 0, 1, 2], dtype=float)
@@ -1437,8 +1486,12 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
         "threshold_metrics": {"z2": {
             "track_tail_occupancy": occupancy,
             "null_tail_occupancy": nullOccupancy,
+            "null_tail_occupancy_draws": nullOccupancy
+            + nullMCSE * np.sqrt(7.0) * np.tile([-1.0, 1.0], 4),
+            "far_null_tail_occupancy_draws": np.zeros(8),
             "null_tail_mc_se": nullMCSE,
             "signed_tail_excess": occupancy - nullOccupancy,
+            "far_tail_excess": 0.0,
             "budget_occupancy_raw": occupancy - nullOccupancy,
         }},
         "null_calibration": {
@@ -1452,9 +1505,15 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     budget, fit = peaks._estimateBudgetForPreparedROCCOScore(
         prepared, returnDetails=True, minBlockMass=50.0
     )
-    assert budget == pytest.approx(occupancy - nullOccupancy)
-    assert fit["track_tail_variance"] == pytest.approx(variance)
-    assert fit["signed_tail_excess_se"] ** 2 == pytest.approx(variance + nullMCSE**2)
+    excess = occupancy - nullOccupancy
+    weight = 0.5 * (1.0 + math.erf(excess / math.sqrt(2.0 * (variance + nullMCSE**2))))
+    assert budget == pytest.approx(weight * excess)
+    assert (fit["tail_excess"], fit["far_tail_excess"]) == pytest.approx((excess, 0.0))
+    assert fit["tail_excess_weight"] == pytest.approx(weight)
+    assert fit["track_tail_variance"] == pytest.approx(weight**2 * variance)
+    assert fit["signed_tail_excess_se"] ** 2 == pytest.approx(
+        weight**2 * (variance + nullMCSE**2)
+    )
 
     observations = {
         "scaffoldA": (0.80, 0.03), "chr2": (0.10, 0.02),
@@ -1465,14 +1524,13 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     variances = np.square([observations[name][1] for name in names])
     pooledMean = np.mean(values)
     tauSquared = max(np.var(values, ddof=1) - np.mean(variances), 0.0)
-    expectedRetention = np.maximum(
-        np.divide(tauSquared, tauSquared + variances, out=np.ones(5), where=variances > 0),
-        0.90,
+    expectedRetention = np.divide(
+        tauSquared, tauSquared + variances, out=np.ones(5), where=variances > 0
     )
     expectedBudgets = np.clip(
         np.maximum(pooledMean + expectedRetention * (values - pooledMean), 0.0),
-        0.001,
-        0.25,
+        0.002,
+        0.20,
     )
     budgets, retention, metadata = peaks._shrinkROCCOChromosomeBudgets(observations)
     assert budgets == pytest.approx(dict(zip(names, expectedBudgets)))
@@ -1481,7 +1539,7 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
     assert peaks._shrinkROCCOChromosomeBudgets(dict(reversed(tuple(observations.items())))) == (
         budgets, retention, metadata
     )
-    localBudgets = {name: float(np.clip(max(value, 0.0), 0.001, 0.25)) for name, (value, _) in observations.items()}
+    localBudgets = {name: float(np.clip(max(value, 0.0), 0.002, 0.20)) for name, (value, _) in observations.items()}
     for enabled, penalty, reason in ((False, None, "disabled"), (True, 0.4, "selectionPenaltyOverride")):
         skippedBudgets, skippedRetention, skipped = peaks._shrinkROCCOChromosomeBudgets(
             observations, enabled=enabled, selectionPenalty=penalty
@@ -1489,6 +1547,96 @@ def _caseTrackTailVarianceAndChromosomeShrinkage():
         assert skippedBudgets == pytest.approx(localBudgets)
         assert skippedRetention == {name: 1.0 for name in names}
         assert skipped["applied"] is False and skipped["skipReason"] == reason
+
+
+def _caseBlockBudgetsAndBlockSolve():
+    rng = np.random.default_rng(11)
+    size = 4096
+    moderate = rng.normal(size=size)
+    moderate[rng.choice(size, size // 10, replace=False)] = rng.normal(3.0, 0.1, size // 10)
+    sharp = -np.abs(rng.normal(size=size))
+    planted = rng.choice(size, size // 20, replace=False)
+    sharp[planted] = rng.normal(10.0, 0.1, planted.size)
+    scores = np.r_[moderate, sharp, np.zeros(size), rng.normal(size=size)]
+    intervals = 100 * np.arange(scores.size)
+    ends = intervals + 100
+    prepareArgs = {"thresholdZ": 2.0, "numBootstrap": 16, "randomSeed": 5}
+
+    def blockBudgets(stop, tailBlockMass=6400.0, blockCount=None):
+        return peaks._estimateROCCOBlockBudgets(
+            scores[:stop], None, intervals[:stop], ends[:stop], 8, tailBlockMass,
+            prepareArgs, blockCount=blockCount,
+        )
+
+    _prepared, blocks = blockBudgets(scores.size, blockCount=4)
+    assert [(block["start"], block["stop"]) for block in blocks] == [
+        (index * size, (index + 1) * size) for index in range(4)
+    ]
+    for block in blocks:
+        weight = block["tail_excess_weight"]
+        assert block["signed_tail_excess"] == pytest.approx(
+            weight * block["tail_excess"] + (1.0 - weight) * block["far_tail_excess"]
+        )
+    moderateBlock, sharpBlock, emptyBlock, nullBlock = blocks
+    assert moderateBlock["tail_excess_weight"] > 0.99
+    assert moderateBlock["tail_excess"] > moderateBlock["far_tail_excess"] + 0.05
+    assert sharpBlock["tail_excess_weight"] < 0.01
+    assert sharpBlock["tail_excess"] < sharpBlock["far_tail_excess"]
+    assert sharpBlock["signed_tail_excess"] == pytest.approx(planted.size / size, abs=0.005)
+    assert sharpBlock["signed_tail_excess_se"] > 0.0
+    assert sharpBlock["null_tail_occupancy_draws"].size == 16
+    assert (emptyBlock["signed_tail_excess"], emptyBlock["signed_tail_excess_se"]) == (0.0, 0.0)
+    assert abs(nullBlock["signed_tail_excess"]) < 0.01
+    tailBlockMass = 100.0 * scores.size / (3.5 * peaks._ROCCO_BUDGET_BLOCK_TAIL_BLOCKS)
+    assert len(blockBudgets(scores.size, tailBlockMass=tailBlockMass)[1]) == 1
+    minimumBlockBP = peaks._ROCCO_BUDGET_BLOCK_MIN_BP
+    peaks._ROCCO_BUDGET_BLOCK_MIN_BP = 0
+    try:
+        assert len(blockBudgets(scores.size, tailBlockMass=tailBlockMass)[1]) == 3
+    finally:
+        peaks._ROCCO_BUDGET_BLOCK_MIN_BP = minimumBlockBP
+    shortPrepared, shortBlocks = blockBudgets(500)
+    assert len(shortBlocks) == 1
+    assert shortBlocks[0]["signed_tail_excess"] == peaks._estimateBudgetForPreparedROCCOScore(
+        shortPrepared, returnDetails=True, minBlockMass=6400.0
+    )[1]["signed_tail_excess"]
+
+    track = np.full(400, -1.0)
+    track[20:60] = 3.0
+    track[220:240] = 2.0
+    track[300:304] = 4.0
+    bounds, budgets = [(0, 200), (200, 400)], [0.10, 0.02]
+    solution, _objective, details, solveScores = peaks._solveChromROCCOBlocks(
+        track, bounds, budgets, gamma=0.25
+    )
+    penalties = details["block_selection_penalties"]
+    assert int(solution[:200].sum()) == 0 and np.flatnonzero(solution).tolist() == [300, 301, 302, 303]
+    assert penalties[0] > penalties[1]
+    assert details["selection_penalty"] == pytest.approx(np.mean(penalties))
+    assert solveScores is not track
+    assert solveScores - track == pytest.approx(
+        np.repeat(np.mean(penalties) - np.asarray(penalties), 200)
+    )
+    assert peaks.solveChromROCCO(np.ones(50), budget=1.0, gamma=0.0, returnDetails=True)[2][
+        "selection_penalty"
+    ] == peaks._ROCCO_SELECTION_PENALTY_MIN
+    assert peaks.solveChromROCCO(
+        np.ones(50), gamma=0.0, selectionPenalty=0.0, returnDetails=True
+    )[2]["selection_penalty"] == 0.0
+    repeated = np.tile(track[200:], 2)
+    assert peaks._solveChromROCCOBlocks(repeated, bounds, [0.02, 0.02], gamma=0.25)[3] is repeated
+    for arguments, reference in (
+        (dict(blockBounds=[(0, 400)], blockBudgets=[0.05]), dict(budget=0.05)),
+        (dict(blockBounds=bounds, blockBudgets=budgets, selectionPenalty=1.5), dict(selectionPenalty=1.5)),
+    ):
+        blockSolution, _value, blockDetails, usedScores = peaks._solveChromROCCOBlocks(
+            track, gamma=0.25, **arguments
+        )
+        expectedSolution, _value, expectedDetails = peaks.solveChromROCCO(
+            track, gamma=0.25, returnDetails=True, **reference
+        )
+        assert usedScores is track and np.array_equal(blockSolution, expectedSolution)
+        assert blockDetails["selection_penalty"] == expectedDetails["selection_penalty"]
 
 
 def _caseSharedSeedAndSpoolCleanup(tmp_path, monkeypatch, caplog):
@@ -1614,6 +1762,7 @@ def _caseCheckMatchingEnabledHonorsEnabledFlag():
 def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case):
     contract_case("stationary bootstrap native contracts", _caseStationaryBootstrapNativeContracts)
     contract_case("synthetic null and planted tails", _caseSyntheticTailGates)
+    contract_case("block budgets and block solve", _caseBlockBudgetsAndBlockSolve)
     contract_case("reflected template and mean occupancy", _caseReflectedTemplateAndMeanOccupancy, monkeypatch)
     contract_case("track-tail variance and chromosome shrinkage", _caseTrackTailVarianceAndChromosomeShrinkage)
     contract_case("candidate replay p and q", _caseReplayFDRModeratePanelsStaySubquadratic)
@@ -1622,8 +1771,8 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
         _caseCoordinateRunNativeContracts,
     )
     contract_case(
-        "regional signal prefix and run sweeps",
-        _caseRegionalSignalPrefixAndRunSweeps,
+        "regional signal data and run sweeps",
+        _caseRegionalSignalDataAndRunSweeps,
     )
     contract_case(
         "shared candidate replay",

@@ -6,6 +6,8 @@ from pathlib import Path
 import struct
 import urllib.request
 
+from ccounts import assemblyChromosomeSizes
+
 
 def readRange(url, start, size):
     request = urllib.request.Request(
@@ -22,13 +24,7 @@ def readRange(url, start, size):
 
 
 def readAssembly(assembly, resourceDir):
-    sizesPath = resourceDir / f"{assembly}.sizes"
-    chromSizes = {}
-    for line in sizesPath.read_text().splitlines():
-        chrom, size = line.split()
-        if chrom in chromSizes:
-            raise ValueError(f"Duplicate chromosome: {sizesPath}: {chrom}")
-        chromSizes[chrom] = int(size)
+    chromSizes = assemblyChromosomeSizes[assembly]
     url = f"https://hgdownload.soe.ucsc.edu/goldenPath/{assembly}/bigZips/{assembly}.2bit"
     header, lastModified = readRange(url, 0, 16)
     signature = 0x1A412743
@@ -90,7 +86,7 @@ def readAssembly(assembly, resourceDir):
         "sourceURL": url,
         "lastModified": lastModified,
         "formatVersion": version,
-        "chromSizesResource": sizesPath.name,
+        "chromSizesSource": f"ccounts.assemblyChromosomeSizes[{assembly!r}]",
         "chromosomes": chromosomeRecords,
     }
 

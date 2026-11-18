@@ -56,7 +56,6 @@ def test_public_api_contract(contract_case):
     "moduleName",
     (
         "consenrich.cconsenrich",
-        "consenrich.ccounts",
         "consenrich.cuncertainty",
     ),
 )
@@ -99,7 +98,7 @@ def test_src_does_not_probe_required_native_symbols():
     srcDir = Path(__file__).resolve().parents[1] / "src" / "consenrich"
     probePattern = re.compile(
         r"\b(?:hasattr|getattr)\(\s*"
-        r"(?:cconsenrich|ccounts|cuncertainty|_cuncertainty)\s*,"
+        r"(?:cconsenrich|cuncertainty|_cuncertainty)\s*,"
     )
     wordingNeedles = (
         "optional native",

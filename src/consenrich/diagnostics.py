@@ -103,7 +103,7 @@ def summarizeStateRoughness(
         absDiff = np.abs(np.diff(values)[diffMask])
         blockDiffCount[blockIdx] = int(absDiff.size)
         blockDiffSum[blockIdx] = float(np.sum(absDiff))
-        blockMeanDiff[blockIdx] = float(np.mean(absDiff))
+        blockMeanDiff[blockIdx] = blockDiffSum[blockIdx] / absDiff.size
 
     totalDiffCount = int(np.sum(blockDiffCount))
     totalDiffSum = float(np.sum(blockDiffSum))

@@ -7,97 +7,35 @@ This module contains Cython implementations of core functions used in Consenrich
 """
 
 cimport cython
-import hashlib
-import numbers
 import os
 import numpy as np
-from . import constants, misc_util
-from scipy import ndimage, signal
 cimport numpy as cnp
 from cpython.pycapsule cimport PyCapsule_GetPointer, PyCapsule_IsValid
 from libc.stdint cimport int8_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
 from numpy.random cimport bitgen_t
-from libc.math cimport isfinite, fabs, fma, hypot, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, erf, isnan, lgamma, nextafterf, NAN, INFINITY
+from libc.math cimport isfinite, fabs, fma, hypot, log1p, log2, log, fmax, fmaxf, pow, sqrt, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, erf, isnan, lgamma, nextafterf, NAN, INFINITY
 from libc.float cimport DBL_MIN
+from libc.math cimport frexp, ldexp
 from libc.errno cimport EIO, EOVERFLOW, errno
 from libc.locale cimport localeconv
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport FILE, fclose, fopen, fwrite, snprintf, printf, fprintf, fflush, stdout, stderr
 from cython.parallel cimport prange
+from .numericMoments cimport centeredMomentsAdd, compensatedSumAdd
 
 cdef extern from "fenv.h" nogil:
     int FE_TONEAREST
     int fegetround()
-
-cdef extern from "htslib/hts.h":
-    ctypedef struct htsFile
-    ctypedef struct hts_idx_t
-    ctypedef struct hts_itr_t
-    ctypedef long long hts_pos_t
-
-    int hts_set_threads(htsFile* fp, int n)
-    void hts_idx_destroy(hts_idx_t* idx)
-    void hts_itr_destroy(hts_itr_t* itr)
-
-
-cdef extern from "htslib/sam.h":
-    ctypedef struct samFile
-
-    ctypedef struct bam1_core_t:
-        int32_t tid
-        int32_t pos
-        uint16_t bin
-        uint8_t qual
-        uint16_t l_qname
-        uint16_t n_cigar
-        uint16_t flag
-        int32_t l_qseq
-        int32_t mtid
-        int32_t mpos
-        int64_t isize
-
-    ctypedef struct bam1_t:
-        bam1_core_t core
-
-    ctypedef struct sam_hdr_t:
-        int32_t n_targets
-        uint32_t* target_len
-        char** target_name
-
-    samFile* sam_open(const char* fn, const char* mode)
-    int sam_close(samFile* fp)
-    sam_hdr_t* sam_hdr_read(samFile* fp)
-    void sam_hdr_destroy(sam_hdr_t* h)
-    bam1_t* bam_init1()
-    void bam_destroy1(bam1_t* b)
-    int sam_read1(samFile* fp, sam_hdr_t* h, bam1_t* b)
-    hts_idx_t* sam_index_load(htsFile* fp, const char* fn)
-    int sam_hdr_name2tid(sam_hdr_t* h, const char* ref)
-    hts_itr_t* sam_itr_queryi(hts_idx_t* idx, int tid, hts_pos_t beg, hts_pos_t end)
-    int sam_itr_next(htsFile* htsfp, hts_itr_t* itr, bam1_t* r)
-    hts_pos_t bam_endpos(bam1_t* b)
-    uint32_t* bam_get_cigar(bam1_t* b)
-    hts_pos_t bam_cigar2qlen(int n_cigar, uint32_t* cigar)
 
 cnp.import_array()
 
 # ========
 # constants
 # ========
-cdef const float __INV_LN2_FLOAT = <float>1.44269504
-cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
 cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
 cdef const double __MASKED_OBSERVATION_VARIANCE_CUTOFF = <double>5.0e29
-cdef const int __TRANSFORM_MODE_LOG = 0
-cdef const int __TRANSFORM_MODE_SQRT = 1
-cdef const int __TRANSFORM_MODE_ASINH = 2
-cdef const int __TRANSFORM_MODE_ASINH_SQRT = 3
-cdef const int __TRANSFORM_MODE_GENERALIZED_LOG = 4
-cdef const int __TRANSFORM_MODE_IDENTITY = 5
-cdef const int __TRANSFORM_MODE_ANSCOMBE = 6
-cdef dict __dependenceDPSSCache = {}
 ctypedef fused real_t:
     float
     double
@@ -217,6 +155,7 @@ cdef inline bint _inverseSymmetricPSD2x2(
     double* inv00,
     double* inv01,
     double* inv11,
+    bint* rankDeficient,
 ) noexcept nogil:
     cdef double halfTrace
     cdef double radius
@@ -232,6 +171,7 @@ cdef inline bint _inverseSymmetricPSD2x2(
     cdef double trace
     cdef bint isPosDef
 
+    rankDeficient[0] = True
     if not isfinite(cov00) or not isfinite(cov01) or not isfinite(cov11):
         return False
 
@@ -268,6 +208,7 @@ cdef inline bint _inverseSymmetricPSD2x2(
                 inv00[0] = (1.0 / pivot) + factor * factor * invSchur
                 inv01[0] = -factor * invSchur
                 inv11[0] = invSchur
+                rankDeficient[0] = False
                 return True
         else:
             pivot = cov11
@@ -278,6 +219,7 @@ cdef inline bint _inverseSymmetricPSD2x2(
                 inv00[0] = invSchur
                 inv01[0] = -factor * invSchur
                 inv11[0] = (1.0 / pivot) + factor * factor * invSchur
+                rankDeficient[0] = False
                 return True
 
     if isPosDef:
@@ -292,6 +234,20 @@ cdef inline bint _inverseSymmetricPSD2x2(
     inv01[0] = cov01 / denominator
     inv11[0] = (cov11 - eigSmall) / denominator
     return True
+
+
+cdef inline void _symmetricCongruence2x2(
+    double a00, double a01, double a10, double a11,
+    double p00, double p01, double p11,
+    double* out00, double* out01, double* out11,
+) noexcept nogil:
+    cdef double ap00 = a00 * p00 + a01 * p01
+    cdef double ap01 = a00 * p01 + a01 * p11
+    cdef double ap10 = a10 * p00 + a11 * p01
+    cdef double ap11 = a10 * p01 + a11 * p11
+    out00[0] = ap00 * a00 + ap01 * a01
+    out01[0] = 0.5 * (ap00 * a10 + ap01 * a11 + ap10 * a00 + ap11 * a01)
+    out11[0] = ap10 * a10 + ap11 * a11
 
 
 cdef inline void _validateMultiplierBounds(
@@ -336,111 +292,6 @@ cdef inline void _validateMedianScaling(
         )
 
 
-cdef int _parseTransformMode(object mode) except -1:
-    cdef str modeStr
-
-    if mode is None:
-        return __TRANSFORM_MODE_LOG
-
-    modeStr = (
-        str(mode)
-        .strip()
-        .lower()
-        .replace("-", "")
-        .replace("_", "")
-        .replace(" ", "")
-        .replace(".", "")
-        .replace("(", "")
-        .replace(")", "")
-    )
-    if modeStr == "" or modeStr == "log":
-        return __TRANSFORM_MODE_LOG
-    if modeStr == "ln" or modeStr == "naturallog":
-        return __TRANSFORM_MODE_LOG
-    if modeStr == "sqrt" or modeStr == "squareroot":
-        return __TRANSFORM_MODE_SQRT
-    if modeStr == "anscombe" or modeStr == "anscombetransform":
-        return __TRANSFORM_MODE_ANSCOMBE
-    if modeStr == "asinh" or modeStr == "arcsinh":
-        return __TRANSFORM_MODE_ASINH
-    if modeStr == "asinhx" or modeStr == "arcsinhx":
-        return __TRANSFORM_MODE_ASINH
-    if modeStr == "asinhsqrt" or modeStr == "arcsinhsqrt":
-        return __TRANSFORM_MODE_ASINH_SQRT
-    if modeStr == "sqrtasinh":
-        return __TRANSFORM_MODE_ASINH_SQRT
-    if modeStr == "generalizedlog" or modeStr == "generalisedlog":
-        return __TRANSFORM_MODE_GENERALIZED_LOG
-    if modeStr == "glog" or modeStr == "softlog":
-        return __TRANSFORM_MODE_GENERALIZED_LOG
-    if modeStr == "identity" or modeStr == "linear" or modeStr == "raw" or modeStr == "none":
-        return __TRANSFORM_MODE_IDENTITY
-    raise ValueError(
-        "mode must be one of 'log', 'sqrt', 'asinh', "
-        "'anscombe', 'asinh_sqrt', 'generalized_log', or 'identity'"
-    )
-
-
-cdef double _coerceTransformDouble(object value, double defaultValue, str name) except *:
-    cdef double out
-    if value is None:
-        return defaultValue
-    out = float(value)
-    if not isfinite(out):
-        raise ValueError(f"{name} must be finite")
-    return out
-
-
-cdef tuple _resolveTransformParameters(
-    int modeCode,
-    double logOffset,
-    double logMult,
-    object offset,
-    object scale,
-    object inputOffset,
-    object inputScale,
-    object outputScale,
-    object outputOffset,
-    object shape,
-):
-    cdef double defaultInputOffset = 1.0 if modeCode == __TRANSFORM_MODE_LOG else 0.0
-    cdef double inputOffset_
-    cdef double inputScale_
-    cdef double outputScale_
-    cdef double outputOffset_
-    cdef double shape_
-
-    if modeCode == __TRANSFORM_MODE_ANSCOMBE:
-        defaultInputOffset = 0.375
-
-    if inputOffset is None and offset is not None:
-        inputOffset = offset
-    if inputOffset is None and modeCode == __TRANSFORM_MODE_LOG:
-        inputOffset = logOffset
-
-    if outputScale is None and scale is not None:
-        outputScale = scale
-    if outputScale is None and modeCode == __TRANSFORM_MODE_LOG:
-        outputScale = logMult
-    if outputScale is None and modeCode == __TRANSFORM_MODE_ANSCOMBE:
-        outputScale = 2.0
-
-    inputOffset_ = _coerceTransformDouble(inputOffset, defaultInputOffset, "inputOffset")
-    if modeCode == __TRANSFORM_MODE_LOG and inputOffset_ <= 0.0:
-        inputOffset_ = 1.0
-
-    inputScale_ = _coerceTransformDouble(inputScale, 1.0, "inputScale")
-    if inputScale_ <= 0.0:
-        raise ValueError("inputScale must be positive")
-
-    outputScale_ = _coerceTransformDouble(outputScale, 1.0, "outputScale")
-    outputOffset_ = _coerceTransformDouble(outputOffset, 0.0, "outputOffset")
-    shape_ = _coerceTransformDouble(shape, 1.0, "shape")
-    if shape_ <= 0.0:
-        raise ValueError("shape must be positive")
-    return (inputOffset_, inputScale_, outputScale_, outputOffset_, shape_)
-
-
 cdef inline void _accumulateObservationValue(
     double observed,
     double stateLevel,
@@ -450,8 +301,8 @@ cdef inline void _accumulateObservationValue(
     double logObsPrecision,
     bint returnNLL,
     double* sumInvR,
-    double* sumInvRInnov,
-    double* sumInvRInnov2,
+    double* meanInnov,
+    double* innovM2,
     double* sumLogR,
 ) noexcept nogil:
     cdef double innov = observed - stateLevel
@@ -463,9 +314,7 @@ cdef inline void _accumulateObservationValue(
     invMeasVar = obsPrecision / measVar
     if returnNLL:
         sumLogR[0] += (log(measVar) - logObsPrecision)
-    sumInvRInnov2[0] += invMeasVar * (innov * innov)
-    sumInvRInnov[0] += invMeasVar * innov
-    sumInvR[0] += invMeasVar
+    centeredMomentsAdd(innov, invMeasVar, sumInvR, meanInnov, innovM2)
 
 
 cdef cnp.ndarray _collapseObservationStats(
@@ -483,7 +332,7 @@ cdef cnp.ndarray _collapseObservationStats(
     cdef const cnp.float32_t* munc = <const cnp.float32_t*>matrixMunc.data
     cdef double* values = <double*>stats.data
     cdef Py_ssize_t chunkStart, chunkStop, j, k, index, offset
-    cdef double variance, weight, totalWeight, centeredValue, mean
+    cdef double variance, weight
     with nogil:
         for chunkStart in range(0, intervalCount, 4096):
             chunkStop = min(chunkStart + 4096, intervalCount)
@@ -498,12 +347,10 @@ cdef cnp.ndarray _collapseObservationStats(
                         variance = 1.0e-12
                     weight = 1.0 / variance
                     offset = k * 5
-                    totalWeight = values[offset] + weight
-                    centeredValue = <double>data[index] - values[offset + 1]
-                    mean = values[offset + 1] + centeredValue * (weight / totalWeight)
-                    values[offset + 2] += centeredValue * centeredValue * (weight * values[offset] / totalWeight)
-                    values[offset] = totalWeight
-                    values[offset + 1] = mean
+                    centeredMomentsAdd(
+                        <double>data[index], weight,
+                        values + offset, values + offset + 1, values + offset + 2,
+                    )
                     values[offset + 3] += log(variance)
                     values[offset + 4] += 1.0
     return stats
@@ -582,12 +429,11 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     cdef double pred10
     cdef double pred11
     cdef double sumInvR
-    cdef double sumInvRInnov
-    cdef double sumInvRInnov2
+    cdef double meanInnov
+    cdef double innovM2
     cdef double sumLogR
     cdef double intervalNLL
     cdef double innovScale
-    cdef double gainLike
     cdef double quadForm
     cdef double statValue
     cdef double delta0
@@ -598,7 +444,6 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
     cdef double new00
     cdef double new01
     cdef double new11
-    cdef double collapsedInnov
     cdef double baseVariance
 
     result.sumDStat = 0.0
@@ -653,16 +498,16 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
 
         logObsPrec = log(obsPrec) if returnNLL else 0.0
         sumInvR = 0.0
-        sumInvRInnov = 0.0
-        sumInvRInnov2 = 0.0
+        meanInnov = 0.0
+        innovM2 = 0.0
         sumLogR = 0.0
         intervalNLL = 0.0
         activeTrackCount = 0
 
         if observationStatsPtr != NULL:
             sumInvR = obsPrec * observationStatsPtr[k * 5]
-            collapsedInnov = observationStatsPtr[k * 5 + 1] - state0
-            sumInvRInnov = sumInvR * collapsedInnov
+            meanInnov = observationStatsPtr[k * 5 + 1] - state0
+            innovM2 = obsPrec * observationStatsPtr[k * 5 + 2]
             sumLogR = observationStatsPtr[k * 5 + 3] - observationStatsPtr[k * 5 + 4] * logObsPrec
             activeTrackCount = <Py_ssize_t>observationStatsPtr[k * 5 + 4]
         else:
@@ -681,20 +526,14 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
                     logObsPrec,
                     returnNLL,
                     &sumInvR,
-                    &sumInvRInnov,
-                    &sumInvRInnov2,
+                    &meanInnov,
+                    &innovM2,
                     &sumLogR,
                 )
 
         innovScale = 1.0 + cov00 * sumInvR
         if returnNLL or dStatPtr != NULL:
-            gainLike = cov00 / innovScale
-            if observationStatsPtr != NULL:
-                quadForm = obsPrec * observationStatsPtr[k * 5 + 2] + sumInvR * (collapsedInnov * collapsedInnov) / innovScale
-            else:
-                quadForm = sumInvRInnov2 - gainLike * (sumInvRInnov * sumInvRInnov)
-            if quadForm < 0.0:
-                quadForm = 0.0
+            quadForm = innovM2 + (sumInvR / innovScale) * (meanInnov * meanInnov)
 
             if returnNLL:
                 intervalNLL = 0.5 * (
@@ -712,7 +551,7 @@ cdef LevelTrendForwardLoopResult _levelTrendForwardPassLoop(
             dStatPtr[k] = <cnp.float32_t>statValue
             result.sumDStat += <double>dStatPtr[k]
 
-        delta0 = sumInvRInnov / innovScale
+        delta0 = (sumInvR / innovScale) * meanInnov
         state0 = <double><cnp.float32_t>(state0 + cov00 * delta0)
         state1 = <double><cnp.float32_t>(state1 + cov10 * delta0)
 
@@ -805,12 +644,11 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     cdef double stateVar = stateCovarInitValue
     cdef double Q
     cdef double sumInvR
-    cdef double sumInvRInnov
-    cdef double sumInvRInnov2
+    cdef double meanInnov
+    cdef double innovM2
     cdef double sumLogR
     cdef double intervalNLL
     cdef double innovScale
-    cdef double gainLike
     cdef double quadForm
     cdef double statValue
     cdef double delta0
@@ -821,7 +659,6 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     cdef double obsPrec
     cdef double logObsPrec
     cdef double procPrec
-    cdef double collapsedInnov
     cdef double baseVariance
 
     result.sumDStat = 0.0
@@ -853,16 +690,16 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
 
         logObsPrec = log(obsPrec) if returnNLL else 0.0
         sumInvR = 0.0
-        sumInvRInnov = 0.0
-        sumInvRInnov2 = 0.0
+        meanInnov = 0.0
+        innovM2 = 0.0
         sumLogR = 0.0
         intervalNLL = 0.0
         activeTrackCount = 0
 
         if observationStatsPtr != NULL:
             sumInvR = obsPrec * observationStatsPtr[k * 5]
-            collapsedInnov = observationStatsPtr[k * 5 + 1] - stateValue
-            sumInvRInnov = sumInvR * collapsedInnov
+            meanInnov = observationStatsPtr[k * 5 + 1] - stateValue
+            innovM2 = obsPrec * observationStatsPtr[k * 5 + 2]
             sumLogR = observationStatsPtr[k * 5 + 3] - observationStatsPtr[k * 5 + 4] * logObsPrec
             activeTrackCount = <Py_ssize_t>observationStatsPtr[k * 5 + 4]
         else:
@@ -881,20 +718,14 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
                     logObsPrec,
                     returnNLL,
                     &sumInvR,
-                    &sumInvRInnov,
-                    &sumInvRInnov2,
+                    &meanInnov,
+                    &innovM2,
                     &sumLogR,
                 )
 
         innovScale = 1.0 + stateVar * sumInvR
         if returnNLL or dStatPtr != NULL:
-            gainLike = stateVar / innovScale
-            if observationStatsPtr != NULL:
-                quadForm = obsPrec * observationStatsPtr[k * 5 + 2] + sumInvR * (collapsedInnov * collapsedInnov) / innovScale
-            else:
-                quadForm = sumInvRInnov2 - gainLike * (sumInvRInnov * sumInvRInnov)
-            if quadForm < 0.0:
-                quadForm = 0.0
+            quadForm = innovM2 + (sumInvR / innovScale) * (meanInnov * meanInnov)
             if returnNLL:
                 intervalNLL = 0.5 * (
                     sumLogR + log(innovScale) + quadForm + (<double>activeTrackCount) * log2PI
@@ -911,7 +742,7 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
             dStatPtr[k] = <cnp.float32_t>statValue
             result.sumDStat += <double>dStatPtr[k]
 
-        delta0 = sumInvRInnov / innovScale
+        delta0 = (sumInvR / innovScale) * meanInnov
         stateValue += stateVar * delta0
 
         gainG = sumInvR / innovScale
@@ -929,14 +760,6 @@ cdef LevelForwardLoopResult _levelForwardPassLoop(
     return result
 
 
-cdef extern from "native/barcode_selection.h":
-    ctypedef struct crBarcodeSelection:
-        int active
-    crBarcodeSelection* crBarcodeSelectionCreate(const char* tag, const char* path, const char** error)
-    void crBarcodeSelectionDestroy(crBarcodeSelection* selection)
-    int crBarcodeSelected(const crBarcodeSelection* selection, const bam1_t* record)
-
-
 cpdef tuple cExpectedTransitionResidualSums(
     cnp.ndarray[cnp.float64_t, ndim=2] stateSmoothed,
     cnp.ndarray[cnp.float64_t, ndim=3] stateCovarSmoothed,
@@ -950,22 +773,9 @@ cpdef tuple cExpectedTransitionResidualSums(
     cdef double f01
     cdef double f10
     cdef double f11
-    cdef double x00
-    cdef double x01
-    cdef double x10
-    cdef double x11
-    cdef double y0
-    cdef double y1
-    cdef double exx0_00
-    cdef double exx0_01
-    cdef double exx0_10
-    cdef double exx0_11
-    cdef double exx1_00
-    cdef double exx1_11
-    cdef double ex0x1_00
-    cdef double ex0x1_01
-    cdef double ex0x1_10
-    cdef double ex0x1_11
+    cdef double residualLevel
+    cdef double residualTrend
+    cdef double cov00, cov01, cov10, cov11
     cdef double levelMoment
     cdef double trendMoment
     cdef double sumLevel = 0.0
@@ -998,41 +808,30 @@ cpdef tuple cExpectedTransitionResidualSums(
     f11 = matrixF[1, 1]
 
     for k in range(transitionCount):
-        x00 = stateSmoothed[k, 0]
-        x01 = stateSmoothed[k, 1]
-        x10 = stateSmoothed[k + 1, 0]
-        x11 = stateSmoothed[k + 1, 1]
-
-        exx0_00 = stateCovarSmoothed[k, 0, 0] + (x00 * x00)
-        exx0_01 = stateCovarSmoothed[k, 0, 1] + (x00 * x01)
-        exx0_10 = stateCovarSmoothed[k, 1, 0] + (x01 * x00)
-        exx0_11 = stateCovarSmoothed[k, 1, 1] + (x01 * x01)
-
-        y0 = x10
-        y1 = x11
-        exx1_00 = stateCovarSmoothed[k + 1, 0, 0] + (y0 * y0)
-        exx1_11 = stateCovarSmoothed[k + 1, 1, 1] + (y1 * y1)
-
-        ex0x1_00 = lagCovSmoothed[k, 0, 0] + (x00 * y0)
-        ex0x1_01 = lagCovSmoothed[k, 0, 1] + (x00 * y1)
-        ex0x1_10 = lagCovSmoothed[k, 1, 0] + (x01 * y0)
-        ex0x1_11 = lagCovSmoothed[k, 1, 1] + (x01 * y1)
+        residualLevel = (
+            stateSmoothed[k + 1, 0]
+            - (f00 * stateSmoothed[k, 0] + f01 * stateSmoothed[k, 1])
+        )
+        residualTrend = (
+            stateSmoothed[k + 1, 1]
+            - (f10 * stateSmoothed[k, 0] + f11 * stateSmoothed[k, 1])
+        )
+        cov00 = stateCovarSmoothed[k, 0, 0]
+        cov01 = stateCovarSmoothed[k, 0, 1]
+        cov10 = stateCovarSmoothed[k, 1, 0]
+        cov11 = stateCovarSmoothed[k, 1, 1]
 
         levelMoment = (
-            exx1_00
-            - (2.0 * ((f00 * ex0x1_00) + (f01 * ex0x1_10)))
-            + (f00 * f00 * exx0_00)
-            + (f00 * f01 * exx0_01)
-            + (f01 * f00 * exx0_10)
-            + (f01 * f01 * exx0_11)
+            residualLevel * residualLevel + stateCovarSmoothed[k + 1, 0, 0]
+            - 2.0 * (f00 * lagCovSmoothed[k, 0, 0] + f01 * lagCovSmoothed[k, 1, 0])
+            + f00 * (f00 * cov00 + f01 * cov01)
+            + f01 * (f00 * cov10 + f01 * cov11)
         )
         trendMoment = (
-            exx1_11
-            - (2.0 * ((f10 * ex0x1_01) + (f11 * ex0x1_11)))
-            + (f10 * f10 * exx0_00)
-            + (f10 * f11 * exx0_01)
-            + (f11 * f10 * exx0_10)
-            + (f11 * f11 * exx0_11)
+            residualTrend * residualTrend + stateCovarSmoothed[k + 1, 1, 1]
+            - 2.0 * (f10 * lagCovSmoothed[k, 0, 1] + f11 * lagCovSmoothed[k, 1, 1])
+            + f10 * (f10 * cov00 + f11 * cov01)
+            + f11 * (f10 * cov10 + f11 * cov11)
         )
 
         if levelMoment < 0.0:
@@ -1054,11 +853,7 @@ cpdef tuple cExpectedTransitionResidualSumsLevel(
     cdef Py_ssize_t transitionCount = n - 1
     cdef Py_ssize_t requiredLagCount = transitionCount if transitionCount > 0 else 0
     cdef Py_ssize_t k
-    cdef double x0
-    cdef double y0
-    cdef double exx0
-    cdef double exx1
-    cdef double ex0x1
+    cdef double residual
     cdef double levelMoment
     cdef double sumLevel = 0.0
 
@@ -1080,12 +875,13 @@ cpdef tuple cExpectedTransitionResidualSumsLevel(
         return 0.0, 0.0, 0
 
     for k in range(transitionCount):
-        x0 = stateSmoothed[k, 0]
-        y0 = stateSmoothed[k + 1, 0]
-        exx0 = stateCovarSmoothed[k, 0, 0] + (x0 * x0)
-        exx1 = stateCovarSmoothed[k + 1, 0, 0] + (y0 * y0)
-        ex0x1 = lagCovSmoothed[k, 0, 0] + (x0 * y0)
-        levelMoment = exx1 - (2.0 * ex0x1) + exx0
+        residual = stateSmoothed[k + 1, 0] - stateSmoothed[k, 0]
+        levelMoment = (
+            residual * residual
+            + stateCovarSmoothed[k + 1, 0, 0]
+            - 2.0 * lagCovSmoothed[k, 0, 0]
+            + stateCovarSmoothed[k, 0, 0]
+        )
         if levelMoment < 0.0:
             levelMoment = 0.0
         sumLevel += levelMoment
@@ -1171,6 +967,293 @@ cdef inline double _firstDiffPenaltyOff1(Py_ssize_t n, double lam) noexcept nogi
     return -lam
 
 
+cdef struct _doubleDouble:
+    double high
+    double low
+
+
+cdef inline _doubleDouble _ddValue(double value) noexcept nogil:
+    cdef _doubleDouble result
+    result.high = value
+    result.low = 0.0
+    return result
+
+
+cdef inline _doubleDouble _ddAdd(_doubleDouble left, _doubleDouble right) noexcept nogil:
+    cdef _doubleDouble result
+    cdef double total = left.high + right.high
+    cdef double part = total - left.high
+    cdef double error = (left.high - (total - part)) + (right.high - part)
+    error += left.low + right.low
+    result.high = total + error
+    part = result.high - total
+    result.low = (total - (result.high - part)) + (error - part)
+    return result
+
+
+cdef inline _doubleDouble _ddSubtract(_doubleDouble left, _doubleDouble right) noexcept nogil:
+    right.high = -right.high
+    right.low = -right.low
+    return _ddAdd(left, right)
+
+
+cdef inline _doubleDouble _ddMultiply(_doubleDouble left, _doubleDouble right) noexcept nogil:
+    cdef _doubleDouble result
+    cdef double product = left.high * right.high
+    cdef double error = fma(left.high, right.high, -product)
+    error += left.high * right.low + left.low * right.high
+    error += left.low * right.low
+    result.high = product + error
+    result.low = error - (result.high - product)
+    return result
+
+
+cdef inline _doubleDouble _ddDivide(_doubleDouble numerator, _doubleDouble denominator) noexcept nogil:
+    cdef _doubleDouble quotient = _ddValue(numerator.high / denominator.high)
+    cdef _doubleDouble remainder = _ddSubtract(numerator, _ddMultiply(denominator, quotient))
+    cdef _doubleDouble correction = _ddValue(remainder.high / denominator.high)
+    quotient = _ddAdd(quotient, correction)
+    remainder = _ddSubtract(remainder, _ddMultiply(denominator, correction))
+    return _ddAdd(quotient, _ddValue(remainder.high / denominator.high))
+
+
+cdef struct _windowSumState:
+    Py_ssize_t blockStart
+    Py_ssize_t blockEnd
+    Py_ssize_t prefixRight
+    Py_ssize_t prefixCount
+    Py_ssize_t count
+    _doubleDouble prefixSum
+
+
+cdef inline _doubleDouble _blockedWindowSum(
+    const real_t* values,
+    const uint8_t* excluded,
+    Py_ssize_t size,
+    Py_ssize_t width,
+    Py_ssize_t left,
+    Py_ssize_t right,
+    _windowSumState* state,
+    _doubleDouble* suffixSums,
+    Py_ssize_t* suffixCounts,
+) noexcept nogil:
+    r"""Perform a 'rolling' window sum without subtracting large outgoing values, totals, etc.,
+    as subtraction can reduce precision of small values and has previously made several downstream
+    operations degenerate (e.g., munc trend) in special cases.
+
+    - Uses local _blocked_ cumulative sums as below, avoiding subtraction but still giving window total:
+
+      ```
+      blocks: | a b c d | e f g h |
+      window:      [c d | e f]
+      total:       (c+d) + (e+f)
+                    suffix  prefix
+      ```
+
+      as opposed to `total = total - outgoing + incoming`
+      (e.g., `total = total - c + g` for `[c d | e f] -> [d | e f g]`).
+    """
+    cdef Py_ssize_t j, count = 0
+    cdef _doubleDouble total = _ddValue(0.0)
+
+    # build [0, right) directly until left advances, adding each included value once.
+    if left == 0 and right <= width and state.blockEnd == 0:
+        while state.prefixRight < right:
+            j = state.prefixRight
+            if excluded == NULL or excluded[j] == 0:
+                # accumulate
+                state.prefixSum = _ddAdd(state.prefixSum, _ddValue(<double>values[j]))
+                state.prefixCount += 1
+            state.prefixRight += 1
+        state.count = state.prefixCount
+        return state.prefixSum
+
+    # accumulate in double-double precision to retain small contributions.
+    if left >= state.blockEnd:
+        # block | a b c d | -> cache suffixes [a+b+c+d, b+c+d, c+d, d]
+        state.blockStart = (left // width) * width
+        state.blockEnd = min(state.blockStart + width, size)
+        # scan right --> left to extend suffix sum over [j, blockEnd)
+        for j in range(state.blockEnd - 1, state.blockStart - 1, -1):
+            if excluded == NULL or excluded[j] == 0:
+                total = _ddAdd(total, _ddValue(<double>values[j]))
+                count += 1
+            suffixSums[j - state.blockStart] = total
+            if excluded != NULL:
+                suffixCounts[j - state.blockStart] = count
+        state.prefixSum = _ddValue(0.0)
+        state.prefixCount = 0
+        state.prefixRight = state.blockEnd
+    while state.prefixRight < right:
+        j = state.prefixRight
+        if excluded == NULL or excluded[j] == 0:
+            state.prefixSum = _ddAdd(state.prefixSum, _ddValue(<double>values[j]))
+            state.prefixCount += 1
+        state.prefixRight += 1
+    # combine the cached [left, blockEnd) suffix and growing [blockEnd, right) prefix
+    # to get the count and total for included values in [left, right).
+    state.count = (right - left if excluded == NULL else
+                   suffixCounts[left - state.blockStart] + state.prefixCount)
+    return _ddAdd(suffixSums[left - state.blockStart], state.prefixSum)
+
+
+cdef void _windowSums(
+    const double* values,
+    double* out,
+    Py_ssize_t size,
+    Py_ssize_t width,
+    Py_ssize_t leftOffset,
+    bint shiftEdges,
+    _doubleDouble* suffixSums,
+) noexcept nogil:
+    cdef Py_ssize_t i, left, right
+    cdef _doubleDouble total
+    cdef _windowSumState state = _windowSumState(0, 0, 0, 0, 0, _ddValue(0.0))
+    if width == 1:
+        for i in range(size):
+            out[i] = values[i]
+        return
+    for i in range(size):
+        left = i - leftOffset
+        if shiftEdges:
+            left = max(0, min(left, size - width))
+            right = left + width
+        else:
+            right = min(size, left + width)
+            left = max(0, left)
+        total = _blockedWindowSum(
+            values, NULL, size, width, left, right, &state, suffixSums, NULL,
+        )
+        out[i] = total.high + total.low
+
+
+def cWindowSums(
+    object values,
+    Py_ssize_t windowIntervals,
+    bint shiftEdges=False,
+    Py_ssize_t leftOffset=-1,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
+    cdef Py_ssize_t size = valuesArr.shape[0]
+    cdef Py_ssize_t width
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out = np.empty(size, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] suffixArr
+    if windowIntervals < 1:
+        raise ValueError("windowIntervals must be positive")
+    if size == 0:
+        return out
+    width = min(windowIntervals, size)
+    if leftOffset == -1:
+        leftOffset = width // 2 if shiftEdges else (width - 1) // 2
+    if leftOffset < 0 or leftOffset >= width:
+        raise ValueError("leftOffset must be nonnegative and less than the window width")
+    suffixArr = np.empty((0 if shiftEdges and width == size else width, 2), dtype=np.float64)
+    with nogil:
+        _windowSums(
+            <double*>valuesArr.data, <double*>out.data, size, width,
+            leftOffset, shiftEdges, <_doubleDouble*>suffixArr.data,
+        )
+    return out
+
+
+cdef inline _doubleDouble _rangeSum(
+    const double* values,
+    Py_ssize_t start,
+    Py_ssize_t end,
+    double* maximum,
+) noexcept nogil:
+    cdef Py_ssize_t i
+    cdef _doubleDouble total = _ddValue(0.0)
+    for i in range(start, end):
+        total = _ddAdd(total, _ddValue(values[i]))
+        if maximum != NULL and values[i] > maximum[0]:
+            maximum[0] = values[i]
+    return total
+
+
+def cRangeSums(object values, object starts, object ends):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
+    cdef object startsObj = np.asarray(starts)
+    cdef object endsObj = np.asarray(ends)
+    if startsObj.size and not np.issubdtype(startsObj.dtype, np.integer):
+        raise ValueError("starts must contain integers")
+    if endsObj.size and not np.issubdtype(endsObj.dtype, np.integer):
+        raise ValueError("ends must contain integers")
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] startsArr = np.ascontiguousarray(startsObj, dtype=np.int64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] endsArr = np.ascontiguousarray(endsObj, dtype=np.int64)
+    cdef Py_ssize_t i, size = valuesArr.shape[0], count = startsArr.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out = np.empty(count, dtype=np.float64)
+    cdef _doubleDouble total
+    if endsArr.shape[0] != count:
+        raise ValueError("starts and ends must have the same length")
+    for i in range(count):
+        if startsArr[i] < 0 or endsArr[i] < startsArr[i] or endsArr[i] > size:
+            raise ValueError("range indices must satisfy 0 <= start <= end <= size")
+    with nogil:
+        for i in range(count):
+            total = _rangeSum(<double*>valuesArr.data, startsArr[i], endsArr[i], NULL)
+            out[i] = total.high + total.low
+    return out
+
+
+def _weightedQuantiles(
+    const double[::1] values,
+    const double[::1] weights,
+    const double[::1] quantiles,
+    bint interpolate,
+):
+    cdef Py_ssize_t size = values.shape[0], count = quantiles.shape[0]
+    cdef Py_ssize_t i, left, right, middle, index
+    cdef int exponent
+    cdef double maximum = 0.0, q, fraction
+    cdef _doubleDouble total = _ddValue(0.0)
+    cdef _doubleDouble target, delta, span
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] cumulative = np.empty((size, 2), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out = np.empty(count, dtype=np.float64)
+    cdef _doubleDouble* cdf = <_doubleDouble*>cumulative.data
+    if size == 0 or weights.shape[0] != size:
+        raise ValueError("values and weights must have matching nonempty lengths")
+    with nogil:
+        for i in range(size):
+            maximum = fmax(maximum, weights[i])
+        frexp(maximum, &exponent)
+        # Scale by a power of two to avoid overflow without rounding normal weights.
+        # Retain low parts in CDF comparisons so large weights cannot erase tail mass.
+        for i in range(size):
+            total = _ddAdd(total, _ddValue(ldexp(weights[i], -exponent)))
+            cdf[i] = total
+        for i in range(count):
+            q = quantiles[i]
+            if isnan(q):
+                out[i] = NAN if interpolate else values[size - 1]
+                continue
+            if q <= 0.0:
+                out[i] = values[0]
+                continue
+            if q >= 1.0:
+                out[i] = values[size - 1]
+                continue
+            target = _ddMultiply(total, _ddValue(q))
+            left = 0
+            right = size
+            while left < right:
+                middle = left + (right - left) // 2
+                delta = _ddSubtract(cdf[middle], target)
+                if delta.high < 0.0 or (interpolate and delta.high == 0.0 and delta.low == 0.0):
+                    left = middle + 1
+                else:
+                    right = middle
+            index = min(left, size - 1)
+            if not interpolate or index == 0:
+                out[i] = values[index]
+            else:
+                delta = _ddSubtract(target, cdf[index - 1])
+                span = _ddSubtract(cdf[index], cdf[index - 1])
+                fraction = (delta.high + delta.low) / (span.high + span.low)
+                out[i] = (1.0 - fraction) * values[index - 1] + fraction * values[index]
+    return out
+
+
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
     cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
     cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
@@ -1187,26 +1270,24 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
     """
 
     cdef Py_ssize_t n = weightTrack.shape[0]
-    cdef Py_ssize_t i
+    cdef Py_ssize_t i, column, positiveCount = 0
     cdef Py_ssize_t firstBadPivot = -1
-    cdef double minPivot = 1.0e-12
-    cdef double badPivotValue = 0.0
-    cdef double offVal
-    cdef double l2Val
-    cdef double sumRhs = 0.0
-    cdef double sumConstraint = 0.0
-    cdef double mu = 0.0
-    cdef double denomOne
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] diag
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rhs
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] constraintSolve
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] firstLower
+    cdef bint invalidConstraint = False
+    cdef bint invalidRange = False
+    cdef double scale = 0.0
+    cdef _doubleDouble scaleDD, firstDD, secondDD, offVal, pivot, value
+    cdef _doubleDouble mu = _ddValue(0.0)
+    cdef _doubleDouble sumRhs = _ddValue(0.0)
+    cdef _doubleDouble sumConstraint = _ddValue(0.0)
+    cdef _doubleDouble one = _ddValue(1.0)
+    cdef cnp.ndarray[cnp.float64_t, ndim=3] factors
+    cdef cnp.ndarray[cnp.float64_t, ndim=3] solutions
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out
-    cdef double[::1] diagView
-    cdef double[::1] rhsView
-    cdef double[::1] constraintView
-    cdef double[::1] firstLowerView
-    cdef double[::1] outView
+    cdef _doubleDouble *inverseDiag
+    cdef _doubleDouble *firstLower
+    cdef _doubleDouble *secondLower
+    cdef _doubleDouble *rhs
+    cdef _doubleDouble *constraint
 
     if rhsTrack.shape[0] != n:
         raise ValueError("weightTrack and rhsTrack must have the same length")
@@ -1218,111 +1299,111 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
     out = np.zeros(n, dtype=np.float64)
     if n <= 0:
         return out
+    for i in range(n):
+        if not isfinite(weightTrack[i]) or weightTrack[i] < 0.0:
+            raise ValueError("weightTrack must be finite and nonnegative")
+        if not isfinite(rhsTrack[i]):
+            raise ValueError("rhsTrack must be finite")
+        positiveCount += weightTrack[i] > 0.0
+        scale = fmax(scale, weightTrack[i])
     if n == 1:
         if not zeroCenter:
-            denomOne = <double>weightTrack[0]
-            if denomOne < minPivot:
-                raise RuntimeError(
-                    "roughness-penalized LDL factorization required pivot "
-                    f"modification at index 0 (pivot={denomOne:.6g}, "
-                    f"floor={minPivot:.6g})."
-                )
-            out[0] = (<double>rhsTrack[0]) / denomOne
+            if positiveCount == 0:
+                raise RuntimeError("roughness-penalized system is rank deficient")
+            out[0] = rhsTrack[0] / weightTrack[0]
+            if not isfinite(out[0]):
+                raise FloatingPointError("background solution exceeds float64 exponent range")
         return out
+    if n < 3:
+        lam = 0.0
+    if (
+        (lamFirst > 0.0 and positiveCount == 0)
+        or (lamFirst == 0.0 and lam > 0.0 and positiveCount < 2)
+        or (lamFirst == 0.0 and lam == 0.0 and positiveCount < n)
+    ):
+        raise RuntimeError("roughness-penalized system is rank deficient")
 
-    diag = np.ascontiguousarray(weightTrack, dtype=np.float64).copy()
-    rhs = np.ascontiguousarray(rhsTrack, dtype=np.float64).copy()
-    constraintSolve = np.ones(n, dtype=np.float64)
-    firstLower = np.zeros(n, dtype=np.float64)
-
-    diagView = diag
-    rhsView = rhs
-    constraintView = constraintSolve
-    firstLowerView = firstLower
-    outView = out
+    scaleDD = _ddValue(fmax(scale, fmax(lamFirst, lam)))
+    firstDD = _ddDivide(_ddValue(lamFirst), scaleDD)
+    secondDD = _ddDivide(_ddValue(lam), scaleDD)
+    factors = np.zeros((3, n, 2), dtype=np.float64)
+    solutions = np.zeros((1 + <int>zeroCenter, n, 2), dtype=np.float64)
+    inverseDiag = <_doubleDouble *>factors.data
+    firstLower = inverseDiag + n
+    secondLower = firstLower + n
+    constraint = <_doubleDouble *>solutions.data + n
 
     with nogil:
         for i in range(n):
-            diagView[i] = (
-                diagView[i]
-                + _firstDiffPenaltyDiag(n, i, lamFirst)
-                + _secondDiffPenaltyDiag(n, i, lam)
+            pivot = _ddAdd(
+                _ddDivide(_ddValue(weightTrack[i]), scaleDD),
+                _ddAdd(
+                    _ddMultiply(firstDD, _ddValue(_firstDiffPenaltyDiag(n, i, 1.0))),
+                    _ddMultiply(secondDD, _ddValue(_secondDiffPenaltyDiag(n, i, 1.0))),
+                ),
             )
-            if diagView[i] < minPivot:
-                if firstBadPivot < 0:
-                    firstBadPivot = i
-                    badPivotValue = diagView[i]
-                diagView[i] = minPivot
+            if i > 0:
+                offVal = _ddAdd(
+                    _ddMultiply(firstDD, _ddValue(_firstDiffPenaltyOff1(n, 1.0))),
+                    _ddMultiply(secondDD, _ddValue(_secondDiffPenaltyOff1(n, i - 1, 1.0))),
+                )
+                if i > 1:
+                    secondLower[i] = _ddMultiply(secondDD, inverseDiag[i - 2])
+                    offVal = _ddSubtract(offVal, _ddMultiply(secondDD, firstLower[i - 1]))
+                    pivot = _ddSubtract(pivot, _ddMultiply(secondDD, secondLower[i]))
+                firstLower[i] = _ddMultiply(offVal, inverseDiag[i - 1])
+                pivot = _ddSubtract(pivot, _ddMultiply(offVal, firstLower[i]))
+            if not isfinite(pivot.high) or pivot.high <= 0.0:
+                firstBadPivot = i
+                break
+            inverseDiag[i] = _ddDivide(one, pivot)
+            if not isfinite(inverseDiag[i].high):
+                firstBadPivot = i
+                invalidRange = True
+                break
 
-        # Pentadiagonal LDL' factorization. The second lower diagonal is
-        # lam / diag[i - 2] and can be recomputed, so only the first lower
-        # diagonal needs storage.
-        offVal = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, 0, lam)
-        firstLowerView[1] = offVal / diagView[0]
-        diagView[1] = diagView[1] - firstLowerView[1] * firstLowerView[1] * diagView[0]
-        if diagView[1] < minPivot:
-            if firstBadPivot < 0:
-                firstBadPivot = 1
-                badPivotValue = diagView[1]
-            diagView[1] = minPivot
+        if firstBadPivot < 0:
+            for column in range(1 + <int>zeroCenter):
+                rhs = <_doubleDouble *>solutions.data + column * n
+                for i in range(n):
+                    value = _ddDivide(_ddValue(rhsTrack[i]), scaleDD) if column == 0 else one
+                    if i > 0:
+                        value = _ddSubtract(value, _ddMultiply(firstLower[i], rhs[i - 1]))
+                    if i > 1:
+                        value = _ddSubtract(value, _ddMultiply(secondLower[i], rhs[i - 2]))
+                    rhs[i] = value
+                for i in range(n):
+                    rhs[i] = _ddMultiply(rhs[i], inverseDiag[i])
+                for i in range(n - 2, -1, -1):
+                    rhs[i] = _ddSubtract(rhs[i], _ddMultiply(firstLower[i + 1], rhs[i + 1]))
+                    if i < n - 2:
+                        rhs[i] = _ddSubtract(rhs[i], _ddMultiply(secondLower[i + 2], rhs[i + 2]))
 
-        for i in range(2, n):
-            offVal = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
-            firstLowerView[i] = (offVal - lam * firstLowerView[i - 1]) / diagView[i - 1]
-            diagView[i] = (
-                diagView[i]
-                - firstLowerView[i] * firstLowerView[i] * diagView[i - 1]
-                - (lam * lam) / diagView[i - 2]
-            )
-            if diagView[i] < minPivot:
-                if firstBadPivot < 0:
-                    firstBadPivot = i
-                    badPivotValue = diagView[i]
-                diagView[i] = minPivot
+            rhs = <_doubleDouble *>solutions.data
+            if zeroCenter:
+                for i in range(n):
+                    sumRhs = _ddAdd(sumRhs, rhs[i])
+                    sumConstraint = _ddAdd(sumConstraint, constraint[i])
+                invalidConstraint = not isfinite(sumConstraint.high) or sumConstraint.high <= 0.0
+                if not invalidConstraint:
+                    mu = _ddDivide(sumRhs, sumConstraint)
+            if not invalidConstraint:
+                for i in range(n):
+                    value = _ddSubtract(rhs[i], _ddMultiply(mu, constraint[i])) if zeroCenter else rhs[i]
+                    out[i] = value.high + value.low
+                    if not isfinite(out[i]):
+                        invalidRange = True
+                        break
 
-        # Forward solve for two RHS vectors: the data RHS and A^{-1}1 for
-        # the zero-sum Lagrange multiplier.
-        rhsView[1] = rhsView[1] - firstLowerView[1] * rhsView[0]
-        constraintView[1] = constraintView[1] - firstLowerView[1] * constraintView[0]
-        for i in range(2, n):
-            l2Val = lam / diagView[i - 2]
-            rhsView[i] = rhsView[i] - firstLowerView[i] * rhsView[i - 1] - l2Val * rhsView[i - 2]
-            constraintView[i] = constraintView[i] - firstLowerView[i] * constraintView[i - 1] - l2Val * constraintView[i - 2]
-
-        for i in range(n):
-            rhsView[i] = rhsView[i] / diagView[i]
-            constraintView[i] = constraintView[i] / diagView[i]
-
-        # Backward solve.
-        rhsView[n - 2] = rhsView[n - 2] - firstLowerView[n - 1] * rhsView[n - 1]
-        constraintView[n - 2] = constraintView[n - 2] - firstLowerView[n - 1] * constraintView[n - 1]
-        for i in range(n - 3, -1, -1):
-            l2Val = lam / diagView[i]
-            rhsView[i] = rhsView[i] - firstLowerView[i + 1] * rhsView[i + 1] - l2Val * rhsView[i + 2]
-            constraintView[i] = constraintView[i] - firstLowerView[i + 1] * constraintView[i + 1] - l2Val * constraintView[i + 2]
-
-        if zeroCenter:
-            for i in range(n):
-                sumRhs += rhsView[i]
-                sumConstraint += constraintView[i]
-            if fabs(sumConstraint) > minPivot:
-                mu = sumRhs / sumConstraint
-            else:
-                mu = sumRhs / <double>n
-
-            for i in range(n):
-                outView[i] = rhsView[i] - mu * constraintView[i]
-        else:
-            for i in range(n):
-                outView[i] = rhsView[i]
-
+    if invalidRange:
+        raise FloatingPointError("compensated LDL arithmetic exceeds float64 exponent range")
     if firstBadPivot >= 0:
         raise RuntimeError(
-            "roughness-penalized LDL factorization required pivot "
-            f"modification at index {firstBadPivot} "
-            f"(pivot={badPivotValue:.6g}, floor={minPivot:.6g})."
+            "compensated LDL factorization has a nonpositive or nonfinite "
+            f"pivot at index {firstBadPivot}"
         )
-
+    if invalidConstraint:
+        raise RuntimeError("compensated LDL constraint solve has invalid precision")
     return out
 
 
@@ -1369,7 +1450,7 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) noe
 
 
 cdef inline bint _nthElement_F64(double* sortedVals_, Py_ssize_t n, Py_ssize_t k) noexcept nogil:
-    # CALLERS: `cSF`, `_quantileInplaceF64`
+    # CALLERS: `_quantileInplaceF64`
 
     return _nthElementReal(sortedVals_, n, k)
 
@@ -2950,1488 +3031,6 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] ctrimMeanAxis0(
     return out
 
 
-cdef bint _isStandardAutosomeName(object chromosome):
-    return <bint>misc_util.isStandardAutosomalChromosome(chromosome)
-
-
-cdef long long _dependenceValidatedInteger(object value, object name):
-    cdef long long integerValue
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Integral):
-        raise ValueError("%s must be an integer" % str(name))
-    integerValue = int(value)
-    if integerValue < -2147483648 or integerValue > 2147483647:
-        raise ValueError("%s is outside the supported integer range" % str(name))
-    return integerValue
-
-
-cdef double _dependenceValidatedReal(object value, object name):
-    cdef double realValue
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
-        raise ValueError("%s must be a real scalar" % str(name))
-    realValue = float(value)
-    if not isfinite(realValue):
-        raise ValueError("%s must be finite" % str(name))
-    return realValue
-
-
-cdef int _dependenceAutosomeOrdinal(object chromosome):
-    cdef str name = str(chromosome).strip()
-    if name.lower().startswith("chr"):
-        name = name[3:]
-    return int(name)
-
-
-cdef list _dependenceSortedAutosomeNames(object names):
-    cdef list keyedNames = []
-    cdef object name
-    for name in names:
-        keyedNames.append(
-            (_dependenceAutosomeOrdinal(name), "chr%d" % _dependenceAutosomeOrdinal(name))
-        )
-    keyedNames.sort()
-    return [str(value[1]) for value in keyedNames]
-
-
-cdef int _nextPowerOfTwoInt(int value):
-    if value <= 1:
-        return 1
-    return 1 << int(ceil(log2(<double>value)))
-
-
-cdef double _dependenceGaussianRadiusCorrection(double threshold):
-    return 3.0 / (2.0 * sqrt(-log(threshold)))
-
-
-cdef int _dependenceNearestOddBins(int targetBP, int intervalSizeBP):
-    cdef int lowerOdd
-    cdef int upperOdd
-    cdef double targetBins = <double>targetBP / <double>intervalSizeBP
-    lowerOdd = max(1, int(floor(targetBins)))
-    if lowerOdd % 2 == 0:
-        lowerOdd -= 1
-    lowerOdd = max(1, lowerOdd)
-    upperOdd = lowerOdd + 2
-    if fabs((<double>upperOdd * intervalSizeBP) - targetBP) <= fabs(
-        (<double>lowerOdd * intervalSizeBP) - targetBP
-    ):
-        return upperOdd
-    return lowerOdd
-
-
-cdef list _dependenceUniqueRows(list matrices, int rowCount):
-    cdef dict digestRows = {}
-    cdef list retainedRows = []
-    cdef object digest
-    cdef object digestKey
-    cdef object matrix
-    cdef object rowValues
-    cdef object matchedRow
-    cdef list candidateRows
-    cdef int rowIndex
-    cdef bint equalRows
-
-    for rowIndex in range(rowCount):
-        digest = hashlib.sha256()
-        for matrix in matrices:
-            digest.update(str(matrix.dtype.str).encode("utf-8"))
-            digest.update(np.asarray(matrix.shape, dtype=np.int64).tobytes())
-            rowValues = np.asarray(matrix[rowIndex])
-            digest.update(rowValues.tobytes(order="C"))
-        digestKey = digest.digest()
-        candidateRows = digestRows.get(digestKey, [])
-        equalRows = False
-        for matchedRow in candidateRows:
-            equalRows = True
-            for matrix in matrices:
-                if not np.array_equal(
-                    np.asarray(matrix[rowIndex]),
-                    np.asarray(matrix[int(matchedRow)]),
-                    equal_nan=True,
-                ):
-                    equalRows = False
-                    break
-            if equalRows:
-                break
-        if not equalRows:
-            retainedRows.append(int(rowIndex))
-            candidateRows.append(int(rowIndex))
-            digestRows[digestKey] = candidateRows
-    return retainedRows
-
-
-cdef object _dependenceKMQuantile(object values, object censored, double quantile):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valueArray = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
-    cdef object censorArray = np.asarray(censored, dtype=np.bool_).ravel()
-    cdef object order
-    cdef object sortedValues
-    cdef object sortedCensored
-    cdef Py_ssize_t sampleCount = valueArray.size
-    cdef Py_ssize_t start = 0
-    cdef Py_ssize_t stop
-    cdef Py_ssize_t atRisk = sampleCount
-    cdef Py_ssize_t eventCount
-    cdef double survival = 1.0
-    cdef double timeValue
-
-    if sampleCount <= 0 or censorArray.size != sampleCount:
-        return None
-    order = np.argsort(valueArray, kind="mergesort")
-    sortedValues = valueArray[order]
-    sortedCensored = censorArray[order]
-    for timeValue in np.unique(sortedValues):
-        stop = int(np.searchsorted(sortedValues, timeValue, side="right"))
-        eventCount = int(np.count_nonzero(~sortedCensored[start:stop]))
-        if eventCount > 0:
-            survival *= 1.0 - (<double>eventCount / <double>atRisk)
-            if (1.0 - survival) + 1.0e-15 >= quantile:
-                return float(timeValue)
-        atRisk -= stop - start
-        start = stop
-    return None
-
-
-cdef object _dependenceKMSurvivalAt(
-    object values,
-    object censored,
-    object evaluationTimes,
-):
-    cdef object valueArray = np.asarray(values, dtype=np.float64).ravel()
-    cdef object censorArray = np.asarray(censored, dtype=np.bool_).ravel()
-    cdef object grid = np.asarray(evaluationTimes, dtype=np.float64).ravel()
-    cdef object order
-    cdef object sortedValues
-    cdef object sortedCensored
-    cdef object uniqueTimes
-    cdef object survivalSteps
-    cdef object positions
-    cdef object output
-    cdef object validPositions
-    cdef Py_ssize_t start = 0
-    cdef Py_ssize_t stop
-    cdef Py_ssize_t atRisk
-    cdef Py_ssize_t eventCount
-    cdef Py_ssize_t timeIndex
-    cdef double survival = 1.0
-    cdef double timeValue
-
-    if valueArray.size <= 0 or censorArray.size != valueArray.size:
-        raise ValueError("Kaplan-Meier inputs must have equal positive lengths")
-    order = np.argsort(valueArray, kind="mergesort")
-    sortedValues = valueArray[order]
-    sortedCensored = censorArray[order]
-    uniqueTimes = np.unique(sortedValues)
-    survivalSteps = np.ones(uniqueTimes.size, dtype=np.float64)
-    atRisk = int(valueArray.size)
-    for timeIndex in range(int(uniqueTimes.size)):
-        timeValue = float(uniqueTimes[timeIndex])
-        stop = int(np.searchsorted(sortedValues, timeValue, side="right"))
-        eventCount = int(np.count_nonzero(~sortedCensored[start:stop]))
-        if eventCount > 0:
-            survival *= 1.0 - (<double>eventCount / <double>atRisk)
-        survivalSteps[timeIndex] = survival
-        atRisk -= stop - start
-        start = stop
-    positions = np.searchsorted(uniqueTimes, grid, side="right") - 1
-    output = np.ones(grid.size, dtype=np.float64)
-    validPositions = positions >= 0
-    output[validPositions] = survivalSteps[positions[validPositions]]
-    return output
-
-
-cdef tuple _dependencePeriodDiagnostics(
-    cnp.ndarray[cnp.float64_t, ndim=1] acf,
-    int intervalSizeBP,
-    int crossingLag,
-    int crossingPersistenceBins,
-):
-    cdef int acfCount = int(acf.size)
-    cdef int envelopeBins
-    cdef object envelope
-    cdef object residual
-    cdef object tapers
-    cdef object spectra
-    cdef object power
-    cdef object frequencies
-    cdef object periods
-    cdef object bandMask
-    cdef object bandIndices
-    cdef object revivalValues
-    cdef int frequencyIndex
-    cdef int revivalStart
-    cdef double periodMinimumBP = max(2.0 * intervalSizeBP, 150.0)
-    cdef double periodMaximumBP = 500.0
-    cdef double totalPower
-    cdef object dominantPeriodBP = None
-    cdef object oscillationStrength = None
-    cdef object postCrossingRevival = None
-
-    if acfCount >= 3 and periodMinimumBP <= periodMaximumBP:
-        envelopeBins = _dependenceNearestOddBins(2000, intervalSizeBP)
-        if envelopeBins > acfCount:
-            envelopeBins = acfCount if acfCount % 2 == 1 else acfCount - 1
-        if envelopeBins >= 3:
-            envelope = signal.savgol_filter(
-                np.asarray(acf, dtype=np.float64),
-                envelopeBins,
-                2,
-                mode="interp",
-            )
-            residual = np.asarray(acf, dtype=np.float64) - envelope
-            tapers = __dependenceDPSSCache.get(acfCount)
-            if tapers is None:
-                tapers = np.asarray(
-                    signal.windows.dpss(
-                        acfCount,
-                        2.5,
-                        Kmax=3,
-                        sym=False,
-                        norm=2,
-                    ),
-                    dtype=np.float64,
-                )
-                __dependenceDPSSCache[acfCount] = tapers
-            spectra = np.fft.rfft(tapers * residual[np.newaxis, :], axis=1)
-            power = np.mean(np.square(np.abs(spectra)), axis=0)
-            frequencies = np.fft.rfftfreq(acfCount, d=intervalSizeBP)
-            periods = np.full(frequencies.size, np.inf, dtype=np.float64)
-            periods[frequencies > 0.0] = 1.0 / frequencies[frequencies > 0.0]
-            bandMask = (
-                (periods >= periodMinimumBP)
-                & (periods <= periodMaximumBP)
-                & ((acfCount * intervalSizeBP) >= (4.0 * periods))
-            )
-            bandIndices = np.flatnonzero(bandMask)
-            if bandIndices.size > 0:
-                frequencyIndex = int(
-                    bandIndices[int(np.argmax(power[bandIndices]))]
-                )
-                totalPower = float(np.sum(power[bandIndices]))
-                if totalPower > 0.0:
-                    dominantPeriodBP = float(periods[frequencyIndex])
-                    oscillationStrength = float(power[frequencyIndex]) / totalPower
-    if crossingLag > 0:
-        revivalStart = crossingLag + crossingPersistenceBins - 1
-        if revivalStart < acf.size:
-            revivalValues = np.abs(acf[revivalStart:])
-            if revivalValues.size > 0:
-                postCrossingRevival = float(np.max(revivalValues))
-    return (
-        dominantPeriodBP,
-        oscillationStrength,
-        postCrossingRevival,
-    )
-
-
-cdef object _dependenceFinitePairWindow(
-    object windowMatrix,
-    int intervalSizeBP,
-    int maxLagBins,
-    double acfThreshold,
-    int acfSmoothingBins,
-    int crossingPersistenceBins,
-    int minFinitePairs,
-    double minFinitePairCoverage,
-    double gaussianRadiusCorrection,
-):
-    cdef object matrix = np.asarray(windowMatrix)
-    cdef list rowACFs = []
-    cdef list rowPairCounts = []
-    cdef list rowPairCoverages = []
-    cdef object values
-    cdef object finiteMask
-    cdef object finiteValues
-    cdef object clipped
-    cdef object centered
-    cdef object maskFloat
-    cdef object valueFFT
-    cdef object maskFFT
-    cdef object autoSums
-    cdef object pairCounts
-    cdef object pairCoverage
-    cdef object admissible
-    cdef object covariance
-    cdef object acf
-    cdef object acfMatrix
-    cdef object pairMatrix
-    cdef object coverageMatrix
-    cdef object contributingMask
-    cdef object contributingCounts
-    cdef object usedPairCounts
-    cdef object usedPairCoverages
-    cdef object absoluteACF
-    cdef object prefixSums
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] pooledACF
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] crossingACF
-    cdef int rowIndex
-    cdef int fftSize = _nextPowerOfTwoInt((2 * int(matrix.shape[1])) - 1)
-    cdef int start
-    cdef int lagIndex
-    cdef int lowerIndex
-    cdef int upperIndex
-    cdef int crossingLag = -1
-    cdef int supportCapLag = 0
-    cdef int lastCrossingStart
-    cdef int smoothingHalfWidth = (acfSmoothingBins - 1) // 2
-    cdef int useEndLag
-    cdef int stencilStartLag
-    cdef int stencilEndLag
-    cdef int validRowCount
-    cdef int quorum
-    cdef int validRowsAtCrossing
-    cdef bint crossingFound
-    cdef double lowerClip
-    cdef double upperClip
-    cdef double lagZero
-    cdef double finitePairMinimumUsed
-    cdef double finitePairCoverageMinimumUsed
-    cdef double rawCrossingLagBP
-    cdef double censorLagBP
-    cdef double radiusBP
-    cdef object dominantPeriodBP
-    cdef object oscillationStrength
-    cdef object postCrossingRevival
-    cdef object censorReason
-
-    for rowIndex in range(int(matrix.shape[0])):
-        values = np.asarray(matrix[rowIndex], dtype=np.float64)
-        finiteMask = np.isfinite(values)
-        if int(np.count_nonzero(finiteMask)) < 2:
-            continue
-        finiteValues = np.asarray(values[finiteMask], dtype=np.float64)
-        lowerClip, upperClip = np.quantile(finiteValues, [0.005, 0.995])
-        clipped = np.zeros(values.size, dtype=np.float64)
-        clipped[finiteMask] = np.clip(
-            finiteValues,
-            float(lowerClip),
-            float(upperClip),
-        )
-        clipped[finiteMask] -= float(np.mean(clipped[finiteMask]))
-        maskFloat = np.asarray(finiteMask, dtype=np.float64)
-        valueFFT = np.fft.rfft(clipped, n=fftSize)
-        maskFFT = np.fft.rfft(maskFloat, n=fftSize)
-        autoSums = np.asarray(
-            np.fft.irfft(valueFFT * np.conjugate(valueFFT), n=fftSize)[
-                :maxLagBins + 1
-            ],
-            dtype=np.float64,
-        )
-        pairCounts = np.asarray(
-            np.rint(
-                np.fft.irfft(maskFFT * np.conjugate(maskFFT), n=fftSize)[
-                    :maxLagBins + 1
-                ]
-            ),
-            dtype=np.float64,
-        )
-        pairCoverage = pairCounts / np.arange(
-            int(matrix.shape[1]),
-            int(matrix.shape[1]) - maxLagBins - 1,
-            -1,
-            dtype=np.float64,
-        )
-        covariance = np.full(maxLagBins + 1, np.nan, dtype=np.float64)
-        admissible = (
-            (pairCounts >= minFinitePairs)
-            & (pairCoverage >= minFinitePairCoverage)
-        )
-        covariance[admissible] = autoSums[admissible] / pairCounts[admissible]
-        lagZero = float(covariance[0])
-        if (not isfinite(lagZero)) or lagZero <= 0.0:
-            continue
-        acf = np.asarray(covariance[1:] / lagZero, dtype=np.float64)
-        rowACFs.append(acf)
-        rowPairCounts.append(np.asarray(pairCounts[1:], dtype=np.float64))
-        rowPairCoverages.append(np.asarray(pairCoverage[1:], dtype=np.float64))
-
-    validRowCount = len(rowACFs)
-    if validRowCount <= 0:
-        return None
-    quorum = max(1, int(ceil(<double>validRowCount / 2.0)))
-    acfMatrix = np.asarray(rowACFs, dtype=np.float64)
-    pairMatrix = np.asarray(rowPairCounts, dtype=np.float64)
-    coverageMatrix = np.asarray(rowPairCoverages, dtype=np.float64)
-    contributingMask = np.isfinite(acfMatrix)
-    contributingCounts = np.sum(contributingMask, axis=0)
-    pooledACF = np.full(maxLagBins, np.nan, dtype=np.float64)
-    finiteMask = np.flatnonzero(contributingCounts < quorum)
-    supportCapLag = (
-        int(finiteMask[0]) if finiteMask.size > 0 else maxLagBins
-    )
-    if supportCapLag <= 0:
-        return None
-    if validRowCount == 1:
-        pooledACF[:supportCapLag] = acfMatrix[0, :supportCapLag]
-    else:
-        pooledACF[:supportCapLag] = np.nanmedian(
-            acfMatrix[:, :supportCapLag],
-            axis=0,
-        )
-
-    crossingACF = np.full(supportCapLag + 1, np.nan, dtype=np.float64)
-    absoluteACF = np.abs(np.asarray(pooledACF[:supportCapLag], dtype=np.float64))
-    prefixSums = np.concatenate(
-        (np.zeros(1, dtype=np.float64), np.cumsum(absoluteACF))
-    )
-    for lagIndex in range(
-        1 + smoothingHalfWidth,
-        supportCapLag - smoothingHalfWidth + 1,
-    ):
-        lowerIndex = lagIndex - smoothingHalfWidth - 1
-        upperIndex = lagIndex + smoothingHalfWidth
-        crossingACF[lagIndex] = (
-            float(prefixSums[upperIndex] - prefixSums[lowerIndex])
-            / <double>acfSmoothingBins
-        )
-
-    lastCrossingStart = (
-        supportCapLag - smoothingHalfWidth - crossingPersistenceBins + 1
-    )
-    if lastCrossingStart < 1 + smoothingHalfWidth:
-        return None
-    for start in range(1 + smoothingHalfWidth, lastCrossingStart + 1):
-        crossingFound = True
-        for lagIndex in range(crossingPersistenceBins):
-            if (
-                (not isfinite(crossingACF[start + lagIndex]))
-                or crossingACF[start + lagIndex] >= acfThreshold
-            ):
-                crossingFound = False
-                break
-        if crossingFound:
-            crossingLag = start
-            break
-
-    if crossingLag > 0:
-        useEndLag = crossingLag + crossingPersistenceBins - 1 + smoothingHalfWidth
-        stencilStartLag = crossingLag - smoothingHalfWidth
-        stencilEndLag = useEndLag
-    else:
-        useEndLag = supportCapLag
-        stencilStartLag = lastCrossingStart - smoothingHalfWidth
-        stencilEndLag = supportCapLag
-    usedPairCounts = pairMatrix[:, :useEndLag][contributingMask[:, :useEndLag]]
-    usedPairCoverages = coverageMatrix[:, :useEndLag][contributingMask[:, :useEndLag]]
-    if usedPairCounts.size <= 0 or usedPairCoverages.size <= 0:
-        return None
-    finitePairMinimumUsed = float(np.min(usedPairCounts))
-    finitePairCoverageMinimumUsed = float(np.min(usedPairCoverages))
-    validRowsAtCrossing = int(
-        np.min(contributingCounts[stencilStartLag - 1:stencilEndLag])
-    )
-
-    if crossingLag > 0:
-        rawCrossingLagBP = <double>crossingLag * <double>intervalSizeBP
-        censorLagBP = NAN
-        censorReason = "none"
-    else:
-        rawCrossingLagBP = NAN
-        censorLagBP = <double>lastCrossingStart * <double>intervalSizeBP
-        censorReason = "maxLag" if supportCapLag >= maxLagBins else "support"
-    radiusBP = (
-        rawCrossingLagBP if crossingLag > 0 else censorLagBP
-    ) * gaussianRadiusCorrection
-    (
-        dominantPeriodBP,
-        oscillationStrength,
-        postCrossingRevival,
-    ) = _dependencePeriodDiagnostics(
-        np.ascontiguousarray(pooledACF[:supportCapLag], dtype=np.float64),
-        intervalSizeBP,
-        crossingLag,
-        crossingPersistenceBins,
-    )
-    return {
-        "rawCrossingLagBP": None if crossingLag < 0 else float(rawCrossingLagBP),
-        "censorLagBP": None if crossingLag > 0 else float(censorLagBP),
-        "gaussianEquivalentRadiusBP": float(radiusBP),
-        "rightCensored": bool(crossingLag < 0),
-        "censorReason": str(censorReason),
-        "supportCapLagBP": int(supportCapLag * intervalSizeBP),
-        "finitePairMinimumUsed": float(finitePairMinimumUsed),
-        "finitePairCoverageMinimumUsed": float(finitePairCoverageMinimumUsed),
-        "validRowCount": int(validRowCount),
-        "validRowsAtCrossing": int(validRowsAtCrossing),
-        "dominantACFPeriodBP": dominantPeriodBP,
-        "oscillationStrength": oscillationStrength,
-        "postCrossingRevival": postCrossingRevival,
-    }
-
-
-cdef tuple _dependenceCoordinateRuns(
-    list selectedWindows,
-    dict selectedByChromosome,
-):
-    cdef list runs = []
-    cdef list keyedChromosomes = []
-    cdef list keyedIndices
-    cdef list chromosomeIndices
-    cdef list run
-    cdef object chromosome
-    cdef int windowIndex
-    cdef int leftIndex
-    cdef int adjacencyCount = 0
-    cdef int longestRun = 1
-
-    for chromosome in selectedByChromosome:
-        keyedChromosomes.append(
-            (_dependenceAutosomeOrdinal(chromosome), str(chromosome))
-        )
-    keyedChromosomes.sort()
-    for chromosomeOrdinal, chromosome in keyedChromosomes:
-        keyedIndices = []
-        for windowIndex in selectedByChromosome[str(chromosome)]:
-            keyedIndices.append(
-                (int(selectedWindows[int(windowIndex)]["startBP"]), int(windowIndex))
-            )
-        keyedIndices.sort()
-        chromosomeIndices = []
-        for value in keyedIndices:
-            chromosomeIndices.append(int(value[1]))
-        if len(chromosomeIndices) <= 0:
-            continue
-        run = [int(chromosomeIndices[0])]
-        leftIndex = int(chromosomeIndices[0])
-        for windowIndex in chromosomeIndices[1:]:
-            windowIndex = int(windowIndex)
-            if int(selectedWindows[windowIndex]["startBP"]) == int(
-                selectedWindows[leftIndex]["endBP"]
-            ):
-                run.append(windowIndex)
-                adjacencyCount += 1
-            else:
-                runs.append(run)
-                longestRun = max(longestRun, len(run))
-                run = [windowIndex]
-            leftIndex = windowIndex
-        runs.append(run)
-        longestRun = max(longestRun, len(run))
-    return runs, int(adjacencyCount), int(longestRun)
-
-
-cdef double _dependencePolitisWhiteComponent(
-    object componentValues,
-    list coordinateRuns,
-    int longestRun,
-):
-    cdef object values = np.asarray(componentValues, dtype=np.float64).ravel()
-    cdef object standardized
-    cdef object autocovariance
-    cdef object runValues
-    cdef object run
-    cdef int sampleCount = int(values.size)
-    cdef int kN
-    cdef int maxLag
-    cdef int lag
-    cdef int cutoffLag
-    cdef int candidateStart
-    cdef int mHat
-    cdef int mValue
-    cdef int pairCount
-    cdef double standardDeviation
-    cdef double criticalValue
-    cdef double productSum
-    cdef double weight
-    cdef double gValue = 0.0
-    cdef double longRunVariance
-    cdef double denominator
-    cdef double blockLength
-    cdef double blockMaximum
-
-    if sampleCount <= 1 or longestRun <= 1:
-        return 1.0
-    standardDeviation = float(np.std(values))
-    if (not isfinite(standardDeviation)) or standardDeviation <= 1.0e-12:
-        return 1.0
-    standardized = (values - float(np.mean(values))) / standardDeviation
-    kN = max(5, int(ceil(log10(<double>sampleCount))))
-    maxLag = min(
-        longestRun - 1,
-        int(ceil(sqrt(<double>sampleCount))) + kN,
-    )
-    if maxLag <= 0:
-        return 1.0
-    autocovariance = np.zeros(maxLag + 1, dtype=np.float64)
-    autocovariance[0] = float(np.mean(np.square(standardized)))
-    if float(autocovariance[0]) <= 0.0:
-        return 1.0
-    for lag in range(1, maxLag + 1):
-        productSum = 0.0
-        pairCount = 0
-        for run in coordinateRuns:
-            if len(run) <= lag:
-                continue
-            runValues = standardized[np.asarray(run, dtype=np.int64)]
-            productSum += float(np.dot(runValues[:-lag], runValues[lag:]))
-            pairCount += len(run) - lag
-        if pairCount > 0:
-            autocovariance[lag] = productSum / <double>pairCount
-
-    criticalValue = 2.0 * sqrt(log10(<double>sampleCount) / <double>sampleCount)
-    mHat = 0
-    cutoffLag = min(kN, maxLag)
-    for lag in range(cutoffLag, maxLag + 1):
-        candidateStart = lag - cutoffLag + 1
-        if bool(
-            np.all(
-                np.abs(
-                    autocovariance[candidateStart:lag + 1]
-                    / float(autocovariance[0])
-                ) < criticalValue
-            )
-        ):
-            mHat = candidateStart
-            break
-    if mHat <= 0:
-        for lag in range(maxLag, 0, -1):
-            if fabs(
-                float(autocovariance[lag]) / float(autocovariance[0])
-            ) > criticalValue:
-                mHat = lag
-                break
-        if mHat <= 0:
-            mHat = 1
-    mValue = min(maxLag, 2 * mHat)
-    longRunVariance = float(autocovariance[0])
-    for lag in range(1, mValue + 1):
-        weight = 1.0 if (<double>lag / <double>mValue) <= 0.5 else (
-            2.0 * (1.0 - (<double>lag / <double>mValue))
-        )
-        gValue += 2.0 * weight * lag * float(autocovariance[lag])
-        longRunVariance += 2.0 * weight * float(autocovariance[lag])
-    denominator = 2.0 * longRunVariance * longRunVariance
-    if denominator <= 0.0 or (not isfinite(denominator)):
-        return 1.0
-    blockLength = pow(
-        (2.0 * gValue * gValue) / denominator,
-        1.0 / 3.0,
-    ) * pow(<double>sampleCount, 1.0 / 3.0)
-    blockMaximum = max(
-        1.0,
-        min(3.0 * sqrt(<double>sampleCount), <double>sampleCount / 3.0),
-    )
-    if not isfinite(blockLength):
-        return 1.0
-    return max(1.0, min(blockLength, blockMaximum, <double>longestRun))
-
-
-cdef tuple _dependenceBootstrapGeometry(
-    list selectedWindows,
-    dict selectedByChromosome,
-    object radiusValues,
-    object radiusCensored,
-):
-    cdef list coordinateRuns
-    cdef int adjacencyCount
-    cdef int longestRun
-    cdef object logRadius
-    cdef object eventValues
-    cdef object scoreValues
-    cdef double radiusBlock
-    cdef double eventBlock
-    cdef double scoreBlock
-    cdef int blockLength
-
-    coordinateRuns, adjacencyCount, longestRun = _dependenceCoordinateRuns(
-        selectedWindows,
-        selectedByChromosome,
-    )
-    logRadius = np.log(np.asarray(radiusValues, dtype=np.float64))
-    eventValues = (~np.asarray(radiusCensored, dtype=np.bool_)).astype(np.float64)
-    scoreValues = np.asarray(
-        [float(window["score"]) for window in selectedWindows],
-        dtype=np.float64,
-    )
-    radiusBlock = _dependencePolitisWhiteComponent(
-        logRadius,
-        coordinateRuns,
-        longestRun,
-    )
-    eventBlock = _dependencePolitisWhiteComponent(
-        eventValues,
-        coordinateRuns,
-        longestRun,
-    )
-    scoreBlock = _dependencePolitisWhiteComponent(
-        scoreValues,
-        coordinateRuns,
-        longestRun,
-    )
-    blockLength = max(
-        1,
-        min(
-            longestRun,
-            int(ceil(max(radiusBlock, eventBlock, scoreBlock))),
-        ),
-    )
-    return int(blockLength), int(adjacencyCount), int(longestRun)
-
-
-cpdef tuple cchooseDependenceSpan(
-    object chromosomeNames,
-    object chromosomeMatrices,
-    object intervalSizeBP,
-    object windowBP=100000,
-    object windowCount=256,
-    object maxLagBP=50000,
-    object workingQuantile=0.75,
-    object bootstrapDraws=500,
-    object randSeed=1729,
-    object minWindowCount=20,
-    object acfThreshold=0.1,
-    object acfSmoothingBP=250,
-    object crossingPersistenceBP=250,
-    object minFinitePairs=200,
-    object minFinitePairCoverage=0.5,
-):
-    cdef list names
-    cdef list matrices
-    cdef list matrixArrays = []
-    cdef list eligibleNames = []
-    cdef list eligibleMatrices = []
-    cdef list eligibleRecords = []
-    cdef list excludedNames = []
-    cdef list retainedRows
-    cdef list candidateWindows = []
-    cdef list selectedWindows = []
-    cdef list radiusValues = []
-    cdef list radiusCensored = []
-    cdef list finitePairMinimaUsed = []
-    cdef list finitePairCoverageMinimaUsed = []
-    cdef list validRowsAtCrossingValues = []
-    cdef list censorTimesBP = []
-    cdef list dominantPeriods = []
-    cdef list oscillationStrengths = []
-    cdef list revivalValues = []
-    cdef list chromosomesUsed
-    cdef list bootstrapMedianRadiusBP = []
-    cdef list bootstrapWorkingSpanBP = []
-    cdef list bootstrapDistances = []
-    cdef list jumpClosureIndices = []
-    cdef dict selectedByChromosome = {}
-    cdef dict selectedCountsByChromosome = {}
-    cdef object seenAutosomeOrdinals = set()
-    cdef object matrix
-    cdef object windowMatrix
-    cdef object values
-    cdef object finiteMask
-    cdef object result
-    cdef object candidate
-    cdef object record
-    cdef object window
-    cdef object chromosome
-    cdef object selectionSeed
-    cdef object bootstrapSeed
-    cdef object selectionRNG
-    cdef object bootstrapRNG
-    cdef object sampledChromosomeIndices
-    cdef object fullGrid
-    cdef object fullSurvival
-    cdef object fullTransformed
-    cdef object bandDomainMask
-    cdef object drawSurvival
-    cdef object drawTransformed
-    cdef object lowerSurvival
-    cdef object upperSurvival
-    cdef object confidenceMask
-    cdef object fullMedian
-    cdef object fullWorkingSpan
-    cdef object drawMedian
-    cdef object drawWorkingSpan
-    cdef list drawValues
-    cdef list drawCensored
-    cdef list chromosomeWindows
-    cdef list chromosomePositions
-    cdef list rankingScores
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] exponentialKeys
-    cdef cnp.float64_t[::1] exponentialKeyView
-    cdef Py_ssize_t i
-    cdef Py_ssize_t candidateCount
-    cdef Py_ssize_t rankStart
-    cdef Py_ssize_t rankEnd
-    cdef int rowCount = -1
-    cdef int windowBins
-    cdef int maxLagBins
-    cdef int acfSmoothingBins
-    cdef int crossingPersistenceBins
-    cdef int intervalSizeBPValue
-    cdef int windowBPValue
-    cdef int windowCountValue
-    cdef int maxLagBPValue
-    cdef int bootstrapDrawsValue
-    cdef int randSeedValue
-    cdef int minWindowCountValue
-    cdef int acfSmoothingBPValue
-    cdef int crossingPersistenceBPValue
-    cdef int minFinitePairsValue
-    cdef int chromosomeIndex
-    cdef int chromosomeOrdinal
-    cdef int fullWindowCount
-    cdef int windowIndex
-    cdef int startBin
-    cdef int endBin
-    cdef int startBP
-    cdef int endBP
-    cdef int retainedRow
-    cdef int selectedAutosomeCount
-    cdef int rightCensoredWindowCount
-    cdef int crossedWindowCount
-    cdef int supportCensoredWindowCount
-    cdef int capCensoredWindowCount
-    cdef int selectedAdjacencyCount
-    cdef int selectedLongestRun
-    cdef int bootstrapBlockLengthWindows
-    cdef int resolvedMedianDraws = 0
-    cdef int resolvedWorkingDraws = 0
-    cdef int resolvedJointDraws = 0
-    cdef int requiredResolvedDraws
-    cdef int drawIndex
-    cdef int sampledChromosomeIndex
-    cdef int sampledWindowIndex
-    cdef int currentPosition
-    cdef int nextPosition
-    cdef int positionIndex
-    cdef int finiteCount
-    cdef int bandIndex
-    cdef int evaluatedCandidateWindowCount = 0
-    cdef double score
-    cdef double rowScore
-    cdef double positiveSignalRank
-    cdef double rankWeight
-    cdef double selectionKey
-    cdef double rankCoverageMinimum
-    cdef double workingQuantileValue
-    cdef double acfThresholdValue
-    cdef double minFinitePairCoverageValue
-    cdef double gaussianRadiusCorrection
-    cdef double estimateBP
-    cdef double lowerBP
-    cdef double upperBP
-    cdef double workingSpanBP
-    cdef double censorFraction
-    cdef object dominantACFPeriodBPMedian = None
-    cdef object oscillationStrength = None
-    cdef object postCrossingRevival = None
-    cdef double epsilonValue
-    cdef double bandCriticalValue
-    cdef double restartProbability
-    cdef double leftBandTransform
-    cdef double leftLowerSurvival
-    cdef double leftUpperSurvival
-    cdef bint survivalBandJumpClosureUsed = False
-    cdef dict diagnostics
-
-    try:
-        names = list(chromosomeNames)
-        matrices = list(chromosomeMatrices)
-    except Exception as exc:
-        raise ValueError("chromosome inputs must be finite sequences") from exc
-    if len(names) <= 0 or len(names) != len(matrices):
-        raise ValueError("chromosome inputs must be nonempty and have equal lengths")
-    intervalSizeBPValue = <int>_dependenceValidatedInteger(
-        intervalSizeBP,
-        "intervalSizeBP",
-    )
-    windowBPValue = <int>_dependenceValidatedInteger(windowBP, "windowBP")
-    windowCountValue = <int>_dependenceValidatedInteger(
-        windowCount,
-        "windowCount",
-    )
-    maxLagBPValue = <int>_dependenceValidatedInteger(maxLagBP, "maxLagBP")
-    bootstrapDrawsValue = <int>_dependenceValidatedInteger(
-        bootstrapDraws,
-        "bootstrapDraws",
-    )
-    randSeedValue = <int>_dependenceValidatedInteger(randSeed, "randSeed")
-    minWindowCountValue = <int>_dependenceValidatedInteger(
-        minWindowCount,
-        "minWindowCount",
-    )
-    acfSmoothingBPValue = <int>_dependenceValidatedInteger(
-        acfSmoothingBP,
-        "acfSmoothingBP",
-    )
-    crossingPersistenceBPValue = <int>_dependenceValidatedInteger(
-        crossingPersistenceBP,
-        "crossingPersistenceBP",
-    )
-    minFinitePairsValue = <int>_dependenceValidatedInteger(
-        minFinitePairs,
-        "minFinitePairs",
-    )
-    workingQuantileValue = _dependenceValidatedReal(
-        workingQuantile,
-        "workingQuantile",
-    )
-    acfThresholdValue = _dependenceValidatedReal(acfThreshold, "acfThreshold")
-    minFinitePairCoverageValue = _dependenceValidatedReal(
-        minFinitePairCoverage,
-        "minFinitePairCoverage",
-    )
-    if intervalSizeBPValue <= 0:
-        raise ValueError("intervalSizeBP must be positive")
-    if windowBPValue <= 0:
-        raise ValueError("windowBP must be positive")
-    if maxLagBPValue <= 0 or maxLagBPValue > windowBPValue // 2:
-        raise ValueError("maxLagBP must satisfy 0 < maxLagBP <= windowBP / 2")
-    if windowCountValue <= 0 or bootstrapDrawsValue <= 0:
-        raise ValueError("windowCount and bootstrapDraws must be positive")
-    if randSeedValue < 0:
-        raise ValueError("randSeed must be nonnegative")
-    if minWindowCountValue <= 0 or minWindowCountValue > windowCountValue:
-        raise ValueError("minWindowCount must satisfy 0 < minWindowCount <= windowCount")
-    if workingQuantileValue <= 0.0 or workingQuantileValue >= 1.0:
-        raise ValueError("workingQuantile must satisfy 0 < q < 1")
-    if acfThresholdValue <= 0.0 or acfThresholdValue >= 1.0:
-        raise ValueError("acfThreshold must satisfy 0 < x < 1")
-    if acfSmoothingBPValue <= 0 or crossingPersistenceBPValue <= 0:
-        raise ValueError("ACF smoothing and crossing persistence must be positive")
-    if (
-        acfSmoothingBPValue > maxLagBPValue
-        or crossingPersistenceBPValue > maxLagBPValue
-    ):
-        raise ValueError("ACF smoothing and crossing persistence cannot exceed maxLagBP")
-    if minFinitePairsValue <= 0:
-        raise ValueError("minFinitePairs must be positive")
-    if (
-        minFinitePairCoverageValue <= 0.0
-        or minFinitePairCoverageValue > 1.0
-    ):
-        raise ValueError("minFinitePairCoverage must satisfy 0 < x <= 1")
-    if (
-        windowBPValue % intervalSizeBPValue != 0
-        or maxLagBPValue % intervalSizeBPValue != 0
-    ):
-        raise ValueError("windowBP and maxLagBP must be integer multiples of intervalSizeBP")
-    windowBins = windowBPValue // intervalSizeBPValue
-    maxLagBins = maxLagBPValue // intervalSizeBPValue
-    acfSmoothingBins = _dependenceNearestOddBins(
-        acfSmoothingBPValue,
-        intervalSizeBPValue,
-    )
-    crossingPersistenceBins = max(
-        1,
-        int(
-            ceil(
-                <double>crossingPersistenceBPValue
-                / <double>intervalSizeBPValue
-            )
-        ),
-    )
-    if minFinitePairsValue > windowBins:
-        raise ValueError("minFinitePairs cannot exceed the window bin count")
-    if (
-        windowBins < 2
-        or maxLagBins < crossingPersistenceBins
-        or maxLagBins < acfSmoothingBins
-    ):
-        raise ValueError("physical window and lag settings are too short for the bin width")
-    if maxLagBins > windowBins // 2:
-        raise ValueError("binned maxLagBP must not exceed half of the binned windowBP")
-
-    for matrix in matrices:
-        matrix = np.asarray(matrix)
-        if matrix.ndim != 2 or matrix.shape[0] <= 0 or matrix.shape[1] < 2:
-            raise ValueError("each chromosome matrix must be two-dimensional and nonempty")
-        if matrix.dtype.kind not in "biuf":
-            raise ValueError("chromosome matrices must contain real numeric values")
-        if rowCount < 0:
-            rowCount = int(matrix.shape[0])
-        elif int(matrix.shape[0]) != rowCount:
-            raise ValueError("chromosome matrices must have one shared row count")
-        matrixArrays.append(matrix)
-
-    for i in range(len(names)):
-        matrix = matrixArrays[i]
-        if _isStandardAutosomeName(names[i]):
-            chromosomeOrdinal = _dependenceAutosomeOrdinal(names[i])
-            if chromosomeOrdinal in seenAutosomeOrdinals:
-                raise ValueError(
-                    "duplicate canonical autosome chr%d" % chromosomeOrdinal
-                )
-            seenAutosomeOrdinals.add(chromosomeOrdinal)
-            if int(matrix.shape[1]) >= windowBins:
-                eligibleRecords.append(
-                    (chromosomeOrdinal, "chr%d" % chromosomeOrdinal, matrix)
-                )
-            else:
-                excludedNames.append("chr%d" % chromosomeOrdinal)
-        else:
-            excludedNames.append(str(names[i]))
-    eligibleRecords.sort()
-    for record in eligibleRecords:
-        eligibleNames.append(str(record[1]))
-        eligibleMatrices.append(record[2])
-    if len(eligibleNames) <= 0:
-        raise ValueError("dependence estimator found no eligible autosomes")
-
-    retainedRows = _dependenceUniqueRows(eligibleMatrices, rowCount)
-    if len(retainedRows) <= 0:
-        raise RuntimeError("dependence estimator found no unique rows")
-    gaussianRadiusCorrection = _dependenceGaussianRadiusCorrection(acfThresholdValue)
-
-    rankCoverageMinimum = sqrt(minFinitePairCoverageValue)
-    for chromosomeIndex in range(len(eligibleNames)):
-        chromosome = eligibleNames[chromosomeIndex]
-        chromosomeOrdinal = _dependenceAutosomeOrdinal(chromosome)
-        matrix = eligibleMatrices[chromosomeIndex]
-        fullWindowCount = int(matrix.shape[1]) // windowBins
-        for windowIndex in range(fullWindowCount):
-            startBin = windowIndex * windowBins
-            endBin = startBin + windowBins
-            rankingScores = []
-            for retainedRow in retainedRows:
-                values = np.asarray(matrix[retainedRow, startBin:endBin], dtype=np.float64)
-                finiteMask = np.isfinite(values)
-                finiteCount = int(np.count_nonzero(finiteMask))
-                if (
-                    finiteCount > 0
-                    and (<double>finiteCount / <double>windowBins)
-                    >= rankCoverageMinimum
-                ):
-                    rowScore = (
-                        <double>windowBins
-                        / <double>finiteCount
-                        * float(np.sum(np.maximum(values[finiteMask], 0.0)))
-                    )
-                    rankingScores.append(float(rowScore))
-            if len(rankingScores) <= 0:
-                continue
-            score = float(np.median(np.asarray(rankingScores, dtype=np.float64)))
-            startBP = startBin * intervalSizeBPValue
-            endBP = endBin * intervalSizeBPValue
-            candidateWindows.append(
-                (
-                    -float(score),
-                    int(chromosomeOrdinal),
-                    int(startBP),
-                    int(chromosomeIndex),
-                    int(startBin),
-                    int(endBin),
-                    float(score),
-                )
-            )
-    candidateWindows.sort()
-    candidateCount = len(candidateWindows)
-    selectionSeed, bootstrapSeed = np.random.SeedSequence(randSeedValue).spawn(2)
-    selectionRNG = default_rng(selectionSeed)
-    bootstrapRNG = default_rng(bootstrapSeed)
-    exponentialKeys = np.ascontiguousarray(
-        selectionRNG.exponential(size=candidateCount),
-        dtype=np.float64,
-    )
-    exponentialKeyView = exponentialKeys
-    rankStart = 0
-    while rankStart < candidateCount:
-        rankEnd = rankStart + 1
-        while (
-            rankEnd < candidateCount
-            and candidateWindows[rankEnd][0] == candidateWindows[rankStart][0]
-        ):
-            rankEnd += 1
-        positiveSignalRank = 0.5 * (
-            <double>(rankStart + 1) + <double>rankEnd
-        )
-        rankWeight = <double>candidateCount - positiveSignalRank + 1.0
-        for i in range(rankStart, rankEnd):
-            candidate = candidateWindows[i]
-            selectionKey = exponentialKeyView[i] / rankWeight
-            candidateWindows[i] = (
-                float(selectionKey),
-                int(candidate[1]),
-                int(candidate[2]),
-                int(candidate[3]),
-                int(candidate[4]),
-                int(candidate[5]),
-                float(candidate[6]),
-                float(positiveSignalRank),
-            )
-        rankStart = rankEnd
-    candidateWindows.sort()
-
-    for candidate in candidateWindows:
-        chromosomeIndex = int(candidate[3])
-        startBin = int(candidate[4])
-        endBin = int(candidate[5])
-        matrix = eligibleMatrices[chromosomeIndex]
-        windowMatrix = np.asarray(matrix[retainedRows, startBin:endBin])
-        evaluatedCandidateWindowCount += 1
-        result = _dependenceFinitePairWindow(
-            windowMatrix,
-            intervalSizeBPValue,
-            maxLagBins,
-            acfThresholdValue,
-            acfSmoothingBins,
-            crossingPersistenceBins,
-            minFinitePairsValue,
-            minFinitePairCoverageValue,
-            gaussianRadiusCorrection,
-        )
-        if result is None:
-            continue
-        chromosome = eligibleNames[chromosomeIndex]
-        startBP = startBin * intervalSizeBPValue
-        endBP = endBin * intervalSizeBPValue
-        window = {
-            "chromosome": str(chromosome),
-            "startBP": int(startBP),
-            "endBP": int(endBP),
-            "score": float(candidate[6]),
-            "positiveSignalRank": float(candidate[7]),
-            "rawCrossingLagBP": result["rawCrossingLagBP"],
-            "censorLagBP": result["censorLagBP"],
-            "gaussianEquivalentRadiusBP": float(result["gaussianEquivalentRadiusBP"]),
-            "rightCensored": bool(result["rightCensored"]),
-            "censorReason": str(result["censorReason"]),
-            "supportCapLagBP": int(result["supportCapLagBP"]),
-            "finitePairMinimumUsed": float(result["finitePairMinimumUsed"]),
-            "finitePairCoverageMinimumUsed": float(
-                result["finitePairCoverageMinimumUsed"]
-            ),
-            "validRowCount": int(result["validRowCount"]),
-            "validRowsAtCrossing": int(result["validRowsAtCrossing"]),
-            "dominantACFPeriodBP": result["dominantACFPeriodBP"],
-            "oscillationStrength": result["oscillationStrength"],
-            "postCrossingRevival": result["postCrossingRevival"],
-        }
-        selectedWindows.append(window)
-        radiusValues.append(float(result["gaussianEquivalentRadiusBP"]))
-        radiusCensored.append(bool(result["rightCensored"]))
-        finitePairMinimaUsed.append(float(result["finitePairMinimumUsed"]))
-        finitePairCoverageMinimaUsed.append(
-            float(result["finitePairCoverageMinimumUsed"])
-        )
-        validRowsAtCrossingValues.append(int(result["validRowsAtCrossing"]))
-        if bool(result["rightCensored"]):
-            censorTimesBP.append(float(result["gaussianEquivalentRadiusBP"]))
-        if result["dominantACFPeriodBP"] is not None:
-            dominantPeriods.append(float(result["dominantACFPeriodBP"]))
-        if result["oscillationStrength"] is not None:
-            oscillationStrengths.append(float(result["oscillationStrength"]))
-        if result["postCrossingRevival"] is not None:
-            revivalValues.append(float(result["postCrossingRevival"]))
-        chromosomeWindows = selectedByChromosome.get(str(chromosome), [])
-        chromosomeWindows.append(len(selectedWindows) - 1)
-        selectedByChromosome[str(chromosome)] = chromosomeWindows
-        if len(selectedWindows) >= windowCountValue:
-            break
-
-    chromosomesUsed = _dependenceSortedAutosomeNames(selectedByChromosome.keys())
-    selectedAutosomeCount = len(chromosomesUsed)
-    rightCensoredWindowCount = int(np.count_nonzero(radiusCensored))
-    crossedWindowCount = len(selectedWindows) - rightCensoredWindowCount
-    supportCensoredWindowCount = 0
-    capCensoredWindowCount = 0
-    for window in selectedWindows:
-        if str(window["censorReason"]) == "support":
-            supportCensoredWindowCount += 1
-        elif str(window["censorReason"]) == "maxLag":
-            capCensoredWindowCount += 1
-    for chromosome in chromosomesUsed:
-        selectedCountsByChromosome[str(chromosome)] = int(
-            len(selectedByChromosome[str(chromosome)])
-        )
-    censorFraction = (
-        <double>rightCensoredWindowCount / <double>len(selectedWindows)
-        if len(selectedWindows) > 0
-        else 0.0
-    )
-    if len(selectedWindows) < minWindowCountValue:
-        raise RuntimeError(
-            "dependence estimator has %d valid windows from %d autosomes, "
-            "needs at least %d windows, censor fraction %.6f"
-            % (
-                len(selectedWindows),
-                selectedAutosomeCount,
-                minWindowCountValue,
-                censorFraction,
-            )
-        )
-
-    fullMedian = _dependenceKMQuantile(radiusValues, radiusCensored, 0.5)
-    fullWorkingSpan = _dependenceKMQuantile(
-        radiusValues,
-        radiusCensored,
-        workingQuantileValue,
-    )
-    if fullMedian is None or fullWorkingSpan is None:
-        raise RuntimeError(
-            "dependence estimator Kaplan-Meier quantiles are unresolved for %d valid "
-            "windows from %d autosomes; censor fraction %.6f"
-            % (len(selectedWindows), selectedAutosomeCount, censorFraction)
-        )
-
-    (
-        bootstrapBlockLengthWindows,
-        selectedAdjacencyCount,
-        selectedLongestRun,
-    ) = _dependenceBootstrapGeometry(
-        selectedWindows,
-        selectedByChromosome,
-        radiusValues,
-        radiusCensored,
-    )
-
-    fullGrid = np.unique(np.asarray(radiusValues, dtype=np.float64))
-    fullSurvival = _dependenceKMSurvivalAt(
-        radiusValues,
-        radiusCensored,
-        fullGrid,
-    )
-    epsilonValue = 1.0 / (2.0 * <double>len(selectedWindows))
-    fullTransformed = np.log(
-        -np.log(np.clip(fullSurvival, epsilonValue, 1.0 - epsilonValue))
-    )
-    bandDomainMask = (fullSurvival >= 0.25) & (fullSurvival <= 0.75)
-    if int(np.count_nonzero(bandDomainMask)) <= 0:
-        bandDomainMask[int(np.argmin(np.abs(fullSurvival - 0.5)))] = True
-    restartProbability = 1.0 / <double>bootstrapBlockLengthWindows
-    for drawIndex in range(bootstrapDrawsValue):
-        drawValues = []
-        drawCensored = []
-        sampledChromosomeIndices = bootstrapRNG.integers(
-            0,
-            selectedAutosomeCount,
-            size=selectedAutosomeCount,
-        )
-        for sampledChromosomeIndex in sampledChromosomeIndices:
-            chromosome = chromosomesUsed[int(sampledChromosomeIndex)]
-            chromosomePositions = []
-            for windowIndex in selectedByChromosome[str(chromosome)]:
-                chromosomePositions.append(
-                    (
-                        int(selectedWindows[int(windowIndex)]["startBP"]),
-                        int(windowIndex),
-                    )
-                )
-            chromosomePositions.sort()
-            chromosomeWindows = []
-            for record in chromosomePositions:
-                chromosomeWindows.append(int(record[1]))
-            currentPosition = int(
-                bootstrapRNG.integers(0, len(chromosomeWindows))
-            )
-            for positionIndex in range(len(chromosomeWindows)):
-                windowIndex = int(chromosomeWindows[currentPosition])
-                drawValues.append(float(radiusValues[windowIndex]))
-                drawCensored.append(bool(radiusCensored[windowIndex]))
-                nextPosition = currentPosition + 1
-                if (
-                    float(bootstrapRNG.random()) < restartProbability
-                    or nextPosition >= len(chromosomeWindows)
-                    or int(
-                        selectedWindows[int(chromosomeWindows[nextPosition])]["startBP"]
-                    )
-                    != int(selectedWindows[windowIndex]["endBP"])
-                ):
-                    currentPosition = int(
-                        bootstrapRNG.integers(0, len(chromosomeWindows))
-                    )
-                else:
-                    currentPosition = nextPosition
-        drawMedian = _dependenceKMQuantile(drawValues, drawCensored, 0.5)
-        drawWorkingSpan = _dependenceKMQuantile(
-            drawValues,
-            drawCensored,
-            workingQuantileValue,
-        )
-        if drawMedian is not None:
-            resolvedMedianDraws += 1
-            bootstrapMedianRadiusBP.append(float(drawMedian))
-        if drawWorkingSpan is not None:
-            resolvedWorkingDraws += 1
-            bootstrapWorkingSpanBP.append(float(drawWorkingSpan))
-        if drawMedian is not None and drawWorkingSpan is not None:
-            resolvedJointDraws += 1
-        drawSurvival = _dependenceKMSurvivalAt(
-            drawValues,
-            drawCensored,
-            fullGrid,
-        )
-        drawTransformed = np.log(
-            -np.log(np.clip(drawSurvival, epsilonValue, 1.0 - epsilonValue))
-        )
-        bootstrapDistances.append(
-            float(
-                np.max(
-                    np.abs(drawTransformed - fullTransformed)[bandDomainMask]
-                )
-            )
-        )
-
-    requiredResolvedDraws = int(ceil(0.95 * <double>bootstrapDrawsValue))
-    if (
-        resolvedJointDraws < requiredResolvedDraws
-        or resolvedMedianDraws < requiredResolvedDraws
-        or resolvedWorkingDraws < requiredResolvedDraws
-    ):
-        raise RuntimeError(
-            "dependence estimator resolved %d of %d joint bootstrap draws; needs %d"
-            % (resolvedJointDraws, bootstrapDrawsValue, requiredResolvedDraws)
-        )
-
-    estimateBP = float(fullMedian)
-    workingSpanBP = max(
-        float(constants.OBSERVATION_MIN_DEPENDENCE_WORKING_SPAN_BP),
-        float(fullWorkingSpan),
-    )
-    bandCriticalValue = float(
-        np.quantile(np.asarray(bootstrapDistances, dtype=np.float64), 0.95)
-    )
-    lowerSurvival = np.exp(-np.exp(fullTransformed + bandCriticalValue))
-    upperSurvival = np.exp(-np.exp(fullTransformed - bandCriticalValue))
-    confidenceMask = (lowerSurvival <= 0.5) & (upperSurvival >= 0.5)
-    if int(np.count_nonzero(confidenceMask)) <= 0:
-        leftBandTransform = log(-log(1.0 - epsilonValue))
-        leftLowerSurvival = exp(
-            -exp(leftBandTransform + bandCriticalValue)
-        )
-        leftUpperSurvival = exp(
-            -exp(leftBandTransform - bandCriticalValue)
-        )
-        for bandIndex in range(int(fullGrid.size)):
-            if (
-                leftLowerSurvival > 0.5
-                and leftUpperSurvival > 0.5
-                and float(lowerSurvival[bandIndex]) < 0.5
-                and float(upperSurvival[bandIndex]) < 0.5
-            ):
-                jumpClosureIndices.append(int(bandIndex))
-            leftLowerSurvival = float(lowerSurvival[bandIndex])
-            leftUpperSurvival = float(upperSurvival[bandIndex])
-        if len(jumpClosureIndices) != 1:
-            raise RuntimeError(
-                "dependence estimator could not invert its simultaneous survival band"
-            )
-        bandIndex = int(jumpClosureIndices[0])
-        lowerBP = float(fullGrid[bandIndex])
-        upperBP = float(fullGrid[bandIndex])
-        survivalBandJumpClosureUsed = True
-    else:
-        lowerBP = float(np.min(fullGrid[confidenceMask]))
-        upperBP = float(np.max(fullGrid[confidenceMask]))
-    if (not isfinite(lowerBP)) or (not isfinite(upperBP)):
-        raise RuntimeError(
-            "dependence estimator produced nonfinite survival-band endpoints"
-        )
-    lowerBP = min(lowerBP, estimateBP)
-    upperBP = max(upperBP, estimateBP)
-    if len(dominantPeriods) > 0:
-        dominantACFPeriodBPMedian = float(
-            np.median(np.asarray(dominantPeriods, dtype=np.float64))
-        )
-    if len(oscillationStrengths) > 0:
-        oscillationStrength = float(
-            np.median(np.asarray(oscillationStrengths, dtype=np.float64))
-        )
-    if len(revivalValues) > 0:
-        postCrossingRevival = float(
-            np.median(np.asarray(revivalValues, dtype=np.float64))
-        )
-
-    diagnostics = {
-        "status": "estimated",
-        "method": "rankWeightedFinitePairWindowACF",
-        "randomSeed": int(randSeedValue),
-        "estimateBP": float(estimateBP),
-        "lowerBP": float(lowerBP),
-        "upperBP": float(upperBP),
-        "fullSampleMedianRadiusBP": float(fullMedian),
-        "fullSampleWorkingSpanBP": float(fullWorkingSpan),
-        "workingSpanBP": float(workingSpanBP),
-        "bootstrapMedianRadiusBP": [
-            float(value) for value in bootstrapMedianRadiusBP
-        ],
-        "bootstrapWorkingSpanBP": [
-            float(value) for value in bootstrapWorkingSpanBP
-        ],
-        "workingQuantile": float(workingQuantileValue),
-        "inferenceScope": "conditionalOnInputTracksAndSelectedWindows",
-        "confidenceIntervalMethod": (
-            "centralInterquartileSimultaneousLogLogKMSurvivalBand"
-        ),
-        "survivalBandRegionLower": 0.25,
-        "survivalBandRegionUpper": 0.75,
-        "survivalBandJumpClosureUsed": bool(survivalBandJumpClosureUsed),
-        "survivalBandJumpClosureCount": int(
-            1 if survivalBandJumpClosureUsed else 0
-        ),
-        "confidenceLevel": 0.95,
-        "intervalSizeBP": int(intervalSizeBPValue),
-        "windowBP": int(windowBPValue),
-        "windowCountRequested": int(windowCountValue),
-        "candidateWindowCount": int(len(candidateWindows)),
-        "evaluatedCandidateWindowCount": int(evaluatedCandidateWindowCount),
-        "selectedWindowCount": int(len(selectedWindows)),
-        "minWindowCount": int(minWindowCountValue),
-        "selectedAutosomeCount": int(selectedAutosomeCount),
-        "chromosomesUsed": [str(value) for value in chromosomesUsed],
-        "chromosomesExcluded": sorted(set(excludedNames)),
-        "selectedWindows": selectedWindows,
-        "inputRowCount": int(rowCount),
-        "uniqueRowCount": int(len(retainedRows)),
-        "duplicateRowCount": int(rowCount - len(retainedRows)),
-        "rowDeduplication": "exactBytes",
-        "acfThreshold": float(acfThresholdValue),
-        "acfSmoothingBP": int(acfSmoothingBPValue),
-        "acfSmoothingBins": int(acfSmoothingBins),
-        "crossingPersistenceBP": int(crossingPersistenceBPValue),
-        "crossingPersistenceBins": int(crossingPersistenceBins),
-        "minFinitePairs": int(minFinitePairsValue),
-        "minFinitePairCoverage": float(minFinitePairCoverageValue),
-        "maxLagBP": int(maxLagBins * intervalSizeBPValue),
-        "gaussianRadiusCorrection": float(gaussianRadiusCorrection),
-        "censorFraction": float(censorFraction),
-        "crossedWindowCount": int(crossedWindowCount),
-        "rightCensoredWindowCount": int(rightCensoredWindowCount),
-        "supportCensoredWindowCount": int(supportCensoredWindowCount),
-        "capCensoredWindowCount": int(capCensoredWindowCount),
-        "censorTimeBPMinimum": (
-            None if len(censorTimesBP) <= 0 else float(np.min(censorTimesBP))
-        ),
-        "censorTimeBPMedian": (
-            None if len(censorTimesBP) <= 0 else float(np.median(censorTimesBP))
-        ),
-        "censorTimeBPMaximum": (
-            None if len(censorTimesBP) <= 0 else float(np.max(censorTimesBP))
-        ),
-        "finitePairMinimumUsed": float(
-            np.min(np.asarray(finitePairMinimaUsed, dtype=np.float64))
-        ),
-        "finitePairCoverageMinimumUsed": float(
-            np.min(np.asarray(finitePairCoverageMinimaUsed, dtype=np.float64))
-        ),
-        "validRowsAtCrossingMinimum": int(
-            np.min(np.asarray(validRowsAtCrossingValues, dtype=np.int64))
-        ),
-        "selectedCountsByChromosome": selectedCountsByChromosome,
-        "selectedAdjacencyCount": int(selectedAdjacencyCount),
-        "selectedLongestRun": int(selectedLongestRun),
-        "radiusDistributionBP": [float(value) for value in radiusValues],
-        "radiusCensored": [bool(value) for value in radiusCensored],
-        "dominantACFPeriodBPMedian": dominantACFPeriodBPMedian,
-        "oscillationStrength": oscillationStrength,
-        "postCrossingRevival": postCrossingRevival,
-        "unresolvedPeriodFraction": float(
-            1.0 - (<double>len(dominantPeriods) / <double>len(selectedWindows))
-        ),
-        "periodicitySearchMinBP": int(max(2 * intervalSizeBPValue, 150)),
-        "periodicitySearchMaxBP": 500,
-        "bootstrapMethod": "hierarchicalAutosomeStationaryWindow",
-        "bootstrapBlockLengthWindows": int(bootstrapBlockLengthWindows),
-        "bootstrapRestartProbability": float(restartProbability),
-        "bootstrapDrawsRequested": int(bootstrapDrawsValue),
-        "bootstrapResolvedMedianDraws": int(resolvedMedianDraws),
-        "bootstrapResolvedWorkingDraws": int(resolvedWorkingDraws),
-        "bootstrapResolvedJointDraws": int(resolvedJointDraws),
-    }
-    return (
-        int(ceil(estimateBP / <double>intervalSizeBPValue)),
-        int(ceil(lowerBP / <double>intervalSizeBPValue)),
-        int(ceil(upperBP / <double>intervalSizeBPValue)),
-        diagnostics,
-    )
-# ===========================
-# --- MAT2: for readability/nogil inlining in the filter implementations ---
 ctypedef struct MAT2:
     double a00
     double a01
@@ -4486,563 +3085,6 @@ cdef inline MAT2 MAT2_clipDiagNonneg(MAT2 A) noexcept nogil:
 cdef inline double MAT2_traceProd(MAT2 A, MAT2 B) noexcept nogil:
     return A.a00*B.a00 + A.a01*B.a10 + A.a10*B.a01 + A.a11*B.a11
 
-
-cpdef bint cisAlignmentPairedEnd(
-    str bamFile,
-    int64_t maxReads=1000,
-    uint16_t samThreads=0,
-    uint16_t samFlagExclude=3844,
-    str barcodeAllowListFile="",
-    str barcodeTag="CB",
-):
-    r"""Return True when sampled alignment records carry the paired-end flag."""
-    cdef bytes bamFileBytes = bamFile.encode("utf-8")
-    cdef samFile* fileHandle = NULL
-    cdef sam_hdr_t* header = NULL
-    cdef bam1_t* record = NULL
-    cdef int64_t sampled = 0
-    cdef int readFlag
-    cdef bint isPairedEnd = <bint>0
-    cdef bytes allowListBytes = barcodeAllowListFile.encode("utf-8")
-    cdef bytes tagBytes = barcodeTag.encode("utf-8")
-    cdef const char* selectionError = NULL
-    cdef crBarcodeSelection* selection = NULL
-    cdef int selected
-
-    if maxReads < 1:
-        maxReads = 1
-
-    fileHandle = sam_open(bamFileBytes, "r")
-    if fileHandle == NULL:
-        raise FileNotFoundError(f"Could not open alignment file `{bamFile}`")
-
-    try:
-        selection = crBarcodeSelectionCreate(tagBytes, allowListBytes, &selectionError)
-        if selection == NULL:
-            raise ValueError((<bytes>selectionError).decode("utf-8"))
-        if samThreads > 1:
-            hts_set_threads(<htsFile*>fileHandle, <int>samThreads)
-
-        header = sam_hdr_read(fileHandle)
-        if header == NULL:
-            raise OSError(f"Could not read alignment header for `{bamFile}`")
-
-        record = bam_init1()
-        if record == NULL:
-            raise MemoryError("failed to allocate BAM record")
-
-        while sampled < maxReads and sam_read1(fileHandle, header, record) >= 0:
-            readFlag = <int>record.core.flag
-            if (readFlag & samFlagExclude) != 0:
-                continue
-            if selection.active and (readFlag & 1) != 0 and (readFlag & 64) == 0:
-                continue
-            selected = crBarcodeSelected(selection, record)
-            if selected < 0:
-                raise ValueError("barcodeTag requires SAM type Z")
-            if not selected:
-                continue
-            sampled += 1
-            if (readFlag & 1) != 0:
-                isPairedEnd = <bint>1
-                break
-
-        return isPairedEnd
-    finally:
-        crBarcodeSelectionDestroy(selection)
-        if record != NULL:
-            bam_destroy1(record)
-        if header != NULL:
-            sam_hdr_destroy(header)
-        if fileHandle != NULL:
-            sam_close(fileHandle)
-
-
-cpdef int64_t cgetFragmentLength(
-    str bamFile,
-    uint16_t samThreads=0,
-    uint16_t samFlagExclude=3844,
-    int64_t maxInsertSize=1000,
-    int64_t iters=1000,
-    int64_t blockSize=5000,
-    int64_t fallBack=147,
-    int64_t rollingChunkSize=250,
-    int64_t lagStep=5,
-    int64_t earlyExit=250,
-    int64_t randSeed=42,
-    str barcodeAllowListFile="",
-    str barcodeTag="CB",
-):
-    cdef object rng = default_rng(randSeed)
-    cdef int64_t regionLen, numRollSteps
-    cdef int numChunks
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
-    cdef list blockCenters
-    cdef list bestLags
-    cdef int i, j, idxVal
-    cdef int startIdx, endIdx
-    cdef int winSize, takeK
-    cdef int blockHalf, readFlag
-    cdef int maxValidLag
-    cdef int strand
-    cdef int samThreadsInternal
-    cdef object cpuCountObj
-    cdef int cpuCount
-    cdef int64_t blockStartBP, blockEndBP, readStart, readEnd
-    cdef int64_t med
-    cdef double score
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] topContigsIdx
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] unsortedIdx, sortedIdx
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] unsortedVals
-    cdef cnp.ndarray[cnp.uint8_t, ndim=1] seen
-    cdef bint isPairedEnd = <bint>0
-    cdef double avgReadLength = <double>0.0
-    cdef int64_t numReadLengthSamples = <int64_t>0
-    cdef int64_t minInsertSize
-    cdef int64_t requiredSamplesPE
-    cdef int64_t tlen
-    cdef cnp.ndarray[cnp.int64_t, ndim=1] lengthsArr
-    cdef Py_ssize_t contigIdx
-    cdef int contigTid
-    cdef int64_t contigLen
-    cdef int kTop
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
-    cdef double[::1] fwdView
-    cdef double[::1] revView
-    cdef double fwdSum
-    cdef double revSum
-    cdef double fwdMean
-    cdef double revMean
-    cdef double bestScore
-    cdef int bestLag
-    cdef int blockLen
-    cdef int localMinLag
-    cdef int localMaxLag
-    cdef int localLagStep
-    cdef int nFFT
-    cdef object Ff
-    cdef object Fr
-    cdef object corr
-    cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenArr
-    cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenWork
-    cdef cnp.int32_t[::1] tlenWorkView
-    cdef int tlenN
-    cdef int midIdx
-    cdef cnp.int32_t medPE
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] bestLagsArr
-    cdef bytes bamFileBytes = bamFile.encode("utf-8")
-    cdef samFile* fileHandle = NULL
-    cdef sam_hdr_t* header = NULL
-    cdef hts_idx_t* indexHandle = NULL
-    cdef hts_itr_t* iteratorHandle = NULL
-    cdef bam1_t* record = NULL
-    cdef hts_pos_t queryLength = 0
-    cdef bytes allowListBytes = barcodeAllowListFile.encode("utf-8")
-    cdef bytes tagBytes = barcodeTag.encode("utf-8")
-    cdef const char* selectionError = NULL
-    cdef crBarcodeSelection* selection = NULL
-    cdef int selected
-    cdef bint hasSelection = bool(barcodeAllowListFile)
-
-    earlyExit = min(earlyExit, iters)
-    samThreadsInternal = <int>samThreads
-    cpuCountObj = os.cpu_count()
-    if cpuCountObj is None:
-        cpuCount = 1
-    else:
-        cpuCount = <int>cpuCountObj
-        if cpuCount < 1:
-            cpuCount = 1
-
-    if samThreads < 1:
-        samThreadsInternal = <int>min(max(1, cpuCount // 2), 4)
-
-    if maxInsertSize < 1:
-        maxInsertSize = 1
-    if iters < 1:
-        if hasSelection:
-            raise ValueError("could not estimate fragment length from selected BAM records")
-        return <int64_t>fallBack
-    if blockSize < 64:
-        blockSize = 64
-    if rollingChunkSize < 1:
-        rollingChunkSize = 1
-    if lagStep < 1:
-        lagStep = 1
-
-    fileHandle = sam_open(bamFileBytes, "r")
-    if fileHandle == NULL:
-        if hasSelection:
-            raise ValueError("could not estimate fragment length from selected BAM records")
-        return <int64_t>fallBack
-
-    try:
-        selection = crBarcodeSelectionCreate(tagBytes, allowListBytes, &selectionError)
-        if selection == NULL:
-            raise ValueError((<bytes>selectionError).decode("utf-8"))
-        if samThreadsInternal > 1:
-            hts_set_threads(<htsFile*>fileHandle, samThreadsInternal)
-
-        header = sam_hdr_read(fileHandle)
-        if header == NULL or header.n_targets <= 0:
-            if hasSelection:
-                raise ValueError("could not estimate fragment length from selected BAM records")
-            return <int64_t>fallBack
-
-        indexHandle = sam_index_load(<htsFile*>fileHandle, bamFileBytes)
-        if indexHandle == NULL:
-            if hasSelection:
-                raise ValueError("could not estimate fragment length from selected BAM records")
-            return <int64_t>fallBack
-
-        record = bam_init1()
-        if record == NULL:
-            if hasSelection:
-                raise ValueError("could not estimate fragment length from selected BAM records")
-            return <int64_t>fallBack
-
-        lengthsArr = np.empty(header.n_targets, dtype=np.int64)
-        for contigIdx in range(header.n_targets):
-            lengthsArr[contigIdx] = <int64_t>header.target_len[contigIdx]
-
-        kTop = header.n_targets if hasSelection else (3 if header.n_targets >= 3 else (2 if header.n_targets >= 2 else 1))
-        topContigsIdx = np.argpartition(lengthsArr, -kTop)[-kTop:]
-        topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])[::-1]]
-
-        for contigIdx in topContigsIdx:
-            contigTid = <int>contigIdx
-            contigLen = <int64_t>lengthsArr[contigTid]
-            if contigLen <= 0:
-                continue
-
-            iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
-            if iteratorHandle == NULL:
-                continue
-
-            while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
-                readFlag = <int>record.core.flag
-                if (readFlag & samFlagExclude) != 0:
-                    continue
-                if hasSelection and (readFlag & 1) != 0 and (readFlag & 64) == 0:
-                    continue
-                selected = crBarcodeSelected(selection, record)
-                if selected < 0:
-                    raise ValueError("barcodeTag requires SAM type Z")
-                if not selected:
-                    continue
-
-                if not isPairedEnd and (readFlag & 1) != 0:
-                    isPairedEnd = <bint>1
-
-                if numReadLengthSamples >= iters:
-                    break
-
-                queryLength = record.core.l_qseq
-                if queryLength <= 0 and record.core.n_cigar > 0:
-                    queryLength = bam_cigar2qlen(record.core.n_cigar, bam_get_cigar(record))
-                if queryLength <= 0:
-                    continue
-
-                avgReadLength += <double>queryLength
-                numReadLengthSamples += 1
-
-            hts_itr_destroy(iteratorHandle)
-            iteratorHandle = NULL
-
-            if numReadLengthSamples >= iters:
-                break
-
-        if numReadLengthSamples <= 0:
-            if hasSelection:
-                raise ValueError("could not estimate fragment length from selected BAM records")
-            return <int64_t>fallBack
-
-        avgReadLength /= <double>numReadLengthSamples
-        minInsertSize = <int64_t>(avgReadLength)
-        if minInsertSize < 1:
-            minInsertSize = 1
-        if minInsertSize > maxInsertSize:
-            minInsertSize = maxInsertSize
-
-        if isPairedEnd:
-            requiredSamplesPE = max(iters, 2000)
-            tlenArr = np.empty(requiredSamplesPE, dtype=np.int32)
-            tlenN = 0
-
-            for contigIdx in topContigsIdx:
-                if tlenN >= requiredSamplesPE:
-                    break
-
-                contigTid = <int>contigIdx
-                contigLen = <int64_t>lengthsArr[contigTid]
-                if contigLen <= 0:
-                    continue
-
-                iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
-                if iteratorHandle == NULL:
-                    continue
-
-                while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
-                    if tlenN >= requiredSamplesPE:
-                        break
-
-                    readFlag = <int>record.core.flag
-                    if (readFlag & samFlagExclude) != 0:
-                        continue
-                    if (readFlag & 64) == 0:
-                        continue
-                    selected = crBarcodeSelected(selection, record)
-                    if selected < 0:
-                        raise ValueError("barcodeTag requires SAM type Z")
-                    if not selected:
-                        continue
-                    if (readFlag & 2) == 0:
-                        continue
-
-                    tlen = <int64_t>record.core.isize
-                    if tlen == 0:
-                        continue
-                    if tlen < 0:
-                        tlen = -tlen
-
-                    if tlen < minInsertSize or tlen > maxInsertSize:
-                        continue
-
-                    tlenArr[tlenN] = <cnp.int32_t>tlen
-                    tlenN += 1
-
-                hts_itr_destroy(iteratorHandle)
-                iteratorHandle = NULL
-
-            if tlenN < (1 if hasSelection else max(500, requiredSamplesPE // 5)):
-                if hasSelection:
-                    raise ValueError("could not estimate fragment length from selected BAM records")
-                return <int64_t>fallBack
-
-            midIdx = tlenN // 2
-            tlenWork = tlenArr[:tlenN].copy()
-            tlenWork = np.partition(tlenWork, midIdx)
-            tlenWorkView = tlenWork
-            medPE = <cnp.int32_t>tlenWorkView[midIdx]
-
-            if medPE < <cnp.int32_t>minInsertSize:
-                return <int64_t>minInsertSize
-            if medPE > <cnp.int32_t>maxInsertSize:
-                if hasSelection:
-                    raise ValueError("could not estimate fragment length from selected BAM records")
-                return <int64_t>fallBack
-            return <int64_t>medPE
-
-        bestLags = []
-        blockHalf = blockSize // 2
-
-        fwd = np.zeros(blockSize, dtype=np.float64, order="C")
-        rev = np.zeros(blockSize, dtype=np.float64, order="C")
-        fwdView = fwd
-        revView = rev
-
-        nFFT = 1
-        while nFFT < (2 * blockSize):
-            nFFT <<= 1
-
-        for contigIdx in topContigsIdx:
-            contigTid = <int>contigIdx
-            contigLen = <int64_t>lengthsArr[contigTid]
-            regionLen = contigLen
-
-            if regionLen < blockSize or regionLen <= 0:
-                continue
-
-            numRollSteps = regionLen // rollingChunkSize
-            if numRollSteps <= 0:
-                numRollSteps = 1
-            numChunks = <int>numRollSteps
-
-            rawArr = np.zeros(numChunks, dtype=np.float64)
-            medArr = np.zeros(numChunks, dtype=np.float64)
-
-            iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
-            if iteratorHandle == NULL:
-                continue
-
-            while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
-                readFlag = <int>record.core.flag
-                if (readFlag & samFlagExclude) != 0:
-                    continue
-                selected = crBarcodeSelected(selection, record)
-                if selected < 0:
-                    raise ValueError("barcodeTag requires SAM type Z")
-                if not selected:
-                    continue
-                j = <int>(record.core.pos // rollingChunkSize)
-                if 0 <= j < numChunks:
-                    rawArr[j] += 1.0
-
-            hts_itr_destroy(iteratorHandle)
-            iteratorHandle = NULL
-
-            winSize = <int>(blockSize // rollingChunkSize)
-            if winSize < 1:
-                winSize = 1
-            if (winSize & 1) == 0:
-                winSize += 1
-            medArr[:] = ndimage.median_filter(rawArr, size=winSize, mode="nearest")
-
-            takeK = iters if iters < numChunks else numChunks
-            unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
-            unsortedVals = medArr[unsortedIdx]
-            sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
-
-            seen = np.zeros(numChunks, dtype=np.uint8)
-            blockCenters = []
-            for i in range(takeK):
-                idxVal = <int>sortedIdx[i]
-                startIdx = idxVal - (winSize // 2)
-                endIdx = startIdx + winSize
-                if startIdx < 0:
-                    startIdx = 0
-                    endIdx = winSize if winSize < numChunks else numChunks
-                if endIdx > numChunks:
-                    endIdx = numChunks
-                    startIdx = endIdx - winSize if winSize <= numChunks else 0
-                for j in range(startIdx, endIdx):
-                    if seen[j] == 0:
-                        seen[j] = 1
-                        blockCenters.append(j)
-
-            if len(blockCenters) > 1:
-                rng.shuffle(blockCenters)
-
-            for idxVal in blockCenters:
-                blockStartBP = idxVal*rollingChunkSize + (rollingChunkSize // 2) - blockHalf
-                if blockStartBP < 0:
-                    blockStartBP = 0
-                blockEndBP = blockStartBP + blockSize
-                if blockEndBP > contigLen:
-                    blockEndBP = contigLen
-                    blockStartBP = blockEndBP - blockSize
-                    if blockStartBP < 0:
-                        continue
-
-                fwd.fill(0.0)
-                rev.fill(0.0)
-
-                iteratorHandle = sam_itr_queryi(
-                    indexHandle,
-                    contigTid,
-                    <hts_pos_t>blockStartBP,
-                    <hts_pos_t>blockEndBP,
-                )
-                if iteratorHandle == NULL:
-                    continue
-
-                while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
-                    readFlag = <int>record.core.flag
-                    if (readFlag & samFlagExclude) != 0:
-                        continue
-                    selected = crBarcodeSelected(selection, record)
-                    if selected < 0:
-                        raise ValueError("barcodeTag requires SAM type Z")
-                    if not selected:
-                        continue
-
-                    readStart = <int64_t>record.core.pos
-                    readEnd = <int64_t>bam_endpos(record)
-                    if readStart < blockStartBP or readEnd > blockEndBP:
-                        continue
-                    if readEnd <= readStart:
-                        continue
-
-                    strand = readFlag & 16
-                    if strand == 0:
-                        i = <int>(readStart - blockStartBP)
-                        if 0 <= i < blockSize:
-                            fwdView[i] += 1.0
-                    else:
-                        i = <int>((readEnd - 1) - blockStartBP)
-                        if 0 <= i < blockSize:
-                            revView[i] += 1.0
-
-                hts_itr_destroy(iteratorHandle)
-                iteratorHandle = NULL
-
-                maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
-                localMinLag = <int>minInsertSize
-                localMaxLag = <int>maxValidLag
-                if localMaxLag < localMinLag:
-                    continue
-                localLagStep = <int>lagStep
-
-                fwdSum = 0.0
-                revSum = 0.0
-                for i in range(blockSize):
-                    fwdSum += fwdView[i]
-                    revSum += revView[i]
-
-                if fwdSum < 10.0 or revSum < 10.0:
-                    continue
-
-                fwdMean = fwdSum / (<double>blockSize)
-                revMean = revSum / (<double>blockSize)
-
-                for i in range(blockSize):
-                    fwdView[i] = fwdView[i] - fwdMean
-                    revView[i] = revView[i] - revMean
-
-                Ff = np.fft.rfft(fwd, nFFT)
-                Fr = np.fft.rfft(rev, nFFT)
-                corr = np.fft.irfft(np.conj(Ff) * Fr, nFFT)
-
-                bestScore = -1e308
-                bestLag = -1
-
-                for lag in range(localMinLag, localMaxLag + 1, localLagStep):
-                    blockLen = blockSize - lag
-                    if blockLen <= 0:
-                        continue
-
-                    score = <double>corr[lag]
-                    if score > bestScore:
-                        bestScore = score
-                        bestLag = lag
-
-                if bestLag > 0 and bestScore != 0.0:
-                    bestLags.append(bestLag)
-                if len(bestLags) >= earlyExit:
-                    break
-
-            if len(bestLags) >= earlyExit:
-                break
-
-    finally:
-        crBarcodeSelectionDestroy(selection)
-        if iteratorHandle != NULL:
-            hts_itr_destroy(iteratorHandle)
-        if record != NULL:
-            bam_destroy1(record)
-        if indexHandle != NULL:
-            hts_idx_destroy(indexHandle)
-        if header != NULL:
-            sam_hdr_destroy(header)
-        if fileHandle != NULL:
-            sam_close(fileHandle)
-
-    if len(bestLags) < 3:
-        if hasSelection:
-            raise ValueError("could not estimate fragment length from selected BAM records")
-        return fallBack
-
-    bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
-    med = <int64_t>(np.median(bestLagsArr) + 1.0 + 0.5)
-
-    if med < minInsertSize:
-        med = <int>minInsertSize
-    elif med > maxInsertSize:
-        med = <int>maxInsertSize
-
-    return <int64_t>med
 
 cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     str chromosome,
@@ -5262,7 +3304,6 @@ cdef inline void _muncObservationMomentSeedPassInterval(
     cdef Py_ssize_t activeCount = 0
     cdef double stateValue = <double>stateMeanPtr[intervalIndex]
     cdef double momentVarianceBase = <double>stateVariancePtr[intervalIndex]
-    cdef double momentVariance
     cdef double backgroundValue = 0.0
     cdef double countValue = 0.0
     cdef double baseVariance
@@ -5273,6 +3314,7 @@ cdef inline void _muncObservationMomentSeedPassInterval(
     cdef double omegaRawValue
     cdef double omegaValue = 1.0
     cdef double dbar
+    cdef double dbarCorrection
     cdef double localValue
     cdef double totalValue
 
@@ -5290,6 +3332,7 @@ cdef inline void _muncObservationMomentSeedPassInterval(
             omegaInValue = 1.0
         if updateWeights:
             dbar = 0.0
+            dbarCorrection = 0.0
             for j in range(trackCount):
                 idx = j * intervalCount + intervalIndex
                 if not _muncSeedMaskAllowsCell(
@@ -5300,23 +3343,16 @@ cdef inline void _muncObservationMomentSeedPassInterval(
                     intervalIndex,
                     True,
                 ):
-                    momentPtr[idx] = <cnp.float32_t>0.0
-                    rhoOutPtr[idx] = <cnp.float32_t>1.0
                     continue
                 baseVariance = (<double>muncPtr[idx]) + pad
                 if baseVariance < varianceFloor:
                     baseVariance = varianceFloor
                 residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
                 momentValue = residual * residual + momentVarianceBase
-                rhoValue = (dS + 1.0) / (
-                    dS + omegaInValue * momentValue / baseVariance
-                )
-                momentPtr[idx] = <cnp.float32_t>momentValue
-                rhoOutPtr[idx] = <cnp.float32_t>rhoValue
-                dbar += momentValue / baseVariance
+                compensatedSumAdd(momentValue / baseVariance, &dbar, &dbarCorrection)
                 activeCount += 1
             if activeCount > 0:
-                dbar = dbar / (<double>activeCount)
+                dbar = (dbar + dbarCorrection) / (<double>activeCount)
                 omegaRawValue = (dOmega + 1.0) / (dOmega + dbar)
                 omegaValue = _clampMultiplierValue(
                     omegaRawValue,
@@ -5333,24 +3369,6 @@ cdef inline void _muncObservationMomentSeedPassInterval(
                 omegaMin,
                 omegaMax,
             )
-            for j in range(trackCount):
-                idx = j * intervalCount + intervalIndex
-                if not _muncSeedMaskAllowsCell(
-                    activePtr,
-                    activeMode,
-                    intervalCount,
-                    j,
-                    intervalIndex,
-                    True,
-                ):
-                    momentPtr[idx] = <cnp.float32_t>0.0
-                    rhoOutPtr[idx] = <cnp.float32_t>1.0
-                    continue
-                residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
-                momentValue = residual * residual + momentVarianceBase
-                rhoValue = <double>rhoInPtr[idx]
-                momentPtr[idx] = <cnp.float32_t>momentValue
-                rhoOutPtr[idx] = <cnp.float32_t>rhoValue
         omegaRawPtr[intervalIndex] = <cnp.float32_t>omegaRawValue
         omegaOutPtr[intervalIndex] = <cnp.float32_t>omegaValue
     else:
@@ -5367,14 +3385,19 @@ cdef inline void _muncObservationMomentSeedPassInterval(
             intervalIndex,
             True,
         ):
-            if not (useWeights and studentT):
-                residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
-                momentValue = residual * residual + momentVarianceBase
-                momentPtr[idx] = <cnp.float32_t>momentValue
-                rhoOutPtr[idx] = <cnp.float32_t>1.0
-            else:
-                momentValue = <double>momentPtr[idx]
-                rhoValue = <double>rhoOutPtr[idx]
+            residual = (<double>dataPtr[idx]) - backgroundValue - stateValue
+            momentValue = residual * residual + momentVarianceBase
+            rhoValue = 1.0
+            if useWeights and studentT:
+                if updateWeights:
+                    baseVariance = max((<double>muncPtr[idx]) + pad, varianceFloor)
+                    rhoValue = (dS + 1.0) / (
+                        dS + omegaInValue * momentValue / baseVariance
+                    )
+                else:
+                    rhoValue = <double>rhoInPtr[idx]
+            momentPtr[idx] = <cnp.float32_t>momentValue
+            rhoOutPtr[idx] = <cnp.float32_t>rhoValue
             if useCountFloor:
                 countValue = <double>countFloorPtr[idx]
             else:
@@ -5964,57 +3987,28 @@ cdef inline void _muncSmoothDenseLocalEvidenceRow(
     Py_ssize_t windowIntervals,
     int excludeMode,
     double epsValue,
+    _doubleDouble* suffixSums,
+    Py_ssize_t* suffixCounts,
 ) noexcept nogil:
     cdef Py_ssize_t rowStart = rowIndex * intervalCount
-    cdef Py_ssize_t i
-    cdef Py_ssize_t left
-    cdef Py_ssize_t right
-    cdef Py_ssize_t targetLeft
-    cdef Py_ssize_t targetRight
-    cdef Py_ssize_t half = windowIntervals // 2
-    cdef Py_ssize_t count = 0
+    cdef Py_ssize_t i, left, right
+    cdef Py_ssize_t width = min(windowIntervals, intervalCount)
+    cdef Py_ssize_t half = width // 2
+    cdef const uint8_t* rowExcluded = excludePtr
+    cdef _windowSumState state = _windowSumState(0, 0, 0, 0, 0, _ddValue(0.0))
+    cdef _doubleDouble total
     cdef double value
-    cdef double rollingSum = 0.0
-
-    left = 0
-    right = 0
+    if excludeMode == 2:
+        rowExcluded += rowStart
     for i in range(intervalCount):
-        targetLeft = i - half if i >= half else 0
-        targetRight = targetLeft + windowIntervals
-        if targetRight > intervalCount:
-            targetRight = intervalCount
-            if targetRight >= windowIntervals:
-                targetLeft = targetRight - windowIntervals
-            else:
-                targetLeft = 0
-        while right < targetRight:
-            if _muncSeedMaskAllowsCell(
-                excludePtr,
-                excludeMode,
-                intervalCount,
-                rowIndex,
-                right,
-                False,
-            ):
-                rollingSum += <double>localPtr[rowStart + right]
-                count += 1
-            right += 1
-        while left < targetLeft:
-            if _muncSeedMaskAllowsCell(
-                excludePtr,
-                excludeMode,
-                intervalCount,
-                rowIndex,
-                left,
-                False,
-            ):
-                rollingSum -= <double>localPtr[rowStart + left]
-                count -= 1
-            left += 1
-        if count > 0:
-            value = rollingSum / (<double>count)
-        else:
-            value = <double>localPtr[rowStart + i]
+        left = max(0, min(i - half, intervalCount - width))
+        right = left + width
+        total = _blockedWindowSum(
+            localPtr + rowStart, rowExcluded, intervalCount, width, left, right,
+            &state, suffixSums, suffixCounts,
+        )
+        value = ((total.high + total.low) / <double>state.count
+                 if state.count > 0 else <double>localPtr[rowStart + i])
         if value < epsValue:
             value = epsValue
         outPtr[rowStart + i] = <cnp.float32_t>value
@@ -6031,9 +4025,15 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
     cdef Py_ssize_t rowIndex
     cdef Py_ssize_t invalidIndex
     cdef Py_ssize_t cellCount = trackCount * intervalCount
+    cdef Py_ssize_t scratchWidth = windowIntervals if windowIntervals < intervalCount else 0
+    cdef Py_ssize_t scratchRows = 1 if trackCount > 0 else 0
     cdef double epsValue = <double>eps
     cdef object excludeObj
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] outArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=3, mode="c"] suffixSumArr
+    cdef cnp.ndarray[cnp.intp_t, ndim=2, mode="c"] suffixCountArr
+    cdef _doubleDouble* suffixSumPtr
+    cdef Py_ssize_t* suffixCountPtr
     cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] excludeArr1d
     cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] excludeArr2d
     cdef cnp.float32_t* localPtr = <cnp.float32_t*>localEvidence.data
@@ -6078,6 +4078,12 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
 
     outArr = np.empty((trackCount, intervalCount), dtype=np.float32)
     outPtr = <cnp.float32_t*>outArr.data
+    if USE_OPENMP and cellCount >= OPENMP_APPLY_MIN_ROWS:
+        scratchRows = trackCount
+    suffixSumArr = np.empty((scratchRows, scratchWidth, 2), dtype=np.float64)
+    suffixCountArr = np.empty((scratchRows, scratchWidth), dtype=np.intp)
+    suffixSumPtr = <_doubleDouble*>suffixSumArr.data
+    suffixCountPtr = <Py_ssize_t*>suffixCountArr.data
 
     if USE_OPENMP:
         if cellCount >= OPENMP_APPLY_MIN_ROWS:
@@ -6091,6 +4097,8 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
                     windowIntervals,
                     excludeMode,
                     epsValue,
+                    suffixSumPtr + rowIndex * scratchWidth,
+                    suffixCountPtr + rowIndex * scratchWidth,
                 )
         else:
             with nogil:
@@ -6104,6 +4112,8 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
                         windowIntervals,
                         excludeMode,
                         epsValue,
+                        suffixSumPtr,
+                        suffixCountPtr,
                     )
     else:
         with nogil:
@@ -6117,6 +4127,8 @@ cpdef cnp.ndarray cMuncSmoothDenseLocalEvidence(
                     windowIntervals,
                     excludeMode,
                     epsValue,
+                    suffixSumPtr,
+                    suffixCountPtr,
                 )
 
     return outArr
@@ -6294,481 +4306,6 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     out_F64 = np.empty(n, dtype=np.float64)
     _cEMA(<const double*>x1_F64.data, <double*>out_F64.data, n, alpha)
     return out_F64
-
-
-cdef inline real_t _transformValue(
-    real_t xval,
-    int mode,
-    real_t inputOffset,
-    real_t inputScale,
-    real_t outputScale,
-    real_t outputOffset,
-    real_t shape,
-) noexcept nogil:
-    cdef real_t u
-    cdef double ud
-    cdef double shapeD
-
-    if mode == __TRANSFORM_MODE_LOG:
-        u = xval + inputOffset
-        if u <= <real_t>0.0:
-            u = inputOffset
-        u = u / inputScale
-        if u <= <real_t>0.0:
-            u = <real_t>1.0
-        return outputOffset + outputScale * <real_t>log(<double>u)
-
-    if mode == __TRANSFORM_MODE_SQRT or mode == __TRANSFORM_MODE_ANSCOMBE:
-        u = (xval + inputOffset) / inputScale
-        if u < <real_t>0.0:
-            u = <real_t>0.0
-        return outputOffset + outputScale * <real_t>sqrt(<double>u)
-
-    if mode == __TRANSFORM_MODE_ASINH:
-        u = (xval + inputOffset) / inputScale
-        return outputOffset + outputScale * <real_t>asinh(<double>u)
-
-    if mode == __TRANSFORM_MODE_ASINH_SQRT:
-        u = xval + inputOffset
-        if u < <real_t>0.0:
-            u = <real_t>0.0
-        return outputOffset + outputScale * <real_t>asinh(
-            sqrt(<double>u) / <double>inputScale
-        )
-
-    if mode == __TRANSFORM_MODE_GENERALIZED_LOG:
-        ud = <double>((xval + inputOffset) / inputScale)
-        shapeD = <double>shape
-        return outputOffset + outputScale * <real_t>(
-            log((ud + sqrt((ud * ud) + (shapeD * shapeD))) / shapeD)
-        )
-
-    return outputOffset + outputScale * (
-        (xval + inputOffset) / inputScale
-    )
-
-
-cdef void _monoTransform(
-    const real_t* arrPtr,
-    real_t* outPtr,
-    Py_ssize_t n,
-    real_t inputOffset,
-    real_t inputScale,
-    real_t outputScale,
-    real_t outputOffset,
-    real_t shape,
-    int mode,
-) noexcept nogil:
-    cdef Py_ssize_t i
-
-    for i in range(n):
-        outPtr[i] = _transformValue(
-            arrPtr[i],
-            mode,
-            inputOffset,
-            inputScale,
-            outputScale,
-            outputOffset,
-            shape,
-        )
-
-
-cdef void _transformDiff(
-    const real_t* treatmentPtr,
-    const real_t* controlPtr,
-    real_t* outPtr,
-    Py_ssize_t n,
-    real_t inputOffset,
-    real_t inputScale,
-    real_t outputScale,
-    real_t shape,
-    int mode,
-) noexcept nogil:
-    cdef Py_ssize_t i
-    cdef real_t t
-    cdef real_t c
-
-    if mode == __TRANSFORM_MODE_LOG:
-        for i in range(n):
-            t = treatmentPtr[i] + inputOffset
-            c = controlPtr[i] + inputOffset
-            if t <= <real_t>0.0:
-                t = inputOffset
-            if c <= <real_t>0.0:
-                c = inputOffset
-            outPtr[i] = outputScale * <real_t>(
-                log(<double>t) - log(<double>c)
-            )
-        return
-
-    for i in range(n):
-        outPtr[i] = (
-            _transformValue(
-                treatmentPtr[i],
-                mode,
-                inputOffset,
-                inputScale,
-                outputScale,
-                <real_t>0.0,
-                shape,
-            )
-            - _transformValue(
-                controlPtr[i],
-                mode,
-                inputOffset,
-                inputScale,
-                outputScale,
-                <real_t>0.0,
-                shape,
-            )
-        )
-
-
-cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
-    cdef Py_ssize_t n
-    cdef double offset_ = offset
-    cdef double scale_ = scale
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] arr_F32
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_F64
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
-
-    if offset_ <= 0.0:
-        offset_ = 1.0
-
-    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
-        arr_F32 = np.ascontiguousarray(x, dtype=np.float32)
-        n = arr_F32.shape[0]
-        out_F32 = np.empty(n, dtype=np.float32)
-        with nogil:
-            _monoTransform(
-                <const float*>arr_F32.data,
-                <float*>out_F32.data,
-                n,
-                <float>offset_,
-                <float>1.0,
-                <float>scale_,
-                <float>0.0,
-                <float>1.0,
-                __TRANSFORM_MODE_LOG,
-            )
-        return (out_F32, -1.0)
-
-    arr_F64 = np.ascontiguousarray(x, dtype=np.float64)
-    n = arr_F64.shape[0]
-    out_F64 = np.empty(n, dtype=np.float64)
-    with nogil:
-        _monoTransform(
-            <const double*>arr_F64.data,
-            <double*>out_F64.data,
-            n,
-            offset_,
-            1.0,
-            scale_,
-            0.0,
-            1.0,
-            __TRANSFORM_MODE_LOG,
-        )
-
-    return (out_F64, -1.0)
-
-
-cpdef object cTransformWithInput(
-    object treatment,
-    object control,
-    double logOffset=<double>(1.0),
-    double logMult=<double>(1.0),
-    object mode=None,
-    object offset=None,
-    object scale=None,
-    object inputOffset=None,
-    object inputScale=None,
-    object outputScale=None,
-    object outputOffset=None,
-    object shape=None,
-):
-    r"""Return the treatment/control transform difference.
-
-    The default is the historical log-ratio transform
-    ``logMult * (log(treatment + logOffset) - log(control + logOffset))``.
-    Non-log modes return ``f(treatment) - f(control)`` so depletion remains
-    signed relative to control.
-    """
-    cdef Py_ssize_t n
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] control_F32
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] treat_F64
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] control_F64
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
-
-    if (
-        isinstance(treatment, np.ndarray)
-        and isinstance(control, np.ndarray)
-        and (<cnp.ndarray>treatment).dtype == np.float32
-        and (<cnp.ndarray>control).dtype == np.float32
-    ):
-        treat_F32 = np.ascontiguousarray(treatment, dtype=np.float32).reshape(-1)
-        control_F32 = np.ascontiguousarray(control, dtype=np.float32).reshape(-1)
-        if treat_F32.size != control_F32.size:
-            raise ValueError("treatment and control must have the same length")
-        n = treat_F32.shape[0]
-        out_F32 = np.empty(n, dtype=np.float32)
-        return cTransformWithInputInto(
-            treat_F32,
-            control_F32,
-            out_F32,
-            logOffset=logOffset,
-            logMult=logMult,
-            mode=mode,
-            offset=offset,
-            scale=scale,
-            inputOffset=inputOffset,
-            inputScale=inputScale,
-            outputScale=outputScale,
-            outputOffset=outputOffset,
-            shape=shape,
-        )
-
-    treat_F64 = np.ascontiguousarray(treatment, dtype=np.float64).reshape(-1)
-    control_F64 = np.ascontiguousarray(control, dtype=np.float64).reshape(-1)
-    if treat_F64.size != control_F64.size:
-        raise ValueError("treatment and control must have the same length")
-    n = treat_F64.shape[0]
-    out_F64 = np.empty(n, dtype=np.float64)
-    return cTransformWithInputInto(
-        treat_F64,
-        control_F64,
-        out_F64,
-        logOffset=logOffset,
-        logMult=logMult,
-        mode=mode,
-        offset=offset,
-        scale=scale,
-        inputOffset=inputOffset,
-        inputScale=inputScale,
-        outputScale=outputScale,
-        outputOffset=outputOffset,
-        shape=shape,
-    )
-
-
-cpdef object cTransformWithInputInto(
-    object treatment,
-    object control,
-    object out,
-    double logOffset=<double>(1.0),
-    double logMult=<double>(1.0),
-    object mode=None,
-    object offset=None,
-    object scale=None,
-    object inputOffset=None,
-    object inputScale=None,
-    object outputScale=None,
-    object outputOffset=None,
-    object shape=None,
-):
-    r"""Write a treatment/control transform difference into ``out``."""
-    cdef Py_ssize_t n
-    cdef int modeCode = _parseTransformMode(mode)
-    cdef tuple transformParams = _resolveTransformParameters(
-        modeCode,
-        logOffset,
-        logMult,
-        offset,
-        scale,
-        inputOffset,
-        inputScale,
-        outputScale,
-        outputOffset,
-        shape,
-    )
-    cdef double inputOffset_ = <double>transformParams[0]
-    cdef double inputScale_ = <double>transformParams[1]
-    cdef double outputScale_ = <double>transformParams[2]
-    cdef double shape_ = <double>transformParams[4]
-    cdef object outObj = out
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] control_F32
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] treat_F64
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] control_F64
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
-
-    if not isinstance(outObj, np.ndarray):
-        raise TypeError("out must be a NumPy ndarray")
-    if outObj.ndim != 1:
-        raise ValueError("out must be one-dimensional")
-    if not outObj.flags.c_contiguous:
-        raise ValueError("out must be C-contiguous")
-
-    if (<cnp.ndarray>outObj).dtype == np.float32:
-        treat_F32 = np.ascontiguousarray(treatment, dtype=np.float32).reshape(-1)
-        control_F32 = np.ascontiguousarray(control, dtype=np.float32).reshape(-1)
-        out_F32 = outObj
-        if treat_F32.size != control_F32.size:
-            raise ValueError("treatment and control must have the same length")
-        if out_F32.size != treat_F32.size:
-            raise ValueError("out must have the same length as treatment and control")
-        n = treat_F32.shape[0]
-        with nogil:
-            _transformDiff(
-                <const float*>treat_F32.data,
-                <const float*>control_F32.data,
-                <float*>out_F32.data,
-                n,
-                <float>inputOffset_,
-                <float>inputScale_,
-                <float>outputScale_,
-                <float>shape_,
-                modeCode,
-            )
-        return out
-
-    if (<cnp.ndarray>outObj).dtype == np.float64:
-        treat_F64 = np.ascontiguousarray(treatment, dtype=np.float64).reshape(-1)
-        control_F64 = np.ascontiguousarray(control, dtype=np.float64).reshape(-1)
-        out_F64 = outObj
-        if treat_F64.size != control_F64.size:
-            raise ValueError("treatment and control must have the same length")
-        if out_F64.size != treat_F64.size:
-            raise ValueError("out must have the same length as treatment and control")
-        n = treat_F64.shape[0]
-        with nogil:
-            _transformDiff(
-                <const double*>treat_F64.data,
-                <const double*>control_F64.data,
-                <double*>out_F64.data,
-                n,
-                inputOffset_,
-                inputScale_,
-                outputScale_,
-                shape_,
-                modeCode,
-            )
-        return out
-
-    raise TypeError("out dtype must be float32 or float64")
-
-
-cpdef object cTransformInPlace(
-    object x,
-    bint verbose=<bint>False,
-    double logOffset=<double>(1.0),
-    double logMult=<double>(1.0),
-    object mode=None,
-    object offset=None,
-    object scale=None,
-    object inputOffset=None,
-    object inputScale=None,
-    object outputScale=None,
-    object outputOffset=None,
-    object shape=None,
-):
-    r"""Transform a contiguous coverage track in-place."""
-    cdef Py_ssize_t n
-    cdef int modeCode = _parseTransformMode(mode)
-    cdef tuple transformParams = _resolveTransformParameters(
-        modeCode,
-        logOffset,
-        logMult,
-        offset,
-        scale,
-        inputOffset,
-        inputScale,
-        outputScale,
-        outputOffset,
-        shape,
-    )
-    cdef double inputOffset_ = <double>transformParams[0]
-    cdef double inputScale_ = <double>transformParams[1]
-    cdef double outputScale_ = <double>transformParams[2]
-    cdef double outputOffset_ = <double>transformParams[3]
-    cdef double shape_ = <double>transformParams[4]
-    cdef object arrObj = x
-    cdef cnp.ndarray zArr_F32
-    cdef cnp.ndarray zArr_F64
-
-    if not isinstance(arrObj, np.ndarray):
-        raise TypeError("x must be a NumPy ndarray")
-    if arrObj.ndim != 1:
-        raise ValueError("x must be one-dimensional")
-    if not arrObj.flags.c_contiguous:
-        raise ValueError("x must be C-contiguous")
-
-    if (<cnp.ndarray>arrObj).dtype == np.float32:
-        zArr_F32 = arrObj
-        n = zArr_F32.shape[0]
-        with nogil:
-            _monoTransform(
-                <const float*>zArr_F32.data,
-                <float*>zArr_F32.data,
-                n,
-                <float>inputOffset_,
-                <float>inputScale_,
-                <float>outputScale_,
-                <float>outputOffset_,
-                <float>shape_,
-                modeCode,
-            )
-        return x
-
-    if (<cnp.ndarray>arrObj).dtype != np.float64:
-        raise TypeError("x dtype must be float32 or float64")
-    zArr_F64 = arrObj
-    n = zArr_F64.shape[0]
-    with nogil:
-        _monoTransform(
-            <const double*>zArr_F64.data,
-            <double*>zArr_F64.data,
-            n,
-            inputOffset_,
-            inputScale_,
-            outputScale_,
-            outputOffset_,
-            shape_,
-            modeCode,
-        )
-
-    return x
-
-
-cpdef object cTransform(
-    object x,
-    bint verbose=<bint>False,
-    double logOffset=<double>(1.0),
-    double logMult=<double>(1.0),
-    object mode=None,
-    object offset=None,
-    object scale=None,
-    object inputOffset=None,
-    object inputScale=None,
-    object outputScale=None,
-    object outputOffset=None,
-    object shape=None,
-):
-    r"""Transform a coverage track."""
-    cdef object outArr
-
-    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
-        outArr = np.array(x, dtype=np.float32, copy=True, order="C").reshape(-1)
-    else:
-        outArr = np.array(x, dtype=np.float64, copy=True, order="C").reshape(-1)
-
-    return cTransformInPlace(
-        outArr,
-        verbose=verbose,
-        logOffset=logOffset,
-        logMult=logMult,
-        mode=mode,
-        offset=offset,
-        scale=scale,
-        inputOffset=inputOffset,
-        inputScale=inputScale,
-        outputScale=outputScale,
-        outputOffset=outputOffset,
-        shape=shape,
-    )
 
 
 cpdef tuple cforwardPass(
@@ -7062,11 +4599,12 @@ cpdef tuple cbackwardPass(
     cdef double J00, J01, J10, J11
     cdef double dx0, dx1
     cdef double xs0, xs1
-    cdef double dP00, dP01, dP10, dP11
-    cdef double corr00, corr01, corr10, corr11
+    cdef double nextP00, nextP01, nextP11
+    cdef double A00, A01, A10, A11
+    cdef double conditional00, conditional01, conditional11
     cdef double Ps00, Ps01, Ps11
     cdef double C00, C01, C10, C11
-    cdef double JD00, JD01, JD10, JD11
+    cdef bint rankDeficient
     cdef Py_ssize_t invalidCovarianceIndex = -1
     cdef cnp.float32_t* stateCovarSmoothedPtr = NULL
 
@@ -7184,6 +4722,7 @@ cpdef tuple cbackwardPass(
                 &invPred00,
                 &invPred01,
                 &invPred11,
+                &rankDeficient,
             ):
                 invalidCovarianceIndex = k
                 break
@@ -7209,19 +4748,28 @@ cpdef tuple cbackwardPass(
             stateSmoothedView[k, 0] = <cnp.float32_t>xs0
             stateSmoothedView[k, 1] = <cnp.float32_t>xs1
 
-            dP00 = (<double>stateCovarSmoothedView[k + 1, 0, 0]) - PPred00
-            dP01 = (<double>stateCovarSmoothedView[k + 1, 0, 1]) - PPred01
-            dP10 = (<double>stateCovarSmoothedView[k + 1, 1, 0]) - PPred10
-            dP11 = (<double>stateCovarSmoothedView[k + 1, 1, 1]) - PPred11
-
-            corr00 = dP00*J00 + dP01*J01
-            corr01 = dP00*J10 + dP01*J11
-            corr10 = dP10*J00 + dP11*J01
-            corr11 = dP10*J10 + dP11*J11
-
-            Ps00 = Pf00 + (J00*corr00 + J01*corr10)
-            Ps01 = Pf01 + (J00*corr01 + J01*corr11)
-            Ps11 = Pf11 + (J10*corr01 + J11*corr11)
+            nextP00 = <double>stateCovarSmoothedView[k + 1, 0, 0]
+            nextP01 = <double>stateCovarSmoothedView[k + 1, 0, 1]
+            nextP11 = <double>stateCovarSmoothedView[k + 1, 1, 1]
+            A00 = 1.0 - (J00 * F00 + J01 * F10)
+            A01 = -(J00 * F01 + J01 * F11)
+            A10 = -(J10 * F00 + J11 * F10)
+            A11 = 1.0 - (J10 * F01 + J11 * F11)
+            # Conditional covariance plus propagated smoothed covariance,
+            # using (I-JF) Pf (I-JF)' + J Q J' for the conditional term.
+            # Rasmussen and Williams (2006), Eq. (A.6), gaussianprocess.org/gpml/chapters/RWA.pdf.
+            _symmetricCongruence2x2(
+                A00, A01, A10, A11, Pf00, Pf01, Pf11,
+                &conditional00, &conditional01, &conditional11,
+            )
+            _symmetricCongruence2x2(
+                J00, J01, J10, J11,
+                Q00 + nextP00, Q01 + nextP01, Q11 + nextP11,
+                &Ps00, &Ps01, &Ps11,
+            )
+            Ps00 += conditional00
+            Ps01 += conditional01
+            Ps11 += conditional11
             if not _projectCovariance2x2(&Ps00, &Ps01, &Ps11):
                 invalidCovarianceIndex = k
                 break
@@ -7235,21 +4783,16 @@ cpdef tuple cbackwardPass(
                 break
 
             if computeLagCovariance:
-                # C[k] = P[k|k] F^T + J[k] (PS[k+1] - PPred[k+1|k])
-                C00 = Pf00*F00 + Pf01*F01
-                C01 = Pf00*F10 + Pf01*F11
-                C10 = Pf10*F00 + Pf11*F01
-                C11 = Pf10*F10 + Pf11*F11
-
-                JD00 = J00*dP00 + J01*dP10
-                JD01 = J00*dP01 + J01*dP11
-                JD10 = J10*dP00 + J11*dP10
-                JD11 = J10*dP01 + J11*dP11
-
-                C00 += JD00
-                C01 += JD01
-                C10 += JD10
-                C11 += JD11
+                C00 = J00 * nextP00 + J01 * nextP01
+                C01 = J00 * nextP01 + J01 * nextP11
+                C10 = J10 * nextP00 + J11 * nextP01
+                C11 = J10 * nextP01 + J11 * nextP11
+                if rankDeficient:
+                    # Retain the cross covariance in discarded prediction modes.
+                    C00 += cross00 - (J00 * PPred00 + J01 * PPred10)
+                    C01 += cross01 - (J00 * PPred01 + J01 * PPred11)
+                    C10 += cross10 - (J10 * PPred00 + J11 * PPred10)
+                    C11 += cross11 - (J10 * PPred01 + J11 * PPred11)
 
                 if k < lagCovSmoothedArr.shape[0]:
                     lagCovSmoothedView[k, 0, 0] = <cnp.float32_t>C00
@@ -7491,7 +5034,7 @@ cpdef tuple cbackwardPassLevel(
     cdef double J
     cdef double dx
     cdef double xs
-    cdef double dP
+    cdef double nextP
     cdef double Ps
     cdef double C
     cdef double innov
@@ -7546,19 +5089,20 @@ cpdef tuple cbackwardPassLevel(
             PPred = Pf + Q
             if PPred < 1.0e-12:
                 PPred = 1.0e-12
+                Q = PPred - Pf
             J = Pf / PPred
             dx = (<double>stateSmoothedView[k + 1, 0]) - (<double>stateForwardView[k, 0])
             xs = (<double>stateForwardView[k, 0]) + J * dx
             stateSmoothedView[k, 0] = <cnp.float32_t>xs
 
-            dP = (<double>stateCovarSmoothedView[k + 1, 0, 0]) - PPred
-            Ps = Pf + (J * J * dP)
+            nextP = <double>stateCovarSmoothedView[k + 1, 0, 0]
+            Ps = J * Q + J * J * nextP
             if Ps < 0.0:
                 Ps = 0.0
             stateCovarSmoothedView[k, 0, 0] = <cnp.float32_t>Ps
 
             if computeLagCovariance:
-                C = Pf + (J * dP)
+                C = J * nextP
                 if k < lagCovSmoothedArr.shape[0]:
                     lagCovSmoothedView[k, 0, 0] = <cnp.float32_t>C
 
@@ -8816,164 +6360,6 @@ cpdef tuple cfixedBackgroundECM(
     return (itersDone, float(previousNLL))
 
 
-cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
-    object chromMat,
-    bint centerMedian=<bint>(True),  # FFR: in fact, we use the _MEDIAN_ for centering!, change in next 0.x+1.0 release
-    Py_ssize_t minRefDist=<Py_ssize_t>(10),
-):
-    #FFR: revisit this, may want to offer guidance given correlation structure...
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
-    cdef Py_ssize_t m = chromMat_.shape[0]
-    cdef Py_ssize_t n = chromMat_.shape[1]
-    cdef cnp.float32_t[:, ::1] chromMatView = chromMat_
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] refLog = np.empty(n, dtype=np.float64)
-    cdef double[::1] refLogView = refLog
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scaleFactors = np.empty(m, dtype=np.float64)
-    cdef double[::1] scaleFactorsView = scaleFactors
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)
-    cdef double[::1] logRatioBufView = logRatioBuf
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSFBuf = np.empty(m, dtype=np.float64)
-    cdef double[::1] logSFBufView = logSFBuf
-
-    cdef Py_ssize_t s, i, k
-    cdef Py_ssize_t presentCount
-    cdef double sumLog, v, medLog, geoMean, eps
-    cdef double centerLog
-    cdef Py_ssize_t kLow, kHigh
-    cdef double low, high
-    cdef Py_ssize_t validCols
-    cdef double minSF, maxSF
-    eps = 1e-8
-
-    # bound scale factors for extreme cases, even if centering is not applied
-    minSF = 0.2
-    maxSF = 5.0
-
-    # reference uses geometric mean over *positive counts*, less than x% nonzero counts --> NAN (ignored later)
-    validCols = 0
-    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(1.0 * (<double>m) + (1.0 - 1e-8))  # 100% for consistency w/ other implementations
-
-    # enforce _minimum distance_ between selected reference columns!
-    # ... since we're working with adjacent genomic intervals, best
-    # ... to avoid local correlations skewing the SF calculation.
-    # FFR: consider coupling minRefDist with sampled dependence span sizing
-    cdef Py_ssize_t lastSelected = -minRefDist
-    cdef Py_ssize_t prevSelected = -1
-    cdef Py_ssize_t selectedCount = 0
-    cdef double sumGaps = 0.0
-    cdef double avgGap = NAN
-
-    with nogil:
-        for i in range(n):
-            sumLog = 0.0
-            presentCount = 0
-            for s in range(m):
-                v = <double>chromMatView[s, i]
-                if v >= 1.0:
-                    sumLog += log(v)
-                    presentCount += 1
-
-            refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= requiredNonZeroSamples_ssize else NAN
-
-            if not isnan(refLogView[i]):
-                # enforce _minimum distance_ between selected reference columns
-                if (i - lastSelected) < minRefDist:
-                    refLogView[i] = NAN
-                else:
-                    validCols += 1
-                    lastSelected = i
-
-                    if selectedCount > 0:
-                        sumGaps += <double>(i - prevSelected)
-                    prevSelected = i
-                    selectedCount += 1
-
-        if selectedCount > 1:
-            avgGap = (1.0*sumGaps) / <double>(selectedCount - 1)
-
-    # ensure there are enough usable columns for the SF calculation
-    if validCols < fmax(fmin(<double>(500.0), np.sqrt(<double>(n*0.5))), 10.0):
-        raise ValueError(
-            f"insufficient valid/dense columns for `countingParams.normMethod: SF`, (need >= 500, got {validCols})... "
-            f"If this is expected, consider using `countingParams.normMethod: EGS` or RPKM instead."
-        )
-
-    with nogil:
-        for s in range(m):
-            k = 0
-            for i in range(n):
-                if not isnan(refLogView[i]):
-                    v = <double>chromMatView[s, i]
-                    if v > 0.0:
-                        logRatioBufView[k] = log(v) - refLogView[i]
-                        k += 1
-
-            if k == 0:
-                scaleFactorsView[s] = 1.0
-            else:
-                # quickselect for median
-                if k & 1:  # case: ODD, just take middle element
-                    _nthElement_F64(&logRatioBufView[0], k, k >> 1)
-                    medLog = logRatioBufView[k >> 1]
-                else:      # case: EVEN, average two middle elements
-                    kHigh = k >> 1
-                    kLow = kHigh - 1
-
-                    _nthElement_F64(&logRatioBufView[0], k, kHigh)
-                    high = logRatioBufView[kHigh]
-
-                    _nthElement_F64(&logRatioBufView[0], k, kLow)
-                    low = logRatioBufView[kLow]
-                    medLog = 0.5 * (low + high)
-
-                scaleFactorsView[s] = exp(medLog)
-
-            # note that inflated/deflated SFs should be fine after clipping here given later global/local corrections and UQ
-            if scaleFactorsView[s] < minSF:
-                scaleFactorsView[s] = minSF
-            elif scaleFactorsView[s] > maxSF:
-                scaleFactorsView[s] = maxSF
-
-        if centerMedian and m > 0:
-            # robust centering around --median-- log(SF)
-            # ... this, and the bounds on SFs should prevent extreme scale factors
-            # ... or centering based on pathological samples
-            for s in range(m):
-                logSFBufView[s] = log(scaleFactorsView[s] + eps)
-
-            # quickselect for median on SFs
-            if m & 1:  # case: ODD, just take middle element
-                _nthElement_F64(&logSFBufView[0], m, m >> 1)
-                centerLog = logSFBufView[m >> 1]
-            else:      # case: EVEN, average two middle elements
-                kHigh = m >> 1
-                kLow = kHigh - 1
-
-                _nthElement_F64(&logSFBufView[0], m, kHigh)
-                high = logSFBufView[kHigh]
-
-                _nthElement_F64(&logSFBufView[0], m, kLow)
-                low = logSFBufView[kLow]
-                centerLog = 0.5 * (low + high)
-
-            geoMean = exp(centerLog)  #  _MEDIAN_
-            for s in range(m):
-                # center around ~~geometric median~~
-                scaleFactorsView[s] /= geoMean
-
-                # make sure bounds still hold
-                if scaleFactorsView[s] < minSF:
-                    scaleFactorsView[s] = minSF
-                elif scaleFactorsView[s] > maxSF:
-                    scaleFactorsView[s] = maxSF
-
-    return 1 / scaleFactors
-
-
 cdef tuple _solvePenalizedChainROCCO_F64(
     double[::1] scoresView,
     double[::1] switchCostsView,
@@ -9552,319 +6938,14 @@ cpdef tuple csolveChromROCCOExact(
     )
 
 
-cdef inline double _transformDerivativeAtMean_F64(
-    double x,
-    int mode,
-    double inputOffset,
-    double inputScale,
-    double outputScale,
-    double shape,
-) noexcept nogil:
-    cdef double tiny = 2.2250738585072014e-308
-    cdef double shifted = x + inputOffset
-    cdef double u
-    cdef double root
-    if shifted < tiny:
-        shifted = tiny
-    if mode == __TRANSFORM_MODE_LOG:
-        return outputScale / shifted
-    if mode == __TRANSFORM_MODE_SQRT or mode == __TRANSFORM_MODE_ANSCOMBE:
-        return outputScale / (2.0 * inputScale * sqrt(fmax(shifted / inputScale, tiny)))
-    if mode == __TRANSFORM_MODE_ASINH:
-        u = shifted / inputScale
-        return outputScale / (inputScale * sqrt(1.0 + u * u))
-    if mode == __TRANSFORM_MODE_ASINH_SQRT:
-        root = sqrt(shifted)
-        u = root / inputScale
-        return outputScale / (2.0 * inputScale * root * sqrt(1.0 + u * u))
-    if mode == __TRANSFORM_MODE_GENERALIZED_LOG:
-        u = shifted / inputScale
-        return outputScale / (inputScale * sqrt(u * u + shape * shape))
-    return outputScale / inputScale
-
-
-def cTransformCountVarianceFloor(
-    object normalizedCounts,
-    object scaleFactors,
-    object rawNoiseMass=None,
-    object countNoisePseudoMeanMass=0.5,
-    object countNoisePseudoVarianceMass=0.5,
-    object mode=None,
-    object transformMethod=None,
-    object logOffset=1.0,
-    object logMult=1.0,
-    object inputOffset=None,
-    object inputScale=None,
-    object outputScale=None,
-    object shape=None,
-    object transformInputOffset=None,
-    object transformInputScale=None,
-    object transformOutputScale=None,
-    object transformShape=None,
-):
-    r"""Conditional Poisson delta-method count-transform variance floor."""
-    cdef object countsObj = np.asarray(normalizedCounts, dtype=np.float64)
-    cdef object rawNoiseObj = None
-    cdef bint squeeze = False
-    cdef bint hasRawNoise = rawNoiseMass is not None
-    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] counts2
-    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] rawNoise2
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scales
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] out
-    cdef object selectedMode = mode if mode is not None else transformMethod
-    cdef object selectedInputOffset = inputOffset if inputOffset is not None else transformInputOffset
-    cdef object selectedInputScale = inputScale if inputScale is not None else transformInputScale
-    cdef object selectedOutputScale = outputScale if outputScale is not None else transformOutputScale
-    cdef object selectedShape = shape if shape is not None else transformShape
-    cdef int modeCode = _parseTransformMode(selectedMode)
-    cdef tuple params = _resolveTransformParameters(
-        modeCode,
-        float(logOffset),
-        float(logMult),
-        None,
-        None,
-        selectedInputOffset,
-        selectedInputScale,
-        selectedOutputScale,
-        None,
-        selectedShape,
-    )
-    cdef double inputOffset_ = <double>params[0]
-    cdef double inputScale_ = <double>params[1]
-    cdef double outputScale_ = <double>params[2]
-    cdef double shape_ = <double>params[4]
-    cdef double pseudoMeanMass = float(countNoisePseudoMeanMass)
-    cdef double pseudoVarianceMass = float(countNoisePseudoVarianceMass)
-    cdef Py_ssize_t m, n, i, j
-    cdef double count, sf, normalizedMean, normalizedVariance, deriv, floorValue
-    cdef double rawNoiseValue, rawCount, noiseMass
-
-    if pseudoMeanMass <= 0.0 or not isfinite(pseudoMeanMass):
-        raise ValueError("countNoisePseudoMeanMass must be positive and finite")
-    if pseudoVarianceMass <= 0.0 or not isfinite(pseudoVarianceMass):
-        raise ValueError("countNoisePseudoVarianceMass must be positive and finite")
-
-    if countsObj.ndim == 1:
-        squeeze = True
-        counts2 = np.ascontiguousarray(np.asarray(countsObj, dtype=np.float64).reshape(1, -1), dtype=np.float64)
-    elif countsObj.ndim == 2:
-        counts2 = np.ascontiguousarray(countsObj, dtype=np.float64)
-    else:
-        raise ValueError("normalizedCounts must be a 1D or 2D array")
-
-    m = counts2.shape[0]
-    n = counts2.shape[1]
-    if hasRawNoise:
-        rawNoiseObj = np.asarray(rawNoiseMass, dtype=np.float64)
-        if rawNoiseObj.ndim == 1:
-            rawNoise2 = np.ascontiguousarray(np.asarray(rawNoiseObj, dtype=np.float64).reshape(1, -1), dtype=np.float64)
-        elif rawNoiseObj.ndim == 2:
-            rawNoise2 = np.ascontiguousarray(rawNoiseObj, dtype=np.float64)
-        else:
-            raise ValueError("rawNoiseMass must be a 1D or 2D array")
-        if rawNoise2.shape[0] != m or rawNoise2.shape[1] != n:
-            raise ValueError("rawNoiseMass must match normalizedCounts shape")
-        if np.any(np.isfinite(rawNoise2) & (rawNoise2 < 0.0)):
-            raise ValueError("rawNoiseMass must be nonnegative where finite")
-    scales = np.ascontiguousarray(scaleFactors, dtype=np.float64).reshape(-1)
-    if scales.shape[0] == 1 and m != 1:
-        scales = np.ascontiguousarray(np.full(m, float(scales[0]), dtype=np.float64), dtype=np.float64)
-    if scales.shape[0] != m:
-        raise ValueError("scaleFactors must contain one value per count track")
-    if not np.all(np.isfinite(scales) & (scales > 0.0)):
-        raise ValueError("scaleFactors must be finite positive values")
-
-    out = np.empty((m, n), dtype=np.float32)
-    with nogil:
-        for i in range(m):
-            sf = <double>scales[i]
-            for j in range(n):
-                count = <double>counts2[i, j]
-                if not isfinite(count):
-                    out[i, j] = <float>NAN
-                    continue
-                if count < 0.0:
-                    count = 0.0
-                rawCount = count / sf
-                if hasRawNoise:
-                    rawNoiseValue = <double>rawNoise2[i, j]
-                    if not isfinite(rawNoiseValue):
-                        out[i, j] = <float>NAN
-                        continue
-                    noiseMass = rawNoiseValue
-                else:
-                    noiseMass = rawCount
-                normalizedMean = (rawCount + pseudoMeanMass) * sf
-                normalizedVariance = (noiseMass + pseudoVarianceMass) * sf * sf
-                deriv = _transformDerivativeAtMean_F64(
-                    normalizedMean,
-                    modeCode,
-                    inputOffset_,
-                    inputScale_,
-                    outputScale_,
-                    shape_,
-                )
-                floorValue = deriv * deriv * normalizedVariance
-                if isfinite(floorValue) and floorValue > 0.0:
-                    out[i, j] = <float>floorValue
-                else:
-                    out[i, j] = <float>NAN
-    if squeeze:
-        return np.asarray(out[0, :], dtype=np.float32)
-    return out
-
-
-
 def cMovingAverageSame(object values, int window):
     r"""Same-length moving average using cumulative sums."""
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
-    cdef Py_ssize_t n = x.shape[0]
-    cdef Py_ssize_t w = max(int(window), 1)
-    cdef Py_ssize_t leftPad, rightPad, paddedN, i
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] padded
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] csum
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
-    if w <= 1 or n <= 1:
+    cdef Py_ssize_t width = min(max(window, 1), x.shape[0])
+    if width <= 1:
         return np.asarray(x, dtype=np.float64).copy()
-    if w > n:
-        w = n
-    leftPad = (w - 1) // 2
-    rightPad = w - 1 - leftPad
-    paddedN = n + leftPad + rightPad
-    padded = np.zeros(paddedN, dtype=np.float64)
-    out = np.empty(n, dtype=np.float64)
-    for i in range(n):
-        padded[leftPad + i] = x[i]
-    csum = np.empty(paddedN + 1, dtype=np.float64)
-    csum[0] = 0.0
-    with nogil:
-        for i in range(paddedN):
-            csum[i + 1] = csum[i] + padded[i]
-        for i in range(n):
-            out[i] = (csum[i + w] - csum[i]) / <double>w
-    return out
+    return cWindowSums(x, width) / <double>width
 
-
-def cEstimateEffectiveSampleSize(
-    object values,
-    int maxLag,
-    object activeMask=None,
-    bint logPositive=False,
-    int windowIntervals=0,
-):
-    r"""Positive-autocorrelation effective sample size scan."""
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
-    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] activeArr
-    cdef cnp.uint8_t[::1] activeView = None
-    cdef Py_ssize_t n = x.shape[0]
-    cdef Py_ssize_t activeCount = 0
-    cdef Py_ssize_t pairCount
-    cdef Py_ssize_t i, lag, maxLag_, lagsUsed = 0
-    cdef double mean = 0.0
-    cdef double var = 0.0
-    cdef double cov, rho, value, taper, tau = 1.0
-    cdef bint useActiveMask = activeMask is not None
-    cdef bint badRho = False
-    cdef int windowIntervals_ = windowIntervals
-    if windowIntervals_ < 0:
-        raise ValueError("windowIntervals must be nonnegative")
-    if not useActiveMask and not logPositive and windowIntervals_ == 0:
-        if n < 2:
-            return float(n), 1.0, 0
-        for i in range(n):
-            mean += x[i]
-        mean /= <double>n
-        with nogil:
-            for i in range(n):
-                x[i] = x[i] - mean
-                var += x[i] * x[i]
-        var /= <double>max(n, 1)
-        if (not isfinite(var)) or var <= 2.2250738585072014e-308:
-            return float(n), 1.0, 0
-        maxLag_ = max(1, min(int(maxLag), n - 1))
-        with nogil:
-            for lag in range(1, maxLag_ + 1):
-                cov = 0.0
-                for i in range(n - lag):
-                    cov += x[i] * x[i + lag]
-                cov /= <double>max(n - lag, 1)
-                rho = cov / var
-                if (not isfinite(rho)) or rho <= 0.0:
-                    break
-                tau += 2.0 * rho
-                lagsUsed = lag
-        if tau < 1.0:
-            tau = 1.0
-        return float(n / tau), float(tau), int(lagsUsed)
-    if useActiveMask:
-        activeArr = np.ascontiguousarray(activeMask, dtype=np.uint8).reshape(-1)
-        if activeArr.shape[0] != n:
-            raise ValueError("activeMask length must match values length")
-        activeView = activeArr
-    for i in range(n):
-        if useActiveMask and activeView[i] == 0:
-            continue
-        value = x[i]
-        if logPositive:
-            if (not isfinite(value)) or value <= 0.0:
-                raise ValueError("active values must be positive finite")
-            value = log(value)
-        elif not isfinite(value):
-            raise ValueError("active values must be finite")
-        x[i] = value
-        mean += value
-        activeCount += 1
-    if activeCount < 2:
-        return float(activeCount), 1.0, 0
-    mean /= <double>activeCount
-    with nogil:
-        for i in range(n):
-            if useActiveMask and activeView[i] == 0:
-                continue
-            x[i] = x[i] - mean
-            var += x[i] * x[i]
-    var /= <double>activeCount
-    if not isfinite(var):
-        raise ValueError("variance estimate must be finite")
-    if var <= 2.2250738585072014e-308:
-        return float(activeCount), 1.0, 0
-    maxLag_ = max(1, min(int(maxLag), n - 1))
-    if windowIntervals_ > 0 and windowIntervals_ - 1 < maxLag_:
-        maxLag_ = windowIntervals_ - 1
-    with nogil:
-        for lag in range(1, maxLag_ + 1):
-            cov = 0.0
-            pairCount = 0
-            for i in range(n - lag):
-                if useActiveMask and (activeView[i] == 0 or activeView[i + lag] == 0):
-                    continue
-                cov += x[i] * x[i + lag]
-                pairCount += 1
-            if pairCount <= 0:
-                continue
-            cov /= <double>pairCount
-            rho = cov / var
-            if not isfinite(rho):
-                badRho = True
-                break
-            if windowIntervals_ <= 0:
-                if rho <= 0.0:
-                    break
-                tau += 2.0 * rho
-                lagsUsed = lag
-            else:
-                if rho > 0.0:
-                    taper = 1.0 - (<double>lag / <double>windowIntervals_)
-                    if taper > 0.0:
-                        tau += 2.0 * taper * rho
-                        lagsUsed = lag
-    if badRho:
-        raise ValueError("autocorrelation estimate must be finite")
-    if tau < 1.0:
-        tau = 1.0
-    if windowIntervals_ > 0 and tau > <double>windowIntervals_:
-        tau = <double>windowIntervals_
-    return float(activeCount / tau), float(tau), int(lagsUsed)
 
 cdef inline uint64_t _stationaryBootstrapBoundedIndex(
     bitgen_t* bitGenerator,
@@ -10204,9 +7285,8 @@ def cMultiscaleCandidateSegmentStats(
     cdef int gap = maxGapBins if maxGapBins > 0 else 0
     cdef int cap = maxSegmentsPerView if maxSegmentsPerView > 0 else 0
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] smoothArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] suffixArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] excessArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] excessPrefixArr
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] runStarts
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] runEnds
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] candStarts
@@ -10219,7 +7299,8 @@ def cMultiscaleCandidateSegmentStats(
     cdef object startSlice
     cdef object selected
     cdef Py_ssize_t si, vi, i, j, r, k
-    cdef Py_ssize_t w, leftPad, rightPad, startIdx, endIdx
+    cdef Py_ssize_t w, scratchWidth
+    cdef _doubleDouble integratedDD
     cdef Py_ssize_t runStart, lastTrue, runCount, keepCount
     cdef double threshold, nullScale, value, integrated, runLength
     cdef double bestScore, maxValue
@@ -10259,10 +7340,10 @@ def cMultiscaleCandidateSegmentStats(
     candIntegrated = np.empty(n, dtype=np.float64)
     candMean = np.empty(n, dtype=np.float64)
     candMax = np.empty(n, dtype=np.float64)
-    prefixArr = np.empty(n + 1, dtype=np.float64)
+    scratchWidth = min(n, max(1, int(np.max(scaleArr))))
+    suffixArr = np.empty((scratchWidth, 2), dtype=np.float64)
     smoothArr = np.empty(n, dtype=np.float64)
     excessArr = np.empty(n, dtype=np.float64)
-    excessPrefixArr = np.empty(n + 1, dtype=np.float64)
 
     for si in range(scaleCount):
         w = scaleArr[si]
@@ -10270,36 +7351,27 @@ def cMultiscaleCandidateSegmentStats(
             w = 1
         if w > n:
             w = n
-        prefixArr[0] = 0.0
-        for i in range(n):
-            prefixArr[i + 1] = prefixArr[i] + scoreArr[i]
-        if w <= 1 or n <= 1:
-            for i in range(n):
-                smoothArr[i] = scoreArr[i]
+        if w <= 1:
+            smoothArr[:] = scoreArr
         else:
-            leftPad = (w - 1) // 2
-            rightPad = w - 1 - leftPad
-            for i in range(n):
-                startIdx = i - leftPad
-                if startIdx < 0:
-                    startIdx = 0
-                endIdx = i + rightPad + 1
-                if endIdx > n:
-                    endIdx = n
-                smoothArr[i] = (prefixArr[endIdx] - prefixArr[startIdx]) / <double>w
+            with nogil:
+                _windowSums(
+                    <double*>scoreArr.data, <double*>smoothArr.data,
+                    n, w, (w - 1) // 2, False, <_doubleDouble*>suffixArr.data,
+                )
+                for i in range(n):
+                    smoothArr[i] /= <double>w
 
         for vi in range(viewCount):
             threshold = thresholdArr[vi]
             nullScale = nullScaleArr[vi]
             if nullScale < DBL_MIN:
                 nullScale = DBL_MIN
-            excessPrefixArr[0] = 0.0
             for i in range(n):
                 value = (scoreArr[i] - threshold) / nullScale
                 if value < 0.0:
                     value = 0.0
                 excessArr[i] = value
-                excessPrefixArr[i + 1] = excessPrefixArr[i] + value
 
             runCount = 0
             runStart = -1
@@ -10326,11 +7398,11 @@ def cMultiscaleCandidateSegmentStats(
                 runLength = <double>(runEnds[r] - runStarts[r] + 1)
                 if runLength < <double>minRun:
                     continue
-                integrated = excessPrefixArr[runEnds[r] + 1] - excessPrefixArr[runStarts[r]]
                 maxValue = 0.0
-                for j in range(runStarts[r], runEnds[r] + 1):
-                    if excessArr[j] > maxValue:
-                        maxValue = excessArr[j]
+                integratedDD = _rangeSum(
+                    <double*>excessArr.data, runStarts[r], runEnds[r] + 1, &maxValue,
+                )
+                integrated = integratedDD.high + integratedDD.low
                 candStarts[keepCount] = runStarts[r]
                 candEnds[keepCount] = runEnds[r]
                 candIntegrated[keepCount] = integrated
@@ -10438,17 +7510,12 @@ def cbackgroundWeightedStatsWithSupport(object residualMatrix, object invVarMatr
 
 
 def cmovingAverageSame(object values, int window):
-    # Preserve the original NumPy centering for small windows, and use the Cython
-    # cumulative-sum kernel for large windows where Python overhead dominated.
-    cdef int window_ = max(int(window), 1)
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(values, dtype=np.float64).reshape(-1)
-    if window_ <= 1 or x.shape[0] <= 1:
+    cdef Py_ssize_t width = min(max(window, 1), x.shape[0])
+    if width <= 1:
         return np.asarray(x, dtype=np.float64).copy()
-    if window_ > x.shape[0]:
-        window_ = <int>x.shape[0]
-    if window_ <= 256:
-        return np.ascontiguousarray(np.convolve(x, np.full(window_, 1.0 / float(window_), dtype=np.float64), mode="same"), dtype=np.float64)
-    return cMovingAverageSame(x, window_)
+    cdef Py_ssize_t leftOffset = width // 2 if width <= 256 else (width - 1) // 2
+    return cWindowSums(x, width, leftOffset=leftOffset) / <double>width
 
 
 def cbooleanRunBounds(object above, int maxGapBins=0):
@@ -10627,6 +7694,50 @@ cpdef tuple cstateShrinkMixtureEMStep(
         blockSize,
     )
 
+cdef inline double stateShrinkResponsibilities(
+    double x,
+    double v,
+    double logNullPrior,
+    const double* tau,
+    const double* logSlabPrior,
+    Py_ssize_t slabCount,
+    double* responsibility,
+    double* nullProbability,
+    bint likelihoodRequired,
+    Py_ssize_t* dominantSlab,
+) noexcept nogil:
+    cdef Py_ssize_t j, maxIndex = -1
+    cdef double x2 = x * x
+    cdef double logNull = logNullPrior - 0.5 * (
+        log(2.0 * __PI_DOUBLE) + log(v) + x2 / v
+    )
+    cdef double maxLog = logNull
+    cdef double vPlusTau, logValue, denomSum, inverseDenom, nullWeight
+    for j in range(slabCount):
+        vPlusTau = v + tau[j]
+        logValue = logSlabPrior[j] - 0.5 * (
+            log(2.0 * __PI_DOUBLE) + log(vPlusTau) + x2 / vPlusTau
+        )
+        responsibility[j] = logValue
+        if logValue > maxLog:
+            maxLog = logValue
+            maxIndex = j
+    nullWeight = exp(logNull - maxLog)
+    denomSum = nullWeight
+    for j in range(slabCount):
+        responsibility[j] = exp(responsibility[j] - maxLog)
+        denomSum += responsibility[j]
+    inverseDenom = 1.0 / denomSum
+    nullProbability[0] = nullWeight * inverseDenom
+    for j in range(slabCount):
+        responsibility[j] *= inverseDenom
+    if dominantSlab != NULL:
+        dominantSlab[0] = maxIndex
+    if likelihoodRequired:
+        return maxLog + log(denomSum)
+    return 0.0
+
+
 cpdef tuple cstateShrinkMixtureEMStepPrepared(
     object state,
     object variance,
@@ -10649,14 +7760,13 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
     cdef Py_ssize_t validInBlock
     cdef int block = blockSize if blockSize > 0 else 1
     cdef double pi0 = priorSpikeProp
-    cdef double x, v, weight, logNull, logDenom
-    cdef double maxLog, denomSum, resp, tau2, slabShrinkage, slabMean
-    cdef double slabPosteriorVariance, logNullPrior, logValue, x2, vPlusTau
+    cdef double x, v, weight, logDenom, nullProbability
+    cdef double resp, tau2, slabShrinkage, slabMean
+    cdef double slabPosteriorVariance, logNullPrior
     cdef double totalWeight = 0.0
     cdef double nullMass = 0.0
     cdef double logLikelihood = 0.0
     cdef Py_ssize_t finiteCount = 0
-    cdef double* logSlabScratch = NULL
     cdef double* respScratch = NULL
 
     if vArr.shape[0] != n:
@@ -10694,12 +7804,8 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
     cdef double[::1] slabMassView = slabMassArr
     cdef double[::1] slabSecondView = slabSecondArr
 
-    logSlabScratch = <double*>malloc(slabCount * sizeof(double))
-    if logSlabScratch == NULL:
-        raise MemoryError()
     respScratch = <double*>malloc(slabCount * sizeof(double))
     if respScratch == NULL:
-        free(logSlabScratch)
         raise MemoryError()
     try:
         blockCount = (n + block - 1) // block
@@ -10720,28 +7826,14 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
                         v = vView[i]
                         if _state_shrink_valid(x, v):
                             v = _state_shrink_safe_variance(v)
-                            x2 = x * x
-                            logNull = logNullPrior - 0.5 * (
-                                log(2.0 * __PI_DOUBLE * v) + x2 / v
+                            logDenom = stateShrinkResponsibilities(
+                                x, v, logNullPrior, &tauView[0],
+                                &logSlabPriorView[0], slabCount, respScratch,
+                                &nullProbability, True, NULL,
                             )
-                            maxLog = logNull
+                            nullMass += weight * nullProbability
                             for j in range(slabCount):
-                                vPlusTau = v + tauView[j]
-                                logValue = logSlabPriorView[j] - 0.5 * (
-                                    log(2.0 * __PI_DOUBLE * vPlusTau)
-                                    + x2 / vPlusTau
-                                )
-                                logSlabScratch[j] = logValue
-                                if logValue > maxLog:
-                                    maxLog = logValue
-                            denomSum = exp(logNull - maxLog)
-                            for j in range(slabCount):
-                                respScratch[j] = exp(logSlabScratch[j] - maxLog)
-                                denomSum += respScratch[j]
-                            logDenom = maxLog + log(denomSum)
-                            nullMass += weight * (exp(logNull - maxLog) / denomSum)
-                            for j in range(slabCount):
-                                resp = respScratch[j] / denomSum
+                                resp = respScratch[j]
                                 tau2 = tauView[j]
                                 slabShrinkage = tau2 / (tau2 + v)
                                 slabMean = slabShrinkage * x
@@ -10755,7 +7847,6 @@ cpdef tuple cstateShrinkMixtureEMStepPrepared(
                             finiteCount += 1
     finally:
         free(respScratch)
-        free(logSlabScratch)
     return (
         totalWeight,
         nullMass,
@@ -10847,15 +7938,14 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t slabCount
     cdef double pi0 = priorSpikeProp
-    cdef double logNullPrior, x, v, logNull, maxLog, denomSum, resp
-    cdef double logValue, nullProb, tau2, slabShrinkage, slabMean
-    cdef double slabPosteriorVariance, shrunk, postSecond, postVariance, posteriorSd
-    cdef double slabPosteriorWeight
-    cdef double x2, vPlusTau
+    cdef double logNullPrior, x, v, resp
+    cdef double nullProb, tau2, slabShrinkage, slabMean
+    cdef double slabPosteriorVariance, shrunk, postVariance, posteriorSd
+    cdef double slabPosteriorWeight, posteriorWeight, centeredMean, meanOrigin, meanOffset
     cdef double badTau = 0.0
-    cdef Py_ssize_t i, j
-    cdef double* logSlabScratch = NULL
+    cdef Py_ssize_t i, j, dominantSlab
     cdef double* respScratch = NULL
+    cdef double* componentMeanScratch = NULL
 
     if vArr.shape[0] != n:
         raise ValueError("state and variance must have the same length")
@@ -10899,13 +7989,10 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
     cdef cnp.float32_t[::1] slabMeanView = slabMeanArr
     cdef cnp.float32_t[::1] slabWeightView = slabWeightArr
 
-    logSlabScratch = <double*>malloc(slabCount * sizeof(double))
-    if logSlabScratch == NULL:
-        raise MemoryError()
-    respScratch = <double*>malloc(slabCount * sizeof(double))
+    respScratch = <double*>malloc(2 * slabCount * sizeof(double))
     if respScratch == NULL:
-        free(logSlabScratch)
         raise MemoryError()
+    componentMeanScratch = respScratch + slabCount
     try:
         with nogil:
             for i in range(n):
@@ -10913,39 +8000,34 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
                 v = vView[i]
                 if _state_shrink_valid(x, v):
                     v = _state_shrink_safe_variance(v)
-                    x2 = x * x
-                    logNull = logNullPrior - 0.5 * (
-                        log(2.0 * __PI_DOUBLE * v) + x2 / v
+                    stateShrinkResponsibilities(
+                        x, v, logNullPrior, &tauView[0], &logSlabPriorView[0],
+                        slabCount, respScratch, &nullProb, False, &dominantSlab,
                     )
-                    maxLog = logNull
-                    for j in range(slabCount):
-                        vPlusTau = v + tauView[j]
-                        logValue = logSlabPriorView[j] - 0.5 * (
-                            log(2.0 * __PI_DOUBLE * vPlusTau) + x2 / vPlusTau
-                        )
-                        logSlabScratch[j] = logValue
-                        if logValue > maxLog:
-                            maxLog = logValue
-                    denomSum = exp(logNull - maxLog)
-                    for j in range(slabCount):
-                        respScratch[j] = exp(logSlabScratch[j] - maxLog)
-                        denomSum += respScratch[j]
-                    nullProb = exp(logNull - maxLog) / denomSum
-                    shrunk = 0.0
-                    postSecond = 0.0
+                    meanOrigin = 0.0
+                    if dominantSlab >= 0:
+                        meanOrigin = tauView[dominantSlab] / (tauView[dominantSlab] + v) * x
+                    meanOffset = -nullProb * meanOrigin
+                    postVariance = 0.0
                     slabPosteriorWeight = 0.0
                     for j in range(slabCount):
-                        resp = respScratch[j] / denomSum
+                        resp = respScratch[j]
                         tau2 = tauView[j]
                         slabShrinkage = tau2 / (tau2 + v)
                         slabMean = slabShrinkage * x
                         slabPosteriorVariance = slabShrinkage * v
                         slabPosteriorWeight += resp
-                        shrunk += resp * slabMean
-                        postSecond += resp * (
-                            slabPosteriorVariance + slabMean * slabMean
-                        )
-                    postVariance = postSecond - shrunk * shrunk
+                        componentMeanScratch[j] = slabMean - meanOrigin
+                        meanOffset += resp * componentMeanScratch[j]
+                        postVariance += resp * slabPosteriorVariance
+                    posteriorWeight = nullProb + slabPosteriorWeight
+                    meanOffset /= posteriorWeight
+                    shrunk = meanOrigin + meanOffset
+                    postVariance += nullProb * shrunk * shrunk
+                    for j in range(slabCount):
+                        centeredMean = componentMeanScratch[j] - meanOffset
+                        postVariance += respScratch[j] * centeredMean * centeredMean
+                    postVariance /= posteriorWeight
                     if (not isfinite(postVariance)) or postVariance <= 1.0e-12:
                         postVariance = 1.0e-12
                     posteriorSd = sqrt(postVariance)
@@ -10953,7 +8035,7 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
                     posteriorSdView[i] = <cnp.float32_t>posteriorSd
                     spikePropView[i] = <cnp.float32_t>nullProb
                     if slabPosteriorWeight > 1.0e-12:
-                        slabMeanView[i] = <cnp.float32_t>(shrunk / slabPosteriorWeight)
+                        slabMeanView[i] = <cnp.float32_t>(shrunk * posteriorWeight / slabPosteriorWeight)
                     else:
                         slabMeanView[i] = <cnp.float32_t>0.0
                     slabWeightView[i] = <cnp.float32_t>slabPosteriorWeight
@@ -10965,7 +8047,6 @@ cpdef tuple cstateShrinkMixturePosteriorPrepared(
                     slabWeightView[i] = <cnp.float32_t>NAN
     finally:
         free(respScratch)
-        free(logSlabScratch)
     return shrunkArr, posteriorSdArr, spikePropArr, slabMeanArr, slabWeightArr
 
 

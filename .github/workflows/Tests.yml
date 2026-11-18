@@ -32,13 +32,10 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      - name: Get samtools, bedtools, buildtools
+      - name: Install compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            samtools bedtools \
-            build-essential \
-            gcc g++
+          sudo apt-get install -y build-essential
 
       - name: Install dependencies
         run: |

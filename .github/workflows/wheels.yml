@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build wheels with cibuildwheel
-        uses: pypa/cibuildwheel@v3.2.1
+        uses: pypa/cibuildwheel@v4.3.5
         with:
           output-dir: dist
         env:
@@ -93,12 +93,11 @@ jobs:
             "scipy==1.15.*" \
             "pandas==2.3.*" \
             "PyYAML==6.0.2" \
-            "PyWavelets==1.9.*" \
             "structlog==25.5.*" \
-            "itrigamma==0.2.0a1"
+            "itrigamma==0.2.0a1" \
+            "ccounts==0.5.0b0"
           python -m pip install --no-index --find-links dist consenrich
-          python -c "import consenrich, consenrich.ccounts, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
-          python -c "import numpy as np; from scipy.ndimage import gaussian_filter1d; import consenrich.cconsenrich as cc; rng=np.random.default_rng(13); matrix=(gaussian_filter1d(rng.normal(size=10000), 10.0)+3.0).astype(np.float32)[None, :]; result=cc.cchooseDependenceSpan(['chr11'], [matrix], 50, windowCount=5, minWindowCount=5, bootstrapDraws=20); details=result[3]; assert details['status']=='estimated'; assert details['method']=='rankWeightedFinitePairWindowACF'; assert details['randomSeed']==1729; assert details['selectedAutosomeCount']==1; assert details['evaluatedCandidateWindowCount']>=details['selectedWindowCount']==5; assert details['workingQuantile']==0.75; assert details['acfThreshold']==0.1; assert details['confidenceIntervalMethod']=='centralInterquartileSimultaneousLogLogKMSurvivalBand'; assert details['survivalBandRegionLower']==0.25; assert details['survivalBandRegionUpper']==0.75; assert details['survivalBandJumpClosureCount']==int(details['survivalBandJumpClosureUsed']); assert details['bootstrapMethod']=='hierarchicalAutosomeStationaryWindow'; assert details['estimateBP']==details['fullSampleMedianRadiusBP']; assert details['workingSpanBP']==details['fullSampleWorkingSpanBP']"
+          python -c "import numpy, ccounts, consenrich, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true'

@@ -9,7 +9,7 @@ After installing Consenrich, check the build and try running from the command li
 Getting Started: H3K27ac ChIP-seq
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This minimal example estimates a consensus from *four* ENCODE
+This minimal example estimates a consensus from four ENCODE
 epidermis ChIP-seq experiments with matched input controls.
 
 Input Data
@@ -73,7 +73,7 @@ the BAM files:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22]
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -154,7 +154,7 @@ Save the following as ``atacDemo.yaml``:
 
   genomeParams:
     name: hg38
-    # chromosomes: [chr11, chr22] # faster: Uncomment and specify chromosomes
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
@@ -232,7 +232,7 @@ Save the following as ``bigH3K4me1Demo.yaml``:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22]
+    chromosomes: [chr18, chr19, chr20, chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:

@@ -1,33 +1,20 @@
 include LICENSE
-include HTSLIB_LICENSE.txt
-include HTSCODECS_LICENSE.md
 include README.md
 include THIRD_PARTY_LICENSES.md
-include vendor/htslib/LICENSE
-include vendor/htslib/htscodecs/LICENSE.md
-recursive-include src/consenrich *.pyx *.h
-include src/consenrich/cconsenrich.c
-include src/consenrich/ccounts.c
-include src/consenrich/cuncertainty.c
-recursive-include src/consenrich/native *.c *.h
-recursive-include src/consenrich/data *.bed *.sizes *.json
-graft vendor/htslib
+include .github/scripts/installHDF5.sh
+recursive-include src/consenrich *.pyx *.pxd *.h
+recursive-include src/consenrich/data *.sizes *.json
 prune tests
 prune docs/build
 prune build
 prune dist
 prune output
 prune tmp
-prune vendor/htslib/.git
-prune vendor/htslib/.github
-prune vendor/htslib/htscodecs/.github
-prune vendor/htslib/ref_cache
-prune vendor/htslib/test
-prune vendor/htslib/samples
-prune vendor/htslib/htscodecs/tests
-prune vendor/htslib/htscodecs/javascript
-exclude vendor/htslib/config.h
-exclude vendor/htslib/config.mk
 global-exclude __pycache__ *.py[cod] .DS_Store .Rhistory *~
 global-exclude *.so *.dylib *.dll *.o *.a
 global-exclude .git .gitignore .gitattributes .gitmodules .cirrus.yml
+prune vendor
+prune src/consenrich/native
+exclude src/consenrich/*.c
+exclude HTSLIB_LICENSE.txt
+exclude HTSCODECS_LICENSE.md

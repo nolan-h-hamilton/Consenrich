@@ -12,7 +12,6 @@ import sys
 import time
 import warnings
 from functools import lru_cache
-from tempfile import NamedTemporaryFile
 from typing import (
     Any,
     List,
@@ -24,28 +23,21 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special
+from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special, linalg
 from scipy.sparse import linalg as sparse_linalg
 from itrigamma import itrigamma, trigamma
 from . import cconsenrich
-from . import ccounts
 from .constants import (
+    getAssemblyChromosomes,
     ALIGNMENT_SOURCE_KINDS,
     BEDGRAPH_SOURCE_KIND,
     COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP,
-    COUNTING_DEFAULT_LOG_MULT,
-    COUNTING_DEFAULT_LOG_OFFSET,
     COUNTING_DEFAULT_CENTER_MB,
     COUNTING_DEFAULT_CENTER_MB_WINDOW_BP,
     COUNTING_DEFAULT_CENTER_MB_METHOD,
+    COUNTING_DEFAULT_NORM_SCALE_TO,
     COUNTING_CENTER_MB_METHOD_MEDFILT,
     COUNTING_CENTER_MB_METHOD_SAVGOL,
-    COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
-    COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-    COUNTING_DEFAULT_TRANSFORM_METHOD,
-    COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
-    COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
-    COUNTING_DEFAULT_TRANSFORM_SHAPE,
     COUNTING_SUPPORTED_CENTER_MB_METHODS,
     FRAGMENTS_SOURCE_KIND,
     H5AD_SOURCE_KIND,
@@ -80,6 +72,8 @@ from .constants import (
     MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS,
     MATCHING_DEFAULT_USE_SHRUNK_STATE_SCORES,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    ROCCO_BUDGET_MAX,
+    ROCCO_BUDGET_MIN,
     MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_DISABLED,
     MUNC_EB_PRIOR_G_UNCERTAINTY_MODE_PROXY,
@@ -87,18 +81,9 @@ from .constants import (
     MUNC_SUPPORTED_VARIANCE_MODELS,
     MUNC_VARIANCE_MODEL_CODE_KALMAN,
     MUNC_VARIANCE_MODEL_KALMAN,
-    OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD,
-    OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS,
-    OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE,
-    OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS,
-    OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT,
-    OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP,
-    OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT,
-    OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE,
-    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
+    OBSERVATION_DEFAULT_LENGTH_SCALE_BP,
+    OBSERVATION_MAX_MUNC_WINDOW_BP,
+    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN,
     OBSERVATION_DEFAULT_MUNC_SEED_PROCESS_MAX_Q,
@@ -109,7 +94,7 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES,
     OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_T,
     OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_STUDENT_TDF,
-    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
+    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE,
     OBSERVATION_DEFAULT_MUNC_EB_PRIOR_MAX_EXTRAPOLATED_FRACTION,
@@ -134,7 +119,6 @@ from .constants import (
     OUTPUT_DEFAULT_DELETE_BEDGRAPHS_AFTER_BIGWIG,
     OUTPUT_DEFAULT_MAX_NON_TRACK_FILE_BYTES,
     OUTPUT_DEFAULT_MAX_PRECISION_DIAGNOSTIC_ROWS_PER_CHROMOSOME,
-    OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH,
     OUTPUT_DEFAULT_PLOT_NULL_CALIBRATION_DIAGNOSTICS,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_PLOT_PRECISION_REWEIGHTING_HISTOGRAMS,
@@ -177,19 +161,17 @@ from .constants import (
     SAM_DEFAULT_MAX_INSERT_SIZE,
     SAM_DEFAULT_MIN_MAPPING_QUALITY,
     SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
+    SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
     SAM_DEFAULT_SHIFT_FORWARD_5P,
     SAM_DEFAULT_SHIFT_REVERSE_5P,
     SC_DEFAULT_BARCODE_TAG,
     SC_DEFAULT_COUNT_MODE,
-    SC_DEFAULT_FRAGMENTS_GROUP_NORM,
-    SC_DEFAULT_FRAGMENT_POSITION_MODE,
     SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
     STATE_MODEL_LEVEL,
     STATE_MODEL_LEVEL_TREND,
     STATE_MODEL_MODES,
     SUPPORTED_BAM_INPUT_MODES,
     SUPPORTED_COUNT_MODES,
-    SUPPORTED_FRAGMENT_POSITION_MODES,
     SUPPORTED_SOURCE_KINDS,
     UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP,
     UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
@@ -440,38 +422,12 @@ class observationParams(NamedTuple):
     muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
     muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
-    dependenceWindowCount: int | None = OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_COUNT
-    dependenceWindowBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_WINDOW_BP
-    dependenceMaxLagBP: int | None = OBSERVATION_DEFAULT_DEPENDENCE_MAX_LAG_BP
-    dependenceWorkingQuantile: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_WORKING_QUANTILE
+    lengthScaleOptions: dict | None = None
+    muncTrendBlockLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER
     )
-    dependenceBootstrapDraws: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_BOOTSTRAP_DRAWS
-    )
-    dependenceMinWindowCount: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_MIN_WINDOW_COUNT
-    )
-    dependenceAcfPointThreshold: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_ACF_POINT_THRESHOLD
-    )
-    dependenceAcfSmoothingBP: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_ACF_SMOOTHING_BP
-    )
-    dependenceCrossingPersistenceBP: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_CROSSING_PERSISTENCE_BP
-    )
-    dependenceMinFinitePairs: int | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIRS
-    )
-    dependenceMinFinitePairCoverage: float | None = (
-        OBSERVATION_DEFAULT_DEPENDENCE_MIN_FINITE_PAIR_COVERAGE
-    )
-    muncTrendBlockDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
-    )
-    muncLocalWindowDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    muncLocalWindowLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER
     )
     muncSeedWeightEnabled: bool | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_ENABLED
     muncSeedWeightPasses: int | None = OBSERVATION_DEFAULT_MUNC_SEED_WEIGHT_PASSES
@@ -507,6 +463,7 @@ class observationParams(NamedTuple):
         OBSERVATION_DEFAULT_MUNC_EB_PRIOR_G_UNCERTAINTY_MODE
     )
     smoothToFraglen: bool | None = OBSERVATION_DEFAULT_SMOOTH_TO_FRAGLEN
+    lengthScaleBP: int | None = OBSERVATION_DEFAULT_LENGTH_SCALE_BP
 
 
 class stateParams(NamedTuple):
@@ -749,17 +706,16 @@ class samParams(NamedTuple):
 
     samThreads: int
     samFlagExclude: int
-    oneReadPerBin: int
     chunkSize: int
     bamInputMode: str | None = SAM_DEFAULT_BAM_INPUT_MODE
     defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE
-    shiftForward5p: int | None = SAM_DEFAULT_SHIFT_FORWARD_5P
-    shiftReverse5p: int | None = SAM_DEFAULT_SHIFT_REVERSE_5P
-    extendFrom5pBP: List[int] | int | None = SAM_DEFAULT_EXTEND_FROM_5P_BP
-    maxInsertSize: Optional[int] = SAM_DEFAULT_MAX_INSERT_SIZE
-    inferFragmentLength: Optional[int] = SAM_DEFAULT_INFER_FRAGMENT_LENGTH
-    minMappingQuality: Optional[int] = SAM_DEFAULT_MIN_MAPPING_QUALITY
-    minTemplateLength: Optional[int] = SAM_DEFAULT_MIN_TEMPLATE_LENGTH
+    shiftForward5p: int = 0
+    shiftReverse5p: int = 0
+    extendFrom5pBP: List[int] | int | None = None
+    maxInsertSize: int | None = SAM_DEFAULT_MAX_INSERT_SIZE
+    inferFragmentLength: bool | None = None
+    minMappingQuality: int = SAM_DEFAULT_MIN_MAPPING_QUALITY
+    minTemplateLength: int = SAM_DEFAULT_MIN_TEMPLATE_LENGTH
 
 
 class inputSource(NamedTuple):
@@ -801,20 +757,11 @@ class inputSource(NamedTuple):
     selectGroups: List[str] | None = None
     countMode: str | None = None
     bamInputMode: str | None = None
-    fragmentPositionMode: str | None = None
     fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
     metadataSample: str | None = None
     cellMetadata: dict | None = None
-    selectedBarcodes: frozenset[str] | None = None
-    selectedCellCount: int | None = None
-    barcodeSelectionPrepared: bool = False
     matrixRows: str | None = None
-    matrixInfo: dict | None = None
-
-
-class readSegmentsResult(NamedTuple):
-    counts: npt.NDArray[np.float32]
-    rawNoiseMass: npt.NDArray[np.float32]
+    selectedBarcodes: frozenset[str] | None = None
 
 
 class inputParams(NamedTuple):
@@ -859,13 +806,24 @@ class genomeParams(NamedTuple):
     """
 
     genomeName: str | None
-    chromSizesFile: str
+    chromSizesFile: str | None
     blacklistFile: Optional[str]
     sparseBedFile: Optional[str]
     chromosomes: List[str]
     excludeChroms: List[str]
     excludeForNorm: List[str]
+    chromosomeSizes: Mapping[str, int]
     effectiveGenomeSize: int | None = None
+
+    @property
+    def normalizationChromosomes(self) -> tuple[str, ...]:
+        territory = set(
+            self.chromosomeSizes if self.chromSizesFile is not None
+            else getAssemblyChromosomes(self.genomeName)
+        )
+        excluded = set(self.excludeForNorm or ())
+        return tuple(chromosome for chromosome in self.chromosomeSizes
+                     if chromosome in territory and chromosome not in excluded)
 
 
 class countingParams(NamedTuple):
@@ -943,24 +901,18 @@ class countingParams(NamedTuple):
 
     """
 
-    intervalSizeBP: int | None
+    intervalSizeBP: int
     backgroundBlockSizeBP: int | None
     scaleFactors: List[float] | None
     scaleFactorsControl: List[float] | None
-    normMethod: str | None
-    fragmentsGroupNorm: str | None
-    fixControl: bool | None
-    logOffset: float | None
-    logMult: float | None
-    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD
-    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET
-    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE
-    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
-    transformOutputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET
-    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE
-    centerMB: bool | None = COUNTING_DEFAULT_CENTER_MB
-    centerMBMethod: str | None = COUNTING_DEFAULT_CENTER_MB_METHOD
-    centerMBWindowBP: int | None = COUNTING_DEFAULT_CENTER_MB_WINDOW_BP
+    normMethod: str
+    fixControl: bool
+    pseudocount: float = 1.0
+    centerMB: bool = COUNTING_DEFAULT_CENTER_MB
+    centerMBMethod: str = COUNTING_DEFAULT_CENTER_MB_METHOD
+    centerMBWindowBP: int = COUNTING_DEFAULT_CENTER_MB_WINDOW_BP
+    normRegionsFile: str | None = None
+    normScaleTo: float = COUNTING_DEFAULT_NORM_SCALE_TO
 
 
 class scParams(NamedTuple):
@@ -977,13 +929,11 @@ class scParams(NamedTuple):
     :type defaultFragmentPositionMode: str | None
     """
 
-    barcodeTag: str | None = SC_DEFAULT_BARCODE_TAG
-    defaultCountMode: str | None = SC_DEFAULT_COUNT_MODE
-    fragmentsGroupNorm: str | None = SC_DEFAULT_FRAGMENTS_GROUP_NORM
-    defaultFragmentPositionMode: str | None = SC_DEFAULT_FRAGMENT_POSITION_MODE
+    barcodeTag: str = SC_DEFAULT_BARCODE_TAG
+    defaultCountMode: str = SC_DEFAULT_COUNT_MODE
     fragmentsUseReadSupport: bool = SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT
     cellMetadata: dict | None = None
-    fits: tuple[dict, ...] | None = None
+    fits: tuple | None = None
 
 
 class matchingParams(NamedTuple):
@@ -1002,15 +952,10 @@ class matchingParams(NamedTuple):
     :param dependenceSpan: Optional fixed dependence span in intervals for bootstrap calibration.
         If not provided, it is estimated from the score track.
     :type dependenceSpan: Optional[int]
-    :param gamma: ROCCO boundary penalty. Non-negative values are used directly
-        (default ``0.25``); negative values request data-driven estimation from
-        local score scale and context size.
+    :param gamma: Non-negative ROCCO boundary penalty (default ``0.25``).
     :type gamma: Optional[float]
     :param selectionPenalty: Optional direct per-bin selection penalty override.
     :type selectionPenalty: Optional[float]
-    :param gammaScale: Multiplicative scale used when converting estimated context size into
-        a ROCCO boundary penalty.
-    :type gammaScale: Optional[float]
     :param nestedRoccoIters: Number of nested, monotone-shrinking local ROCCO refinement
         iterations to run within first-pass peak regions. Set to ``0`` to disable.
     :type nestedRoccoIters: Optional[int]
@@ -1051,7 +996,6 @@ class matchingParams(NamedTuple):
     thresholdZ: Optional[float]
     gamma: Optional[float]
     selectionPenalty: Optional[float]
-    gammaScale: Optional[float]
     nestedRoccoIters: Optional[int]
     nestedRoccoBudgetScale: Optional[float]
     exportFilterUncertaintyMultiplier: Optional[float]
@@ -1067,6 +1011,8 @@ class matchingParams(NamedTuple):
     shrinkChromosomeBudgets: bool = MATCHING_DEFAULT_SHRINK_CHROMOSOME_BUDGETS
     useLocalBootStrapRadius: bool = MATCHING_DEFAULT_USE_LOCAL_BOOTSTRAP_RADIUS
     selectionPenaltyMultiplier: float = MATCHING_DEFAULT_SELECTION_PENALTY_MULTIPLIER
+    budgetMin: float = ROCCO_BUDGET_MIN
+    budgetMax: float = ROCCO_BUDGET_MAX
 
 
 class outputParams(NamedTuple):
@@ -1147,7 +1093,6 @@ class outputParams(NamedTuple):
     )
     saveBackgroundTracks: bool = OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
     plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
-    plotCorrelationLength: bool = OUTPUT_DEFAULT_PLOT_CORRELATION_LENGTH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
     saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
     writeReplicateExchangeabilityDiagnostics: bool = (
@@ -1284,907 +1229,53 @@ class fitParams(NamedTuple):
     )
 
 
-def _inferAlignmentSourceKind(path: str) -> str:
-    lowerPath = str(path).lower()
-    if lowerPath.endswith(".cram"):
-        raise ValueError("CRAM inputs are unsupported.")
-    if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
-        return BEDGRAPH_SOURCE_KIND
-    if lowerPath.endswith(".h5ad"):
-        return H5AD_SOURCE_KIND
-    return "BAM"
-
-
-def getChromRanges(
-    bamFile: str,
-    chromosome: str,
-    chromLength: int,
-    samThreads: int,
-    samFlagExclude: int,
-    sourceKind: str = "BAM",
-) -> Tuple[int, int]:
-    r"""Get the start and end positions of reads in a chromosome from a BAM file.
-
-    :param bamFile: See :class:`inputParams`.
-    :type bamFile: str
-    :param chromosome: the chromosome to read in `bamFile`.
-    :type chromosome: str
-    :param chromLength: Base pair length of the chromosome.
-    :type chromLength: int
-    :param samThreads: See :class:`samParams`.
-    :type samThreads: int
-    :param samFlagExclude: See :class:`samParams`.
-    :type samFlagExclude: int
-    :return: Tuple of start and end positions (nucleotide coordinates) in the chromosome.
-    :rtype: Tuple[int, int]
-
-    :seealso: :func:`getChromRangesJoint`, :func:`consenrich.ccounts.ccounts_getAlignmentChromRange`
-    """
-    if sourceKind == H5AD_SOURCE_KIND:
-        return 0, chromLength
-    start, end = ccounts.ccounts_getAlignmentChromRange(
-        bamFile,
-        chromosome,
-        chromLength,
-        samThreads,
-        samFlagExclude,
-        sourceKind=sourceKind,
-    )
-    return _stableChromRange(
-        start,
-        end,
-        chromLength,
-        chromosome=chromosome,
-        sourcePath=bamFile,
-        sourceKind=sourceKind,
-    )
-
-
-def _stableChromRange(
-    start: int,
-    end: int,
-    chromLength: int,
-    *,
-    chromosome: str = "",
-    sourcePath: str = "",
-    sourceKind: str = "",
-) -> Tuple[int, int]:
-    """Clamp native chromosome ranges and guard against sparse-tail misses."""
-
-    chromLength_ = max(0, int(chromLength))
-    if chromLength_ == 0:
-        return 0, 0
-    start_ = min(max(0, int(start)), chromLength_)
-    end_ = min(max(0, int(end)), chromLength_)
-    if end_ > start_:
-        return start_, end_
-    if start_ > 0 or end_ > 0:
-        logger.warning(
-            "chromosome range fallback: source=%s kind=%s chromosome=%s "
-            "native_range=(%d,%d) chrom_length=%d; using full chromosome",
-            sourcePath,
-            sourceKind,
-            chromosome,
-            int(start),
-            int(end),
-            chromLength_,
-        )
-        return 0, chromLength_
-    return 0, 0
-
-
-def getChromRangesJoint(
-    bamFiles: List[str],
-    chromosome: str,
-    chromSize: int,
-    samThreads: int,
-    samFlagExclude: int,
-    sourceKinds: List[str] | None = None,
-) -> Tuple[int, int]:
-    r"""For multiple BAM files, reconcile a single start and end position over which to count reads,
-    where the start and end positions are defined by the first and last reads across all BAM files.
-
-    :param bamFiles: List of BAM files to read.
-    :type bamFiles: List[str]
-    :param chromosome: Chromosome to read.
-    :type chromosome: str
-    :param chromSize: Size of the chromosome.
-    :type chromSize: int
-    :param samThreads: Number of threads to use for reading the BAM files.
-    :type samThreads: int
-    :param samFlagExclude: SAM flag to exclude certain reads.
-    :type samFlagExclude: int
-    :return: Tuple of start and end positions.
-    :rtype: Tuple[int, int]
-
-    :seealso: :func:`getChromRanges`
-    """
-    starts = []
-    ends = []
-    if sourceKinds is None:
-        sourceKinds = [_inferAlignmentSourceKind(path) for path in bamFiles]
-    for bam_, sourceKind in zip(
-        bamFiles,
-        sourceKinds,
-    ):
-        start, end = getChromRanges(
-            bam_,
-            chromosome,
-            chromLength=chromSize,
-            samThreads=samThreads,
-            samFlagExclude=samFlagExclude,
-            sourceKind=sourceKind,
-        )
-        starts.append(start)
-        ends.append(end)
-    return min(starts), max(ends)
-
-
-def getReadLength(
-    bamFile: str,
-    numReads: int,
-    maxIterations: int,
-    samThreads: int,
-    samFlagExclude: int,
-    sourceKind: str = "BAM",
-    barcodeAllowListFile: str | None = None,
-    barcodeTag: str | None = None,
-) -> int:
-    r"""Infer read length from mapped reads in a BAM file.
-
-    Samples at least `numReads` reads passing criteria given by `samFlagExclude`
-    and returns the median read length.
-
-    :param bamFile: See :class:`inputParams`.
-    :type bamFile: str
-    :param numReads: Number of reads to sample.
-    :type numReads: int
-    :param maxIterations: Maximum number of iterations to perform.
-    :type maxIterations: int
-    :param samThreads: See :class:`samParams`.
-    :type samThreads: int
-    :param samFlagExclude: See :class:`samParams`.
-    :type samFlagExclude: int
-    :return: The median read length.
-    :rtype: int
-
-    :raises ValueError: If the read length cannot be determined after scanning `maxIterations` reads.
-
-    :seealso: :func:`consenrich.ccounts.ccounts_getAlignmentReadLength`
-    """
-    if str(sourceKind).upper() == BEDGRAPH_SOURCE_KIND:
-        return 0
-    init_rlen = ccounts.ccounts_getAlignmentReadLength(
-        bamFile,
-        numReads,
-        samThreads,
-        maxIterations,
-        samFlagExclude,
-        sourceKind=sourceKind,
-        barcodeAllowListFile=barcodeAllowListFile or "",
-        barcodeTag=barcodeTag or "CB",
-    )
-    if init_rlen == 0:
-        raise ValueError(
-            f"Failed to determine read length in {bamFile}. Revise `numReads`, and/or `samFlagExclude` parameters?"
-        )
-    return init_rlen
-
-
-def getReadLengths(
-    bamFiles: List[str],
-    numReads: int,
-    maxIterations: int,
-    samThreads: int,
-    samFlagExclude: int,
-    sourceKinds: List[str] | None = None,
-) -> List[int]:
-    r"""Get read lengths for a list of BAM files.
-
-    :seealso: :func:`getReadLength`
-    """
-    if sourceKinds is None:
-        sourceKinds = [_inferAlignmentSourceKind(path) for path in bamFiles]
-    return [
-        getReadLength(
-            bamFile,
-            numReads=numReads,
-            maxIterations=maxIterations,
-            samThreads=samThreads,
-            samFlagExclude=samFlagExclude,
-            sourceKind=sourceKind,
-        )
-        for bamFile, sourceKind in zip(
-            bamFiles,
-            sourceKinds,
-        )
-    ]
-
-
 def getSourcePaths(sources: List[inputSource]) -> List[str]:
     r"""Return input source paths in order"""
 
     return [source.path for source in sources]
 
 
-def getSourceKinds(sources: List[inputSource]) -> List[str]:
-    r"""Return normalized source kinds in order"""
-
-    return [str(source.sourceKind).upper() for source in sources]
-
-
-def _loadBarcodeAllowSet(path: str | None) -> set[str]:
-    barcodeSet: set[str] = set()
-    if path is None or not str(path).strip():
-        return barcodeSet
-    with open(path, "r", encoding="utf-8") as fileHandle:
-        for line in fileHandle:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            barcodeSet.add(line.split()[0])
-    return barcodeSet
-
-
-def _resolveFragmentsBarcodeAllowSet(source: inputSource) -> set[str] | None:
-    if source.selectedBarcodes is not None:
-        return set(source.selectedBarcodes)
-    allowListPath = (
-        str(source.barcodeAllowListFile)
-        if source.barcodeAllowListFile is not None and str(source.barcodeAllowListFile)
-        else None
-    )
-    groupMapPath = (
-        str(source.barcodeGroupMapFile)
-        if source.barcodeGroupMapFile is not None and str(source.barcodeGroupMapFile)
-        else None
-    )
-    selectGroups = set(source.selectGroups or [])
-
-    if allowListPath is None and groupMapPath is None:
-        return None
-
-    allowSet = _loadBarcodeAllowSet(allowListPath)
-    if groupMapPath is not None:
-        groupSet: set[str] = set()
-        with open(groupMapPath, "r", encoding="utf-8") as fileHandle:
-            for line in fileHandle:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.replace(",", "\t").split()
-                if len(parts) < 2:
-                    continue
-                barcode = parts[0]
-                groupName = parts[1]
-                if len(selectGroups) == 0 or groupName in selectGroups:
-                    groupSet.add(barcode)
-        if allowListPath is not None:
-            allowSet &= groupSet
-        else:
-            allowSet = groupSet
-
-    return allowSet
-
-
-def _writeFragmentsAllowList(
-    source: inputSource,
-) -> tuple[str | None, str | None]:
-    if source.barcodeSelectionPrepared:
-        return source.barcodeAllowListFile, None
-    allowSet = _resolveFragmentsBarcodeAllowSet(source)
-    if allowSet is None:
-        return None, None
-
-    if len(allowSet) == 0:
-        raise ValueError(f"No barcodes selected for fragments source `{source.path}`")
-
-    with NamedTemporaryFile(
-        mode="w",
-        prefix="consenrich_fragments_allow_",
-        suffix=".txt",
-        delete=False,
-        encoding="utf-8",
-    ) as tempHandle:
-        for barcode in sorted(allowSet):
-            tempHandle.write(f"{barcode}\n")
-        return tempHandle.name, tempHandle.name
-
-
-def getFragmentsSelectedBarcodeCount(source: inputSource) -> int | None:
-    if source.selectedCellCount is not None:
-        return source.selectedCellCount
-    allowSet = _resolveFragmentsBarcodeAllowSet(source)
-    if allowSet is None:
-        return None
-    return len(allowSet)
-
-
-def _resolveSourceBamInputModeForCountMode(
-    source: inputSource,
-    defaultBamInputMode: str | None,
-    countMode: str,
-) -> str:
-    sourceBamInputMode = _resolveSourceBamInputMode(source, defaultBamInputMode)
-    if countMode != "ffp-center":
-        return sourceBamInputMode
-    configuredMode = normalization.validateBamInputMode(source.bamInputMode or defaultBamInputMode)
-    if configuredMode not in {"auto", "read1"}:
-        raise ValueError(
-            "countMode `ffp-center` resolves to `bamInputMode=read1`; "
-            "`bamInputMode` must be `auto` or `read1` when this preset is used"
-        )
-    return "read1"
-
-
-@lru_cache(maxsize=None)
-def _isAlignmentSourcePairedEnd(
-    alignmentPath: str,
-    barcodeAllowListFile: str | None = None,
-    barcodeTag: str | None = None,
-) -> bool:
-    return bool(
-        cconsenrich.cisAlignmentPairedEnd(
-            alignmentPath,
-            maxReads=1_000,
-            barcodeAllowListFile=barcodeAllowListFile or "",
-            barcodeTag=barcodeTag or "CB",
-        )
-    )
-
-
-def _resolveSourceBamInputMode(
-    source: inputSource,
-    defaultBamInputMode: str | None,
-) -> str:
-    normalizedMode = normalization.validateBamInputMode(source.bamInputMode or defaultBamInputMode)
-    if str(source.sourceKind).upper() not in ALIGNMENT_SOURCE_KINDS:
-        return "reads"
-    if normalizedMode != "auto":
-        return normalizedMode
-    return "fragments" if _isAlignmentSourcePairedEnd(
-        source.path, source.barcodeAllowListFile, source.barcodeTag
-    ) else "reads"
-
-
-def _resolveSourceFlagExclude(
-    samFlagExclude: int,
-    sourceBamInputMode: str,
-) -> int:
-    if sourceBamInputMode == "read1":
-        return int(samFlagExclude) | 8 | 128
-    return int(samFlagExclude)
-
-
-def _resolveExtendFrom5pBP(
-    extendFrom5pBP: List[int] | int | None,
-    sources: List[inputSource],
-) -> list[int]:
-    alignmentIndices = [
-        index
-        for index, source in enumerate(sources)
-        if str(source.sourceKind).upper() in ALIGNMENT_SOURCE_KINDS
-    ]
-    resolvedValues = [0] * len(sources)
-
-    if extendFrom5pBP is None:
-        return resolvedValues
-
-    if isinstance(extendFrom5pBP, int):
-        configuredValues = [int(extendFrom5pBP)]
-    else:
-        configuredValues = [int(value) for value in extendFrom5pBP]
-
-    if len(configuredValues) == 0:
-        return resolvedValues
-
-    if len(configuredValues) == 1:
-        configuredValues = configuredValues * len(alignmentIndices)
-    elif len(configuredValues) == len(alignmentIndices):
-        pass
-    elif len(configuredValues) == len(sources):
-        return configuredValues
-    else:
-        raise ValueError(
-            "`extendFrom5pBP` length must match BAM sources length, "
-            f"all sources length, or 1: {len(configuredValues)}"
-        )
-
-    for sourceIndex, extendBP in zip(alignmentIndices, configuredValues):
-        resolvedValues[sourceIndex] = int(extendBP)
-    return resolvedValues
-
-
-def transformCountVarianceFloor(
-    normalizedCounts: np.ndarray,
-    scaleFactors: npt.ArrayLike,
-    *,
-    rawNoiseMass: np.ndarray | None = None,
-    countNoisePseudoMeanMass: float = 0.5,
-    countNoisePseudoVarianceMass: float = 0.5,
-    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
-    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
-    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
-    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
-    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
-    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
-    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
-) -> np.ndarray:
-    r"""Approximate transformation-induced count variance for MUNC.
-
-    The floor is the delta-method variance of the active count transform under
-    a conditional Poisson count model with Jeffreys-rate smoothing. For scaled
-    count ``c`` and scale factor ``s``, ``lambdaHat = c / s + 1/2`` and
-    ``Var(sY | lambdaHat) = s^2 * lambdaHat``.
-    """
-
-    return cconsenrich.cTransformCountVarianceFloor(
-        normalizedCounts,
-        scaleFactors,
-        rawNoiseMass=rawNoiseMass,
-        countNoisePseudoMeanMass=countNoisePseudoMeanMass,
-        countNoisePseudoVarianceMass=countNoisePseudoVarianceMass,
-        mode=transformMethod,
-        logOffset=logOffset,
-        logMult=logMult,
-        inputOffset=transformInputOffset,
-        inputScale=transformInputScale,
-        outputScale=transformOutputScale,
-        shape=transformShape,
-    )
-
-
-def readSegments(
-    sources: List[inputSource],
-    chromosome: str,
-    start: int,
-    end: int,
-    intervalSizeBP: int,
-    readLengths: List[int],
-    scaleFactors: List[float],
-    oneReadPerBin: int,
-    samThreads: int,
-    samFlagExclude: int,
-    bamInputMode: str | None = "auto",
-    defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE,
-    defaultFragmentCountMode: str | None = SC_DEFAULT_COUNT_MODE,
-    shiftForward5p: int | None = 0,
-    shiftReverse5p: int | None = 0,
-    extendFrom5pBP: List[int] | int | None = None,
-    maxInsertSize: Optional[int] = 1000,
-    inferFragmentLength: Optional[int] = 0,
-    minMappingQuality: Optional[int] = 0,
-    minTemplateLength: Optional[int] = -1,
-    returnRawNoiseMass: bool = False,
-) -> npt.NDArray[np.float32] | readSegmentsResult:
-    r"""Read binned tracks from generic input sources
-
-    this is the source-agnostic entry point for counting.
-
-    For BAM inputs, ``bamInputMode`` controls whether we count template spans, per-read alignments,
-    or only read1 tags from paired-end BAM. ``countMode="ffp"`` counts exactly one
-    strand-aware first-read 5-prime event for paired-end template-span inputs, while ``fiveprime``
-    retains endpoint semantics. ``countMode="ffp-center"`` is a BAM-only preset that counts
-    read1 centers after extending from the read1 5-prime end by the configured or estimated
-    per-source fragment length. ``defaultFragmentCountMode`` provides the corresponding default
-    for fragments sources when they do not set a source-level ``countMode``. Combine
-    ``shiftForward5p`` / ``shiftReverse5p`` with
-    ``extendFrom5pBP`` or ``inferFragmentLength`` to emulate MACS ``--shift`` and ``--extsize``
-    behavior.
-    """
-
-    if len(sources) == 0:
-        raise ValueError("sources list is empty")
-
-    if len(readLengths) != len(sources) or len(scaleFactors) != len(sources):
-        raise ValueError("readLengths and scaleFactors must match sources length")
-
-    sourcePaths = getSourcePaths(sources)
-    sourceKinds = getSourceKinds(sources)
-    numIntervals = ((end - start - 1) // intervalSizeBP) + 1
-    counts = np.empty((len(sources), numIntervals), dtype=np.float32)
-    rawNoiseMass = (
-        np.full((len(sources), numIntervals), np.nan, dtype=np.float32)
-        if returnRawNoiseMass
-        else None
-    )
-    tempPaths: list[str] = []
-    defaultBamInputMode = normalization.validateBamInputMode(bamInputMode)
-    defaultBamCountMode = normalization.validateCountMode(
-        defaultCountMode,
-        SAM_DEFAULT_COUNT_MODE,
-    )
-    defaultFragmentCountMode = normalization.validateCountMode(
-        defaultFragmentCountMode,
-        SC_DEFAULT_COUNT_MODE,
-    )
-    if defaultFragmentCountMode in {"ffp", "ffp-center"}:
-        raise ValueError(
-            f"defaultFragmentCountMode `{defaultFragmentCountMode}` requires BAM input"
-        )
-    resolvedExtendValues = _resolveExtendFrom5pBP(extendFrom5pBP, sources)
-    totalStart = time.perf_counter()
-    logger.info(
-        "readSegments.start chromosome=%s sources=%d intervals=%d samThreads=%d",
-        chromosome,
-        int(len(sources)),
-        int(numIntervals),
-        int(samThreads),
-    )
-
+def countVarianceFloor(rawCounts, rawNoiseMass, scaleFactors, *, pseudocount=1.0,
+                       pseudoMeanMass=0.5, pseudoVarianceMass=0.5):
+    c = np.asarray(rawCounts, dtype=np.float64)
+    q = np.asarray(rawNoiseMass, dtype=np.float64)
+    s = np.asarray(scaleFactors, dtype=np.float64)
+    a = np.asarray(pseudoMeanMass, dtype=np.float64)
+    b = np.asarray(pseudoVarianceMass, dtype=np.float64)
+    if c.ndim not in (1, 2) or c.shape != q.shape:
+        raise ValueError("Raw count and squared-weight shapes must match")
+    if any(not np.all(np.isfinite(value)) for value in (c, q, s, a, b)):
+        raise ValueError("Count variance inputs must be finite")
+    if np.any(c < 0) or np.any(q < 0):
+        raise ValueError("Raw counts and squared weights must be nonnegative")
+    if np.any(a <= 0) or np.any(b <= 0):
+        raise ValueError("Variance pseudo-masses must be positive")
+    if np.any(s <= 0):
+        raise ValueError("Scale factors must be positive")
+    if isinstance(pseudocount, (bool, np.bool_)) or np.ndim(pseudocount) != 0:
+        raise ValueError("pseudocount must be a finite positive scalar")
+    pseudocount = float(pseudocount)
+    if not np.isfinite(pseudocount) or pseudocount <= 0:
+        raise ValueError("pseudocount must be a finite positive scalar")
+    if c.ndim == 2 and s.ndim == 1:
+        raise ValueError("Two-dimensional counts require scalar or two-dimensional scale factors")
+    if any(np.broadcast_shapes(c.shape, value.shape) != c.shape for value in (s, a, b)):
+        raise ValueError("Variance multipliers and pseudo-masses must match raw counts")
     try:
-        for sourceIndex, sourcePath in enumerate(sourcePaths):
-            sourceStart = time.perf_counter()
-            sourceKind = sourceKinds[sourceIndex]
-            source = sources[sourceIndex]
-            logger.info(
-                "readSegments.source.start chromosome=%s source=%d/%d kind=%s path=%s",
-                chromosome,
-                int(sourceIndex + 1),
-                int(len(sources)),
-                sourceKind,
-                sourcePath,
-            )
-            barcodeAllowListFile, tempPath = (
-                (None, None)
-                if sourceKind == H5AD_SOURCE_KIND
-                else _writeFragmentsAllowList(source)
-            )
-            if tempPath is not None:
-                tempPaths.append(tempPath)
-            source = source._replace(barcodeAllowListFile=barcodeAllowListFile)
-
-            if sourceKind == H5AD_SOURCE_KIND:
-                from . import h5ad
-
-                counts[sourceIndex, :] = h5ad.readCounts(
-                    source, chromosome, start, end, intervalSizeBP
-                )
-                if rawNoiseMass is not None:
-                    rawNoiseMass[sourceIndex, :] = counts[sourceIndex, :]
-            elif sourceKind == BEDGRAPH_SOURCE_KIND:
-                counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
-                    sourcePath,
-                    chromosome,
-                    start,
-                    end,
-                    intervalSizeBP,
-                    0,
-                    0,
-                    samThreads,
-                    0,
-                    shiftForwardStrand53=0,
-                    shiftReverseStrand53=0,
-                    extendBP=0,
-                    maxInsertSize=0,
-                    pairedEndMode=0,
-                    inferFragmentLength=0,
-                    minMappingQuality=0,
-                    minTemplateLength=0,
-                    sourceKind=sourceKind,
-                    barcodeAllowListFile="",
-                    barcodeGroupMapFile="",
-                    countMode="coverage",
-                )
-            elif sourceKind == FRAGMENTS_SOURCE_KIND:
-                countMode = normalization.validateCountMode(
-                    source.countMode, defaultFragmentCountMode
-                )
-                if countMode in {"ffp", "ffp-center"}:
-                    raise ValueError(f"countMode `{countMode}` requires BAM input")
-                if (
-                    countMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-                    and int(oneReadPerBin) != 0
-                ):
-                    raise ValueError(
-                        "conservedFractionalOverlap count mode does not support "
-                        "oneReadPerBin"
-                    )
-                normalization.validateChoice(
-                    source.fragmentPositionMode,
-                    default=SC_DEFAULT_FRAGMENT_POSITION_MODE,
-                    supported=SUPPORTED_FRAGMENT_POSITION_MODES,
-                    paramName="fragmentPositionMode",
-                )
-                if returnRawNoiseMass:
-                    countResult = ccounts.ccounts_countAlignmentRegionMass(
-                        sourcePath,
-                        chromosome,
-                        start,
-                        end,
-                        intervalSizeBP,
-                        0,
-                        oneReadPerBin,
-                        samThreads,
-                        0,
-                        shiftForwardStrand53=0,
-                        shiftReverseStrand53=0,
-                        extendBP=0,
-                        maxInsertSize=0,
-                        pairedEndMode=0,
-                        inferFragmentLength=0,
-                        minMappingQuality=0,
-                        minTemplateLength=0,
-                        sourceKind=sourceKind,
-                        barcodeAllowListFile=barcodeAllowListFile or "",
-                        barcodeGroupMapFile="",
-                        countMode=countMode,
-                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
-                    )
-                    counts[sourceIndex, :] = countResult.counts
-                    if rawNoiseMass is None:
-                        raise RuntimeError("raw noise mass matrix missing")
-                    rawNoiseMass[sourceIndex, :] = countResult.rawNoiseMass
-                else:
-                    counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
-                        sourcePath,
-                        chromosome,
-                        start,
-                        end,
-                        intervalSizeBP,
-                        0,
-                        oneReadPerBin,
-                        samThreads,
-                        0,
-                        shiftForwardStrand53=0,
-                        shiftReverseStrand53=0,
-                        extendBP=0,
-                        maxInsertSize=0,
-                        pairedEndMode=0,
-                        inferFragmentLength=0,
-                        minMappingQuality=0,
-                        minTemplateLength=0,
-                        sourceKind=sourceKind,
-                        barcodeAllowListFile=barcodeAllowListFile or "",
-                        barcodeGroupMapFile="",
-                        countMode=countMode,
-                        fragmentsUseReadSupport=source.fragmentsUseReadSupport,
-                    )
-            else:
-                countMode = normalization.validateCountMode(
-                    source.countMode,
-                    defaultBamCountMode,
-                )
-                if (
-                    countMode == COUNT_MODE_CONSERVED_FRACTIONAL_OVERLAP
-                    and int(oneReadPerBin) != 0
-                ):
-                    raise ValueError(
-                        "conservedFractionalOverlap count mode does not support "
-                        "oneReadPerBin"
-                    )
-                ffpCenterPreset = countMode == "ffp-center"
-                sourceBamInputMode = _resolveSourceBamInputModeForCountMode(
-                    source,
-                    defaultBamInputMode,
-                    countMode,
-                )
-                if ffpCenterPreset:
-                    countMode = normalization.nativeCountModeForPreset(countMode)
-                sourceExtendBP = int(resolvedExtendValues[sourceIndex])
-                sourceFlagExclude = _resolveSourceFlagExclude(
-                    samFlagExclude,
-                    sourceBamInputMode,
-                )
-                sourceInferFragmentLength = int(inferFragmentLength or 0)
-                sourcePairedEndMode = 1 if sourceBamInputMode == "fragments" else 0
-
-                if sourcePairedEndMode > 0:
-                    if sourceExtendBP > 0 or sourceInferFragmentLength > 0:
-                        raise ValueError(
-                            "`extendFrom5pBP` and `inferFragmentLength` require "
-                            "`bamInputMode` `reads` or `read1`."
-                        )
-                    sourceInferFragmentLength = 0
-                elif (
-                    ffpCenterPreset or sourceInferFragmentLength > 0
-                ) and sourceExtendBP <= 0:
-                    sourceExtendBP = int(
-                        cconsenrich.cgetFragmentLength(
-                            sourcePath,
-                            samThreads=samThreads,
-                            samFlagExclude=sourceFlagExclude,
-                            maxInsertSize=maxInsertSize,
-                            barcodeAllowListFile=barcodeAllowListFile or "",
-                            barcodeTag=source.barcodeTag or "CB",
-                        )
-                    )
-                if ffpCenterPreset and sourceExtendBP <= 0:
-                    raise ValueError(
-                        "countMode `ffp-center` requires a positive "
-                        "`extendFrom5pBP` or estimable fragment length"
-                    )
-                sourceInferFragmentLength = 0
-                if returnRawNoiseMass:
-                    countResult = ccounts.ccounts_countAlignmentRegionMass(
-                        sourcePath,
-                        chromosome,
-                        start,
-                        end,
-                        intervalSizeBP,
-                        readLengths[sourceIndex],
-                        oneReadPerBin,
-                        samThreads,
-                        sourceFlagExclude,
-                        shiftForwardStrand53=int(shiftForward5p or 0),
-                        shiftReverseStrand53=int(shiftReverse5p or 0),
-                        extendBP=sourceExtendBP,
-                        maxInsertSize=maxInsertSize,
-                        pairedEndMode=sourcePairedEndMode,
-                        inferFragmentLength=sourceInferFragmentLength,
-                        minMappingQuality=minMappingQuality,
-                        minTemplateLength=minTemplateLength,
-                        sourceKind=sourceKind,
-                        barcodeAllowListFile=barcodeAllowListFile or "",
-                        barcodeGroupMapFile="",
-                        countMode=countMode,
-                        barcodeTag=source.barcodeTag or "CB",
-                    )
-                    counts[sourceIndex, :] = countResult.counts
-                    if rawNoiseMass is None:
-                        raise RuntimeError("raw noise mass matrix missing")
-                    rawNoiseMass[sourceIndex, :] = countResult.rawNoiseMass
-                else:
-                    counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
-                        sourcePath,
-                        chromosome,
-                        start,
-                        end,
-                        intervalSizeBP,
-                        readLengths[sourceIndex],
-                        oneReadPerBin,
-                        samThreads,
-                        sourceFlagExclude,
-                        shiftForwardStrand53=int(shiftForward5p or 0),
-                        shiftReverseStrand53=int(shiftReverse5p or 0),
-                        extendBP=sourceExtendBP,
-                        maxInsertSize=maxInsertSize,
-                        pairedEndMode=sourcePairedEndMode,
-                        inferFragmentLength=sourceInferFragmentLength,
-                        minMappingQuality=minMappingQuality,
-                        minTemplateLength=minTemplateLength,
-                        sourceKind=sourceKind,
-                        barcodeAllowListFile=barcodeAllowListFile or "",
-                        barcodeGroupMapFile="",
-                        countMode=countMode,
-                        barcodeTag=source.barcodeTag or "CB",
-                    )
-            np.multiply(
-                counts[sourceIndex, :],
-                np.float32(scaleFactors[sourceIndex]),
-                out=counts[sourceIndex, :],
-            )
-            logger.info(
-                "readSegments.source.done chromosome=%s source=%d/%d elapsed=%.3fs",
-                chromosome,
-                int(sourceIndex + 1),
-                int(len(sources)),
-                time.perf_counter() - sourceStart,
-            )
-    finally:
-        for tempPath in tempPaths:
-            try:
-                os.remove(tempPath)
-            except Exception:
-                pass
-
-    logger.info(
-        "readSegments.done chromosome=%s sources=%d elapsed=%.3fs",
-        chromosome,
-        int(len(sources)),
-        time.perf_counter() - totalStart,
-    )
-    if returnRawNoiseMass:
-        if rawNoiseMass is None:
-            raise RuntimeError("raw noise mass matrix missing")
-        return readSegmentsResult(counts, rawNoiseMass)
-    return counts
-
-
-def readBamSegments(
-    bamFiles: List[str],
-    chromosome: str,
-    start: int,
-    end: int,
-    intervalSizeBP: int,
-    readLengths: List[int],
-    scaleFactors: List[float],
-    oneReadPerBin: int,
-    samThreads: int,
-    samFlagExclude: int,
-    bamInputMode: str | None = "auto",
-    defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE,
-    shiftForward5p: int | None = 0,
-    shiftReverse5p: int | None = 0,
-    extendFrom5pBP: List[int] | int | None = None,
-    maxInsertSize: Optional[int] = 1000,
-    inferFragmentLength: Optional[int] = 0,
-    minMappingQuality: Optional[int] = 0,
-    minTemplateLength: Optional[int] = -1,
-) -> npt.NDArray[np.float32]:
-    r"""Calculate coverage tracks for each BAM file.
-
-    :param bamFiles: See :class:`inputParams`.
-    :type bamFiles: List[str]
-    :param chromosome: Chromosome to read.
-    :type chromosome: str
-    :param start: Start position of the genomic segment.
-    :type start: int
-    :param end: End position of the genomic segment.
-    :type end: int
-    :param readLengths: List of read lengths for each BAM file.
-    :type readLengths: List[int]
-    :param scaleFactors: List of scale factors for each BAM file.
-    :type scaleFactors: List[float]
-    :param intervalSizeBP: See :class:`countingParams`.
-    :type intervalSizeBP: int
-    :param oneReadPerBin: See :class:`samParams`.
-    :type oneReadPerBin: int
-    :param samThreads: See :class:`samParams`.
-    :type samThreads: int
-    :param samFlagExclude: See :class:`samParams`.
-    :type samFlagExclude: int
-    :param bamInputMode: See :class:`samParams`.
-    :type bamInputMode: str
-    :param defaultCountMode: See :class:`samParams`.
-    :type defaultCountMode: str
-    :param shiftForward5p: See :class:`samParams`.
-    :type shiftForward5p: int
-    :param shiftReverse5p: See :class:`samParams`.
-    :type shiftReverse5p: int
-    :param extendFrom5pBP: See :class:`samParams`.
-    :type extendFrom5pBP: Optional[List[int] | int]
-    :param maxInsertSize: See :class:`samParams`.
-    :type maxInsertSize: int
-    :param inferFragmentLength: See :class:`samParams`.
-    :type inferFragmentLength: int
-    :param minMappingQuality: See :class:`samParams`.
-    :type minMappingQuality: int
-    :param minTemplateLength: See :class:`samParams`.
-    :type minTemplateLength: Optional[int]
-
-    This is a BAM-only convenience wrapper over :func:`readSegments`.
-    """
-
-    segmentSize_ = end - start
-    if intervalSizeBP <= 0 or segmentSize_ <= 0:
-        raise ValueError(
-            "Invalid intervalSizeBP or genomic segment specified (end <= start)"
-        )
-
-    if len(bamFiles) == 0:
-        raise ValueError("bamFiles list is empty")
-
-    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
-        raise ValueError("readLengths and scaleFactors must match bamFiles length")
-
-    return readSegments(
-        [
-            inputSource(
-                path=bamPath,
-                sourceKind="BAM",
-            )
-            for bamPath in bamFiles
-        ],
-        chromosome,
-        start,
-        end,
-        intervalSizeBP,
-        readLengths,
-        scaleFactors,
-        oneReadPerBin,
-        samThreads,
-        samFlagExclude,
-        bamInputMode=bamInputMode,
-        defaultCountMode=defaultCountMode,
-        shiftForward5p=shiftForward5p,
-        shiftReverse5p=shiftReverse5p,
-        extendFrom5pBP=extendFrom5pBP,
-        maxInsertSize=maxInsertSize,
-        inferFragmentLength=inferFragmentLength,
-        minMappingQuality=minMappingQuality,
-        minTemplateLength=minTemplateLength,
-    )
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            relativeScale = np.minimum(s, pseudocount) / np.maximum(s, pseudocount)
+            smallScale = s < pseudocount
+            numeratorMultiplier = np.where(smallScale, relativeScale, 1.0)
+            countTerm = c * numeratorMultiplier
+            meanTerm = a * numeratorMultiplier
+            logTerm = np.where(smallScale, 1.0, relativeScale)
+            denominatorScale = np.maximum(np.maximum(countTerm, meanTerm), logTerm)
+            ratio = np.hypot(np.sqrt(q), np.sqrt(b)) * numeratorMultiplier / denominatorScale
+            ratio /= countTerm / denominatorScale + meanTerm / denominatorScale + logTerm / denominatorScale
+            ratio /= np.log(2.0)
+            return ratio * ratio
+    except FloatingPointError as error:
+        raise ValueError("Count variance exceeds float64 capacity") from error
 
 
 def constructMatrixF(deltaF: float) -> npt.NDArray[np.float32]:
@@ -6418,16 +5509,12 @@ def _supportLimitedBasisCount(
     return int(max(minBasis, min(requested, basisBySupport))), float(nEff), uniqueCount
 
 
-def _bsplineDesign(x: np.ndarray, knots: np.ndarray, degree: int) -> np.ndarray:
-    xArr = np.asarray(x, dtype=np.float64).ravel()
-    return np.asarray(
-        interpolate.BSpline.design_matrix(
-            xArr,
-            np.asarray(knots, dtype=np.float64),
-            int(degree),
-            extrapolate=False,
-        ).toarray(),
-        dtype=np.float64,
+def _bsplineDesign(x: np.ndarray, knots: np.ndarray, degree: int) -> sparse.csr_array:
+    return interpolate.BSpline.design_matrix(
+        np.asarray(x, dtype=np.float64).ravel(),
+        np.asarray(knots, dtype=np.float64),
+        int(degree),
+        extrapolate=False,
     )
 
 
@@ -6440,6 +5527,145 @@ def _coefficientDiffPenalty(numBasis: int, order: int) -> np.ndarray:
         return np.zeros((numBasis, numBasis), dtype=np.float64)
     diff = np.diff(np.eye(numBasis, dtype=np.float64), n=order, axis=0)
     return diff.T @ diff
+
+
+class _PSplineFit:
+    def __init__(
+        self,
+        blockMeans: np.ndarray,
+        weights: np.ndarray | None,
+        trendNumBasis: int,
+        trendMinObsPerBasis: float,
+        trendSplineDegree: int,
+        trendPenaltyOrder: int,
+        trendLambdaMin: float,
+        trendLambdaMax: float,
+        trendLambdaGridSize: int,
+        trendMinEdf: float,
+        trendMaxEdf: float | None,
+    ):
+        means = np.asarray(blockMeans, dtype=np.float64).ravel()
+        self.inputCount = means.size
+        weightsArr = np.ones_like(means) if weights is None else np.asarray(weights, dtype=np.float64).ravel()
+        if weightsArr.size != means.size:
+            raise ValueError("weights must have the same length as blockMeans")
+        x = _muncTrendPredictor(means)
+        mask = np.isfinite(x) & np.isfinite(weightsArr) & (weightsArr > 0.0)
+        self.order = np.flatnonzero(mask)[np.argsort(x[mask])]
+        x = x[self.order]
+        self.weights = weightsArr[self.order]
+        self.finiteCount = x.size
+        self.xMin = float(x[0]) if x.size else 0.0
+        self.xMax = float(x[-1]) if x.size else 0.0
+        self.constant = x.size < max(4, int(trendSplineDegree) + 2) or self.xMax <= self.xMin
+        self.factors = []
+        if self.constant:
+            return
+
+        self.degree = int(max(0, trendSplineDegree))
+        requestedBasis = int(max(int(trendNumBasis), self.degree + 1))
+        numBasis, nEff, uniqueXCount = _supportLimitedBasisCount(
+            x, self.weights, requestedBasis, self.degree, trendMinObsPerBasis,
+        )
+        self.knots = _psplineKnots(
+            self.xMin, self.xMax, numBasis, self.degree, x=x, weights=self.weights,
+        )
+        self.design = _bsplineDesign(x, self.knots, self.degree)
+        numBasis = int(self.design.shape[1])
+        penalty = _coefficientDiffPenalty(numBasis, int(trendPenaltyOrder))
+        self.sqrtWeights = np.sqrt(self.weights)
+        self.weightedDesign = self.design.multiply(self.sqrtWeights[:, None]).tocsr()
+        gram = (self.weightedDesign.T @ self.weightedDesign).toarray()
+        lamMin = float(trendLambdaMin)
+        lamMax = float(trendLambdaMax)
+        if (not np.isfinite(lamMin)) or lamMin <= 0.0:
+            lamMin = 1.0e-6
+        if (not np.isfinite(lamMax)) or lamMax <= lamMin:
+            lamMax = 1.0e6
+        self.lambdaGrid = np.logspace(
+            np.log10(lamMin), np.log10(lamMax), int(max(3, trendLambdaGridSize)),
+        )
+        self.minEdf = float(min(max(1.0, trendMinEdf), max(float(numBasis), 1.0)))
+        if trendMaxEdf is None or not np.isfinite(float(trendMaxEdf)):
+            maxEdf = min(float(numBasis - 1), 30.0)
+        else:
+            maxEdf = float(trendMaxEdf)
+        self.maxEdf = max(self.minEdf, min(maxEdf, float(numBasis)))
+        ridge = 1.0e-10 * max(float(np.trace(gram)) / max(numBasis, 1), 1.0)
+        diagonal = np.diag_indices(numBasis)
+        for lam in self.lambdaGrid:
+            system = gram + float(lam) * penalty
+            system[diagonal] += ridge
+            try:
+                factor = linalg.cho_factor(system, lower=True, check_finite=False)
+                edf = float(np.trace(linalg.cho_solve(factor, gram, check_finite=False)))
+            except np.linalg.LinAlgError:
+                continue
+            self.factors.append((float(lam), factor, edf))
+        self.diagnostics = {
+            "lambda_grid_min": float(self.lambdaGrid[0]),
+            "lambda_grid_max": float(self.lambdaGrid[-1]),
+            "num_basis": numBasis,
+            "requested_num_basis": requestedBasis,
+            "support_limited_num_basis": numBasis,
+            "trend_n_eff": float(nEff),
+            "trend_unique_x": int(uniqueXCount),
+            "trend_min_obs_per_basis": float(max(trendMinObsPerBasis, 1.0)),
+            "trend_min_edf": self.minEdf,
+            "trend_max_edf": self.maxEdf,
+            "knot_mode": "weighted_quantile",
+            "degree": self.degree,
+            "penalty_order": int(trendPenaltyOrder),
+        }
+
+    def fit(self, blockVariances: np.ndarray, eps: float) -> PSplineLogVarianceTrend:
+        variances = np.asarray(blockVariances, dtype=np.float64).ravel()
+        if variances.size != self.inputCount:
+            raise ValueError("blockMeans and blockVariances must have the same length")
+        if variances.size and (
+            (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
+        ):
+            raise ValueError("blockVariances must contain only finite positive values")
+        floor = float(max(float(eps), 1.0e-12))
+        y = np.log(np.maximum(variances[self.order], floor))
+        best = None
+        bestRejected = None
+        if not self.constant:
+            rhs = self.weightedDesign.T @ (y * self.sqrtWeights)
+            for lam, factor, edf in self.factors:
+                beta = linalg.cho_solve(factor, rhs, check_finite=False)
+                fitted = self.design @ beta
+                residSS = float(np.sum(self.weights * np.square(y - fitted)))
+                denom = 1.0 - edf / self.finiteCount
+                gcv = float("inf") if abs(denom) < 1.0e-8 else (residSS / self.finiteCount) / (denom * denom)
+                if not np.isfinite(gcv):
+                    continue
+                candidate = (gcv, lam, edf, beta)
+                if bestRejected is None or gcv < bestRejected[0]:
+                    bestRejected = candidate
+                if self.minEdf <= edf <= self.maxEdf and (best is None or gcv < best[0]):
+                    best = candidate
+            if best is None:
+                best = bestRejected
+        if best is None:
+            y0 = float(np.average(y, weights=self.weights)) if y.size else float(np.log(floor))
+            reason = "no_finite_pairs" if not y.size else (
+                "constant_trend" if self.constant else "constant_after_solve_failure"
+            )
+            return PSplineLogVarianceTrend(
+                knots=np.empty(0, dtype=np.float64), degree=-1,
+                beta=np.array([y0], dtype=np.float64), xMin=self.xMin, xMax=self.xMax,
+                lambdaHat=0.0, edf=1.0, gcv=0.0, lambdaAtBoundary=False,
+                finiteCount=self.finiteCount, diagnostics={"fallback": reason},
+            )
+        gcv, lam, edf, beta = best
+        atBoundary = bool(np.isclose(lam, self.lambdaGrid[0]) or np.isclose(lam, self.lambdaGrid[-1]))
+        return PSplineLogVarianceTrend(
+            knots=self.knots, degree=self.degree, beta=np.asarray(beta, dtype=np.float64),
+            xMin=self.xMin, xMax=self.xMax, lambdaHat=lam, edf=edf, gcv=gcv,
+            lambdaAtBoundary=atBoundary, finiteCount=self.finiteCount,
+            diagnostics={**self.diagnostics, "lambda_at_boundary": atBoundary},
+        )
 
 
 def fitPSplineLogVarianceTrend(
@@ -6463,197 +5689,11 @@ def fitPSplineLogVarianceTrend(
     imposes no monotonicity constraint and no signal-dependent linear floor.
     """
 
-    means = np.asarray(blockMeans, dtype=np.float64).ravel()
-    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
-    if weights is None:
-        weightsArr = np.ones_like(means, dtype=np.float64)
-    else:
-        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-        if weightsArr.size != means.size:
-            raise ValueError("weights must have the same length as blockMeans")
-
-    if variances.size != means.size:
-        raise ValueError("blockMeans and blockVariances must have the same length")
-    if variances.size and (
-        (not np.all(np.isfinite(variances))) or np.any(variances <= 0.0)
-    ):
-        raise ValueError("blockVariances must contain only finite positive values")
-
-    floor = float(max(float(eps), 1.0e-12))
-    x = _muncTrendPredictor(means)
-    y = np.log(np.maximum(variances, floor))
-    mask = (
-        np.isfinite(x) & np.isfinite(y) & np.isfinite(weightsArr) & (weightsArr > 0.0)
-    )
-    x = x[mask]
-    y = y[mask]
-    weightsArr = weightsArr[mask]
-
-    if x.size == 0:
-        y0 = float(np.log(floor))
-        return PSplineLogVarianceTrend(
-            knots=np.empty(0, dtype=np.float64),
-            degree=-1,
-            beta=np.array([y0], dtype=np.float64),
-            xMin=0.0,
-            xMax=0.0,
-            lambdaHat=0.0,
-            edf=1.0,
-            gcv=0.0,
-            lambdaAtBoundary=False,
-            finiteCount=0,
-            diagnostics={"fallback": "no_finite_pairs"},
-        )
-
-    order = np.argsort(x)
-    x = x[order]
-    y = y[order]
-    weightsArr = weightsArr[order]
-
-    xMin = float(x[0])
-    xMax = float(x[-1])
-    if x.size < max(4, int(trendSplineDegree) + 2) or xMax <= xMin:
-        y0 = float(np.average(y, weights=weightsArr))
-        return PSplineLogVarianceTrend(
-            knots=np.empty(0, dtype=np.float64),
-            degree=-1,
-            beta=np.array([y0], dtype=np.float64),
-            xMin=xMin,
-            xMax=xMax,
-            lambdaHat=0.0,
-            edf=1.0,
-            gcv=0.0,
-            lambdaAtBoundary=False,
-            finiteCount=int(x.size),
-            diagnostics={"fallback": "constant_trend"},
-        )
-
-    degree = int(max(0, trendSplineDegree))
-    requestedBasis = int(max(int(trendNumBasis), degree + 1))
-    numBasis, nEff, uniqueXCount = _supportLimitedBasisCount(
-        x=x,
-        weights=weightsArr,
-        requestedBasis=requestedBasis,
-        degree=degree,
-        minObsPerBasis=trendMinObsPerBasis,
-    )
-    knots = _psplineKnots(
-        xMin,
-        xMax,
-        numBasis,
-        degree,
-        x=x,
-        weights=weightsArr,
-    )
-    B = _bsplineDesign(np.clip(x, xMin, xMax), knots, degree)
-    numBasis = int(B.shape[1])
-    penalty = _coefficientDiffPenalty(numBasis, int(trendPenaltyOrder))
-
-    sqrtW = np.sqrt(weightsArr)
-    BW = B * sqrtW[:, None]
-    yW = y * sqrtW
-    gram = BW.T @ BW
-    rhs = BW.T @ yW
-
-    lamMin = float(trendLambdaMin)
-    lamMax = float(trendLambdaMax)
-    if (not np.isfinite(lamMin)) or lamMin <= 0.0:
-        lamMin = 1.0e-6
-    if (not np.isfinite(lamMax)) or lamMax <= lamMin:
-        lamMax = 1.0e6
-    gridSize = int(max(3, trendLambdaGridSize))
-    lambdaGrid = np.logspace(np.log10(lamMin), np.log10(lamMax), gridSize)
-
-    minEdf = float(min(max(1.0, trendMinEdf), max(float(numBasis), 1.0)))
-    if trendMaxEdf is None or not np.isfinite(float(trendMaxEdf)):
-        maxEdf = min(float(numBasis - 1), 30.0)
-    else:
-        maxEdf = float(trendMaxEdf)
-    maxEdf = max(minEdf, min(maxEdf, float(numBasis)))
-    best: tuple[float, float, float, np.ndarray] | None = None
-    bestRejected: tuple[float, float, float, np.ndarray] | None = None
-    ridge = 1.0e-10 * max(float(np.trace(gram)) / max(numBasis, 1), 1.0)
-
-    for lam in lambdaGrid:
-        A = gram + (float(lam) * penalty)
-        try:
-            beta = np.linalg.solve(A + ridge * np.eye(numBasis), rhs)
-            edf = float(np.trace(np.linalg.solve(A + ridge * np.eye(numBasis), gram)))
-        except np.linalg.LinAlgError:
-            continue
-
-        fitted = B @ beta
-        residSS = float(np.sum(weightsArr * np.square(y - fitted)))
-        R = float(max(x.size, 1))
-        denom = 1.0 - (edf / R)
-        if abs(denom) < 1.0e-8:
-            gcv = float("inf")
-        else:
-            gcv = float((residSS / R) / (denom * denom))
-        if not np.isfinite(gcv):
-            continue
-
-        candidate = (gcv, float(lam), edf, beta)
-        if bestRejected is None or gcv < bestRejected[0]:
-            bestRejected = candidate
-
-        if edf < minEdf:
-            continue
-        if maxEdf is not None and edf > maxEdf:
-            continue
-        if best is None or gcv < best[0]:
-            best = candidate
-
-    if best is None:
-        if bestRejected is None:
-            y0 = float(np.average(y, weights=weightsArr))
-            return PSplineLogVarianceTrend(
-                knots=np.empty(0, dtype=np.float64),
-                degree=-1,
-                beta=np.array([y0], dtype=np.float64),
-                xMin=xMin,
-                xMax=xMax,
-                lambdaHat=0.0,
-                edf=1.0,
-                gcv=0.0,
-                lambdaAtBoundary=False,
-                finiteCount=int(x.size),
-                diagnostics={"fallback": "constant_after_solve_failure"},
-            )
-        best = bestRejected
-
-    gcvHat, lambdaHat, edfHat, betaHat = best
-    lambdaAtBoundary = bool(
-        np.isclose(lambdaHat, lambdaGrid[0]) or np.isclose(lambdaHat, lambdaGrid[-1])
-    )
-    return PSplineLogVarianceTrend(
-        knots=knots.astype(np.float64, copy=False),
-        degree=degree,
-        beta=np.asarray(betaHat, dtype=np.float64),
-        xMin=xMin,
-        xMax=xMax,
-        lambdaHat=float(lambdaHat),
-        edf=float(edfHat),
-        gcv=float(gcvHat),
-        lambdaAtBoundary=lambdaAtBoundary,
-        finiteCount=int(x.size),
-        diagnostics={
-            "lambda_grid_min": float(lambdaGrid[0]),
-            "lambda_grid_max": float(lambdaGrid[-1]),
-            "lambda_at_boundary": lambdaAtBoundary,
-            "num_basis": int(numBasis),
-            "requested_num_basis": int(requestedBasis),
-            "support_limited_num_basis": int(numBasis),
-            "trend_n_eff": float(nEff),
-            "trend_unique_x": int(uniqueXCount),
-            "trend_min_obs_per_basis": float(max(trendMinObsPerBasis, 1.0)),
-            "trend_min_edf": float(minEdf),
-            "trend_max_edf": float(maxEdf),
-            "knot_mode": "weighted_quantile",
-            "degree": int(degree),
-            "penalty_order": int(trendPenaltyOrder),
-        },
-    )
+    return _PSplineFit(
+        blockMeans, weights, trendNumBasis, trendMinObsPerBasis, trendSplineDegree,
+        trendPenaltyOrder, trendLambdaMin, trendLambdaMax, trendLambdaGridSize,
+        trendMinEdf, trendMaxEdf,
+    ).fit(blockVariances, eps)
 
 
 def evalPSplineLogVarianceTrend(
@@ -6776,6 +5816,10 @@ def fitPooledMuncVarianceTrend(
             },
         )
 
+    splineFit = _PSplineFit(
+        means, weightsArr, trendNumBasis, trendMinObsPerBasis, 2, 2,
+        trendLambdaMin, trendLambdaMax, trendLambdaGridSize, trendMinEdf, trendMaxEdf,
+    )
     logFactors = np.zeros(sampleCount_, dtype=np.float64)
     sampleWeights = np.bincount(
         samples,
@@ -6790,19 +5834,7 @@ def fitPooledMuncVarianceTrend(
     tol_ = float(max(tol, 0.0))
     for iteration in range(maxIters_):
         scaledVariances = variances / np.exp(logFactors[samples])
-        trend = fitPSplineLogVarianceTrend(
-            means,
-            scaledVariances,
-            weights=weightsArr,
-            eps=eps,
-            trendNumBasis=trendNumBasis,
-            trendMinObsPerBasis=trendMinObsPerBasis,
-            trendMinEdf=trendMinEdf,
-            trendMaxEdf=trendMaxEdf,
-            trendLambdaMin=trendLambdaMin,
-            trendLambdaMax=trendLambdaMax,
-            trendLambdaGridSize=trendLambdaGridSize,
-        )
+        trend = splineFit.fit(scaledVariances, eps)
         prior = evalPSplineLogVarianceTrend(
             trend,
             means,
@@ -6841,19 +5873,7 @@ def fitPooledMuncVarianceTrend(
     if trend is None:
         raise RuntimeError("pooled MUNC trend fit did not run")
     scaledVariances = variances / np.exp(logFactors[samples])
-    trend = fitPSplineLogVarianceTrend(
-        means,
-        scaledVariances,
-        weights=weightsArr,
-        eps=eps,
-        trendNumBasis=trendNumBasis,
-        trendMinObsPerBasis=trendMinObsPerBasis,
-        trendMinEdf=trendMinEdf,
-        trendMaxEdf=trendMaxEdf,
-        trendLambdaMin=trendLambdaMin,
-        trendLambdaMax=trendLambdaMax,
-        trendLambdaGridSize=trendLambdaGridSize,
-    )
+    trend = splineFit.fit(scaledVariances, eps)
     factors = np.exp(logFactors)
     if not np.all(np.isfinite(factors)) or np.any(factors <= 0.0):
         raise FloatingPointError("pooled MUNC replicate variance factors are invalid")
@@ -7179,7 +6199,7 @@ def _backgroundPenaltyWeightsFromSpan(
     blockLenIntervals: int,
     backgroundSmoothness: float = 1.0,
 ) -> tuple[float, float]:
-    spanIntervals = max(2.0, float(blockLenIntervals))
+    spanIntervals = max(1.0, float(blockLenIntervals))
     smoothness = float(backgroundSmoothness)
     firstPenalty = (spanIntervals * spanIntervals) / 4.0
     secondPenalty = (
@@ -7332,13 +6352,13 @@ def centerMBInPlace(
             )
         elif centerMBMethod == COUNTING_CENTER_MB_METHOD_SAVGOL:
             halfWindow = filterWindowIntervals // 2
-            paddedTrack = np.pad(track, (halfWindow, halfWindow), mode="edge")
-            cumulative = np.empty(paddedTrack.size + 1, dtype=np.float64)
-            cumulative[0] = 0.0
-            np.cumsum(paddedTrack, dtype=np.float64, out=cumulative[1:])
-            filtered = (
-                cumulative[filterWindowIntervals:] - cumulative[:-filterWindowIntervals]
-            ) / float(filterWindowIntervals)
+            if halfWindow == 0:
+                filtered = np.asarray(track, dtype=np.float64)
+            else:
+                paddedTrack = np.pad(track, (halfWindow, halfWindow), mode="edge")
+                filtered = cconsenrich.cWindowSums(
+                    paddedTrack, filterWindowIntervals,
+                )[halfWindow:-halfWindow] / float(filterWindowIntervals)
         else:
             raise ValueError(f"centerMBMethod must be one of: {supported}")
         np.subtract(track, filtered, out=track, casting="unsafe")
@@ -7630,6 +6650,16 @@ def _sparseSupportWeights(
     return weights.astype(np.float32, copy=False)
 
 
+def _resolveLengthScaleBP(value: int | None, intervalSizeBP: int) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise ValueError("observationParams.lengthScaleBP must be a positive integer or null")
+    if value <= 0:
+        raise ValueError("observationParams.lengthScaleBP must be positive")
+    return int(value)
+
+
 class _MuncRuntimeSizing(NamedTuple):
     trendBlockSizeBP: int
     trendBlockIntervals: int
@@ -7637,91 +6667,101 @@ class _MuncRuntimeSizing(NamedTuple):
     localWindowSizeBP: int
     localWindowIntervals: int
     localWindowSource: str
-    usedDependenceSpan: bool
-    dependenceSpanIntervals: int | None
+    usedLengthScale: bool
+    lengthScaleIntervals: int | None
+    requestedTrendBlockSizeBP: int
+    requestedLocalWindowSizeBP: int
 
 
 def _resolveMuncRuntimeSizing(
     *,
     intervalSizeBP: int,
-    dependenceSpanIntervals: int | None = None,
+    lengthScaleIntervals: int | None = None,
     muncTrendBlockSizeBP: int | None = None,
     muncLocalWindowSizeBP: int | None = None,
-    muncTrendBlockDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+    muncTrendBlockLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER
     ),
-    muncLocalWindowDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    muncLocalWindowLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER
     ),
 ) -> _MuncRuntimeSizing:
     intervalSizeBP_ = max(1, int(intervalSizeBP))
-    dependenceIntervals = (
-        None if dependenceSpanIntervals is None else int(dependenceSpanIntervals)
+    maxWindowIntervals = OBSERVATION_MAX_MUNC_WINDOW_BP // intervalSizeBP_
+    if maxWindowIntervals < 4:
+        raise ValueError(
+            "countingParams.intervalSizeBP must be at most 250000 bp "
+            "to fit four MUNC bins under the 1 Mb cap"
+        )
+    lengthIntervals = (
+        None if lengthScaleIntervals is None else int(lengthScaleIntervals)
     )
-    if dependenceIntervals is not None and dependenceIntervals <= 0:
-        dependenceIntervals = None
-
-    defaultTrendIntervals = 11 * 3
-    defaultLocalIntervals = max(4, defaultTrendIntervals + 1)
+    if lengthIntervals is not None and lengthIntervals <= 0:
+        raise ValueError("lengthScaleIntervals must be positive")
 
     def resolveMultiplier(value: float | None, defaultValue: float) -> float:
         multiplier = defaultValue if value is None else float(value)
         if (not np.isfinite(multiplier)) or multiplier <= 0.0:
             raise ValueError(
-                "MUNC dependence multipliers must be positive finite values"
+                "MUNC length scale multipliers must be positive finite values"
             )
         return float(multiplier)
 
     trendMultiplier = resolveMultiplier(
-        muncTrendBlockDependenceMultiplier,
-        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
+        muncTrendBlockLengthScaleMultiplier,
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER,
     )
     localMultiplier = resolveMultiplier(
-        muncLocalWindowDependenceMultiplier,
-        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
+        muncLocalWindowLengthScaleMultiplier,
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER,
     )
 
-    def resolveDependenceIntervals(multiplier: float, minIntervals: int) -> int | None:
-        if dependenceIntervals is None:
+    def resolveLengthScaleIntervals(multiplier: float, minIntervals: int) -> int | None:
+        if lengthIntervals is None:
             return None
+        numerator, denominator = multiplier.as_integer_ratio()
         return max(
             int(minIntervals),
-            int(math.ceil(float(multiplier) * float(dependenceIntervals))),
+            (lengthIntervals * numerator + denominator - 1) // denominator,
         )
 
     def resolveExplicitIntervals(value: int | None) -> int | None:
         if value is None:
             return None
+        if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+            raise ValueError("MUNC window sizes must be positive integers or null")
         valueBP = int(value)
         if valueBP <= 0:
-            return None
-        return max(1, int(valueBP / intervalSizeBP_))
+            raise ValueError("MUNC window sizes must be positive integers or null")
+        return max(1, valueBP // intervalSizeBP_)
 
     trendIntervals = resolveExplicitIntervals(muncTrendBlockSizeBP)
-    usedDependenceSpan = False
+    usedLengthScale = False
     trendSource = "explicit bp"
     if trendIntervals is None:
-        trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
-        usedDependenceSpan = trendIntervals is not None
+        trendIntervals = resolveLengthScaleIntervals(trendMultiplier, 1)
+        usedLengthScale = trendIntervals is not None
         if trendIntervals is not None:
-            trendSource = "dependence working span"
+            trendSource = "length scale"
         if trendIntervals is None:
-            trendIntervals = int(defaultTrendIntervals)
-            trendSource = "fallback default"
+            raise ValueError("MUNC trend block sizing requires a length scale")
 
     localIntervals = resolveExplicitIntervals(muncLocalWindowSizeBP)
     localSource = "explicit bp"
     if localIntervals is None:
-        localIntervals = resolveDependenceIntervals(localMultiplier, 4)
-        usedDependenceSpan = usedDependenceSpan or localIntervals is not None
+        localIntervals = resolveLengthScaleIntervals(localMultiplier, 4)
+        usedLengthScale = usedLengthScale or localIntervals is not None
         if localIntervals is not None:
-            localSource = "dependence working span"
+            localSource = "length scale"
         if localIntervals is None:
-            localIntervals = int(defaultLocalIntervals)
-            localSource = "fallback default"
+            raise ValueError("MUNC local window sizing requires a length scale")
 
     trendIntervals = max(1, int(trendIntervals))
     localIntervals = max(4, int(localIntervals))
+    requestedTrendBP = trendIntervals * intervalSizeBP_
+    requestedLocalBP = localIntervals * intervalSizeBP_
+    trendIntervals = min(trendIntervals, maxWindowIntervals)
+    localIntervals = min(localIntervals, maxWindowIntervals)
     return _MuncRuntimeSizing(
         trendBlockSizeBP=int(trendIntervals * intervalSizeBP_),
         trendBlockIntervals=int(trendIntervals),
@@ -7729,19 +6769,11 @@ def _resolveMuncRuntimeSizing(
         localWindowSizeBP=int(localIntervals * intervalSizeBP_),
         localWindowIntervals=int(localIntervals),
         localWindowSource=localSource,
-        usedDependenceSpan=bool(usedDependenceSpan),
-        dependenceSpanIntervals=dependenceIntervals,
+        usedLengthScale=bool(usedLengthScale),
+        lengthScaleIntervals=lengthIntervals,
+        requestedTrendBlockSizeBP=requestedTrendBP,
+        requestedLocalWindowSizeBP=requestedLocalBP,
     )
-
-
-def _muncSizingNeedsDependence(
-    *,
-    muncTrendBlockSizeBP: int | None,
-    muncLocalWindowSizeBP: int | None,
-) -> bool:
-    trendNeedsAuto = muncTrendBlockSizeBP is None or int(muncTrendBlockSizeBP) <= 0
-    localNeedsAuto = muncLocalWindowSizeBP is None or int(muncLocalWindowSizeBP) <= 0
-    return bool(trendNeedsAuto or localNeedsAuto)
 
 
 def solveZeroCenteredBackground(
@@ -7833,10 +6865,14 @@ def solveZeroCenteredBackground(
         or spectralScaleRatio <= 0.0
     ):
         raise RuntimeError("roughness-penalized LDL scale is invalid")
-    roundoffIndex = float(np.finfo(np.float64).eps * spectralScaleRatio)
+    # Two-component LDL arithmetic, followed by a float64 result rounding.
+    arithmeticEpsilon = float(np.finfo(np.float64).eps)
+    roundoffIndex = float(
+        arithmeticEpsilon + arithmeticEpsilon**2 * spectralScaleRatio
+    )
     if roundoffIndex >= 1.0:
         raise RuntimeError(
-            "roughness-penalized LDL system exceeds float64 reliability: "
+            "roughness-penalized system exceeds compensated LDL reliability: "
             f"spanIntervals={int(blockLenIntervals)} "
             f"smoothness={float(backgroundSmoothness):.6g} "
             f"meanPositivePrecision={meanPositivePrecision:.6g} "
@@ -7847,7 +6883,7 @@ def solveZeroCenteredBackground(
         )
     if roundoffIndex >= 1.0e-2 and initialBackground is None:
         logger.warning(
-            "roughness-penalized LDL system is ill-conditioned: "
+            "roughness-penalized system strains compensated LDL precision: "
             "spanIntervals=%d smoothness=%.6g meanPositivePrecision=%.6g "
             "lambdaFirst=%.6g lambdaSecond=%.6g "
             "spectralScaleRatio=%.6g roundoffIndex=%.6g. "
@@ -8054,12 +7090,12 @@ def getMuncTrack(
     intervalSizeBP: int,
     muncTrendBlockSizeBP: int | None = None,
     muncLocalWindowSizeBP: int | None = None,
-    dependenceSpanIntervals: int | None = None,
-    muncTrendBlockDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+    lengthScaleIntervals: int | None = None,
+    muncTrendBlockLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER
     ),
-    muncLocalWindowDependenceMultiplier: float | None = (
-        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    muncLocalWindowLengthScaleMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER
     ),
     muncVarianceModel: str | int | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     samplingIters: int = 25_000,
@@ -8149,11 +7185,11 @@ def getMuncTrack(
         raise ValueError("replicateVarianceFactor must be positive and finite")
     sizing = _resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceSpanIntervals=dependenceSpanIntervals,
+        lengthScaleIntervals=lengthScaleIntervals,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP,
-        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
-        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier,
+        muncTrendBlockLengthScaleMultiplier=muncTrendBlockLengthScaleMultiplier,
+        muncLocalWindowLengthScaleMultiplier=muncLocalWindowLengthScaleMultiplier,
     )
     blockSizeIntervals = int(sizing.trendBlockIntervals)
     localWindowIntervals = int(sizing.localWindowIntervals)
@@ -8215,27 +7251,27 @@ def getMuncTrack(
             ("MUNC local window bp", int(sizing.localWindowSizeBP)),
             ("local window intervals", int(localWindowIntervals)),
             (
-                "MUNC dependence working span",
+                "MUNC length scale",
                 (
                     "NA"
-                    if sizing.dependenceSpanIntervals is None
-                    else int(sizing.dependenceSpanIntervals)
+                    if sizing.lengthScaleIntervals is None
+                    else int(sizing.lengthScaleIntervals)
                 ),
             ),
             (
-                "trend dependence span multiplier",
+                "trend length scale multiplier",
                 float(
-                    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
-                    if muncTrendBlockDependenceMultiplier is None
-                    else muncTrendBlockDependenceMultiplier
+                    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_LENGTH_SCALE_MULTIPLIER
+                    if muncTrendBlockLengthScaleMultiplier is None
+                    else muncTrendBlockLengthScaleMultiplier
                 ),
             ),
             (
-                "local dependence span multiplier",
+                "local length scale multiplier",
                 float(
-                    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
-                    if muncLocalWindowDependenceMultiplier is None
-                    else muncLocalWindowDependenceMultiplier
+                    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_LENGTH_SCALE_MULTIPLIER
+                    if muncLocalWindowLengthScaleMultiplier is None
+                    else muncLocalWindowLengthScaleMultiplier
                 ),
             ),
             ("MUNC variance EB", "enabled" if EB_use else "disabled"),
@@ -8371,7 +7407,9 @@ def getMuncTrack(
         if not np.isfinite(Nu_L) or Nu_L < 4.0:
             raise ValueError("EB_effectiveNuL must be finite and at least 4.0")
     else:
-        Nu_L = float(max(4, localWindowIntervals - 3))
+        if sizing.lengthScaleIntervals is None:
+            raise ValueError("MUNC effective sample size requires a length scale")
+        Nu_L = float(max(4, localWindowIntervals / sizing.lengthScaleIntervals - 3))
 
     # --- Determine prior strength ---
     specifiedNu0 = _coerceEBPriorStrength(EB_setNu0)
@@ -8891,7 +7929,13 @@ def chooseFeatureLength(
         )
 
     smoothSize = min(int(max(1, minSpan_)), int(maxSpan_ / 2))
-    yLogSmooth = ndimage.uniform_filter1d(yLog, size=smoothSize, mode="nearest")
+    leftPad = smoothSize // 2
+    rightPad = smoothSize - 1 - leftPad
+    paddedLog = np.pad(yLog, (leftPad, rightPad), mode="edge")
+    yLogSmooth = cconsenrich.cWindowSums(
+        paddedLog, smoothSize, leftOffset=leftPad,
+    )[leftPad:leftPad + n] / float(smoothSize)
+    del paddedLog
     kMinFeatures = int(max(1, (2 * np.log2(n + 1))))
     thrLog = float(np.mean(posLog))
     startOrder = int(max(1, maxOrder))

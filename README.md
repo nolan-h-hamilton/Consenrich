@@ -1,7 +1,7 @@
 # Consenrich
 
 <a id="consenrich-overview">
-  <img src="docs/images/fig.svg" alt="Consenrich overview">
+  <img src="docs/images/fig.svg" alt="Consenrich overview" width="85%">
 </a>
 
 Bulk and single-cell data are supported for common chromatin accessibility, transcription factor binding, histone PTMs, and other epigenomic marks.

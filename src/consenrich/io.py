@@ -19,7 +19,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
-import consenrich.ccounts as ccounts
 from consenrich import cconsenrich
 import consenrich.constants as constants
 import consenrich.core as core
@@ -89,56 +88,6 @@ def _pyBigWigAvailable() -> bool:
     return True
 
 
-def _checkSF(sf, logger, cut_=3.0):
-
-    sf = np.asarray(sf, dtype=float)
-    bad = ~np.isfinite(sf) | (sf <= 0)
-    if np.any(bad):
-        logger.warning(
-            "Scaling factors contain non-finite or non-positive values: "
-            f"nBad={bad.sum()}/{sf.size}: {sf[bad][:10]} ..."
-        )
-
-    v = sf[np.isfinite(sf) & (sf > 0)]
-    if v.size < 3:
-        return
-
-    p05, p50, p95 = np.percentile(v, [5, 50, 95])
-    ratio = p95 / p05
-
-    if ratio > cut_:
-        logger.warning(
-            "Sample scaling factors (`countingParams.normMethod: SF`) used for "
-            "library size/coverage normalization are heterogeneous: "
-            "median=%g, p95/p05=%f > %f. __IF this is unexpected__, consider "
-            "inspecting the alignment files.",
-            p50,
-            ratio,
-            cut_,
-        )
-
-
-def _resolveExtendFrom5pBPPairs(
-    treatmentExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-    controlExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-) -> Tuple[List[int], List[int]]:
-    r"""Assign consistent single-end extension lengths to treatment and control BAM files.
-
-    For single-end data, cross-correlation-based fragment estimates for control inputs
-    can be much smaller than for treatment samples due to lack of structure. This creates
-    artifacts during signal quantification and normalization steps, and it's common to use
-    the treatment fragment length for both treatment and control samples. So we do that here.
-    """
-
-    if not treatmentExtendFrom5pBP:
-        logger.warning("No treatment extension lengths provided...returning [],[]")
-        return [], []
-
-    finalTreatment = [int(x) for x in treatmentExtendFrom5pBP]
-    finalControl = [int(x) for x in treatmentExtendFrom5pBP]
-
-    return finalTreatment, finalControl
-
 def _listOrEmpty(list_):
     if list_ is None:
         return []
@@ -172,129 +121,17 @@ def _inferSourceKind(path: str) -> str:
     return "BAM"
 
 
-def _isCompressedBedGraphPath(path: str) -> bool:
-    return str(path).lower().endswith((".gz", ".bgz", ".bgzf"))
-
-
-def _bedGraphTabixIndexExists(path: str) -> bool:
-    return os.path.exists(f"{path}.tbi") or os.path.exists(f"{path}.csi")
-
-
-def _existingIndexedBedGraphPath(path: str) -> Optional[str]:
-    if _isCompressedBedGraphPath(path) and _bedGraphTabixIndexExists(path):
-        return path
-    compressedPath = f"{path}.gz"
-    if (
-        not _isCompressedBedGraphPath(path)
-        and os.path.exists(compressedPath)
-        and _bedGraphTabixIndexExists(compressedPath)
-    ):
-        return compressedPath
-    return None
-
-
-def _buildBedGraphTabixIndex(path: str) -> str:
-    sourcePath = str(path)
-    targetPath = (
-        sourcePath if _isCompressedBedGraphPath(sourcePath) else f"{sourcePath}.gz"
-    )
-    sourceDir = os.path.dirname(os.path.abspath(sourcePath)) or "."
-    tempCompressedPath = ""
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            prefix="consenrich_bedgraph_index_",
-            suffix=".bedGraph.gz",
-            delete=False,
-            dir=sourceDir,
-        ) as tempCompressedHandle:
-            tempCompressedPath = tempCompressedHandle.name
-
-        ccounts.ccounts_indexBedGraphPath(sourcePath, tempCompressedPath)
-        os.replace(tempCompressedPath, targetPath)
-        for indexSuffix in [".tbi", ".csi"]:
-            tempIndexPath = f"{tempCompressedPath}{indexSuffix}"
-            targetIndexPath = f"{targetPath}{indexSuffix}"
-            if os.path.exists(tempIndexPath):
-                os.replace(tempIndexPath, targetIndexPath)
-        tempCompressedPath = ""
-        return targetPath
-    finally:
-        for tempPath in [
-            tempCompressedPath,
-            f"{tempCompressedPath}.tbi" if tempCompressedPath else "",
-            f"{tempCompressedPath}.csi" if tempCompressedPath else "",
-        ]:
-            if tempPath and os.path.exists(tempPath):
-                try:
-                    os.remove(tempPath)
-                except OSError:
-                    pass
-
-
-def _ensureBedGraphIndexed(path: str, logger_: logging.Logger = logger) -> str:
-    indexedPath = _existingIndexedBedGraphPath(path)
-    if indexedPath is not None:
-        if indexedPath != path:
-            logger_.info(
-                "Using existing indexed bedGraph copy %s for unindexed input %s.",
-                indexedPath,
-                path,
-            )
-        return indexedPath
-
-    targetPath = path if _isCompressedBedGraphPath(path) else f"{path}.gz"
-    logger_.info(
-        "BedGraph input %s has no tabix index; creating %s and tabix index for random access.",
-        path,
-        targetPath,
-    )
-    return _buildBedGraphTabixIndex(path)
-
-
-def _prepareIndexedSources(
-    sources: Sequence[core.inputSource],
-    logger_: logging.Logger = logger,
-) -> List[core.inputSource]:
-    preparedSources: List[core.inputSource] = []
-    indexedFragments: set[str] = set()
-    for source in sources:
-        if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
-            indexedPath = _ensureBedGraphIndexed(source.path, logger_)
-            if indexedPath != source.path:
-                source = source._replace(path=indexedPath)
-        elif source.sourceKind == core.FRAGMENTS_SOURCE_KIND:
-            if source.path not in indexedFragments:
-                ccounts.ccounts_checkAlignmentPath(
-                    source.path,
-                    sourceKind=core.FRAGMENTS_SOURCE_KIND,
-                    buildIndex=True,
-                )
-                indexedFragments.add(source.path)
-        preparedSources.append(source)
-    return preparedSources
-
-
-def _normalizeSourceKind(sourceKind: Optional[str], path: str) -> str:
-    if sourceKind is None:
-        normalizedKind = _inferSourceKind(path)
-    else:
-        normalizedKind = str(sourceKind).strip().upper()
-        if normalizedKind == "AUTO":
-            normalizedKind = _inferSourceKind(path)
-
-    if normalizedKind == "CRAM":
-        raise ValueError("CRAM inputs are unsupported.")
-    if normalizedKind not in core.SUPPORTED_SOURCE_KINDS:
-        raise ValueError(f"Unsupported source kind `{normalizedKind}` for `{path}`.")
-    return normalizedKind
+def _resolveSourceKind(sourceKind: Optional[str], path: str) -> str:
+    kind = _inferSourceKind(path) if sourceKind is None else sourceKind
+    if kind not in core.SUPPORTED_SOURCE_KINDS:
+        raise ValueError(f"Unsupported source kind {kind!r}")
+    return kind
 
 
 def _coerceInputSource(
     sourceConfig: Union[str, Mapping[str, Any]],
     defaultRole: str,
     defaultBarcodeTag: str | None = None,
-    defaultFragmentPositionMode: str | None = None,
     fragmentsUseReadSupport: bool = constants.SC_DEFAULT_FRAGMENTS_USE_READ_SUPPORT,
 ) -> core.inputSource:
     if isinstance(sourceConfig, str):
@@ -308,15 +145,21 @@ def _coerceInputSource(
         selectGroups = None
         countMode = None
         bamInputMode = None
-        fragmentPositionMode = defaultFragmentPositionMode
         metadataSample = None
         cellMetadata = None
         matrixRows = None
     elif isinstance(sourceConfig, Mapping):
-        path = str(sourceConfig.get("path", "")).strip()
-        sourceKind = sourceConfig.get("format", sourceConfig.get("sourceKind", None))
+        allowedFields = {
+            "path", "format", "name", "role", "barcodeTag", "barcodeAllowListFile",
+            "barcodeGroupMapFile", "selectGroups", "metadataSample", "cellMetadata",
+            "matrixRows", "countMode", "bamInputMode", "fragmentsUseReadSupport",
+        }
+        if set(sourceConfig) - allowedFields:
+            raise ValueError(f"Unknown input sample field {sorted(set(sourceConfig) - allowedFields)}")
+        path = str(sourceConfig.get("path", ""))
+        sourceKind = sourceConfig.get("format", None)
         sampleName = sourceConfig.get("name", None)
-        role = str(sourceConfig.get("role", defaultRole)).strip().lower()
+        role = sourceConfig.get("role", defaultRole)
         barcodeTag = sourceConfig.get("barcodeTag", defaultBarcodeTag)
         barcodeAllowListFile = sourceConfig.get("barcodeAllowListFile", None)
         barcodeGroupMapFile = sourceConfig.get("barcodeGroupMapFile", None)
@@ -326,10 +169,6 @@ def _coerceInputSource(
         matrixRows = sourceConfig.get("matrixRows", None)
         countMode = sourceConfig.get("countMode", None)
         bamInputMode = sourceConfig.get("bamInputMode", None)
-        fragmentPositionMode = sourceConfig.get(
-            "fragmentPositionMode",
-            defaultFragmentPositionMode,
-        )
         fragmentsUseReadSupport = sourceConfig.get(
             "fragmentsUseReadSupport", fragmentsUseReadSupport
         )
@@ -354,16 +193,12 @@ def _coerceInputSource(
             f"Input source `{path}` expanded to {len(pathList)} paths. Use one entry per source."
         )
     normalizedPath = pathList[0]
-    normalizedKind = _normalizeSourceKind(sourceKind, normalizedPath)
+    normalizedKind = _resolveSourceKind(sourceKind, normalizedPath)
     if normalizedKind == core.H5AD_SOURCE_KIND:
         if matrixRows not in ("cells", "pseudobulks"):
             raise ValueError("H5AD input requires matrixRows: cells or pseudobulks.")
         if countMode is not None or bamInputMode is not None:
             raise ValueError("H5AD raw counts do not accept countMode or bamInputMode.")
-        if barcodeAllowListFile is not None or barcodeGroupMapFile is not None:
-            logger.warning("Ignoring barcodeAllowListFile and barcodeGroupMapFile for H5AD input %s", normalizedPath)
-            barcodeAllowListFile = None
-            barcodeGroupMapFile = None
     elif matrixRows is not None:
         raise ValueError("matrixRows requires H5AD input.")
 
@@ -378,7 +213,6 @@ def _coerceInputSource(
         selectGroups=selectGroups,
         countMode=countMode,
         bamInputMode=bamInputMode,
-        fragmentPositionMode=fragmentPositionMode,
         fragmentsUseReadSupport=fragmentsUseReadSupport,
         metadataSample=metadataSample,
         cellMetadata=cellMetadata,
@@ -394,7 +228,7 @@ def _buildPathInputSources(
     return [
         core.inputSource(
             path=path,
-            sourceKind=_normalizeSourceKind(None, path),
+            sourceKind=_resolveSourceKind(None, path),
             role=role,
             fragmentsUseReadSupport=fragmentsUseReadSupport,
         )
@@ -419,43 +253,9 @@ def _getSourceCountMode(
             else defaultBamCountMode
         ),
     )
-    if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-        if countMode in {"ffp", "ffp-center"}:
-            raise ValueError(f"countMode `{countMode}` requires BAM input")
-        normalization.validateChoice(
-            source.fragmentPositionMode,
-            default=constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
-            supported=constants.SUPPORTED_FRAGMENT_POSITION_MODES,
-            paramName='fragmentPositionMode',
-        )
+    if source.sourceKind == core.FRAGMENTS_SOURCE_KIND and countMode == "ffp":
+        raise ValueError("ffp requires BAM input")
     return countMode
-
-
-def _prepareFragmentsNormalizationMetadata(
-    sources: List[core.inputSource],
-) -> tuple[List[str | None], List[int | None], List[str]]:
-    allowListPaths: List[str | None] = []
-    selectedCellCounts: List[int | None] = []
-    tempPaths: List[str] = []
-
-    for source in sources:
-        if source.sourceKind == core.H5AD_SOURCE_KIND:
-            allowListPaths.append(None)
-            selectedCellCounts.append(source.selectedCellCount)
-            continue
-        allowListPath, tempPath = core._writeFragmentsAllowList(source)
-        allowListPaths.append(allowListPath)
-        selectedCellCount = core.getFragmentsSelectedBarcodeCount(source)
-        if selectedCellCount is None and str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-            selectedCellCount = core.ccounts.ccounts_getFragmentCellCount(
-                source.path,
-                barcodeAllowListFile=allowListPath or "",
-            )
-        selectedCellCounts.append(selectedCellCount)
-        if tempPath is not None:
-            tempPaths.append(tempPath)
-
-    return allowListPaths, selectedCellCounts, tempPaths
 
 
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
@@ -468,59 +268,6 @@ def checkControlsPresent(inputArgs: core.inputParams) -> bool:
         bool(inputArgs.bamFilesControl)
         and isinstance(inputArgs.bamFilesControl, list)
         and len(inputArgs.bamFilesControl) > 0
-    )
-
-
-def getReadLengths(
-    inputArgs: core.inputParams,
-    countingArgs: core.countingParams,
-    samArgs: core.samParams,
-) -> List[int]:
-    r"""Get read lengths for each BAM file in the input arguments.
-
-    :param inputArgs: core.inputParams object containing BAM file paths.
-    :param countingArgs: core.countingParams object containing number of reads.
-    :param samArgs: core.samParams object containing SAM thread and flag exclude parameters.
-    :return: List of read lengths for each BAM file.
-    """
-    if not inputArgs.bamFiles:
-        raise ValueError("No BAM files provided in the input arguments.")
-
-    if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
-        raise ValueError("bam files list is empty")
-
-    allowThreads = int(samArgs.samThreads) <= 1
-
-    def _getReadLengthForTask(source) -> int:
-        sourceKind = str(source.sourceKind).upper()
-        if sourceKind != "BAM":
-            return 0
-        countMode = _getSourceCountMode(source, samArgs.defaultCountMode)
-        bamInputMode = core._resolveSourceBamInputModeForCountMode(
-            source, samArgs.bamInputMode, countMode
-        )
-        flagExclude = samArgs.samFlagExclude
-        if source.barcodeAllowListFile:
-            flagExclude = core._resolveSourceFlagExclude(flagExclude, bamInputMode)
-            if bamInputMode == "fragments":
-                flagExclude |= 128
-        return core.getReadLength(
-            source.path,
-            100,
-            1000,
-            samArgs.samThreads,
-            flagExclude,
-            sourceKind=sourceKind,
-            barcodeAllowListFile=source.barcodeAllowListFile,
-            barcodeTag=source.barcodeTag,
-        )
-
-    treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
-    return _threadMap(
-        treatmentSources or [core.inputSource(path) for path in inputArgs.bamFiles],
-        _getReadLengthForTask,
-        "read lengths",
-        allowThreads=allowThreads,
     )
 
 
@@ -550,13 +297,30 @@ def getEffectiveGenomeSizes(
         raise ValueError("Genome name must be a non-empty string.")
     if sources is not None and len(sources) != len(readLengths):
         raise ValueError("Sources and read lengths must have equal lengths")
+    if sources is None or any(source.sourceKind == "BAM" for source in sources):
+        assemblySizes = constants.assemblyChromosomeSizes[genomeName]
+        expectedTerritory = set(constants.getAssemblyChromosomes(genomeName)) - set(genomeArgs.excludeForNorm or ())
+        territory = set(genomeArgs.normalizationChromosomes)
+        if territory != expectedTerritory or any(
+            genomeArgs.chromosomeSizes[chromosome] != assemblySizes[chromosome]
+            for chromosome in territory
+        ):
+            raise ValueError(
+                "Automatic BAM RPGC requires assembly chromosome geometry and normalization territory. "
+                "Set genomeParams.effectiveGenomeSize for a custom territory."
+            )
     fragmentSize = None
     if sources is not None and any(source.sourceKind == "FRAGMENTS" for source in sources):
         fragmentSize = constants.getNonNGenomeSize(
             genomeName,
-            genomeArgs.chromSizesFile,
-            genomeArgs.excludeForNorm,
+            {
+                chromosome: genomeArgs.chromosomeSizes[chromosome]
+                for chromosome in genomeArgs.normalizationChromosomes
+            },
         )
+    physicalSizes = genomeArgs.chromosomeSizes
+    excludedBases = sum(physicalSizes.get(chromosome, 0)
+                        for chromosome in (genomeArgs.excludeForNorm or ()))
     return [
         (
             fragmentSize
@@ -564,7 +328,7 @@ def getEffectiveGenomeSizes(
             else (
                 0
                 if int(readLength) <= 0
-                else constants.getEffectiveGenomeSize(genomeName, readLength)
+                else constants.getEffectiveGenomeSize(genomeName, readLength) - excludedBases
             )
         )
         for index, readLength in enumerate(readLengths)
@@ -595,13 +359,13 @@ def convertBedGraphToBigWig(
                 f"bedGraph file {bedgraph} does not exist. Skipping bigWig conversion."
             )
             continue
-        if not os.path.exists(chromSizesFile):
+        if not isinstance(chromSizesFile, Mapping) and not os.path.exists(chromSizesFile):
             logger.warning(
                 f"{chromSizesFile} does not exist. Skipping bigWig conversion."
             )
             return
         if chromSizes is None:
-            chromSizes = _readChromSizes(chromSizesFile)
+            chromSizes = list(misc_util.getChromSizesDict(chromSizesFile).items())
         chromOrder = [chrom for chrom, _size in chromSizes]
         if os.path.abspath(bedgraph) not in validatedPaths:
             try:
@@ -642,38 +406,6 @@ def convertBedGraphToBigWig(
                 logger.info(f"Deleted converted bedGraph {bedgraph}.")
 
 
-def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:
-    chromSizes: List[Tuple[str, int]] = []
-    chromSizeByName: Dict[str, int] = {}
-    with open(chromSizesFile, "r", encoding="utf-8") as handle:
-        for lineNumber, line in enumerate(handle, start=1):
-            parts = line.rstrip("\n").split()
-            if len(parts) == 0 or parts[0].startswith("#"):
-                continue
-            if len(parts) < 2:
-                raise ValueError(
-                    f"Malformed chromosome sizes row {lineNumber} in {chromSizesFile}"
-                )
-            chrom = str(parts[0])
-            try:
-                chromSize = int(parts[1])
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid chromosome size on row {lineNumber} in {chromSizesFile}"
-                ) from e
-            if chromSize <= 0:
-                raise ValueError(
-                    f"Chromosome {chrom} has non-positive size on row {lineNumber}"
-                )
-            if chrom in chromSizeByName:
-                raise ValueError(f"Duplicate chromosome {chrom} in {chromSizesFile}")
-            chromSizes.append((chrom, chromSize))
-            chromSizeByName[chrom] = chromSize
-    if len(chromSizes) == 0:
-        raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
-    return chromSizes
-
-
 class _BedGraphDataReader:
     def __init__(self, handle):
         self.handle = handle
@@ -700,7 +432,7 @@ class _BedGraphDataReader:
 
 def _convertBedGraphToBigWigPyBigWig(
     bedgraphPath: str,
-    chromSizesFile: str,
+    chromSizesFile: str | Mapping[str, int],
     bigwigPath: str,
     chunkSize: int = 200_000,
     *,
@@ -715,12 +447,12 @@ def _convertBedGraphToBigWigPyBigWig(
         ) from e
 
     chromSizes_ = (
-        list(_readChromSizes(chromSizesFile))
+        list(misc_util.getChromSizesDict(chromSizesFile).items())
         if chromSizes is None
         else [(str(chrom), int(size)) for chrom, size in chromSizes]
     )
     if len(chromSizes_) == 0:
-        raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
+        raise ValueError("Chromosome sizes must not be empty")
     chromNames = [chrom for chrom, _size in chromSizes_]
     chromIndex = pd.Index(chromNames, dtype=object)
     sizes = np.asarray([size for _chrom, size in chromSizes_], dtype=np.int64)
@@ -777,7 +509,7 @@ def _convertBedGraphToBigWigPyBigWig(
                     chrom = frame["chrom"].iloc[int(unknown[0])]
                     raise ValueError(
                         f"Chromosome {chrom} in {bedgraphPath} is not present "
-                        f"in {chromSizesFile}"
+                        "in chromosome sizes"
                     )
                 try:
                     starts = frame["start"].to_numpy(dtype=np.int64)
@@ -1172,5 +904,4 @@ __all__ = [
     "checkMatchingEnabled",
     "convertBedGraphToBigWig",
     "getEffectiveGenomeSizes",
-    "getReadLengths",
 ]
