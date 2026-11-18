@@ -116,22 +116,22 @@ API Reference
            - Use / default
          * - ``binSizeBP``
            - ``int | None``
-           - Resolved from ``countingParams.intervalSizeBP``.
+           - Positive bin size in bp for the estimation grid, independent of ``countingParams.intervalSizeBP``. Default: ``null`` uses ``150`` for BAM and fragment inputs. H5AD inputs use their own bin size and ignore other values.
          * - ``blockCount``
            - ``int``
            - Maximum number of randomly sampled genomic blocks. Default: ``1024``.
          * - ``blockWidthBP``
            - ``int``
-           - Positive sampled block width in bp, divisible by the bin size. Default: ``500000`` rounded up to the count grid.
+           - Positive sampled block width in bp, rounded down to a whole number of bins. Default: ``500000``.
          * - ``scaleStartBP``
            - ``int | None``
-           - Smallest nominal filter width in bp. Default: ``null`` uses three bins. Explicit values also use at least three bins.
+           - Smallest nominal filter width in bp, with a minimum of three bins. Default: ``500``. ``null`` uses three bins.
          * - ``scaleEndBP``
            - ``int | None``
            - Largest nominal filter width in bp, capped at the block width. Default: ``null`` uses ``blockWidthBP``.
          * - ``scaleFactor``
            - ``float``
-           - Multiplier greater than one for nominal filter widths. Default: ``1.5``. Realized widths use odd bin counts.
+           - Multiplier greater than one for nominal filter widths. Default: ``1.25``. Realized widths use odd bin counts.
          * - ``filterType``
            - ``str``
            - Smoothing filter: ``median`` or ``mean``. Default: ``median``.
@@ -143,10 +143,10 @@ API Reference
            - Tail probability for Poisson trimming and the binomial enrichment test. Default: ``0.05``.
          * - ``pValueWindowBP``
            - ``int``
-           - Positive reference width in bp for count scaling in longer candidate regions. Default: ``1500``.
+           - Positive reference width in bp for count scaling in longer candidate regions. Default: ``2500``.
          * - ``backgroundWindowBP``
            - ``int | None``
-           - Positive local null-count window width in bp. Default: ``null`` uses one tenth of the block width, bounded to 50000-5000000 bp and at least one bin.
+           - Positive local null-count window width in bp. Default: ``null`` uses one tenth of the block width, bounded to 50000-5000000 bp.
          * - ``confidenceLevel``
            - ``float``
            - Confidence level for the length-scale interval. Default: ``0.95``.

@@ -1,3 +1,4 @@
+import logging
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from consenrich import config, constants, core, io, sc_runs, consenrich as runtime
+from consenrich import config, constants, core, countingAdapter, io, sc_runs, consenrich as runtime
 
 
 @pytest.mark.parametrize("kind,method,paired,factor", [
@@ -127,6 +128,114 @@ def testCountingRouting(tmp_path, monkeypatch, kind, method, paired, factor):
         parsed["genomeArgs"] = parsed["genomeArgs"]._replace(chromosomes=["chr2"])
         with pytest.raises(ValueError, match="missing requested fitting chromosomes"):
             runtime._runConfigured(parsed, args)
+
+
+def _lengthScaleConfig(tmp_path, monkeypatch, kind, binSizeBP):
+    pysam = pytest.importorskip("pysam")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path))
+    sizes, empty = tmp_path / "chrom.sizes", tmp_path / "empty.bed"
+    sizes.write_text("chr1\t10007\n")
+    empty.touch()
+    sources = []
+    for index in range(2):
+        path = tmp_path / f"sample{index}.{kind.lower()}"
+        if kind == "BAM":
+            header = {"HD": {"SO": "coordinate"}, "SQ": [{"SN": "chr1", "LN": 10007}]}
+            with pysam.AlignmentFile(path, "wb", header=header) as stream:
+                for position in 20 + np.arange(300) * 30:
+                    record = pysam.AlignedSegment(stream.header)
+                    record.query_name, record.query_sequence = str(position), "A" * 50
+                    record.flag, record.reference_id, record.reference_start = 0, 0, int(position)
+                    record.mapping_quality, record.cigar = 60, [(0, 50)]
+                    stream.write(record)
+            pysam.index(str(path))
+        else:
+            anndata = pytest.importorskip("anndata")
+            bins = np.arange(0, 10007, 50)
+            matrix = (np.arange(len(bins)) % 7 + index + 1).astype(np.int32)[None, :]
+            variables = pd.DataFrame({"chrom": "chr1", "start": bins, "end": np.minimum(bins + 50, 10007)},
+                                     index=[f"bin{i}" for i in range(len(bins))])
+            anndata.AnnData(X=matrix, var=variables).write_h5ad(path)
+        sources.append({"path": str(path), "format": kind, "name": f"sample{index}"})
+        if kind == "H5AD":
+            sources[-1]["matrixRows"] = "pseudobulks"
+    return config.readConfig({
+        "experimentName": "lengthScaleBin", "inputParams": {"samples": sources},
+        "countingParams": {"centerMB": False},
+        "genomeParams": {"name": "hg38", "chromSizesFile": str(sizes), "chromosomes": ["chr1"],
+                         "blacklistFile": str(empty), "sparseBedFile": str(empty), "effectiveGenomeSize": 10007},
+        "samParams": {"inferFragmentLength": False}, "matchingParams": {"enabled": False},
+        "observationParams": {"lengthScaleOptions": {"binSizeBP": binSizeBP}},
+        "uncertaintyCalibrationParams": {"enabled": False},
+        "fitParams": {"ECM_outerIters": 2, "ECM_minOuterIters": 2},
+        "outputParams": {"convertToBigWig": False, "writeRunSummary": False, "stateShrinkageEnabled": False,
+                         "writeStateShrinkage": False, "plotOptimizationPath": False,
+                         "plotPrecisionReweightingHistograms": False, "plotNullCalibrationDiagnostics": False},
+    })
+
+
+@pytest.mark.parametrize("kind,configuredBinBP,passedBinBP,ignoredBinBP", [
+    ("H5AD", None, None, None), ("H5AD", 25, 50, 25), ("H5AD", 50, 50, None),
+    ("BAM", None, None, None), ("BAM", 25, 25, None),
+])
+def testLengthScaleBinSizePassedToCcounts(
+    tmp_path, monkeypatch, kind, configuredBinBP, passedBinBP, ignoredBinBP,
+):
+    # ccounts chooses the bin size when none is passed
+    parsed = _lengthScaleConfig(tmp_path, monkeypatch, kind, configuredBinBP)
+    assert parsed["countingArgs"].intervalSizeBP == 50
+    assert parsed["observationArgs"].lengthScaleOptions["binSizeBP"] == configuredBinBP
+    passed = []
+
+    def estimate(reader, *, sampleIDs, options, excludeRanges):
+        passed.append((reader.grid.binSizeBP, options.binSizeBP))
+        return {"status": "estimated", "scaleBP": 200.0}
+
+    messages = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    monkeypatch.setattr(counts.Reader, "estimateLengthScale", estimate)
+    handler = Capture(level=logging.INFO)
+    savedLevel = runtime.logger.level
+    runtime.logger.addHandler(handler)
+    runtime.logger.setLevel(logging.INFO)
+    try:
+        args = SimpleNamespace(verbose=False, verbose2=False, config="lengthScaleBin", logFile=None,
+                               verbosity="quiet", progress=False)
+        runtime._runConfigured(parsed, args, sharedReferenceGrid={"chr1": (0, 10007)})
+    finally:
+        runtime.logger.setLevel(savedLevel)
+        runtime.logger.removeHandler(handler)
+    assert passed == [(50, passedBinBP)]
+    notices = [message for message in messages if message.startswith("Length scale bin")]
+    if ignoredBinBP is None:
+        assert not notices
+    else:
+        assert notices == [
+            "Length scale bin: H5AD counts cannot be rebinned, so length scale estimation "
+            "will use the bin size that was specified for the H5AD input and ignore "
+            f"`lengthScaleOptions.binSizeBP={ignoredBinBP}`"
+        ]
+
+
+@pytest.mark.parametrize("kind,expectedBinBP", [("BAM", 150), ("H5AD", 50)])
+def testLengthScaleDefaultBinSizeFromCcounts(tmp_path, monkeypatch, kind, expectedBinBP):
+    # the default comes from ccounts, not from countingParams.intervalSizeBP
+    parsed = _lengthScaleConfig(tmp_path, monkeypatch, kind, None)
+    options = counts.LengthScaleOptions(**{
+        **parsed["observationArgs"].lengthScaleOptions,
+        "blockCount": 2, "blockWidthBP": 1000, "scaleEndBP": None,
+    })
+    with countingAdapter.openReader(parsed) as reader:
+        assert reader.grid.binSizeBP == 50
+        result = reader.estimateLengthScale(
+            sampleIDs=["treatment0", "treatment1"], options=options, excludeRanges={},
+        )
+    assert result["settings"]["binSizeBP"] == expectedBinBP
 
 
 def testGenomeResources(tmp_path):

@@ -1602,24 +1602,15 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
         dottedKey = f"observationParams.lengthScaleOptions.{optionName}"
         if _cfgHas(configData, dottedKey):
             lengthScaleOptionsValues[optionName] = _cfgGet(configData, dottedKey)
-    configuredBinSize = lengthScaleOptionsValues.get("binSizeBP")
-    if configuredBinSize is not None and configuredBinSize != countingParams.intervalSizeBP:
-        logger.warning(
-            "observationParams.lengthScaleOptions.binSizeBP=%r is ignored. "
-            "Using countingParams.intervalSizeBP=%d.",
-            configuredBinSize, countingParams.intervalSizeBP,
-        )
-    lengthScaleOptionsValues["binSizeBP"] = countingParams.intervalSizeBP
-    if "blockWidthBP" not in lengthScaleOptionsValues:
-        defaultWidth = LengthScaleOptions.__dataclass_fields__["blockWidthBP"].default
-        lengthScaleOptionsValues["blockWidthBP"] = (
-            (defaultWidth + countingParams.intervalSizeBP - 1)
-            // countingParams.intervalSizeBP * countingParams.intervalSizeBP
-        )
-    if "backgroundWindowBP" not in lengthScaleOptionsValues:
-        lengthScaleOptionsValues["backgroundWindowBP"] = max(
-            countingParams.intervalSizeBP,
-            min(5_000_000, max(50_000, lengthScaleOptionsValues["blockWidthBP"] // 10)),
+    # ccounts picks the estimation bin size when this is null
+    lengthScaleBinSizeBP = lengthScaleOptionsValues.get("binSizeBP")
+    if lengthScaleBinSizeBP is not None and (
+        isinstance(lengthScaleBinSizeBP, (bool, np.bool_))
+        or not isinstance(lengthScaleBinSizeBP, (int, np.integer))
+        or lengthScaleBinSizeBP <= 0
+    ):
+        raise ValueError(
+            "observationParams.lengthScaleOptions.binSizeBP must be a positive integer or null"
         )
     lengthScaleOptions = asdict(LengthScaleOptions(**lengthScaleOptionsValues))
     muncTrendBlockSizeBP = _cfgGet(

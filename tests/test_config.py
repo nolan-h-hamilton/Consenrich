@@ -3380,6 +3380,8 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
        for value in (True, False, 1.5, "100")]
     + [
         ({"observationParams.lengthScaleOptions": {"blockCount": 0}}, "blockCount"),
+        *(({"observationParams.lengthScaleOptions": {"binSizeBP": value}}, "binSizeBP")
+          for value in (True, 0, -150, 1.5, "invalid")),
         ({"observationParams.lengthScaleOptions": {"filterType": "invalid"}}, "filterType"),
         ({"observationParams.lengthScaleOptions": {"scaleEndBP": 0}}, "scaleEndBP"),
         ({"observationParams.lengthScaleOptions": 5}, "lengthScaleOptions"),
@@ -3423,7 +3425,7 @@ def testLengthScaleConfigPreservesExplicitValuesAndOptions(tmp_path, monkeypatch
         assert observation.lengthScaleOptions["blockCount"] == 12
         assert observation.lengthScaleOptions["blockWidthBP"] == 200000
         assert observation.lengthScaleOptions["scaleEndBP"] == 50000
-        assert observation.lengthScaleOptions["binSizeBP"] == 50
+        assert observation.lengthScaleOptions["binSizeBP"] is None
         assert observation.lengthScaleOptions["filterType"] == "mean"
         assert observation.muncTrendBlockSizeBP == 250
         assert observation.muncLocalWindowSizeBP == 500
@@ -3433,16 +3435,16 @@ def testLengthScaleConfigPreservesExplicitValuesAndOptions(tmp_path, monkeypatch
     config["countingParams.intervalSizeBP"] = 300
     config["observationParams.lengthScaleOptions"] = {}
     options = readConfig(config)["observationArgs"].lengthScaleOptions
-    assert options["binSizeBP"] == 300
-    assert options["blockWidthBP"] % 300 == 0
+    assert options["binSizeBP"] is None
+    assert options["blockWidthBP"] == 500000
     assert options["scaleEndBP"] == options["blockWidthBP"]
-    config["countingParams.intervalSizeBP"] = 1000
     for endBP in (None, 200000):
         config["observationParams.lengthScaleOptions"] = {
-            "blockWidthBP": 500000, "scaleEndBP": endBP,
+            "binSizeBP": 1000, "blockWidthBP": 500000, "scaleEndBP": endBP,
         }
         options = readConfig(config)["observationArgs"].lengthScaleOptions
         expectedEndBP = 500000 if endBP is None else endBP
+        assert options["binSizeBP"] == 1000
         assert options["scaleEndBP"] == expectedEndBP
         result = ccounts.estimateLengthScaleCounts(
             np.zeros((2, 1, 500), dtype=np.int32), 1000,
@@ -3452,47 +3454,78 @@ def testLengthScaleConfigPreservesExplicitValuesAndOptions(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize(
-    ("settingsText", "expectedBinBP", "conflict"),
+    ("settingsText", "expectedIntervalBP", "expectedBinBP"),
     [
-        ("observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 50, True),
-        ("observationParams.lengthScaleOptions: {binSizeBP: 100}", 50, True),
-        ("observationParams.lengthScaleOptions.binSizeBP: 10", 50, True),
-        ("observationParams.lengthScaleOptions.binSizeBP: 50", 50, False),
-        ("observationParams: {lengthScaleOptions: {binSizeBP: true}}", 50, True),
-        ("observationParams.lengthScaleOptions: {binSizeBP: 0}", 50, True),
-        ("observationParams.lengthScaleOptions.binSizeBP: invalid", 50, True),
-        ("countingParams: {intervalSizeBP: 25}\n"
-         "observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 25, False),
-        ("countingParams.intervalSizeBP: 50\n"
-         "observationParams.lengthScaleOptions: {binSizeBP: 25}", 50, True),
+        ("", 50, None),
+        ("countingParams.intervalSizeBP: 25", 25, None),
+        ("countingParams: {intervalSizeBP: 300}", 300, None),
+        ("observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 50, 25),
+        ("observationParams.lengthScaleOptions: {binSizeBP: 100}", 50, 100),
+        ("observationParams.lengthScaleOptions.binSizeBP: 10", 50, 10),
         ("countingParams.intervalSizeBP: 100\n"
-         "observationParams.lengthScaleOptions.binSizeBP: 25", 100, True),
-        ("observationParams: {lengthScaleOptions: {binSizeBP: null}}", 50, False),
+         "observationParams.lengthScaleOptions.binSizeBP: 25", 100, 25),
+        ("countingParams: {intervalSizeBP: 25}\n"
+         "observationParams: {lengthScaleOptions: {binSizeBP: 25}}", 25, 25),
+        ("observationParams: {lengthScaleOptions: {binSizeBP: null}}", 50, None),
         ("countingParams.intervalSizeBP: 25\n"
-         "observationParams.lengthScaleOptions: {binSizeBP: null}", 25, False),
+         "observationParams.lengthScaleOptions: {binSizeBP: null}", 25, None),
+        ("inputParams.samples: [{path: cells.h5ad, matrixRows: cells}]\n"
+         "countingParams.intervalSizeBP: 300", 300, None),
+        ("inputParams.samples: [{path: cells.h5ad, matrixRows: cells}]\n"
+         "observationParams.lengthScaleOptions.binSizeBP: 25", 50, 25),
     ],
 )
-def testLengthScaleBinSizeUsesCountingGrid(
-    tmp_path, monkeypatch, caplog, settingsText, expectedBinBP, conflict,
+def testLengthScaleBinSizeIsIndependentOfCountingGrid(
+    tmp_path, monkeypatch, caplog, settingsText, expectedIntervalBP, expectedBinBP,
 ):
+    # ccounts chooses the estimation bin size when the option is null
     setupGenomeFiles(tmp_path, monkeypatch)
+    inputText = "" if "inputParams" in settingsText else "inputParams.bamFiles: [smallTest.bam]\n"
     configPath = writeConfigFile(
         tmp_path, "binSize.yaml",
-        "inputParams.bamFiles: [smallTest.bam]\n"
-        "genomeParams.name: testGenome\n" + settingsText,
+        inputText + "genomeParams.name: testGenome\n" + settingsText,
     )
     with caplog.at_level(logging.WARNING):
         parsed = readConfig(configPath)
-    assert parsed["countingArgs"].intervalSizeBP == expectedBinBP
-    assert parsed["observationArgs"].lengthScaleOptions["binSizeBP"] == expectedBinBP
-    warnings = [
-        record.getMessage() for record in caplog.records
-        if "lengthScaleOptions.binSizeBP" in record.getMessage()
+    options = parsed["observationArgs"].lengthScaleOptions
+    assert parsed["countingArgs"].intervalSizeBP == expectedIntervalBP
+    assert options["binSizeBP"] == expectedBinBP
+    assert options["blockWidthBP"] == 500000
+    assert not [
+        record for record in caplog.records
+        if "lengthScaleOptions" in record.getMessage()
     ]
-    assert len(warnings) == int(conflict)
-    if conflict:
-        assert "countingParams.intervalSizeBP" in warnings[0]
-        assert str(expectedBinBP) in warnings[0]
+
+
+def test_cli_logging_routes_ccounts_records():
+    packageLogger = logging.getLogger("consenrich")
+    countsLogger = logging.getLogger("ccounts")
+    savedHandlers = packageLogger.handlers
+    savedLevel = packageLogger.level
+    savedPropagate = packageLogger.propagate
+    packageLogger.handlers = []
+    try:
+        shown = {}
+        for verbosity in ("quiet", "normal", "verbose"):
+            stream = io.StringIO()
+            consenrich_cli._configureCliLogging(
+                None, verbose=False, verbose2=False, verbosity=verbosity,
+                progress="off", consoleStream=stream,
+            )
+            assert countsLogger.propagate is False
+            logging.getLogger("ccounts.lengthScale").info("bin size note")
+            logging.getLogger("ccounts.lengthScale").warning("bin size fallback")
+            shown[verbosity] = stream.getvalue().splitlines()
+        assert shown["quiet"] == shown["normal"] == ["WARNING: bin size fallback"]
+        assert shown["verbose"] == ["bin size note", "WARNING: bin size fallback"]
+    finally:
+        consenrich_cli._removeCliHandlers(packageLogger)
+        packageLogger.handlers = savedHandlers
+        packageLogger.setLevel(savedLevel)
+        packageLogger.propagate = savedPropagate
+    assert not countsLogger.handlers
+    assert countsLogger.propagate is True
+    assert countsLogger.level == logging.NOTSET
 
 
 @pytest.mark.parametrize(
@@ -3577,7 +3610,7 @@ def test_cli_config_overrides(tmp_path, monkeypatch, flags):
     assert configureLogging is consenrich_cli._configureCliLogging
     assert config["samArgs"].samThreads == 3
     assert config["countingArgs"].intervalSizeBP == 25
-    assert config["observationArgs"].lengthScaleOptions["binSizeBP"] == 25
+    assert config["observationArgs"].lengthScaleOptions["binSizeBP"] == 50
     assert config["fitArgs"].ECM_backgroundLengthScaleMultiplier == 3
     assert args.verbosity == ("debug" if flags else "verbose")
     assert args.progress == "off"

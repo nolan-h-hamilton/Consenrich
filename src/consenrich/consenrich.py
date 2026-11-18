@@ -12,6 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import List, Optional, Tuple, Dict, Any, Union, Sequence, NamedTuple
 import sys
 import numpy as np
@@ -4111,6 +4112,12 @@ def _removeCliHandlers(packageLogger: logging.Logger) -> None:
                 handler.close()
             except Exception:
                 pass
+    countsLogger = logging.getLogger("ccounts")
+    for handler in list(countsLogger.handlers):
+        if getattr(handler, _CLI_HANDLER_ATTR, False):
+            countsLogger.removeHandler(handler)
+            countsLogger.setLevel(logging.NOTSET)
+            countsLogger.propagate = True
 
 
 def _defaultConfigLogPath(configData: Mapping[str, Any]) -> Path:
@@ -4163,6 +4170,11 @@ def _configureCliLogging(
     )
     consoleHandler.setFormatter(_ConsoleFormatter(colorPhaseHeaders=consoleColor))
     packageLogger.addHandler(consoleHandler)
+    # ccounts reports its own choices, such as the length scale bin size
+    countsLogger = logging.getLogger("ccounts")
+    countsLogger.setLevel(logging.INFO)
+    countsLogger.propagate = False
+    countsLogger.addHandler(consoleHandler)
 
     if logFile is None:
         return None
@@ -4176,6 +4188,7 @@ def _configureCliLogging(
         fileHandler.setLevel(logging.DEBUG)
         fileHandler.setFormatter(_JSONLFormatter())
         packageLogger.addHandler(fileHandler)
+        countsLogger.addHandler(fileHandler)
         return logPath
     except Exception as exc:
         logger.warning(
@@ -5496,6 +5509,17 @@ def _runWithCounts(config, args, sharedReferenceGrid, countsReader):
                 exclusions[chromosome] = ranges
             options = counts.LengthScaleOptions(**(observationArgs.lengthScaleOptions or {}))
             _logCliPhase("Length scale", "samples=%d blocks=%d", len(treatmentIDs), options.blockCount)
+            # ccounts chooses the bin size when it is unset and rejects an H5AD mismatch
+            if options.binSizeBP not in (None, intervalSizeBP) and any(
+                source.sourceKind == "H5AD" for source in treatmentSources
+            ):
+                _logCliSubphase(
+                    "Length scale bin: H5AD counts cannot be rebinned, so length scale "
+                    "estimation will use the bin size that was specified for the H5AD input "
+                    "and ignore `lengthScaleOptions.binSizeBP=%d`",
+                    options.binSizeBP,
+                )
+                options = replace(options, binSizeBP=intervalSizeBP)
             lengthScaleDiagnostics_ = countsReader.estimateLengthScale(
                 sampleIDs=treatmentIDs, options=options, excludeRanges=exclusions,
             )

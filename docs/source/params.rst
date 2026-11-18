@@ -50,6 +50,16 @@ Estimation Controls
        whose filter width calculations provide the intuition for length-scale
        estimation in Consenrich.
 
+       * **Estimation grid**
+
+         Length-scale estimation counts on its own grid, independent of
+         ``countingParams.intervalSizeBP``.
+
+         * ``binSizeBP``: estimation bin size in bp. The default ``null``
+           uses ``150`` bp for BAM and fragment inputs. H5AD counts cannot be
+           rebinned, so H5AD inputs use their own bin size and ignore other
+           values.
+
        * **Genomic block sampling for UQ**
 
          Contiguous genomic blocks are first sampled at random, excluding
@@ -57,20 +67,20 @@ Estimation Controls
          quantifies the estimator's sampling variance.
 
          * ``blockCount``: maximum number of sampled blocks (default ``1024``).
-         * ``blockWidthBP``: block width in bp (default ``500000``).
-           Use a multiple of the bin size. The default rounds up automatically.
+         * ``blockWidthBP``: block width in bp (default ``500000``),
+           rounded down to a whole number of bins.
          * ``randomSeed``: sampling seed (default ``42``).
        * **Multiscale search**
 
          Smoothed count tracks are compared at candidate filter widths
          to identify the scales of enriched regions.
 
-         * ``scaleStartBP``: smallest filter width. The default ``null`` uses
-           three counting bins.
+         * ``scaleStartBP``: smallest filter width (default ``500`` bp),
+           with a minimum of three bins. ``null`` uses three bins.
          * ``scaleEndBP``: largest filter width. The default ``null`` uses
            ``blockWidthBP``. Candidate widths are capped at the block width.
-         * ``scaleFactor``: multiplier for nominal filter widths (default ``1.5``),
-           e.g. :math:`150 \to 225 \to 337.5 \to \cdots` bp before rounding to
+         * ``scaleFactor``: multiplier for nominal filter widths (default ``1.25``),
+           e.g. :math:`500 \to 625 \to 781.25 \to \cdots` bp before rounding to
            odd bin counts.
          * ``filterType``: ``median`` (default) or ``mean``.
 
@@ -84,10 +94,9 @@ Estimation Controls
          * ``significanceLevel``: tail probability for Poisson trimming and
            the binomial test (default ``0.05``).
          * ``pValueWindowBP``: reference width for count scaling in longer
-           candidates (default ``1500`` bp).
+           candidates (default ``2500`` bp).
          * ``backgroundWindowBP``: local null-count window width. The default
-           is one tenth of ``blockWidthBP``, bounded to 50000--5000000 bp and
-           at least one counting bin.
+           is one tenth of ``blockWidthBP``, bounded to 50000--5000000 bp.
 
        * **Uncertainty and output**
 
