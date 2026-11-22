@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from dataclasses import replace
+import os
 from pathlib import Path
 
 import ccounts as counts
@@ -56,9 +57,10 @@ def sourceSpecs(config):
             options = None
             if source.sourceKind == "BAM":
                 extension = extensions[index] if extensions else None
+                bamMode = source.bamInputMode or samArgs.bamInputMode
                 options = counts.CountOptions(
                     countMode=source.countMode or samArgs.defaultCountMode,
-                    bamInputMode=source.bamInputMode or samArgs.bamInputMode,
+                    bamInputMode=bamMode,
                     flagExclude=samArgs.samFlagExclude,
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLengthBP=(-1 if minimumTemplateLength is None
@@ -67,9 +69,9 @@ def sourceSpecs(config):
                     shiftForward5p=samArgs.shiftForward5p,
                     shiftReverse5p=samArgs.shiftReverse5p,
                     extendFrom5pBP=extension,
-                    inferFragmentLength=role == "treatment" and (
+                    inferFragmentLength=role == "treatment" and bamMode != "fragments" and (
                         (samArgs.inferFragmentLength is None and extension is None
-                         and (source.bamInputMode or samArgs.bamInputMode) == "auto")
+                         and bamMode == "auto")
                         or bool(samArgs.inferFragmentLength)
                     ),
                 )
@@ -87,13 +89,43 @@ def sourceSpecs(config):
     return result
 
 
+def _automaticThreadCount(sources):
+    handleCount = sum(source.sourceKind != "H5AD" for source in sources)
+    if not handleCount:
+        return 1
+    # Paired-end fragment length estimation can open one additional BAM handle.
+    handleCount += any(source.sourceKind == "BAM" for source in sources)
+
+    try:
+        if hasattr(os, "process_cpu_count"):
+            cpuBudget = os.process_cpu_count()
+        elif hasattr(os, "sched_getaffinity"):
+            cpuBudget = len(os.sched_getaffinity(0))
+        else:
+            cpuBudget = os.cpu_count()
+    except OSError:
+        cpuBudget = None
+
+    slurmAllocation = os.environ.get("SLURM_CPUS_PER_TASK")
+    if slurmAllocation is not None:
+        slurmCPUs = int(slurmAllocation)
+        if slurmCPUs < 1:
+            raise ValueError("SLURM_CPUS_PER_TASK must be a positive integer")
+        cpuBudget = min(cpuBudget, slurmCPUs) if cpuBudget else slurmCPUs
+
+    # Reserve the calling thread and one HTSlib I/O thread per handle.
+    return max(1, min(4, ((cpuBudget or 1) - 1) // handleCount - 1))
+
+
 @contextmanager
 def openReader(config):
+    samArgs = config["samArgs"]
     grid = counts.GridSpec(
         config["genomeArgs"].chromosomeSizes,
         binSizeBP=config["countingArgs"].intervalSizeBP,
     )
     specs = sourceSpecs(config)
+    threads = _automaticThreadCount(specs) if samArgs.samThreads == "auto" else samArgs.samThreads
     prepared = []
     for source in specs:
         if source.sourceKind in ("BAM", "FRAGMENTS"):
@@ -105,18 +137,20 @@ def openReader(config):
             else:
                 indexPaths = (Path(source.path + ".tbi"), Path(source.path + ".csi"))
             if not any(path.is_file() for path in indexPaths):
-                counts.prepareIndex(source.path, source.sourceKind, threads=config["samArgs"].samThreads)
+                counts.prepareIndex(source.path, source.sourceKind, threads=threads)
         elif source.sourceKind == "BEDGRAPH":
             indexed = Path(source.path + ".tbi").exists() or Path(source.path + ".csi").exists()
             if not indexed:
                 target = source.path + ".bgz"
                 if not Path(target).exists() or not (Path(target + ".tbi").exists() or Path(target + ".csi").exists()):
                     counts.prepareIndex(source.path, "BEDGRAPH", targetPath=target,
-                                        threads=config["samArgs"].samThreads)
+                                        threads=threads)
                 source = replace(source, path=target)
         prepared.append(source)
-    with counts.openSources(prepared, grid, threads=config["samArgs"].samThreads) as reader:
-        samArgs = config["samArgs"]
+    with counts.openSources(
+        prepared, grid, threads=threads,
+        fragmentLengthOptions=samArgs.fragmentLengthOptions,
+    ) as reader:
         for index, source in enumerate(config["inputArgs"].controlSources or ()):
             referenceID = f"reference{index}"
             reference = reader.getSourceInfo(referenceID)

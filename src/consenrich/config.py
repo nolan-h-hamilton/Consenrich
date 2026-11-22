@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 import yaml
-from ccounts import LengthScaleOptions
+from ccounts import FragmentLengthOptions, LengthScaleOptions
 
 import consenrich.constants as constants
 import consenrich.core as core
@@ -33,10 +33,12 @@ DEFAULT_CONFIGURATION_KEYS = constants.DEFAULT_CONFIGURATION_KEYS
 DEFAULT_CONFIGURATION_VALUES = constants.DEFAULT_CONFIGURATION_VALUES
 
 _PROCESS_ARGS_TYPE_CACHE: dict[tuple[str, ...], type] = {}
+_fragmentLengthOptionNames = ("minLengthBP", "maxLengthBP")
 
 # these keys allow dictionary-level overrides in YAML --> cli
 _configOverrideMappings: frozenset[str] = frozenset({
     "scParams.cellMetadata",
+    "samParams.fragmentLengthOptions",
     "observationParams.muncSeedWeight",
     "observationParams.muncSeedProcess",
     "observationParams.muncEBPrior",
@@ -67,6 +69,8 @@ _configOverrideKeys: frozenset[str] = frozenset(DEFAULT_CONFIGURATION_VALUES[GEN
     "scParams.cellMetadata.path", "scParams.cellMetadata.barcodeColumn",
     "scParams.cellMetadata.sampleColumn", "scParams.cellMetadata.groupColumn",
     "fitParams.backgroundLengthScaleMultiplier",
+} | {
+    f"samParams.fragmentLengthOptions.{name}" for name in _fragmentLengthOptionNames
 } | {
     f"observationParams.lengthScaleOptions.{field.name}"
     for field in fields(LengthScaleOptions)
@@ -2192,6 +2196,12 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     samThreads = _cfgGet(
         configData, "samParams.samThreads", constants.SAM_DEFAULT_THREADS
     )
+    if not (
+        (isinstance(samThreads, str) and samThreads == "auto")
+        or (isinstance(samThreads, (int, np.integer)) and not isinstance(samThreads, (bool, np.bool_))
+            and 1 <= samThreads <= 65535)
+    ):
+        raise ValueError('samParams.samThreads must be an integer from 1 to 65535 or "auto"')
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
@@ -2254,6 +2264,16 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
     if isinstance(extendFrom5pBP, list):
         extendFrom5pBP = [int(value) for value in extendFrom5pBP]
 
+    fragmentLengthOptionsRaw = _cfgGet(configData, "samParams.fragmentLengthOptions", {})
+    if not isinstance(fragmentLengthOptionsRaw, Mapping):
+        raise ValueError("samParams.fragmentLengthOptions must be a mapping")
+    fragmentLengthOptionsValues = dict(fragmentLengthOptionsRaw)
+    for name in _fragmentLengthOptionNames:
+        dottedKey = f"samParams.fragmentLengthOptions.{name}"
+        if _cfgHas(configData, dottedKey):
+            fragmentLengthOptionsValues[name] = _cfgGet(configData, dottedKey)
+    fragmentLengthOptions = FragmentLengthOptions(**fragmentLengthOptionsValues)
+
     samArgs = core.samParams(
         samThreads=samThreads,
         samFlagExclude=samFlagExclude,
@@ -2271,6 +2291,7 @@ def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, An
             "samParams.minTemplateLength",
             constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
         ),
+        fragmentLengthOptions=fragmentLengthOptions,
     )
 
     selectionPenaltyMultiplier = _cfgGet(

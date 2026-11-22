@@ -130,6 +130,74 @@ def testCountingRouting(tmp_path, monkeypatch, kind, method, paired, factor):
             runtime._runConfigured(parsed, args)
 
 
+@pytest.mark.parametrize("availableCPUs, slurmAllocation, configuredThreads, expectedThreads", [
+    (64, None, None, 4),
+    (64, "16", "auto", 2),
+    (8, "64", None, 1),
+    (2, None, 3, 3),
+])
+def testBamFragmentLengthRouting(
+    tmp_path, monkeypatch, availableCPUs, slurmAllocation, configuredThreads, expectedThreads,
+):
+    monkeypatch.setattr(countingAdapter.os, "process_cpu_count", lambda: availableCPUs, raising=False)
+    if slurmAllocation is None:
+        monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+    else:
+        monkeypatch.setenv("SLURM_CPUS_PER_TASK", slurmAllocation)
+    sizes = tmp_path / "chrom.sizes"
+    sizes.write_text("chr1\t1000\n")
+    samples = []
+    for role in ("treatment", "control"):
+        for mode in ("reads", "fragments"):
+            path = tmp_path / f"{role}-{mode}.bam"
+            path.touch()
+            samples.append({
+                "path": str(path), "format": "BAM", "role": role, "bamInputMode": mode,
+            })
+    overrides = ["samParams.fragmentLengthOptions.maxLengthBP=500"]
+    if configuredThreads is not None:
+        overrides.append(f"samParams.samThreads={configuredThreads}")
+    parsed = config.readConfig(config.applyConfigOverrides({
+        "inputParams": {"samples": samples},
+        "genomeParams": {"name": None, "chromSizesFile": str(sizes)},
+        "samParams": {
+            "inferFragmentLength": True,
+            "fragmentLengthOptions": {"minLengthBP": 110, "maxLengthBP": 400},
+        },
+    }, overrides))
+
+    indexed, inferred, extended = [], [], []
+
+    def prepareIndex(path, kind, *, threads):
+        indexed.append((path, kind, threads))
+
+    def estimateFragmentLength(sampleID):
+        inferred.append(sampleID)
+        return 180
+
+    def openSources(sources, grid, *, threads, fragmentLengthOptions):
+        assert type(threads) is int and threads == expectedThreads
+        assert fragmentLengthOptions == counts.FragmentLengthOptions(
+            minLengthBP=110, maxLengthBP=500,
+        )
+        options = {source.sampleID: source.countOptions for source in sources}
+        assert [sampleID for sampleID, opt in options.items() if opt.inferFragmentLength] == [
+            "treatment0",
+        ]
+        return nullcontext(SimpleNamespace(
+            getSourceInfo=lambda sampleID: {"countOptions": options[sampleID]},
+            estimateFragmentLength=estimateFragmentLength,
+            setReadExtension=lambda sampleID, length: extended.append((sampleID, length)),
+        ))
+
+    monkeypatch.setattr(counts, "prepareIndex", prepareIndex)
+    monkeypatch.setattr(counts, "openSources", openSources)
+    with countingAdapter.openReader(parsed):
+        assert indexed == [(sample["path"], "BAM", expectedThreads) for sample in samples]
+        assert inferred == ["treatment0"]
+        assert extended == [("reference0", 180)]
+
+
 def _lengthScaleConfig(tmp_path, monkeypatch, kind, binSizeBP):
     pysam = pytest.importorskip("pysam")
     monkeypatch.chdir(tmp_path)

@@ -95,7 +95,7 @@ jobs:
             "PyYAML==6.0.2" \
             "structlog==25.5.*" \
             "itrigamma==0.2.0a1" \
-            "ccounts==0.5.0b0"
+            "ccounts==0.6.0b0"
           python -m pip install --no-index --find-links dist consenrich
           python -c "import numpy, ccounts, consenrich, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState"
 

@@ -23,6 +23,7 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
+from ccounts import FragmentLengthOptions
 from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special, linalg
 from scipy.sparse import linalg as sparse_linalg
 from itrigamma import itrigamma, trigamma
@@ -704,7 +705,7 @@ class samParams(NamedTuple):
 
     """
 
-    samThreads: int
+    samThreads: int | str
     samFlagExclude: int
     chunkSize: int
     bamInputMode: str | None = SAM_DEFAULT_BAM_INPUT_MODE
@@ -716,6 +717,7 @@ class samParams(NamedTuple):
     inferFragmentLength: bool | None = None
     minMappingQuality: int = SAM_DEFAULT_MIN_MAPPING_QUALITY
     minTemplateLength: int = SAM_DEFAULT_MIN_TEMPLATE_LENGTH
+    fragmentLengthOptions: FragmentLengthOptions | None = None
 
 
 class inputSource(NamedTuple):

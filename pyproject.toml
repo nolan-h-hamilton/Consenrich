@@ -37,7 +37,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "ccounts>=0.5.0b0",
+    "ccounts>=0.6.0b0",
     "numpy>=2.1",
     "scipy>=1.15",
     "pandas>=2.3.0",
@@ -130,7 +130,7 @@ markers = [
 build = "cp310-* cp311-* cp312-* cp313-* cp314-* cp315-*"
 test-groups = ["test"]
 test-command = """
-python -I -c "import numpy as np; import ccounts; import consenrich, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState; assert consenrich.__version__ == '0.11.10a0'; weight=np.full(1024,6.0); solved=consenrich.cconsenrich.csolveZeroCenteredBackground(weight,weight,156000149960004.0,False,lamFirst=99920016.0); assert np.array_equal(solved,np.ones(1024))"
+python -I -c "import numpy as np; import ccounts; import consenrich, consenrich.cconsenrich, consenrich.cuncertainty, consenrich.shrinkState; assert consenrich.__version__ == '0.12.0b0'; weight=np.full(1024,6.0); solved=consenrich.cconsenrich.csolveZeroCenteredBackground(weight,weight,156000149960004.0,False,lamFirst=99920016.0); assert np.array_equal(solved,np.ones(1024))"
 """
 
 [[tool.cibuildwheel.overrides]]
