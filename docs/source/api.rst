@@ -39,6 +39,21 @@ API Reference
         - ``int | None``
         - Positive effective genome size in bp for automatic RPGC normalization. Default: ``null`` uses assembly-specific estimates. Custom BAM chromosome geometry or normalization territory requires an explicit matching size.
 
+.. confval:: samParams
+
+   BAM scanning and fragment-length settings.
+
+   * ``samThreads`` defaults to ``auto``. Consenrich chooses a thread setting
+     from ``1`` to ``4`` for ccounts indexing and per-file reading. It uses the
+     available CPUs, capped by ``SLURM_CPUS_PER_TASK`` when set, and reserves
+     capacity for the main thread, per-file I/O, and a temporary BAM reader.
+     Supply an integer to set the thread count explicitly.
+   * ``fragmentLengthOptions.minLengthBP`` and ``fragmentLengthOptions.maxLengthBP``
+     set the search bounds for estimating single-end fragment length. The ccounts
+     strand cross-correlation estimator defaults to ``100`` and ``1000`` bp.
+   * ``inferFragmentLength`` estimates the read extension for BAM sources in read
+     mode. Paired BAM sources in fragment mode use observed template spans.
+
 .. confval:: observationParams
 
    Observation variance estimation and robust precision weighting.
